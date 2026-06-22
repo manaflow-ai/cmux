@@ -32,7 +32,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.rowSpacing == rhs.rowSpacing &&
             lhs.isFirstRow == rhs.isFirstRow &&
             lhs.isBeingDragged == rhs.isBeingDragged &&
-            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible
+            lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+            lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible
     }
 
     let groupId: UUID
@@ -57,6 +58,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isFirstRow: Bool
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
+    let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
     let onToggleCollapsed: () -> Void
     let onFocusAnchor: () -> Void
@@ -241,6 +243,12 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 rowSpacing: rowSpacing
             )
         }
+        .overlay(alignment: .bottom) {
+            SidebarWorkspaceBottomDropIndicator(
+                isVisible: bottomDropIndicatorVisible,
+                rowSpacing: rowSpacing
+            )
+        }
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
         }
@@ -300,244 +308,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     )
                 )
             }
-        }
-    }
-}
-
-enum SidebarWorkspaceGroupHeaderDropZone {
-    static func isCenterDrop(locationY: CGFloat, rowHeight: CGFloat) -> Bool {
-        let height = max(rowHeight, 1)
-        let y = min(max(locationY, 0), height)
-        let band = edgeBand(rowHeight: height)
-        return y > band && y < height - band
-    }
-
-    static func isBottomEdgeDrop(locationY: CGFloat, rowHeight: CGFloat) -> Bool {
-        let height = max(rowHeight, 1)
-        let y = min(max(locationY, 0), height)
-        return y >= height - edgeBand(rowHeight: height)
-    }
-
-    private static func edgeBand(rowHeight: CGFloat) -> CGFloat {
-        min(max(rowHeight * 0.25, 4), rowHeight * 0.4)
-    }
-}
-
-enum SidebarWorkspaceGroupHeaderDropAction: Equatable {
-    case addWorkspaceToGroup(UUID)
-    case noOp
-}
-
-enum SidebarWorkspaceGroupHeaderDropPolicy {
-    static func action(
-        hasSidebarPayload: Bool,
-        draggedWorkspaceId: UUID?,
-        draggedWorkspaceIsPinned: Bool,
-        draggedWorkspaceGroupId: UUID?,
-        draggedWorkspaceIsGroupAnchor: Bool,
-        targetGroupId: UUID,
-        targetAnchorWorkspaceId: UUID,
-        targetAnchorMatchesGroup: Bool,
-        locationY: CGFloat,
-        rowHeight: CGFloat
-    ) -> SidebarWorkspaceGroupHeaderDropAction? {
-        guard hasSidebarPayload,
-              let draggedWorkspaceId,
-              targetAnchorMatchesGroup,
-              SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(
-                  locationY: locationY,
-                  rowHeight: rowHeight
-              ) else {
-            return nil
-        }
-        if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
-            return .noOp
-        }
-        guard !draggedWorkspaceIsPinned,
-              !draggedWorkspaceIsGroupAnchor else {
-            return nil
-        }
-        return .addWorkspaceToGroup(draggedWorkspaceId)
-    }
-
-    static func shouldConsumeNoOpEdgeDrop(
-        hasSidebarPayload: Bool,
-        draggedWorkspaceId: UUID?,
-        draggedWorkspaceGroupId: UUID?,
-        targetGroupId: UUID,
-        targetAnchorWorkspaceId: UUID,
-        tabIds: [UUID],
-        pinnedTabIds: Set<UUID>,
-        locationY: CGFloat,
-        rowHeight: CGFloat
-    ) -> Bool {
-        guard hasSidebarPayload,
-              let draggedWorkspaceId,
-              tabIds.count > 1,
-              tabIds.contains(draggedWorkspaceId),
-              tabIds.contains(targetAnchorWorkspaceId),
-              !SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(
-                  locationY: locationY,
-                  rowHeight: rowHeight
-              ) else {
-            return false
-        }
-        if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
-            return true
-        }
-        return SidebarDropPlanner().indicator(
-            draggedTabId: draggedWorkspaceId,
-            targetTabId: targetAnchorWorkspaceId,
-            tabIds: tabIds,
-            pinnedTabIds: pinnedTabIds,
-            pointerY: locationY,
-            targetHeight: rowHeight
-        ) == nil
-    }
-}
-
-@MainActor
-struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
-    let targetGroupId: UUID
-    let targetAnchorWorkspaceId: UUID
-    let tabManager: TabManager
-    let dragState: SidebarDragState
-    let targetRowHeight: CGFloat?
-    let dragAutoScrollController: SidebarDragAutoScrollController
-    let reorderDelegate: SidebarTabDropDelegate
-    let firstMemberReorderDelegate: SidebarTabDropDelegate?
-
-    private var effectiveDraggedTabId: UUID? {
-        dragState.draggedTabId ?? dragState.currentWorkspaceDragId
-    }
-
-    func validateDrop(info: DropInfo) -> Bool {
-        edgeReorderDelegate(for: info).validateDrop(info: info) || groupHeaderCenterDropAction(info) != nil
-    }
-
-    func dropEntered(info: DropInfo) {
-        if updateGroupHeaderCenterDrop(info) { return }
-        edgeReorderDelegate(for: info).dropEntered(info: info)
-    }
-
-    func dropExited(info: DropInfo) {
-        reorderDelegate.dropExited(info: info)
-        firstMemberReorderDelegate?.dropExited(info: info)
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        if updateGroupHeaderCenterDrop(info) {
-            return DropProposal(operation: .move)
-        }
-        return edgeReorderDelegate(for: info).dropUpdated(info: info)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard let action = groupHeaderCenterDropAction(info) else {
-            if !routesBottomEdgeToFirstMember(info),
-               shouldConsumeGroupHeaderNoOpEdgeDrop(info) {
-                clearDropState()
-                return true
-            }
-            return edgeReorderDelegate(for: info).performDrop(info: info)
-        }
-        defer { clearDropState() }
-        switch action {
-        case .addWorkspaceToGroup(let draggedTabId):
-            tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
-        case .noOp:
-            break
-        }
-        return true
-    }
-
-    private func routesBottomEdgeToFirstMember(_ info: DropInfo) -> Bool {
-        guard let firstMemberReorderDelegate,
-              let firstMemberId = firstMemberReorderDelegate.targetTabId,
-              let draggedTabId = effectiveDraggedTabId,
-              SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(
-                  locationY: info.location.y,
-                  rowHeight: targetRowHeight ?? 1
-              ) else {
-            return false
-        }
-        let policy = SidebarWorkspaceGroupDropIntentPolicy(
-            memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
-        )
-        return policy.prefersGroupScope(
-            pointerX: info.location.x,
-            targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent
-        ) && canDragWorkspace(draggedTabId, intoGroupTargetedBy: firstMemberId)
-    }
-
-    private func edgeReorderDelegate(for info: DropInfo) -> SidebarTabDropDelegate {
-        if routesBottomEdgeToFirstMember(info), let firstMemberReorderDelegate {
-            return firstMemberReorderDelegate
-        }
-        return reorderDelegate
-    }
-
-    private func updateGroupHeaderCenterDrop(_ info: DropInfo) -> Bool {
-        guard groupHeaderCenterDropAction(info) != nil else { return false }
-        dragAutoScrollController.updateFromDragLocation()
-        dragState.clearDropIndicator()
-        return true
-    }
-
-    private func groupHeaderCenterDropAction(_ info: DropInfo) -> SidebarWorkspaceGroupHeaderDropAction? {
-        guard let draggedTabId = dragState.draggedTabId,
-              let draggedTab = tabManager.tabs.first(where: { $0.id == draggedTabId }),
-              let group = tabManager.workspaceGroups.first(where: { $0.id == targetGroupId }) else {
-            return nil
-        }
-        return SidebarWorkspaceGroupHeaderDropPolicy.action(
-            hasSidebarPayload: info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
-            draggedWorkspaceId: draggedTabId,
-            draggedWorkspaceIsPinned: draggedTab.isPinned,
-            draggedWorkspaceGroupId: draggedTab.groupId,
-            draggedWorkspaceIsGroupAnchor: tabManager.workspaceGroups.contains {
-                $0.anchorWorkspaceId == draggedTabId
-            },
-            targetGroupId: targetGroupId,
-            targetAnchorWorkspaceId: targetAnchorWorkspaceId,
-            targetAnchorMatchesGroup: group.anchorWorkspaceId == targetAnchorWorkspaceId,
-            locationY: info.location.y,
-            rowHeight: targetRowHeight ?? 1
-        )
-    }
-
-    private func shouldConsumeGroupHeaderNoOpEdgeDrop(_ info: DropInfo) -> Bool {
-        let height = targetRowHeight ?? 1
-        guard let draggedTabId = dragState.draggedTabId,
-              let draggedTab = tabManager.tabs.first(where: { $0.id == draggedTabId }) else { return false }
-        return SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
-            hasSidebarPayload: info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
-            draggedWorkspaceId: draggedTabId,
-            draggedWorkspaceGroupId: draggedTab.groupId,
-            targetGroupId: targetGroupId,
-            targetAnchorWorkspaceId: targetAnchorWorkspaceId,
-            tabIds: tabManager.sidebarReorderWorkspaceIds(
-                forDraggedWorkspaceId: draggedTabId,
-                targetWorkspaceId: targetAnchorWorkspaceId
-            ),
-            pinnedTabIds: tabManager.sidebarReorderPinnedWorkspaceIds(
-                forDraggedWorkspaceId: draggedTabId,
-                targetWorkspaceId: targetAnchorWorkspaceId
-            ),
-            locationY: info.location.y,
-            rowHeight: height
-        )
-    }
-
-    private func clearDropState() {
-        dragState.clearDrag()
-        dragAutoScrollController.stop()
-    }
-
-    private func canDragWorkspace(_ draggedTabId: UUID, intoGroupTargetedBy targetTabId: UUID) -> Bool {
-        guard tabManager.tabs.contains(where: { $0.id == draggedTabId }) else { return false }
-        return !tabManager.workspaceGroups.contains { group in
-            group.anchorWorkspaceId == draggedTabId || group.anchorWorkspaceId == targetTabId
         }
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -6,16 +7,25 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite struct SidebarWorkspaceGroupHeaderDropZoneTests {
-    @Test func identifiesBottomEdgeAtDefaultHeight() {
-        #expect(!SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 2, rowHeight: 24))
-        #expect(!SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 12, rowHeight: 24))
-        #expect(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 22, rowHeight: 24))
+@Suite struct SidebarWorkspaceReorderDropOverlayHitTestingTests {
+    @Test func doesNotCaptureMouseDownBeforeDragStart() {
+        #expect(!SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDown,
+            pasteboardTypes: [NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)]
+        ))
     }
 
-    @Test func identifiesBottomEdgeAtCompactHeight() {
-        #expect(!SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 2, rowHeight: 20))
-        #expect(!SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 10, rowHeight: 20))
-        #expect(SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: 18, rowHeight: 20))
+    @Test func doesNotCapturePointerDragWithoutSidebarPasteboardType() {
+        #expect(!SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDragged,
+            pasteboardTypes: []
+        ))
+    }
+
+    @Test func capturesPointerDragAfterSidebarPasteboardTypeExists() {
+        #expect(SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+            eventType: .leftMouseDragged,
+            pasteboardTypes: [NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)]
+        ))
     }
 }

@@ -9980,6 +9980,21 @@ struct SidebarWorkspaceTopDropIndicator: View {
     }
 }
 
+struct SidebarWorkspaceBottomDropIndicator: View {
+    let isVisible: Bool
+    let rowSpacing: CGFloat
+
+    var body: some View {
+        if isVisible {
+            Rectangle()
+                .fill(cmuxAccentColor())
+                .frame(height: 2)
+                .padding(.horizontal, 8)
+                .offset(y: rowSpacing / 2)
+        }
+    }
+}
+
 /// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
@@ -12007,24 +12022,16 @@ struct VerticalTabsSidebar: View {
                             reorderTargetBridge: workspaceReorderDropTargetBridge,
                             reorderTargets: renderContext.visibleWorkspaceRowIds.compactMap { workspaceId in
                                 guard let anchor = anchors[workspaceId],
-                                      let workspace = renderContext.workspaceById[workspaceId] else {
+                                      renderContext.workspaceById[workspaceId] != nil else {
                                     return nil
                                 }
                                 let group = workspaceGroupsByAnchor[workspaceId]
                                 let targetGroupId = group?.id ??
                                     (renderContext.workspaceGroupIdByWorkspaceId[workspaceId] ?? nil)
-                                let firstMemberWorkspaceId = group.flatMap { group in
-                                    renderContext.visibleWorkspaceRowIds.first {
-                                        $0 != group.anchorWorkspaceId &&
-                                            (renderContext.workspaceGroupIdByWorkspaceId[$0] ?? nil) == group.id
-                                    }
-                                }
                                 return SidebarWorkspaceReorderDropOverlay.Target(
                                     workspaceId: workspaceId,
-                                    isPinned: workspace.isPinned,
                                     groupId: targetGroupId,
                                     isGroupHeader: group != nil,
-                                    firstMemberWorkspaceId: firstMemberWorkspaceId,
                                     frame: proxy[anchor]
                                 )
                             }
@@ -12131,17 +12138,24 @@ struct VerticalTabsSidebar: View {
         renderContext: WorkspaceListRenderContext
     ) -> Bool {
         guard activateSidebarWorkspaceDragIfNeeded(),
-              let route = workspaceReorderRoute(point: point, targets: targets, renderContext: renderContext) else {
+              let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             dragState.clearDropIndicator()
             return false
         }
         dragAutoScrollController.updateFromDragLocation()
-        switch route.kind {
-        case .groupHeaderCenter:
-            dragState.clearDropIndicator()
-        case .reorder(let delegate):
-            delegate.updateDropIndicator(pointerX: point.x, pointerY: route.pointerY)
+        let usesTopLevelRows: Bool = {
+            switch plan.action {
+            case .reorder(_, let usesTopLevelRows, _):
+                return usesTopLevelRows
+            case .crossWindow:
+                return !renderContext.workspaceGroups.isEmpty
+            }
+        }()
+        guard dragState.dropIndicator != plan.indicator ||
+                dragState.dropIndicatorUsesTopLevelRows != usesTopLevelRows else {
+            return true
         }
+        dragState.setDropIndicator(plan.indicator, usesTopLevelRows: usesTopLevelRows)
         return true
     }
 
@@ -12155,187 +12169,175 @@ struct VerticalTabsSidebar: View {
             dragAutoScrollController.stop()
         }
         guard activateSidebarWorkspaceDragIfNeeded(),
-              let route = workspaceReorderRoute(point: point, targets: targets, renderContext: renderContext) else {
+              let plan = workspaceReorderPlan(point: point, targets: targets, renderContext: renderContext) else {
             return false
         }
-        switch route.kind {
-        case .groupHeaderCenter(let groupId, let anchorWorkspaceId):
-            return performWorkspaceGroupHeaderCenterDrop(groupId: groupId, anchorWorkspaceId: anchorWorkspaceId)
-        case .reorder(let delegate):
-            return delegate.performDrop(pointerX: point.x, pointerY: route.pointerY, shouldClearDrag: false)
-        }
+        return performWorkspaceReorderPlan(plan)
     }
 
-    private func workspaceReorderRoute(
+    private func workspaceReorderPlan(
         point: CGPoint,
         targets: [SidebarWorkspaceReorderDropOverlay.Target],
         renderContext: WorkspaceListRenderContext
-    ) -> SidebarWorkspaceReorderRoute? {
-        let sortedTargets = targets.sorted { lhs, rhs in
-            if lhs.frame.minY == rhs.frame.minY {
-                return lhs.frame.minX < rhs.frame.minX
-            }
-            return lhs.frame.minY < rhs.frame.minY
-        }
-        guard !sortedTargets.isEmpty else { return nil }
-        let targetContext = workspaceReorderTargetContext(point: point, sortedTargets: sortedTargets)
-        guard let targetContext else {
-            return SidebarWorkspaceReorderRoute(
-                pointerY: nil,
-                kind: .reorder(workspaceReorderDelegate(
-                    targetTabId: nil,
-                    targetRowHeight: nil,
-                    targetLeadingIndent: 0,
-                    forcedDropEdge: nil,
-                    renderContext: renderContext
-                ))
+    ) -> SidebarWorkspaceReorderDropPlan? {
+        guard let draggedTabId = dragState.draggedTabId else { return nil }
+        return SidebarWorkspaceReorderDropResolver().plan(
+            for: SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: draggedTabId,
+                foreignDraggedIsPinned: dragState.foreignDraggedIsPinned,
+                workspaces: renderContext.tabs.map {
+                    SidebarWorkspaceReorderWorkspaceSnapshot(
+                        id: $0.id,
+                        isPinned: $0.isPinned,
+                        groupId: $0.groupId
+                    )
+                },
+                groups: renderContext.workspaceGroups.map {
+                    SidebarWorkspaceReorderGroupSnapshot(
+                        id: $0.id,
+                        anchorWorkspaceId: $0.anchorWorkspaceId,
+                        isPinned: $0.isPinned
+                    )
+                },
+                targets: targets.map {
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: $0.workspaceId,
+                        groupId: $0.groupId,
+                        isGroupHeader: $0.isGroupHeader,
+                        frame: $0.frame
+                    )
+                },
+                memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent
             )
-        }
-
-        let target = targetContext.target
-        let rowHeight = max(target.frame.height, 1)
-        if target.isGroupHeader,
-           targetContext.isInsideRow,
-           SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: targetContext.localY, rowHeight: rowHeight),
-           let groupId = target.groupId,
-           workspaceGroupHeaderCenterDropAction(groupId: groupId, anchorWorkspaceId: target.workspaceId) != nil {
-            return SidebarWorkspaceReorderRoute(
-                pointerY: targetContext.localY,
-                kind: .groupHeaderCenter(groupId: groupId, anchorWorkspaceId: target.workspaceId)
-            )
-        }
-
-        if target.isGroupHeader,
-           targetContext.isInsideRow,
-           SidebarWorkspaceGroupHeaderDropZone.isBottomEdgeDrop(locationY: targetContext.localY, rowHeight: rowHeight),
-           let firstMemberWorkspaceId = target.firstMemberWorkspaceId,
-           let draggedTabId = dragState.draggedTabId,
-           SidebarWorkspaceGroupDropIntentPolicy(memberIndent: SidebarWorkspaceGroupingMetrics.memberIndent)
-            .prefersGroupScope(
-                pointerX: point.x,
-                targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent
-            ),
-           canDragWorkspace(draggedTabId, intoGroupTargetedBy: firstMemberWorkspaceId) {
-            return SidebarWorkspaceReorderRoute(
-                pointerY: 0,
-                kind: .reorder(workspaceReorderDelegate(
-                    targetTabId: firstMemberWorkspaceId,
-                    targetRowHeight: rowHeight,
-                    targetLeadingIndent: SidebarWorkspaceGroupingMetrics.memberIndent,
-                    forcedDropEdge: .top,
-                    renderContext: renderContext
-                ))
-            )
-        }
-
-        return SidebarWorkspaceReorderRoute(
-            pointerY: targetContext.localY,
-            kind: .reorder(workspaceReorderDelegate(
-                targetTabId: target.workspaceId,
-                targetRowHeight: rowHeight,
-                targetLeadingIndent: target.groupId == nil || target.isGroupHeader
-                    ? 0
-                    : SidebarWorkspaceGroupingMetrics.memberIndent,
-                forcedDropEdge: targetContext.forcedDropEdge,
-                renderContext: renderContext
-            ))
         )
     }
 
-    private func workspaceReorderTargetContext(
-        point: CGPoint,
-        sortedTargets: [SidebarWorkspaceReorderDropOverlay.Target]
-    ) -> SidebarWorkspaceReorderTargetContext? {
-        for target in sortedTargets where target.frame.contains(point) {
-            return SidebarWorkspaceReorderTargetContext(
-                target: target,
-                localY: point.y - target.frame.minY,
-                isInsideRow: true,
-                forcedDropEdge: nil
+    private func performWorkspaceReorderPlan(_ plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+        switch plan.action {
+        case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId):
+            let selectionBeforeReorder = selectedTabIds
+            let anchorWorkspaceIdBeforeReorder = SidebarWorkspaceSelectionSyncPolicy().anchorWorkspaceId(
+                existingAnchorIndex: lastSidebarSelectionIndex,
+                liveWorkspaceIds: tabManager.tabs.map(\.id)
             )
-        }
-        if let nextTarget = sortedTargets.first(where: { point.y < $0.frame.minY }) {
-            return SidebarWorkspaceReorderTargetContext(
-                target: nextTarget,
-                localY: 0,
-                isInsideRow: false,
-                forcedDropEdge: .top
+            let didReorder = tabManager.reorderSidebarWorkspace(
+                tabId: plan.draggedWorkspaceId,
+                toIndex: targetIndex,
+                isDragOperation: true,
+                usesTopLevelRows: usesTopLevelRows,
+                explicitGroupId: explicitGroupId
             )
+            syncSidebarSelectionAfterWorkspaceReorder(
+                preserving: selectionBeforeReorder,
+                preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
+            )
+            return didReorder
+        case .crossWindow:
+            return performCrossWindowWorkspaceDrop(plan: plan)
         }
-        return nil
     }
 
-    private func workspaceReorderDelegate(
-        targetTabId: UUID?,
-        targetRowHeight: CGFloat?,
-        targetLeadingIndent: CGFloat,
-        forcedDropEdge: SidebarDropEdge?,
-        renderContext: WorkspaceListRenderContext
-    ) -> SidebarTabDropDelegate {
-        SidebarTabDropDelegate(
-            targetTabId: targetTabId,
-            tabManager: tabManager,
-            workspaceGroupIdByWorkspaceId: renderContext.workspaceGroupIdByWorkspaceId,
-            visibleWorkspaceRowIds: renderContext.visibleWorkspaceRowIds,
-            dragState: dragState,
-            selectedTabIds: $selectedTabIds,
-            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            targetRowHeight: targetRowHeight,
-            targetLeadingIndent: targetLeadingIndent,
-            forcedDropEdge: forcedDropEdge,
-            dragAutoScrollController: dragAutoScrollController
-        )
-    }
-
-    private func workspaceGroupHeaderCenterDropAction(
-        groupId: UUID,
-        anchorWorkspaceId: UUID
-    ) -> SidebarWorkspaceGroupHeaderDropAction? {
-        guard let draggedTabId = dragState.draggedTabId,
-              let draggedTab = tabManager.tabs.first(where: { $0.id == draggedTabId }),
-              let group = tabManager.workspaceGroups.first(where: { $0.id == groupId }) else {
-            return nil
-        }
-        return SidebarWorkspaceGroupHeaderDropPolicy.action(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: draggedTabId,
-            draggedWorkspaceIsPinned: draggedTab.isPinned,
-            draggedWorkspaceGroupId: draggedTab.groupId,
-            draggedWorkspaceIsGroupAnchor: tabManager.workspaceGroups.contains {
-                $0.anchorWorkspaceId == draggedTabId
-            },
-            targetGroupId: groupId,
-            targetAnchorWorkspaceId: anchorWorkspaceId,
-            targetAnchorMatchesGroup: group.anchorWorkspaceId == anchorWorkspaceId,
-            locationY: 50,
-            rowHeight: 100
-        )
-    }
-
-    private func performWorkspaceGroupHeaderCenterDrop(groupId: UUID, anchorWorkspaceId: UUID) -> Bool {
-        guard let action = workspaceGroupHeaderCenterDropAction(
-            groupId: groupId,
-            anchorWorkspaceId: anchorWorkspaceId
-        ) else {
+    private func performCrossWindowWorkspaceDrop(plan: SidebarWorkspaceReorderDropPlan) -> Bool {
+        guard let app = AppDelegate.shared,
+              let destinationWindowId = app.windowId(for: tabManager),
+              let sourceManager = app.tabManagerFor(tabId: plan.draggedWorkspaceId),
+              !sourceManager.workspaceGroups.contains(where: { $0.anchorWorkspaceId == plan.draggedWorkspaceId }) else {
             return false
         }
-        switch action {
-        case .addWorkspaceToGroup(let draggedTabId):
-            tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: groupId)
-        case .noOp:
-            break
+
+        let sourceSelection = sourceManager.sidebarSelectedWorkspaceIds
+        let candidateIds: [UUID]
+        if sourceSelection.contains(plan.draggedWorkspaceId), sourceSelection.count > 1 {
+            candidateIds = sourceManager.tabs.filter { sourceSelection.contains($0.id) }.map(\.id)
+        } else {
+            candidateIds = [plan.draggedWorkspaceId]
+        }
+        let sourceAnchorIds = Set(sourceManager.workspaceGroups.map(\.anchorWorkspaceId))
+        let movingIds = candidateIds.filter { !sourceAnchorIds.contains($0) }
+        guard !movingIds.isEmpty else { return false }
+
+        let pinStateById = Dictionary(uniqueKeysWithValues: movingIds.map { id in
+            (id, sourceManager.tabs.first { $0.id == id }?.isPinned ?? false)
+        })
+        var movedIds: [UUID] = []
+        for isPinnedTier in [false, true] {
+            let tierIds = movingIds.filter { (pinStateById[$0] ?? false) == isPinnedTier }
+            guard !tierIds.isEmpty else { continue }
+            let topLevelIds = crossWindowTopLevelWorkspaceIds()
+            let slot = SidebarDropPlanner().crossWindowInsertion(
+                targetTabId: nil,
+                draggedIsPinned: isPinnedTier,
+                indicator: plan.indicator,
+                tabIds: topLevelIds,
+                pinnedTabIds: crossWindowTopLevelPinnedWorkspaceIds()
+            ).insertionIndex
+            let base = crossWindowRawInsertIndex(forTopLevelSlot: slot, topLevelIds: topLevelIds)
+            var tierOffset = 0
+            for workspaceId in tierIds {
+                if app.moveWorkspaceToWindow(
+                    workspaceId: workspaceId,
+                    windowId: destinationWindowId,
+                    atIndex: base + tierOffset,
+                    focus: false
+                ) {
+                    movedIds.append(workspaceId)
+                    tierOffset += 1
+                }
+            }
+        }
+
+        guard !movedIds.isEmpty else { return false }
+        let focusId = movedIds.contains(plan.draggedWorkspaceId) ? plan.draggedWorkspaceId : (movedIds.last ?? plan.draggedWorkspaceId)
+        _ = app.moveWorkspaceToWindow(workspaceId: focusId, windowId: destinationWindowId, focus: true)
+        selectedTabIds = Set(movedIds)
+        if let selectedId = tabManager.selectedTabId {
+            lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == selectedId }
+        } else {
+            lastSidebarSelectionIndex = nil
         }
         return true
     }
 
-    private func canDragWorkspace(_ draggedTabId: UUID, intoGroupTargetedBy targetTabId: UUID?) -> Bool {
-        guard targetTabId != nil,
-              tabManager.tabs.contains(where: { $0.id == draggedTabId }) else {
-            return false
-        }
-        return !tabManager.workspaceGroups.contains(where: { group in
-            group.anchorWorkspaceId == draggedTabId || group.anchorWorkspaceId == targetTabId
-        })
+    private func crossWindowTopLevelWorkspaceIds() -> [UUID] {
+        tabManager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: nil,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: true
+        )
+    }
+
+    private func crossWindowTopLevelPinnedWorkspaceIds() -> Set<UUID> {
+        tabManager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: nil,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: true
+        )
+    }
+
+    private func crossWindowRawInsertIndex(forTopLevelSlot slot: Int, topLevelIds: [UUID]) -> Int {
+        guard slot < topLevelIds.count else { return tabManager.tabs.count }
+        let topLevelId = topLevelIds[slot]
+        return tabManager.tabs.firstIndex { $0.id == topLevelId } ?? tabManager.tabs.count
+    }
+
+    private func syncSidebarSelectionAfterWorkspaceReorder(
+        preserving previousSelectionIds: Set<UUID>,
+        preferredAnchorWorkspaceId: UUID?
+    ) {
+        let liveWorkspaceIds = tabManager.tabs.map(\.id)
+        let nextSelectionIds = SidebarWorkspaceSelectionSyncPolicy().reconciledSelection(
+            previousSelectionIds: previousSelectionIds,
+            liveWorkspaceIds: liveWorkspaceIds,
+            fallbackSelectedWorkspaceId: tabManager.selectedTabId
+        )
+        selectedTabIds = nextSelectionIds
+        lastSidebarSelectionIndex = SidebarWorkspaceSelectionSyncPolicy().anchorIndexAfterWorkspaceReorder(
+            preferredAnchorWorkspaceId: preferredAnchorWorkspaceId,
+            selectedWorkspaceIds: nextSelectionIds,
+            focusedWorkspaceId: tabManager.selectedTabId,
+            liveWorkspaceIds: liveWorkspaceIds
+        )
     }
 
     @ViewBuilder
@@ -12404,6 +12406,12 @@ struct VerticalTabsSidebar: View {
             dropIndicator: dragState.dropIndicator,
             tabIds: sidebarReorderIds
         )
+        let bottomDropIndicatorVisible = SidebarTabDropIndicatorPredicate().bottomVisible(
+            forTabId: tab.id,
+            draggedTabId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            tabIds: sidebarReorderIds
+        )
         let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
             #if DEBUG
             cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
@@ -12434,6 +12442,7 @@ struct VerticalTabsSidebar: View {
             dragAutoScrollController: dragAutoScrollController,
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             onDragStart: onDragStart,
             onRowHeightChange: { [tabId = tab.id] height in
                 sidebarWorkspaceRowHeights[tabId] = height
@@ -12506,30 +12515,11 @@ private struct SidebarWorkspaceDropTargetWriters: View {
     }
 }
 
-private struct SidebarWorkspaceReorderTargetContext {
-    let target: SidebarWorkspaceReorderDropOverlay.Target
-    let localY: CGFloat
-    let isInsideRow: Bool
-    let forcedDropEdge: SidebarDropEdge?
-}
-
-private struct SidebarWorkspaceReorderRoute {
-    enum Kind {
-        case reorder(SidebarTabDropDelegate)
-        case groupHeaderCenter(groupId: UUID, anchorWorkspaceId: UUID)
-    }
-
-    let pointerY: CGFloat?
-    let kind: Kind
-}
-
-private struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
+struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
     struct Target: Equatable {
         let workspaceId: UUID
-        let isPinned: Bool
         let groupId: UUID?
         let isGroupHeader: Bool
-        let firstMemberWorkspaceId: UUID?
         let frame: CGRect
     }
 
@@ -12578,6 +12568,16 @@ private struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
     }
 
     private static let pasteboardType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+
+    static func shouldCaptureHitTest(
+        eventType: NSEvent.EventType?,
+        pasteboardTypes: [NSPasteboard.PasteboardType]?
+    ) -> Bool {
+        guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
+            return false
+        }
+        return pasteboardTypes?.contains(pasteboardType) == true
+    }
 
     @MainActor
     final class DropView: NSView {
@@ -12647,14 +12647,13 @@ private struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         }
 
         private func acceptsCurrentDragPasteboard() -> Bool {
-            NSPasteboard(name: .drag).types?.contains(SidebarWorkspaceReorderDropOverlay.pasteboardType) == true
+            SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
+                eventType: NSApp.currentEvent?.type,
+                pasteboardTypes: NSPasteboard(name: .drag).types
+            )
         }
 
         private func shouldCaptureHitTest() -> Bool {
-            let eventType = NSApp.currentEvent?.type
-            guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
-                return false
-            }
             return acceptsCurrentDragPasteboard()
         }
     }
@@ -13417,6 +13416,7 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+        lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
         lhs.settings == rhs.settings
     }
 
@@ -13452,6 +13452,7 @@ struct TabItemView: View, Equatable {
     // unchanged.
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
+    let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
     let onRowHeightChange: (CGFloat) -> Void
     let contextMenuWorkspaceIds: [UUID]
@@ -14187,6 +14188,12 @@ struct TabItemView: View, Equatable {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: index == 0,
+                rowSpacing: rowSpacing
+            )
+        }
+        .overlay(alignment: .bottom) {
+            SidebarWorkspaceBottomDropIndicator(
+                isVisible: bottomDropIndicatorVisible,
                 rowSpacing: rowSpacing
             )
         }

@@ -26,173 +26,86 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         ))
     }
 
-    func testWorkspaceGroupHeaderDropZoneKeepsUsableCenterAtDefaultHeight() {
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 2, rowHeight: 24))
-        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 12, rowHeight: 24))
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 22, rowHeight: 24))
-    }
+    func testGroupRootBoundaryInGroupLanePlansLastSlotInsideGroup() throws {
+        let fixture = reorderFixture()
 
-    func testWorkspaceGroupHeaderDropZoneKeepsCenterAtCompactHeight() {
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 2, rowHeight: 20))
-        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 10, rowHeight: 20))
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropZone.isCenterDrop(locationY: 18, rowHeight: 20))
-    }
-
-    func testWorkspaceGroupHeaderCenterDropConsumesSameGroupMember() {
-        let workspaceId = UUID()
-        let groupId = UUID()
-        let anchorId = UUID()
-
-        let action = SidebarWorkspaceGroupHeaderDropPolicy.action(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: workspaceId,
-            draggedWorkspaceIsPinned: false,
-            draggedWorkspaceGroupId: groupId,
-            draggedWorkspaceIsGroupAnchor: false,
-            targetGroupId: groupId,
-            targetAnchorWorkspaceId: anchorId,
-            targetAnchorMatchesGroup: true,
-            locationY: 12,
-            rowHeight: 24
-        )
-
-        XCTAssertEqual(action, .noOp)
-    }
-
-    func testWorkspaceGroupHeaderCenterDropAddsEligibleWorkspace() {
-        let workspaceId = UUID()
-        let groupId = UUID()
-        let anchorId = UUID()
-
-        let action = SidebarWorkspaceGroupHeaderDropPolicy.action(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: workspaceId,
-            draggedWorkspaceIsPinned: false,
-            draggedWorkspaceGroupId: nil,
-            draggedWorkspaceIsGroupAnchor: false,
-            targetGroupId: groupId,
-            targetAnchorWorkspaceId: anchorId,
-            targetAnchorMatchesGroup: true,
-            locationY: 12,
-            rowHeight: 24
-        )
-
-        XCTAssertEqual(action, .addWorkspaceToGroup(workspaceId))
-    }
-
-    func testWorkspaceGroupHeaderEdgeDropDoesNotInterceptReorder() {
-        let workspaceId = UUID()
-        let groupId = UUID()
-        let anchorId = UUID()
-
-        let action = SidebarWorkspaceGroupHeaderDropPolicy.action(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: workspaceId,
-            draggedWorkspaceIsPinned: false,
-            draggedWorkspaceGroupId: nil,
-            draggedWorkspaceIsGroupAnchor: false,
-            targetGroupId: groupId,
-            targetAnchorWorkspaceId: anchorId,
-            targetAnchorMatchesGroup: true,
-            locationY: 2,
-            rowHeight: 24
-        )
-
-        XCTAssertNil(action)
-    }
-
-    func testWorkspaceGroupHeaderBottomEdgeConsumesAdjacentNoOpDrop() {
-        let anchorId = UUID()
-        let adjacentId = UUID()
-        let trailingId = UUID()
-
-        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: adjacentId,
-            draggedWorkspaceGroupId: nil,
-            targetGroupId: UUID(),
-            targetAnchorWorkspaceId: anchorId,
-            tabIds: [anchorId, adjacentId, trailingId],
-            pinnedTabIds: [],
-            locationY: 22,
-            rowHeight: 24
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 14, y: 121))
         ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.child, edge: .bottom))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 3)
+        XCTAssertFalse(usesTopLevelRows)
+        XCTAssertEqual(explicitGroupId, fixture.groupId)
     }
 
-    func testWorkspaceGroupHeaderTopEdgeDoesNotConsumeRealReorder() {
-        let anchorId = UUID()
-        let adjacentId = UUID()
-        let trailingId = UUID()
+    func testGroupRootBoundaryInRootLanePlansRootSlotAfterGroup() throws {
+        let fixture = reorderFixture()
 
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: adjacentId,
-            draggedWorkspaceGroupId: nil,
-            targetGroupId: UUID(),
-            targetAnchorWorkspaceId: anchorId,
-            tabIds: [anchorId, adjacentId, trailingId],
-            pinnedTabIds: [],
-            locationY: 2,
-            rowHeight: 24
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 121))
         ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.rootAfter, edge: .top))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 2)
+        XCTAssertTrue(usesTopLevelRows)
+        XCTAssertNil(explicitGroupId)
     }
 
-    func testWorkspaceGroupHeaderCenterDropDoesNotUseEdgeNoOpPolicy() {
-        let anchorId = UUID()
-        let adjacentId = UUID()
-        let trailingId = UUID()
+    func testPhysicalGapAfterLastGroupChildUsesHorizontalLane() throws {
+        let fixture = reorderFixture()
 
-        XCTAssertFalse(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: adjacentId,
-            draggedWorkspaceGroupId: nil,
-            targetGroupId: UUID(),
-            targetAnchorWorkspaceId: anchorId,
-            tabIds: [anchorId, adjacentId, trailingId],
-            pinnedTabIds: [],
-            locationY: 12,
-            rowHeight: 24
+        let groupLanePlan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 14, y: 116))
         ))
-    }
-
-    func testWorkspaceGroupHeaderEdgeDropConsumesSameGroupMember() {
-        let anchorId = UUID()
-        let memberId = UUID()
-        let otherTopLevelId = UUID()
-        let groupId = UUID()
-
-        XCTAssertTrue(SidebarWorkspaceGroupHeaderDropPolicy.shouldConsumeNoOpEdgeDrop(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: memberId,
-            draggedWorkspaceGroupId: groupId,
-            targetGroupId: groupId,
-            targetAnchorWorkspaceId: anchorId,
-            tabIds: [anchorId, otherTopLevelId, memberId],
-            pinnedTabIds: [],
-            locationY: 2,
-            rowHeight: 24
+        let rootLanePlan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 116))
         ))
+
+        XCTAssertEqual(groupLanePlan.indicator, SidebarDropIndicator(tabId: fixture.child, edge: .bottom))
+        XCTAssertEqual(rootLanePlan.indicator, SidebarDropIndicator(tabId: fixture.rootAfter, edge: .top))
     }
 
-    func testWorkspaceGroupHeaderCenterDropDoesNotInterceptOtherGroupHeader() {
-        let workspaceId = UUID()
-        let groupId = UUID()
-        let anchorId = UUID()
+    func testRootLaneInsideGroupChildPlansRootSlotAfterGroup() throws {
+        let fixture = reorderFixture()
 
-        let action = SidebarWorkspaceGroupHeaderDropPolicy.action(
-            hasSidebarPayload: true,
-            draggedWorkspaceId: workspaceId,
-            draggedWorkspaceIsPinned: false,
-            draggedWorkspaceGroupId: UUID(),
-            draggedWorkspaceIsGroupAnchor: true,
-            targetGroupId: groupId,
-            targetAnchorWorkspaceId: anchorId,
-            targetAnchorMatchesGroup: true,
-            locationY: 12,
-            rowHeight: 24
-        )
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 90))
+        ))
 
-        XCTAssertNil(action)
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.rootAfter, edge: .top))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 2)
+        XCTAssertTrue(usesTopLevelRows)
+        XCTAssertNil(explicitGroupId)
+    }
+
+    func testGroupHeaderGroupLanePlansFirstSlotInGroup() throws {
+        let fixture = reorderFixture()
+
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 14, y: 70))
+        ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .bottom))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 2)
+        XCTAssertFalse(usesTopLevelRows)
+        XCTAssertEqual(explicitGroupId, fixture.groupId)
     }
 
     func testWorkspaceDropCenterTargetsExistingWorkspace() {
@@ -414,6 +327,69 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertEqual(move.sourceSectionId, "reading")
         XCTAssertEqual(move.targetSectionId, "open")
         XCTAssertEqual(move.targetIndex, 2)
+    }
+
+    private struct ReorderFixture {
+        let rootBefore = UUID()
+        let anchor = UUID()
+        let child = UUID()
+        let rootAfter = UUID()
+        let dragged = UUID()
+        let groupId = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: dragged,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootBefore, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: anchor, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: child, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAfter, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil)
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: groupId, anchorWorkspaceId: anchor, isPinned: false)
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootBefore,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: anchor,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: child,
+                        groupId: groupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 12, y: 80, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootAfter,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 120, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: dragged,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 160, width: 180, height: 32)
+                    )
+                ],
+                memberIndent: 12
+            )
+        }
+    }
+
+    private func reorderFixture() -> ReorderFixture {
+        ReorderFixture()
     }
 
     private func workspaceDropTargets(

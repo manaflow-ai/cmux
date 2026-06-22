@@ -68,14 +68,11 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
         )
     }
 
-    func testReturnsTrueWhenIndicatorTargetsPreviousRowBottomEdge() {
+    func testReturnsFalseWhenIndicatorTargetsPreviousRowBottomEdge() {
         let firstId = UUID()
         let middleId = UUID()
         let draggedId = UUID()
-        // The visual indicator for "insert between row 0 and row 1" is drawn
-        // above row 1, even though the indicator semantically points at row 0
-        // with .bottom.
-        XCTAssertTrue(
+        XCTAssertFalse(
             SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: middleId,
                 draggedTabId: draggedId,
@@ -125,6 +122,59 @@ final class SidebarTabDropIndicatorPredicateTopVisibleTests: XCTestCase {
                 draggedTabId: draggedId,
                 dropIndicator: SidebarDropIndicator(tabId: UUID(), edge: .bottom),
                 tabIds: [UUID(), draggedId]
+            )
+        )
+    }
+}
+
+/// Tests for `SidebarTabDropIndicatorPredicate().bottomVisible(forTabId:draggedTabId:dropIndicator:tabIds:)`.
+final class SidebarTabDropIndicatorPredicateBottomVisibleTests: XCTestCase {
+    func testReturnsFalseWhenNoDragInProgress() {
+        let rowId = UUID()
+        XCTAssertFalse(
+            SidebarTabDropIndicatorPredicate().bottomVisible(
+                forTabId: rowId,
+                draggedTabId: nil,
+                dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .bottom),
+                tabIds: [rowId]
+            )
+        )
+    }
+
+    func testReturnsTrueWhenIndicatorTargetsThisRowBottomEdge() {
+        let rowId = UUID()
+        let draggedId = UUID()
+        XCTAssertTrue(
+            SidebarTabDropIndicatorPredicate().bottomVisible(
+                forTabId: rowId,
+                draggedTabId: draggedId,
+                dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .bottom),
+                tabIds: [rowId, draggedId]
+            )
+        )
+    }
+
+    func testReturnsFalseWhenIndicatorTargetsThisRowTopEdge() {
+        let rowId = UUID()
+        let draggedId = UUID()
+        XCTAssertFalse(
+            SidebarTabDropIndicatorPredicate().bottomVisible(
+                forTabId: rowId,
+                draggedTabId: draggedId,
+                dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .top),
+                tabIds: [rowId, draggedId]
+            )
+        )
+    }
+
+    func testReturnsFalseWhenRowIsNotInTabsList() {
+        let rowId = UUID()
+        XCTAssertFalse(
+            SidebarTabDropIndicatorPredicate().bottomVisible(
+                forTabId: rowId,
+                draggedTabId: UUID(),
+                dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .bottom),
+                tabIds: [UUID()]
             )
         )
     }
