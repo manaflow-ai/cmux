@@ -1787,6 +1787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        PortScanner.shared.setTrackedAgentScanningPaused(false)
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -1999,6 +2000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
+        PortScanner.shared.setTrackedAgentScanningPaused(true)
         clearConfiguredShortcutChordState()
         if Self.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
