@@ -302,6 +302,15 @@ NOTES_AUDIENCE="internal"
 MARKETING_VERSION_ARGS=()
 BETA_MARKETING_VERSION=""
 if [[ "$AUTO_VERSION" -eq 1 ]]; then
+  # --auto-version stamps the marketing version at archive time and disables the
+  # changelog version guard (RANGE_NOTES_MODE). Both only make sense when THIS
+  # script archives. A reused --archive-path is already built, so there is nothing
+  # to stamp and the guard would be skipped over an unknown embedded version: fail
+  # closed rather than upload a prebuilt archive with a possibly-stale version.
+  if [[ -n "$ARCHIVE_PATH" ]]; then
+    echo "error: --auto-version cannot restamp a prebuilt --archive-path. Re-archive without --archive-path, or drop --auto-version." >&2
+    exit 2
+  fi
   base_version=""
   last_ios_tag="$(git -C "$IOS_DIR" tag --list 'ios-v*' --sort=-version:refname 2>/dev/null | head -1 || true)"
   if [[ "$last_ios_tag" =~ ^ios-v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
@@ -318,7 +327,11 @@ if [[ "$AUTO_VERSION" -eq 1 ]]; then
     MARKETING_VERSION_ARGS=( "MARKETING_VERSION=$BETA_MARKETING_VERSION" )
     echo "auto-version: stamping beta MARKETING_VERSION=$BETA_MARKETING_VERSION (last release base ${base_version:-unknown})" >&2
   else
-    echo "warning: --auto-version could not compute a beta version (base '${base_version:-}'); leaving the checked-in MARKETING_VERSION" >&2
+    # Fail closed: --auto-version disables the changelog version guard, so if we
+    # cannot compute a stamp we must not silently upload the un-bumped checked-in
+    # version with the guard off.
+    echo "error: --auto-version could not compute a beta version (base '${base_version:-}'); refusing to upload with the version guard disabled and no stamp. Ensure an ios-v<X.Y.Z> tag or a valid MARKETING_VERSION in ios/Config/Shared.xcconfig." >&2
+    exit 1
   fi
 fi
 
