@@ -40,7 +40,7 @@ enum RightSidebarChromeMetrics {
     static let barVerticalPadding: CGFloat = 4
     static var controlHeight: CGFloat {
         let baseHeight = WindowChromeMetrics.secondaryTitlebarHeight - (barVerticalPadding * 2)
-        let scaledTextHeight = GlobalFontMagnification.scaledSize(13)
+        let scaledTextHeight = GlobalFontMagnification.scaledSize(12)
         let scaledContentHeight = scaledTextHeight + 8
         return max(baseHeight, scaledContentHeight)
     }
