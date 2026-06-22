@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class PortalSplitDividerRegion {
     weak var splitView: NSSplitView?
     weak var window: NSWindow?
