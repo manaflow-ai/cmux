@@ -124,6 +124,23 @@ final class AgentChatSessionRegistry {
         onRecordChanged?(record, previous)
     }
 
+    /// Removes a record the caller has superseded out-of-band.
+    ///
+    /// This intentionally does not invoke `onRecordChanged`; callers that
+    /// remove a live record must perform their own tailer cleanup and wire
+    /// event emission after using the returned record.
+    @discardableResult
+    func remove(sessionID: String) -> AgentChatSessionRecord? {
+        guard let removed = records.removeValue(forKey: sessionID) else { return nil }
+        hookStoreConsultedAt.removeValue(forKey: sessionID)
+        if let surfaceID = removed.surfaceID,
+           liveSessionIDBySurfaceID[surfaceID] == sessionID {
+            liveSessionIDBySurfaceID.removeValue(forKey: surfaceID)
+            rebuildLiveSessionIndex(surfaceID: surfaceID)
+        }
+        return removed
+    }
+
     /// A transcript tail can observe a completed assistant turn even when
     /// the agent hook stream never emits Stop (Claude weekly-limit replies
     /// do this). Use that transcript fact only to clear an active working

@@ -10,6 +10,8 @@ public enum ChatSessionEvent: Sendable, Equatable {
     case stateChanged(ChatAgentState)
     /// The session's descriptor changed (title, terminal binding, ...).
     case descriptorChanged(ChatSessionDescriptor)
+    /// The session was removed from the live list because it was superseded.
+    case removed
 
     /// Terminal command-blocks were appended or updated (terminal-kind
     /// sessions). Receivers upsert by ``TerminalCommandBlock/id``; the
@@ -40,6 +42,7 @@ extension ChatSessionEvent: Codable {
         case updated
         case stateChanged = "state_changed"
         case descriptorChanged = "descriptor_changed"
+        case removed
         case terminalBlocks = "terminal_blocks"
         case reset
     }
@@ -56,6 +59,8 @@ extension ChatSessionEvent: Codable {
             self = .stateChanged(try container.decode(ChatAgentState.self, forKey: .state))
         case .descriptorChanged:
             self = .descriptorChanged(try container.decode(ChatSessionDescriptor.self, forKey: .descriptor))
+        case .removed:
+            self = .removed
         case .terminalBlocks:
             self = .terminalBlocks(try container.decode([TerminalCommandBlock].self, forKey: .blocks))
         case .reset:
@@ -83,6 +88,8 @@ extension ChatSessionEvent: Codable {
         case .descriptorChanged(let descriptor):
             try container.encode(EventName.descriptorChanged.rawValue, forKey: .event)
             try container.encode(descriptor, forKey: .descriptor)
+        case .removed:
+            try container.encode(EventName.removed.rawValue, forKey: .event)
         case .terminalBlocks(let blocks):
             try container.encode(EventName.terminalBlocks.rawValue, forKey: .event)
             try container.encode(blocks, forKey: .blocks)

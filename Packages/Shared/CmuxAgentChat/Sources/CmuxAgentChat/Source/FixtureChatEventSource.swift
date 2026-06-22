@@ -149,7 +149,7 @@ public actor FixtureChatEventSource: ChatEventSource {
             terminalBacklog = []
         case .unknown:
             break
-        case .stateChanged, .descriptorChanged:
+        case .stateChanged, .descriptorChanged, .removed:
             break
         }
         for continuation in continuations.values {

@@ -78,6 +78,14 @@ struct ChatSessionListReducerTests {
         #expect(reducer.applying(frame, to: []).isEmpty)
     }
 
+    @Test("a removed event drops a retired session")
+    func removedDropsSession() {
+        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        let seed = [descriptor("s1"), descriptor("s2")]
+        let frame = ChatSessionEventFrame(sessionID: "s1", event: .removed)
+        #expect(reducer.applying(frame, to: seed).map(\.id) == ["s2"])
+    }
+
     @Test("transcript-content frames leave the list untouched")
     func ignoresContentFrames() {
         let reducer = ChatSessionListReducer(workspaceID: "ws-1")
