@@ -305,7 +305,7 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 @MainActor
 final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
     func testRestoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
-        let discardedAt = Date(timeIntervalSince1970: 400)
+        let discardedAt = Date()
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "about:blank")!,

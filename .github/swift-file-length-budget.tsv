@@ -15,7 +15,7 @@
 7354	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
-6288	cmuxTests/GhosttyConfigTests.swift
+6220	cmuxTests/GhosttyConfigTests.swift
 6172	Sources/TabManager.swift
 6084	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
