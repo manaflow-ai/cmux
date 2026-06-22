@@ -957,17 +957,14 @@ extension Workspace {
 
     /// Whether scrollback should be persisted for a panel at session save.
     ///
-    /// `fallbackNeedsConfirmClose` is retained for call-site symmetry with the
-    /// close-confirmation inputs but is intentionally NOT consulted: scrollback
-    /// persistence depends only on shell-activity state (persist unless a command
-    /// is positively running). Coupling it to close-confirmation previously dropped
-    /// scrollback whenever shell-integration state was unavailable.
+    /// Persistence depends only on shell-activity state — persist unless a command
+    /// is positively running. It is intentionally NOT coupled to close-confirmation;
+    /// doing so previously dropped scrollback whenever shell-integration state was
+    /// unavailable.
     nonisolated static func shouldPersistSessionScrollback(
-        shellActivityState: PanelShellActivityState?,
-        fallbackNeedsConfirmClose: Bool
+        shellActivityState: PanelShellActivityState?
     ) -> Bool {
-        _ = fallbackNeedsConfirmClose
-        return makeSessionRestorePolicyService().shouldPersistSessionScrollback(
+        makeSessionRestorePolicyService().shouldPersistSessionScrollback(
             shellActivityState: shellActivityState
         )
     }
