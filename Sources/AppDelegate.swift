@@ -3168,9 +3168,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
-        sessionSnapshotStore.syncManualRestoreSnapshotCache()
+        syncManualRestoreSnapshotCachePruningCrashDiagnostics()
+        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot().flatMap {
+        startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    private func syncManualRestoreSnapshotCachePruningCrashDiagnostics() {
+        guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL(),
+              let backupURL = sessionSnapshotStore.manualRestoreSnapshotFileURL() else {
+            return
+        }
+        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            guard let prunedSnapshot = SessionPersistencePolicy
+                .pruningCmuxCrashDiagnosticWindows(from: snapshot)
+                .snapshot else {
+                return
+            }
+            _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
+        case .missing:
+            sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
+        case .unusable:
+            break
+        }
+    }
+
+    private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+        guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
+        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            if let prunedSnapshot = SessionPersistencePolicy
+                .pruningCmuxCrashDiagnosticWindows(from: snapshot)
+                .snapshot {
+                return prunedSnapshot
+            }
+            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+        case .missing:
+            return nil
+        case .unusable:
+            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+        }
+    }
+
+    private func loadManualRestoreSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+        sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil).flatMap {
             SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: $0).snapshot
         }
     }
