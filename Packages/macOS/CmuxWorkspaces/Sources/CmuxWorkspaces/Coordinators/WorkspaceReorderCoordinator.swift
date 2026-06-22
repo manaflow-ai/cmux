@@ -287,7 +287,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
         let movedWorkspaceIds: [UUID]
         if let group = model.workspaceGroups.first(where: { $0.anchorWorkspaceId == tabId }) {
-            movedWorkspaceIds = model.tabs.filter { $0.groupId == group.id }.map(\.id)
+            movedWorkspaceIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: group.id)
         } else {
             movedWorkspaceIds = [tabId]
         }

@@ -388,6 +388,32 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func reorderingRootGroupPublishesDescendantWorkspaceIds() {
+        let (model, host, groups, reorder) = makeWorld()
+        let hotelsMember = CoordinatorStubTab()
+        let marriottMember = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [hotelsMember, marriottMember, outside]
+        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try! #require(groups.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [marriottMember.id],
+            parentGroupId: hotelsId
+        ))
+        let hotelsAnchorId = try! #require(model.workspaceGroups.first { $0.id == hotelsId }?.anchorWorkspaceId)
+        let marriottAnchorId = try! #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+
+        #expect(reorder.reorderSidebarWorkspace(tabId: hotelsAnchorId, toIndex: 1))
+
+        #expect(Set(host.orderChanges.last ?? []) == Set([
+            hotelsAnchorId,
+            hotelsMember.id,
+            marriottAnchorId,
+            marriottMember.id,
+        ]))
+    }
+
+    @Test
     func collapsingParentGroupMovesFocusFromDescendantToParentAnchor() {
         let (model, host, groups, _) = makeWorld()
         let hotelsMember = CoordinatorStubTab()

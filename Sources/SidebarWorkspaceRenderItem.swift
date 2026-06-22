@@ -103,13 +103,37 @@ enum SidebarWorkspaceRenderItem {
             return deduped
         }
 
-        var items: [SidebarWorkspaceRenderItem] = []
-        items.reserveCapacity(tabs.count + groupsById.count)
-        var emittedHeaders: Set<UUID> = []
+        enum ChildRow {
+            case group(WorkspaceGroup)
+            case workspace(Workspace)
+        }
 
         func normalizedParentGroupId(for groupId: UUID) -> UUID? {
             parentGroupIdByGroupId[groupId] ?? nil
         }
+
+        var childRowsByParentId: [UUID?: [ChildRow]] = [:]
+        for tab in tabs {
+            if let anchoredGroup = anchorGroupByWorkspaceId[tab.id] {
+                childRowsByParentId[
+                    normalizedParentGroupId(for: anchoredGroup.id),
+                    default: []
+                ].append(.group(anchoredGroup))
+                continue
+            }
+            if let groupId = tab.groupId {
+                if groupsById[groupId]?.anchorWorkspaceId == tab.id {
+                    continue
+                }
+                childRowsByParentId[Optional(groupId), default: []].append(.workspace(tab))
+            } else {
+                childRowsByParentId[nil, default: []].append(.workspace(tab))
+            }
+        }
+
+        var items: [SidebarWorkspaceRenderItem] = []
+        items.reserveCapacity(tabs.count + groupsById.count)
+        var emittedHeaders: Set<UUID> = []
 
         func appendGroup(_ group: WorkspaceGroup, depth: Int) {
             guard emittedHeaders.insert(group.id).inserted else { return }
@@ -121,19 +145,11 @@ enum SidebarWorkspaceRenderItem {
         }
 
         func appendChildren(of parentGroupId: UUID?, depth: Int) {
-            for tab in tabs {
-                if let anchoredGroup = anchorGroupByWorkspaceId[tab.id],
-                   normalizedParentGroupId(for: anchoredGroup.id) == parentGroupId {
+            for row in childRowsByParentId[parentGroupId] ?? [] {
+                switch row {
+                case .group(let anchoredGroup):
                     appendGroup(anchoredGroup, depth: depth)
-                    continue
-                }
-                if let parentGroupId {
-                    guard tab.groupId == parentGroupId else { continue }
-                    if groupsById[parentGroupId]?.anchorWorkspaceId == tab.id {
-                        continue
-                    }
-                    items.append(.workspace(tab, depth: depth))
-                } else if tab.groupId == nil {
+                case .workspace(let tab):
                     items.append(.workspace(tab, depth: depth))
                 }
             }

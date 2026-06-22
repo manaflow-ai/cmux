@@ -567,7 +567,7 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         pinnedTopLevelIds.reserveCapacity(topLevelIds.count)
         unpinnedTopLevelIds.reserveCapacity(topLevelIds.count)
         for id in topLevelIds {
-            let isPinned = groupsByAnchorId[id]?.isPinned ?? (tabsById[id]?.isPinned == true)
+            let isPinned = rootGroupsByAnchorId[id]?.isPinned ?? (tabsById[id]?.isPinned == true)
             if isPinned {
                 pinnedTopLevelIds.append(id)
             } else {
