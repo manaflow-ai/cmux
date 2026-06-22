@@ -22,10 +22,6 @@ private extension DispatchSemaphore {
     }
 }
 
-private func legacyTimeout(_ timeout: TimeInterval) -> DispatchTime {
-    .now() + .milliseconds(Int((timeout * 1_000).rounded(.up)))
-}
-
 private func legacyFailure(_ message: String) {
     Issue.record(Comment(rawValue: message.isEmpty ? "Assertion failed" : message))
 }
@@ -36,7 +32,16 @@ private func expectation(description _: String) -> XCTestExpectation {
 
 private func wait(for expectations: [XCTestExpectation], timeout: TimeInterval) {
     for expectation in expectations {
-        if expectation.wait(timeout: legacyTimeout(timeout)) == .timedOut {
+        let deadline = Date().addingTimeInterval(timeout)
+        var fulfilled = false
+        while Date() < deadline {
+            if expectation.wait(timeout: .now()) == .success {
+                fulfilled = true
+                break
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        if !fulfilled, expectation.wait(timeout: .now()) == .timedOut {
             legacyFailure("Timed out waiting for expectation")
         }
     }
