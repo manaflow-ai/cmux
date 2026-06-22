@@ -44,50 +44,52 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
         )
     }
 
-    @MainActor
     func testCoordinatorReturnPassesThroughDuringMarkedTextComposition() {
-        var commitCount = 0
-        var cancelCount = 0
-        let coordinator = SidebarInlineRenameField.Coordinator(
-            onCommit: { _ in commitCount += 1 },
-            onCancel: { cancelCount += 1 }
-        )
-        let field = NSTextField(string: "compose")
-        let editor = markedTextEditor()
+        MainActor.assumeIsolated {
+            var commitCount = 0
+            var cancelCount = 0
+            let coordinator = SidebarInlineRenameField.Coordinator(
+                onCommit: { _ in commitCount += 1 },
+                onCancel: { cancelCount += 1 }
+            )
+            let field = NSTextField(string: "compose")
+            let editor = markedTextEditor()
 
-        let handled = coordinator.control(
-            field,
-            textView: editor,
-            doCommandBy: #selector(NSResponder.insertNewline(_:))
-        )
+            let handled = coordinator.control(
+                field,
+                textView: editor,
+                doCommandBy: #selector(NSResponder.insertNewline(_:))
+            )
 
-        XCTAssertFalse(handled)
-        XCTAssertEqual(commitCount, 0)
-        XCTAssertEqual(cancelCount, 0)
-        XCTAssertTrue(editor.hasMarkedText())
+            XCTAssertFalse(handled)
+            XCTAssertEqual(commitCount, 0)
+            XCTAssertEqual(cancelCount, 0)
+            XCTAssertTrue(editor.hasMarkedText())
+        }
     }
 
-    @MainActor
     func testCoordinatorEscapePassesThroughDuringMarkedTextComposition() {
-        var commitCount = 0
-        var cancelCount = 0
-        let coordinator = SidebarInlineRenameField.Coordinator(
-            onCommit: { _ in commitCount += 1 },
-            onCancel: { cancelCount += 1 }
-        )
-        let field = NSTextField(string: "compose")
-        let editor = markedTextEditor()
+        MainActor.assumeIsolated {
+            var commitCount = 0
+            var cancelCount = 0
+            let coordinator = SidebarInlineRenameField.Coordinator(
+                onCommit: { _ in commitCount += 1 },
+                onCancel: { cancelCount += 1 }
+            )
+            let field = NSTextField(string: "compose")
+            let editor = markedTextEditor()
 
-        let handled = coordinator.control(
-            field,
-            textView: editor,
-            doCommandBy: #selector(NSResponder.cancelOperation(_:))
-        )
+            let handled = coordinator.control(
+                field,
+                textView: editor,
+                doCommandBy: #selector(NSResponder.cancelOperation(_:))
+            )
 
-        XCTAssertFalse(handled)
-        XCTAssertEqual(commitCount, 0)
-        XCTAssertEqual(cancelCount, 0)
-        XCTAssertTrue(editor.hasMarkedText())
+            XCTAssertFalse(handled)
+            XCTAssertEqual(commitCount, 0)
+            XCTAssertEqual(cancelCount, 0)
+            XCTAssertTrue(editor.hasMarkedText())
+        }
     }
 
     func testNormalizeTrimsAndKeepsNonEmpty() {
