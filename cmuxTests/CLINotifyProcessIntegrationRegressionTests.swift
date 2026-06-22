@@ -259,6 +259,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let record = try readClaudeHookSession("askquestion-session", context: context)
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
+        XCTAssertEqual(
+            (record["lastBody"] as? String)?.contains("Which color"), true,
+            "Expected the saved needs-input body to carry the question text, saw \(record["lastBody"] ?? "nil")"
+        )
     }
 
     // In modes where a PermissionRequest/Notification hook still follows (anything
@@ -291,6 +295,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(
             context.state.commands.contains { $0.hasPrefix("notify_target_async ") },
             "AskUserQuestion must defer the bell to the following Notification hook outside bypassPermissions, saw \(context.state.commands)"
+        )
+        // The needs-input status (bell.fill) is part of the deferred bell path, so
+        // it must not be set directly here either — only the lifecycle is.
+        XCTAssertFalse(
+            context.state.commands.contains {
+                $0.hasPrefix("set_status claude_code ") && $0.contains("--icon=bell.fill")
+            },
+            "AskUserQuestion in default mode must defer the Needs input status to the following hook, saw \(context.state.commands)"
         )
     }
 
