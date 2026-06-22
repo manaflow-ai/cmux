@@ -1765,6 +1765,7 @@ class TabManager: ObservableObject {
     func createWorkspaceGroup(
         name: String,
         childWorkspaceIds: [UUID] = [],
+        parentGroupId: UUID? = nil,
         anchorWorkingDirectory: String? = nil,
         selectAnchor: Bool = true,
         collapseSidebarSelection: Bool = true
@@ -1772,6 +1773,7 @@ class TabManager: ObservableObject {
         workspaceGrouping.createWorkspaceGroup(
             name: name,
             childWorkspaceIds: childWorkspaceIds,
+            parentGroupId: parentGroupId,
             anchorWorkingDirectory: anchorWorkingDirectory,
             selectAnchor: selectAnchor,
             collapseSidebarSelection: collapseSidebarSelection
@@ -1853,6 +1855,36 @@ class TabManager: ObservableObject {
 
     func setWorkspaceGroupAnchor(groupId: UUID, workspaceId: UUID) {
         workspaceGrouping.setWorkspaceGroupAnchor(groupId: groupId, workspaceId: workspaceId)
+    }
+
+    @discardableResult
+    func setWorkspaceGroupParent(groupId: UUID, parentGroupId: UUID?) -> Bool {
+        workspaceGrouping.setWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId)
+    }
+
+    func canSetWorkspaceGroupParent(groupId: UUID, parentGroupId: UUID?) -> Bool {
+        workspaceGrouping.canSetWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId)
+    }
+
+    func workspaceGroupSubtreeWorkspaceIds(groupId: UUID) -> [UUID] {
+        workspaces.workspaceGroupSubtreeWorkspaceIds(groupId: groupId)
+    }
+
+    func commonWorkspaceGroupId(for workspaceIds: [UUID]) -> UUID? {
+        var commonGroupId: UUID?
+        var didReadAnyWorkspace = false
+        for workspaceId in workspaceIds {
+            guard let workspace = tabs.first(where: { $0.id == workspaceId }),
+                  let groupId = workspace.groupId else {
+                return nil
+            }
+            if didReadAnyWorkspace, commonGroupId != groupId {
+                return nil
+            }
+            didReadAnyWorkspace = true
+            commonGroupId = groupId
+        }
+        return commonGroupId
     }
 
     func moveWorkspaceGroup(groupId: UUID, toIndex targetIndex: Int) {
@@ -5568,6 +5600,7 @@ extension TabManager {
             hasher.combine(group.name)
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
+            hasher.combine(group.parentGroupId)
             hasher.combine(group.anchorWorkspaceId)
             hasher.combine(group.customColor ?? "")
             hasher.combine(group.iconSymbol ?? "")
@@ -5872,15 +5905,26 @@ extension TabManager {
             return map
         }()
         let groupSnapshots: [SessionWorkspaceGroupSnapshot]? = {
+            let restorableGroupIndexById = Dictionary(
+                uniqueKeysWithValues: workspaceGroups
+                    .filter { occupiedGroupIds.contains($0.id) }
+                    .enumerated()
+                    .map { ($0.element.id, $0.offset) }
+            )
             let snapshots = workspaceGroups
                 .filter { occupiedGroupIds.contains($0.id) }
                 .map { group in
                     let memberIds = restorableMembersByGroupId[group.id] ?? []
                     let anchorIndex = memberIds.firstIndex(of: group.anchorWorkspaceId)
+                    let parentGroupId = group.parentGroupId.flatMap { parentId in
+                        occupiedGroupIds.contains(parentId) ? parentId : nil
+                    }
                     return SessionWorkspaceGroupSnapshot(
                         id: group.id,
                         name: group.name,
                         isCollapsed: group.isCollapsed,
+                        parentGroupId: parentGroupId,
+                        parentGroupIndex: parentGroupId.flatMap { restorableGroupIndexById[$0] },
                         anchorWorkspaceId: group.anchorWorkspaceId,
                         anchorMemberIndex: anchorIndex,
                         isPinned: group.isPinned,
@@ -6002,7 +6046,7 @@ extension TabManager {
                 return map
             }()
             var seen: Set<UUID> = []
-            return groupSnapshots.compactMap { groupSnapshot in
+            let restoredPairs: [(snapshot: SessionWorkspaceGroupSnapshot, group: WorkspaceGroup)] = groupSnapshots.compactMap { groupSnapshot in
                 guard let members = workspaceIdsByGroupId[groupSnapshot.id], !members.isEmpty,
                       seen.insert(groupSnapshot.id).inserted else { return nil }
                 // Resolve anchor: prefer the restore-stable index (since each
@@ -6020,16 +6064,56 @@ extension TabManager {
                     }
                     return members[0]
                 }()
-                return WorkspaceGroup(
+                let group = WorkspaceGroup(
                     id: groupSnapshot.id,
                     name: groupSnapshot.name,
                     isCollapsed: groupSnapshot.isCollapsed,
                     isPinned: groupSnapshot.isPinned ?? false,
+                    parentGroupId: nil,
                     anchorWorkspaceId: anchorId,
                     customColor: groupSnapshot.customColor,
                     iconSymbol: groupSnapshot.iconSymbol
                 )
+                return (groupSnapshot, group)
             }
+            let restoredGroupIds = Set(restoredPairs.map { $0.group.id })
+            var restored = restoredPairs.map { $0.group }
+            func resolvedParentGroupId(for index: Int) -> UUID? {
+                let groupSnapshot = restoredPairs[index].snapshot
+                if let parentGroupIndex = groupSnapshot.parentGroupIndex,
+                   groupSnapshots.indices.contains(parentGroupIndex) {
+                    let parentSnapshotId = groupSnapshots[parentGroupIndex].id
+                    if restoredGroupIds.contains(parentSnapshotId) {
+                        return parentSnapshotId
+                    }
+                }
+                if let parentGroupId = groupSnapshot.parentGroupId,
+                   restoredGroupIds.contains(parentGroupId) {
+                    return parentGroupId
+                }
+                return nil
+            }
+            func wouldCreateParentCycle(groupId: UUID, parentGroupId: UUID?) -> Bool {
+                guard let parentGroupId else { return false }
+                guard parentGroupId != groupId else { return true }
+                var parentByGroupId = Dictionary(uniqueKeysWithValues: restored.map { ($0.id, $0.parentGroupId) })
+                parentByGroupId[groupId] = parentGroupId
+                var visited: Set<UUID> = []
+                var cursor: UUID? = parentGroupId
+                while let current = cursor {
+                    guard visited.insert(current).inserted else { return true }
+                    if current == groupId { return true }
+                    cursor = parentByGroupId[current] ?? nil
+                }
+                return false
+            }
+            for index in restored.indices {
+                let parentGroupId = resolvedParentGroupId(for: index)
+                if !wouldCreateParentCycle(groupId: restored[index].id, parentGroupId: parentGroupId) {
+                    restored[index].parentGroupId = parentGroupId
+                }
+            }
+            return restored
         }()
         // Clear any group references on restored workspaces that no longer correspond
         // to a known group (older snapshots, manual edits, etc.).

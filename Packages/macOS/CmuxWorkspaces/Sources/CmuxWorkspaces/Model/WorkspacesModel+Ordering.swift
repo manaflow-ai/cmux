@@ -9,6 +9,80 @@ extension WorkspacesModel {
         workspaceGroups.contains { $0.anchorWorkspaceId == workspaceId }
     }
 
+    /// Whether the workspace anchors a root-level group.
+    func isRootWorkspaceGroupAnchor(_ workspaceId: UUID) -> Bool {
+        guard let group = workspaceGroups.first(where: { $0.anchorWorkspaceId == workspaceId }) else {
+            return false
+        }
+        return rootWorkspaceGroup(containing: group.id)?.id == group.id
+    }
+
+    /// The root folder that contains `groupId`, or nil when the group is unknown.
+    func rootWorkspaceGroup(containing groupId: UUID) -> WorkspaceGroup? {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        return rootWorkspaceGroup(containing: groupId, groupsById: groupsById)
+    }
+
+    /// The root folder that contains `groupId`, using a prebuilt group map.
+    func rootWorkspaceGroup(containing groupId: UUID, groupsById: [UUID: WorkspaceGroup]) -> WorkspaceGroup? {
+        guard var root = groupsById[groupId] else { return nil }
+        var visited: Set<UUID> = [root.id]
+        while let parentId = root.parentGroupId,
+              let parent = groupsById[parentId],
+              visited.insert(parent.id).inserted {
+            root = parent
+        }
+        return root
+    }
+
+    /// Whether assigning `parentGroupId` as `groupId`'s parent would keep the
+    /// folder tree valid.
+    public func canSetWorkspaceGroupParent(groupId: UUID, parentGroupId: UUID?) -> Bool {
+        guard workspaceGroups.contains(where: { $0.id == groupId }) else { return false }
+        guard let parentGroupId else { return true }
+        guard parentGroupId != groupId,
+              workspaceGroups.contains(where: { $0.id == parentGroupId }) else {
+            return false
+        }
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        var visited: Set<UUID> = []
+        var cursor: UUID? = parentGroupId
+        while let current = cursor {
+            guard visited.insert(current).inserted else { return false }
+            if current == groupId { return false }
+            cursor = groupsById[current]?.parentGroupId
+        }
+        return true
+    }
+
+    /// Group ids in `groupId`'s subtree, including `groupId`.
+    public func workspaceGroupSubtreeGroupIds(groupId: UUID) -> Set<UUID> {
+        var childrenByParentId: [UUID: [UUID]] = [:]
+        for group in workspaceGroups {
+            if let parentGroupId = group.parentGroupId {
+                childrenByParentId[parentGroupId, default: []].append(group.id)
+            }
+        }
+
+        var result: Set<UUID> = []
+        var stack: [UUID] = [groupId]
+        while let current = stack.popLast() {
+            guard result.insert(current).inserted else { continue }
+            stack.append(contentsOf: childrenByParentId[current] ?? [])
+        }
+        return result
+    }
+
+    /// Workspace ids contained by `groupId` and any nested child groups, in tab order.
+    public func workspaceGroupSubtreeWorkspaceIds(groupId: UUID) -> [UUID] {
+        let groupIds = workspaceGroupSubtreeGroupIds(groupId: groupId)
+        return tabs.compactMap { tab in
+            guard let tabGroupId = tab.groupId,
+                  groupIds.contains(tabGroupId) else { return nil }
+            return tab.id
+        }
+    }
+
     /// The top-level sidebar row id for each given workspace (its group's
     /// anchor when grouped, itself when ungrouped), deduplicated in order.
     func topLevelWorkspaceIds(for workspaces: [Tab]) -> [UUID] {
@@ -19,8 +93,8 @@ extension WorkspacesModel {
         for workspace in workspaces {
             let topLevelId: UUID
             if let groupId = workspace.groupId,
-               let group = groupsById[groupId] {
-                topLevelId = group.anchorWorkspaceId
+               let root = rootWorkspaceGroup(containing: groupId, groupsById: groupsById) {
+                topLevelId = root.anchorWorkspaceId
             } else {
                 topLevelId = workspace.id
             }
@@ -36,14 +110,14 @@ extension WorkspacesModel {
     /// promoted to top level right after its group's row.
     func sidebarTopLevelWorkspaceIds(promotingWorkspaceId promotedWorkspaceId: UUID? = nil) -> [UUID] {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        var emittedGroupIds = Set<UUID>()
+        var emittedRootGroupIds = Set<UUID>()
         var ids: [UUID] = []
         ids.reserveCapacity(tabs.count)
         for tab in tabs {
             if let groupId = tab.groupId,
-               let group = groupsById[groupId] {
-                if emittedGroupIds.insert(groupId).inserted {
-                    ids.append(group.anchorWorkspaceId)
+               let rootGroup = rootWorkspaceGroup(containing: groupId, groupsById: groupsById) {
+                if emittedRootGroupIds.insert(rootGroup.id).inserted {
+                    ids.append(rootGroup.anchorWorkspaceId)
                 }
             } else {
                 ids.append(tab.id)
@@ -53,8 +127,8 @@ extension WorkspacesModel {
            !ids.contains(promotedWorkspaceId),
            let tab = tabs.first(where: { $0.id == promotedWorkspaceId }),
            let groupId = tab.groupId,
-           let group = groupsById[groupId],
-           let groupIndex = ids.firstIndex(of: group.anchorWorkspaceId) {
+           let rootGroup = rootWorkspaceGroup(containing: groupId, groupsById: groupsById),
+           let groupIndex = ids.firstIndex(of: rootGroup.anchorWorkspaceId) {
             ids.insert(promotedWorkspaceId, at: min(groupIndex + 1, ids.count))
         }
         return ids
@@ -66,7 +140,7 @@ extension WorkspacesModel {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         var emittedWorkspaceIds = Set<UUID>()
-        var emittedGroupIds = Set<UUID>()
+        var emittedRootGroupIds = Set<UUID>()
         var ids: [UUID] = []
         ids.reserveCapacity(tabs.count)
 
@@ -74,9 +148,9 @@ extension WorkspacesModel {
             guard let tab = tabsById[id],
                   emittedWorkspaceIds.insert(tab.id).inserted else { return }
             if let groupId = tab.groupId,
-               let group = groupsById[groupId] {
-                if emittedGroupIds.insert(groupId).inserted {
-                    ids.append(group.anchorWorkspaceId)
+               let rootGroup = rootWorkspaceGroup(containing: groupId, groupsById: groupsById) {
+                if emittedRootGroupIds.insert(rootGroup.id).inserted {
+                    ids.append(rootGroup.anchorWorkspaceId)
                 }
             } else {
                 ids.append(tab.id)
@@ -95,10 +169,12 @@ extension WorkspacesModel {
     /// The pinned subset of the top-level rows (pinned groups by group pin,
     /// ungrouped workspaces by workspace pin).
     func sidebarTopLevelPinnedWorkspaceIds() -> Set<UUID> {
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         return Set(sidebarTopLevelWorkspaceIds().filter { id in
-            if let group = groupsByAnchorId[id] {
+            if let group = groupsByAnchorId[id],
+               rootWorkspaceGroup(containing: group.id, groupsById: groupsById)?.id == group.id {
                 return group.isPinned
             }
             return tabsById[id]?.isPinned == true

@@ -246,7 +246,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         isDragOperation: Bool = false,
         usesTopLevelRows: Bool = false
     ) -> Bool {
-        if usesTopLevelRows || model.isWorkspaceGroupAnchor(tabId) {
+        if usesTopLevelRows || model.isRootWorkspaceGroupAnchor(tabId) {
             return reorderTopLevelWorkspaceItem(
                 tabId: tabId,
                 toIndex: targetIndex,
@@ -316,8 +316,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         workspaceGroupIdByWorkspaceId: [UUID: UUID?]
     ) -> Bool {
         guard let draggedWorkspaceId else { return false }
-        if model.isWorkspaceGroupAnchor(draggedWorkspaceId) ||
-            targetWorkspaceId.map(model.isWorkspaceGroupAnchor) == true {
+        if model.isRootWorkspaceGroupAnchor(draggedWorkspaceId) ||
+            targetWorkspaceId.map(model.isRootWorkspaceGroupAnchor) == true {
             return true
         }
         guard let draggedWorkspaceGroupId = workspaceGroupIdByWorkspaceId[draggedWorkspaceId],

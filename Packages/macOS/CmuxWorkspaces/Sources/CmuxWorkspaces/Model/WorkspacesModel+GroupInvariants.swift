@@ -29,21 +29,35 @@ extension WorkspacesModel {
                 groupedByGroupId[groupId, default: []].append(tab)
             }
         }
+        var childGroupsByParentId: [UUID: [WorkspaceGroup]] = [:]
+        for group in workspaceGroups {
+            guard let parentGroupId = group.parentGroupId,
+                  knownGroupIds.contains(parentGroupId),
+                  parentGroupId != group.id else { continue }
+            childGroupsByParentId[parentGroupId, default: []].append(group)
+        }
 
         var emittedWorkspaceIds = Set<UUID>()
         var emittedGroupIds = Set<UUID>()
         var reordered: [Tab] = []
         reordered.reserveCapacity(tabs.count)
 
+        func appendGroupSubtree(_ group: WorkspaceGroup) {
+            guard emittedGroupIds.insert(group.id).inserted else { return }
+            let members = anchorFirst(groupedByGroupId[group.id] ?? [], anchorId: group.anchorWorkspaceId)
+            for member in members where emittedWorkspaceIds.insert(member.id).inserted {
+                reordered.append(member)
+            }
+            for childGroup in childGroupsByParentId[group.id] ?? [] {
+                appendGroupSubtree(childGroup)
+            }
+        }
+
         func appendWorkspaceOrGroup(for id: UUID) {
             guard let tab = tabsById[id] else { return }
             if let groupId = tab.groupId,
-               let group = groupsById[groupId],
-               emittedGroupIds.insert(groupId).inserted {
-                let members = anchorFirst(groupedByGroupId[groupId] ?? [], anchorId: group.anchorWorkspaceId)
-                for member in members where emittedWorkspaceIds.insert(member.id).inserted {
-                    reordered.append(member)
-                }
+               let rootGroup = rootWorkspaceGroup(containing: groupId, groupsById: groupsById) {
+                appendGroupSubtree(rootGroup)
             } else if tab.groupId == nil,
                       emittedWorkspaceIds.insert(tab.id).inserted {
                 reordered.append(tab)
@@ -75,6 +89,13 @@ extension WorkspacesModel {
         for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
+        for index in workspaceGroups.indices {
+            if let parentGroupId = workspaceGroups[index].parentGroupId,
+               (!knownGroupIds.contains(parentGroupId) ||
+                !canSetWorkspaceGroupParent(groupId: workspaceGroups[index].id, parentGroupId: parentGroupId)) {
+                workspaceGroups[index].parentGroupId = nil
+            }
+        }
         let topLevelIds = preferredTopLevelIds ?? sidebarTopLevelWorkspaceIds()
         let pinnedTopLevelIds = sidebarTopLevelPinnedWorkspaceIds()
         let desiredIds = topLevelIds.filter { pinnedTopLevelIds.contains($0) }
@@ -91,17 +112,23 @@ extension WorkspacesModel {
     /// didSet hook. No-op when the workspace is ungrouped or its group is already expanded.
     public func expandWorkspaceGroupForSelectionIfNeeded() {
         guard let selectedTabId,
-              let groupId = tabs.first(where: { $0.id == selectedTabId })?.groupId,
-              let index = workspaceGroups.firstIndex(where: { $0.id == groupId }),
-              workspaceGroups[index].isCollapsed else {
+              let groupId = tabs.first(where: { $0.id == selectedTabId })?.groupId else {
             return
         }
-        // The anchor is the group header's visible representation, so
-        // focusing it doesn't hide it. Skip auto-expand when the focused
-        // workspace IS the group's anchor — that lets users work in the
-        // anchor while keeping the rest of the group folded away.
-        guard workspaceGroups[index].anchorWorkspaceId != selectedTabId else { return }
-        workspaceGroups[index].isCollapsed = false
+        var cursor: UUID? = groupId
+        var visited: Set<UUID> = []
+        while let current = cursor,
+              visited.insert(current).inserted,
+              let index = workspaceGroups.firstIndex(where: { $0.id == current }) {
+            // The selected group's own anchor is visible as that group's header,
+            // so selecting it should not force its children open. Ancestors still
+            // expand so the header itself is reachable in a nested tree.
+            if workspaceGroups[index].anchorWorkspaceId != selectedTabId,
+               workspaceGroups[index].isCollapsed {
+                workspaceGroups[index].isCollapsed = false
+            }
+            cursor = workspaceGroups[index].parentGroupId
+        }
     }
 
     /// Reorder `workspaceGroups` so each group's relative position matches
@@ -183,6 +210,17 @@ extension WorkspacesModel {
         for gid in dissolvedGroupIds {
             for tab in tabs where tab.groupId == gid {
                 tab.groupId = nil
+            }
+        }
+        let parentByDissolvedGroupId = Dictionary(
+            uniqueKeysWithValues: workspaceGroups
+                .filter { dissolvedGroupIds.contains($0.id) }
+                .map { ($0.id, $0.parentGroupId) }
+        )
+        for index in workspaceGroups.indices {
+            if let parentGroupId = workspaceGroups[index].parentGroupId,
+               dissolvedGroupIds.contains(parentGroupId) {
+                workspaceGroups[index].parentGroupId = parentByDissolvedGroupId[parentGroupId] ?? nil
             }
         }
         workspaceGroups.removeAll { dissolvedGroupIds.contains($0.id) }

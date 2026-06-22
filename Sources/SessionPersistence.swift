@@ -1862,6 +1862,12 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var id: UUID
     var name: String
     var isCollapsed: Bool
+    /// Parent group id for nested folders. Only meaningful within snapshots that
+    /// preserve group UUIDs; restore also records `parentGroupIndex`.
+    var parentGroupId: UUID? = nil
+    /// 0-based index of the parent group in `workspaceGroups`. Restore-stable
+    /// across any future group UUID remapping as long as snapshot order survives.
+    var parentGroupIndex: Int? = nil
     /// The workspace whose close dissolves the group. Only meaningful within
     /// a single app run; on restore, each workspace gets a fresh UUID. The
     /// loader prefers `anchorMemberIndex` (restore-stable) and treats this
