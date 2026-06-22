@@ -6035,6 +6035,8 @@ struct ContentView: View {
         switch commandId {
         case "palette.newTerminalTab":
             return CmuxSurfaceTabBarBuiltInAction.newTerminal.configID
+        case "palette.openChat":
+            return CmuxSurfaceTabBarBuiltInAction.openChat.configID
         case "palette.newBrowserTab":
             return CmuxSurfaceTabBarBuiltInAction.newBrowser.configID
         case "palette.terminalSplitRight":
@@ -6240,9 +6242,9 @@ struct ContentView: View {
     /// command. These are platform/technical terms that read the same across
     /// locales, so they are not localized.
     static let commandPaletteMobileConnectKeywords: [String] = [
-        "mobile", "connect", "pair", "pairing", "device",
-        "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
+        "mobile", "connect", "pair", "pairing", "device", "ios", "ipados", "iphone", "ipad", "phone", "tablet", "qr",
     ]
+    static let commandPaletteOpenChatKeywords: [String] = ["open", "chat", "agent", "assistant", "claude", "codex", "gemini", "opencode", "composer", "prompt", "build", "model"]
 
     private func commandPaletteCommandContributions() -> [CommandPaletteCommandContribution] {
         func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
@@ -6939,11 +6941,17 @@ struct ContentView: View {
                 commandId: "palette.openChat",
                 title: constant(String(localized: "command.openChat.title", defaultValue: "Open Chat")),
                 subtitle: workspaceSubtitle,
-                keywords: ["chat", "codex", "composer", "prompt", "build", "model"],
-                when: {
-                    $0.bool(CommandPaletteContextKeys.hasWorkspace) &&
-                    !$0.bool(CommandPaletteContextKeys.browserDisabled)
-                }
+                keywords: Self.commandPaletteOpenChatKeywords,
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openChatWorkspace",
+                title: constant(String(localized: "command.openChatWorkspace.title", defaultValue: "Open Chat in New Workspace")),
+                subtitle: workspaceSubtitle,
+                keywords: Self.commandPaletteOpenChatKeywords + ["new", "workspace"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
             )
         )
         contributions.append(
@@ -7911,7 +7919,12 @@ struct ContentView: View {
             }
         }
         registry.register(commandId: "palette.openChat") {
-            if AppDelegate.shared?.openChatForFocusedWorkspace(for: tabManager) != true {
+            if AppDelegate.shared?.openConfiguredChatForFocusedWorkspace(for: tabManager) != true {
+                NSSound.beep()
+            }
+        }
+        registry.register(commandId: "palette.openChatWorkspace") {
+            if AppDelegate.shared?.openChatWorkspace(for: tabManager) != true {
                 NSSound.beep()
             }
         }

@@ -15,6 +15,10 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let providerRaw: String?
     /// The raw `renderer_kind`/`renderer` token, or `nil` (defaults to react).
     public let rendererRaw: String?
+    /// The raw agent-session model id, or `nil`.
+    public let modelRaw: String?
+    /// The raw OpenCode provider id for brokered models, or `nil`.
+    public let openCodeProviderRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
     /// The trimmed-non-empty `working_directory`, or `nil`.
@@ -33,10 +37,27 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
     public let requestedFocus: Bool
 
     /// Creates surface-create inputs.
+    ///
+    /// - Parameters:
+    ///   - typeRaw: The raw surface type token, if present.
+    ///   - providerRaw: The raw agent-session provider token, if present.
+    ///   - rendererRaw: The raw agent-session renderer token, if present.
+    ///   - modelRaw: The raw agent-session model id, if present.
+    ///   - openCodeProviderRaw: The raw OpenCode provider id, if present.
+    ///   - urlRaw: The raw browser URL string, if present.
+    ///   - workingDirectory: The trimmed-non-empty working directory, if any.
+    ///   - initialCommand: The trimmed-non-empty initial command, if any.
+    ///   - tmuxStartCommand: The trimmed-non-empty tmux start command, if any.
+    ///   - remotePTYSessionID: The trimmed-non-empty remote PTY session id, if any.
+    ///   - startupEnvironment: The startup environment map.
+    ///   - requestedPaneID: The requested target pane id, if any.
+    ///   - requestedFocus: Whether to focus the new surface.
     public init(
         typeRaw: String?,
         providerRaw: String?,
         rendererRaw: String?,
+        modelRaw: String?,
+        openCodeProviderRaw: String?,
         urlRaw: String?,
         workingDirectory: String?,
         initialCommand: String?,
@@ -49,6 +70,8 @@ public struct ControlSurfaceCreateInputs: Sendable, Equatable {
         self.typeRaw = typeRaw
         self.providerRaw = providerRaw
         self.rendererRaw = rendererRaw
+        self.modelRaw = modelRaw
+        self.openCodeProviderRaw = openCodeProviderRaw
         self.urlRaw = urlRaw
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand

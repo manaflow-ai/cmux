@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import { activityGlyph } from "../shared/activityGlyph";
-import { subscribeToAgentEvents } from "../shared/bridge";
+import { setComposerFocusHandler, setComposerSubmitHandler, subscribeToAgentEvents } from "../shared/bridge";
 import {
   CODEX_BUTTON_BASE,
   CODEX_BUTTON_COMPOSER,
@@ -18,7 +18,7 @@ import {
 import { insertComposerToken } from "../shared/composerTokens";
 import { isComposingEnter } from "../shared/keyboard";
 import { renderMarkdownHTML, renderPlainTextHTML } from "../shared/markdown";
-import { codexModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
+import { modelLabel as providerModelLabel, providerBadgeLabel } from "../shared/providerDisplay";
 import {
   formatRateLimitPercent,
   formatRateLimitReset,
@@ -34,16 +34,18 @@ import {
   loadInitialData,
   reduceSession,
   sendInput,
+  selectedProvider,
   selectProvider,
   startProvider,
   statusLabel,
   stopProvider,
+  providerSelectionId,
   type Action,
   type SessionState,
   type TranscriptEntry,
 } from "../shared/sessionModel";
 import { applyCodexDocumentMetadata } from "../shared/theme";
-import type { AgentSessionRateLimitRow, ProviderId } from "../shared/types";
+import type { AgentSessionRateLimitRow } from "../shared/types";
 
 function App() {
   const [state, setState] = createSignal<SessionState>(initialState("solid"));
@@ -104,10 +106,17 @@ function SessionSurface({
   dispatch: (action: Action) => void;
   renderer: string;
 }) {
-  const provider = () => state().providers.find((item) => item.id === state().selectedProviderId);
+  const provider = () => selectedProvider(state());
   const canStart = () => canStartProvider(state());
   const canStop = () => canStopProvider(state());
   const canSend = () => state().status === "running" && state().input.length > 0;
+  const submitComposer = () => {
+    if (!canSend()) {
+      return false;
+    }
+    void sendInput(state(), dispatch);
+    return true;
+  };
   const [isRateLimitOpen, setIsRateLimitOpen] = createSignal(false);
   const root = document.createElement("section");
   root.className = "agent-shell";
@@ -152,7 +161,7 @@ function SessionSurface({
   form.className = "w-full min-w-0";
   form.addEventListener("submit", (event) => {
     event.preventDefault();
-    void sendInput(state(), dispatch);
+    submitComposer();
   });
   composerStack.append(form);
 
@@ -186,9 +195,11 @@ function SessionSurface({
       return;
     }
     event.preventDefault();
-    void sendInput(state(), dispatch);
+    submitComposer();
   });
   composerBody.append(textarea);
+  onCleanup(setComposerFocusHandler(() => textarea.focus()));
+  onCleanup(setComposerSubmitHandler(submitComposer));
   const insertToken = (token: "@" | "$") => {
     const insertion = insertComposerToken({
       text: state().input,
@@ -236,7 +247,7 @@ function SessionSurface({
   const select = document.createElement("select");
   select.className = "provider-select";
   select.addEventListener("change", () => {
-    selectProvider(select.value as ProviderId, state(), dispatch);
+    selectProvider(select.value, state(), dispatch);
   });
   modelPicker.append(select);
 
@@ -254,7 +265,7 @@ function SessionSurface({
     select.replaceChildren();
     for (const item of state().providers) {
       const option = document.createElement("option");
-      option.value = item.id;
+      option.value = providerSelectionId(item);
       option.textContent = item.displayName;
       select.append(option);
     }
@@ -263,7 +274,7 @@ function SessionSurface({
     select.setAttribute("aria-label", state().context?.copy.provider ?? "");
     const selectedProvider = provider();
     modelIcon.textContent = selectedProvider ? providerBadgeLabel(selectedProvider) : "C";
-    modelLabel.textContent = codexModelLabel(selectedProvider);
+    modelLabel.textContent = providerModelLabel(selectedProvider);
   });
 
   const controlsRight = document.createElement("div");
@@ -278,9 +289,7 @@ function SessionSurface({
   createEffect(() => {
     start.textContent = state().context?.copy.start ?? "Start";
     const currentProvider = provider();
-    const autoStartAlreadyAttempted = currentProvider
-      ? state().autoStartAttemptedProviderIds.includes(currentProvider.id)
-      : false;
+    const autoStartAlreadyAttempted = state().autoStartAttemptedProviderIds.includes(state().selectedProviderId);
     const showStart = canStart() && (currentProvider?.autoStart !== true || autoStartAlreadyAttempted);
     start.hidden = !showStart;
     start.disabled = !showStart;

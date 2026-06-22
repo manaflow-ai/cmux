@@ -17,6 +17,31 @@ extension TerminalController: ControlPaneContext {
         resolveTabManager(routing: routing) != nil
     }
 
+    func v2AgentSessionModelSelection(
+        providerID: AgentSessionProviderID,
+        modelRaw: String?,
+        openCodeProviderRaw: String?
+    ) -> (modelID: String?, openCodeProviderID: String?, invalidOpenCodeModelRawValue: String?) {
+        let model = modelRaw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let model, !model.isEmpty, v2NormalizedToken(model) != "default" else {
+            return (nil, nil, nil)
+        }
+        guard providerID == .opencode else {
+            return (model, nil, nil)
+        }
+        let explicitOpenCodeProvider = openCodeProviderRaw?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let explicitOpenCodeProvider, !explicitOpenCodeProvider.isEmpty {
+            return (model, explicitOpenCodeProvider, nil)
+        }
+        let parts = model.split(separator: "/", maxSplits: 1).map(String.init)
+        guard parts.count == 2,
+              !parts[0].isEmpty,
+              !parts[1].isEmpty else {
+            return (nil, nil, model)
+        }
+        return (parts[1], parts[0], nil)
+    }
+
     // MARK: - Routing helpers
 
     /// The routing twin of the legacy `v2ResolveWorkspace(params:tabManager:)`,
@@ -184,8 +209,36 @@ extension TerminalController: ControlPaneContext {
         }
 
         let panelType: PanelType = inputs.typeRaw.flatMap { self.panelType(forRawToken: $0) } ?? .terminal
+        var providerID: AgentSessionProviderID = .codex
+        var rendererKind: AgentSessionRendererKind = .react
+        var modelID: String?
+        var openCodeProviderID: String?
         if panelType == .agentSession {
-            return .agentSessionRejected(typeRawValue: panelType.rawValue)
+            if let providerRaw = inputs.providerRaw {
+                switch v2NormalizedToken(providerRaw) {
+                case "codex": providerID = .codex
+                case "claude", "claudecode": providerID = .claude
+                case "opencode": providerID = .opencode
+                default: return .invalidProvider(rawValue: providerRaw)
+                }
+            }
+            if let rendererRaw = inputs.rendererRaw {
+                switch v2NormalizedToken(rendererRaw) {
+                case "react": rendererKind = .react
+                case "solid": rendererKind = .solid
+                default: return .invalidRenderer(rawValue: rendererRaw)
+                }
+            }
+            let modelSelection = v2AgentSessionModelSelection(
+                providerID: providerID,
+                modelRaw: inputs.modelRaw,
+                openCodeProviderRaw: inputs.openCodeProviderRaw
+            )
+            if let rawValue = modelSelection.invalidOpenCodeModelRawValue {
+                return .invalidOpenCodeModel(rawValue: rawValue)
+            }
+            modelID = modelSelection.modelID
+            openCodeProviderID = modelSelection.openCodeProviderID
         }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
@@ -237,6 +290,19 @@ extension TerminalController: ControlPaneContext {
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+            )?.id
+        } else if panelType == .agentSession {
+            newPanelId = ws.newAgentSessionSplit(
+                from: sourcePanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                providerID: providerID,
+                rendererKind: rendererKind,
+                initialModelID: modelID,
+                initialOpenCodeProviderID: openCodeProviderID,
+                workingDirectory: inputs.workingDirectory,
+                focus: focus,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
         } else {

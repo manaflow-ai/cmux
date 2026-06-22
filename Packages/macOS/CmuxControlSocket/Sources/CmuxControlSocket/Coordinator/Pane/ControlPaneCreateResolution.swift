@@ -20,10 +20,13 @@ public enum ControlPaneCreateResolution: Sendable, Equatable {
     /// `invalid_params` / "initial_divider_position must be numeric", `data:
     /// nil`).
     case invalidDividerPosition
-    /// The `type` resolved to `agent-session`, which `pane.create` rejects
-    /// (legacy `invalid_params` / "agent-session is only supported by
-    /// surface.create", `data: {"type": rawValue}`). Carries the raw type value.
-    case agentSessionRejected(typeRawValue: String)
+    /// The agent-session provider token was invalid.
+    case invalidProvider(rawValue: String)
+    /// The agent-session renderer token was invalid.
+    case invalidRenderer(rawValue: String)
+    /// The OpenCode model token was missing its provider prefix and no separate
+    /// OpenCode provider id was supplied.
+    case invalidOpenCodeModel(rawValue: String)
     /// A browser split was requested while the cmux browser is disabled and an
     /// invalid URL was supplied (legacy `invalid_params` / "Invalid URL",
     /// `data: {"url": rawURL}`). Carries the raw URL string.

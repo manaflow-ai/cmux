@@ -14,6 +14,14 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// The trimmed `type` string, if present (legacy `v2String`). The seam
     /// resolves it to a panel type, defaulting to terminal when absent/unknown.
     public let typeRaw: String?
+    /// The raw agent-session provider token, if present.
+    public let providerRaw: String?
+    /// The raw agent-session renderer token, if present.
+    public let rendererRaw: String?
+    /// The raw agent-session model id, if present.
+    public let modelRaw: String?
+    /// The raw OpenCode provider id for brokered models, if present.
+    public let openCodeProviderRaw: String?
     /// The raw `url` string, if present (legacy `v2String`), used for the URL
     /// and the browser-disabled error data.
     public let urlRaw: String?
@@ -45,6 +53,10 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     /// - Parameters:
     ///   - directionRaw: The trimmed `direction` string, if present.
     ///   - typeRaw: The trimmed `type` string, if present.
+    ///   - providerRaw: The raw agent-session provider token, if present.
+    ///   - rendererRaw: The raw agent-session renderer token, if present.
+    ///   - modelRaw: The raw agent-session model id, if present.
+    ///   - openCodeProviderRaw: The raw OpenCode provider id, if present.
     ///   - urlRaw: The raw `url` string, if present.
     ///   - workingDirectory: The trimmed-non-empty working directory, if any.
     ///   - initialCommand: The trimmed-non-empty initial command, if any.
@@ -57,6 +69,10 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     public init(
         directionRaw: String?,
         typeRaw: String?,
+        providerRaw: String?,
+        rendererRaw: String?,
+        modelRaw: String?,
+        openCodeProviderRaw: String?,
         urlRaw: String?,
         workingDirectory: String?,
         initialCommand: String?,
@@ -69,6 +85,10 @@ public struct ControlPaneCreateInputs: Sendable, Equatable {
     ) {
         self.directionRaw = directionRaw
         self.typeRaw = typeRaw
+        self.providerRaw = providerRaw
+        self.rendererRaw = rendererRaw
+        self.modelRaw = modelRaw
+        self.openCodeProviderRaw = openCodeProviderRaw
         self.urlRaw = urlRaw
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand

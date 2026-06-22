@@ -179,6 +179,10 @@ extension ControlCommandCoordinator {
         let inputs = ControlPaneCreateInputs(
             directionRaw: string(params, "direction"),
             typeRaw: string(params, "type"),
+            providerRaw: string(params, "provider_id") ?? string(params, "provider"),
+            rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
+            modelRaw: string(params, "model_id") ?? string(params, "model"),
+            openCodeProviderRaw: string(params, "opencode_provider_id") ?? string(params, "open_code_provider_id"),
             urlRaw: string(params, "url"),
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
@@ -207,11 +211,23 @@ extension ControlCommandCoordinator {
                 message: "initial_divider_position must be numeric",
                 data: nil
             )
-        case .agentSessionRejected(let typeRawValue):
+        case .invalidProvider(let rawValue):
             return .err(
                 code: "invalid_params",
-                message: "agent-session is only supported by surface.create",
-                data: .object(["type": .string(typeRawValue)])
+                message: "Invalid provider (codex|claude|opencode)",
+                data: .object(["provider": .string(rawValue)])
+            )
+        case .invalidRenderer(let rawValue):
+            return .err(
+                code: "invalid_params",
+                message: "Invalid renderer (react|solid)",
+                data: .object(["renderer": .string(rawValue)])
+            )
+        case .invalidOpenCodeModel(let rawValue):
+            return .err(
+                code: "invalid_params",
+                message: "OpenCode model must be provider/model or include opencode_provider_id",
+                data: .object(["model": .string(rawValue)])
             )
         case .browserDisabledInvalidURL(let rawURL):
             return .err(code: "invalid_params", message: "Invalid URL", data: .object(["url": .string(rawURL)]))

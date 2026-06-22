@@ -30,11 +30,19 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
     }
 
     var launchArguments: [String] {
+        launchArguments(modelID: nil)
+    }
+
+    func launchArguments(modelID: String?) -> [String] {
+        let normalizedModel = modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedModel = normalizedModel?.isEmpty == false ? normalizedModel : nil
         switch self {
         case .codex:
-            return ["app-server", "--listen", "stdio://"]
+            let modelArgs = selectedModel.map { ["-c", "model=\"\($0)\""] } ?? []
+            return modelArgs + ["app-server", "--listen", "stdio://"]
         case .claude:
-            return [
+            let modelArgs = selectedModel.map { ["--model", $0] } ?? []
+            return modelArgs + [
                 "-p",
                 "--output-format", "stream-json",
                 "--input-format", "stream-json",

@@ -1,14 +1,11 @@
 import type { ProviderInfo } from "./types";
 
-export function codexModelLabel(provider: Pick<ProviderInfo, "displayName" | "id"> | undefined): string {
-  if (provider?.id === "codex") {
-    return "GPT-5.5";
-  }
-  return provider?.displayName ?? "GPT-5.5";
+export function modelLabel(provider: Pick<ProviderInfo, "displayName"> | undefined): string {
+  return provider?.displayName ?? "";
 }
 
-export function providerBadgeLabel(provider: Pick<ProviderInfo, "displayName" | "id">): string {
-  const displayName = provider.displayName;
+export function providerBadgeLabel(provider: Pick<ProviderInfo, "displayName" | "id" | "providerDisplayName">): string {
+  const displayName = provider.providerDisplayName ?? provider.displayName;
   const lower = displayName.toLowerCase();
   if (provider.id === "claude" || lower.includes("claude")) {
     return "Cl";

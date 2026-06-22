@@ -270,8 +270,12 @@ body[data-cmux-webview-kind="open-chat"] #root {
 }
 
 .open-chat-model-button span:first-child {
+  max-width: 148px;
+  overflow: hidden;
   color: var(--agent-text);
   font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .open-chat-model-button span:nth-child(2) {
@@ -402,6 +406,14 @@ body[data-cmux-webview-kind="open-chat"] #root {
   margin-top: 6px;
   border-top: 1px solid var(--agent-border);
   padding-top: 6px;
+}
+
+.open-chat-model-menu {
+  max-height: min(440px, calc(100vh - 96px));
+  min-width: min(320px, calc(100vw - 32px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .open-chat-menu-heading {

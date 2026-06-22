@@ -9,6 +9,10 @@ extension CMUXCLI {
         var noFocus = false
         var cwd: String?
         var workspaceName: String?
+        var provider: String?
+        var renderer: String?
+        var model: String?
+        var openCodeProvider: String?
     }
 
     func runOpenChatCommand(
@@ -24,11 +28,11 @@ extension CMUXCLI {
             focus = false
         } else if let focusOpt = parsedArgs.focus {
             guard let parsed = parseBoolString(focusOpt) else {
-                throw CLIError(message: "--focus must be true|false")
+                throw CLIError(message: openChatInvalidFocusMessage())
             }
             focus = parsed
         } else {
-            focus = false
+            focus = true
         }
 
         var client: SocketClient?
@@ -63,42 +67,31 @@ extension CMUXCLI {
         }
 
         let cwd = parsedArgs.cwd.map(resolvePath) ?? FileManager.default.currentDirectoryPath
-        let context = openChatContext(cwd: cwd, workspaceName: parsedArgs.workspaceName)
-        let appearance = diffViewerAppearance(socketPath: socketPath, fontSizeOverride: nil)
-        let runtime = diffViewerRuntime(socketPath: socketPath)
-        let viewer = try writeOpenChat(
-            context: context,
-            appearance: appearance,
-            runtime: runtime
-        )
-
         try resolveTargetIfNeeded()
         let activeClient = try connectedClient()
 
         var params: [String: Any] = [
-            "url": viewer.url.absoluteString,
+            "type": "agent-session",
+            "direction": "right",
+            "provider_id": parsedArgs.provider ?? "codex",
+            "renderer_kind": parsedArgs.renderer ?? "react",
+            "working_directory": cwd,
             "focus": focus,
-            "show_omnibar": false,
-            "transparent_background": true,
-            "bypass_remote_proxy": true
         ]
-        if viewer.url.scheme == DiffViewerURLMapper.scheme {
-            params["diff_viewer_token"] = viewer.url.host ?? ""
-            params["diff_viewer_files"] = viewer.allowedFiles.map(\.jsonObject)
-        }
+        if let model = parsedArgs.model { params["model_id"] = model }
+        if let openCodeProvider = parsedArgs.openCodeProvider { params["opencode_provider_id"] = openCodeProvider }
         if let windowHandle { params["window_id"] = windowHandle }
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
 
-        let payload = try activeClient.sendV2(method: "browser.open_split", params: params)
+        let payload = try activeClient.sendV2(method: "pane.create", params: params)
 
         if jsonOutput {
             var response = payload
-            response["path"] = viewer.fileURL.path
-            response["url"] = viewer.url.absoluteString
-            response["title"] = viewer.title
-            response["repo"] = context.repoName
-            response["branch"] = context.branchName ?? NSNull()
+            response["provider"] = parsedArgs.provider ?? "codex"
+            response["renderer"] = parsedArgs.renderer ?? "react"
+            if let model = parsedArgs.model { response["model"] = model }
+            if let openCodeProvider = parsedArgs.openCodeProvider { response["opencode_provider"] = openCodeProvider }
             print(jsonString(formatIDs(response, mode: idFormat)))
             return
         }
@@ -151,6 +144,22 @@ extension CMUXCLI {
                     parsed.workspaceName = try openOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--provider", "--provider-id":
+                    parsed.provider = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--renderer", "--renderer-kind":
+                    parsed.renderer = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--model", "--model-id":
+                    parsed.model = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--opencode-provider", "--open-code-provider":
+                    parsed.openCodeProvider = try openOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
                 default:
                     if arg.hasPrefix("-") {
                         throw CLIError(message: openChatUnknownFlagMessage(arg))
@@ -174,16 +183,20 @@ extension CMUXCLI {
         Usage: cmux open-chat [options]
                cmux chat [options]
 
-        Open the Codex-style Chat composer in a cmux browser split.
+        Open an AI agent Chat pane in cmux.
 
         Options:
           --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
           --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
           --window <id|ref|index>      Target window
           --cwd, --repo, --path <path> Repository or workspace path used for Chat context
-          --workspace-name <name>      Workspace name shown in the Chat heading
-          --focus <true|false>         Focus the Chat browser split (default: false)
-          --no-focus                   Do not focus the opened Chat browser split
+          --workspace-name <name>      Accepted for compatibility
+          --provider <provider>        Agent backend: codex, claude, or opencode (default: codex)
+          --model <model>              Backend model id, or provider/model for OpenCode
+          --opencode-provider <id>     OpenCode provider id when --model omits provider/
+          --renderer <renderer>        Agent renderer: react or solid (default: react)
+          --focus <true|false>         Focus the Chat pane (default: true)
+          --no-focus                   Do not focus the opened Chat pane
 
         Examples:
           cmux open-chat
@@ -195,9 +208,16 @@ extension CMUXCLI {
     private func openChatUnknownFlagMessage(_ flag: String) -> String {
         let format = CMUXDiffViewerLocalization.string(
             "cli.openChat.error.unknownFlagFormat",
-            defaultValue: "open-chat: unknown flag '%@'. Usage: cmux open-chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd|--repo|--path <path>] [--workspace-name <name>] [--focus true|false] [--no-focus]"
+            defaultValue: "open-chat: unknown flag '%@'. Usage: cmux open-chat [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd|--repo|--path <path>] [--workspace-name <name>] [--provider <codex|claude|opencode>] [--model <model|provider/model>] [--opencode-provider <id>] [--renderer <react|solid>] [--focus true|false] [--no-focus]"
         )
         return String(format: format, flag)
+    }
+
+    private func openChatInvalidFocusMessage() -> String {
+        CMUXDiffViewerLocalization.string(
+            "cli.openChat.error.invalidFocus",
+            defaultValue: "--focus must be true|false"
+        )
     }
 
     private func openChatNoPositionalsMessage() -> String {

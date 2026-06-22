@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 extension CMUXCLI {
@@ -69,11 +70,7 @@ extension CMUXCLI {
             "rateLimit": [
                 "resetTime": openChatPlaceholderResetTime()
             ],
-            "models": [
-                ["id": "5.5", "label": "5.5", "selected": true],
-                ["id": "5.1", "label": "5.1", "selected": false],
-                ["id": "5", "label": "5", "selected": false],
-            ],
+            "models": openChatModelOptions(labels: labels),
             "reasoningLevels": [
                 ["id": "extra-high", "label": labels.values["reasoningExtraHigh"] ?? "Extra High", "selected": true],
                 ["id": "high", "label": labels.values["reasoningHigh"] ?? "High", "selected": false],
@@ -99,7 +96,7 @@ extension CMUXCLI {
             ],
             "suggestions": [
                 ["id": "example", "kind": "prompt", "label": labels.values["exampleSuggestion"] ?? "Plan and build a polished feature from this workspace"],
-                ["id": "apps", "kind": "apps", "label": labels.values["connectApps"] ?? "Connect your favorite apps to Codex"],
+                ["id": "apps", "kind": "apps", "label": labels.values["connectApps"] ?? "Connect your favorite apps to your agent"],
             ],
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
@@ -146,5 +143,18 @@ extension CMUXCLI {
         formatter.dateStyle = .none
         formatter.locale = Locale.current
         return formatter.string(from: resetDate)
+    }
+
+    func openChatModelOptions(labels: OpenChatLabels) -> [[String: Any]] {
+        let defaultModelLabel = labels.values["approvalDefault"] ?? "Default"
+        return OpenChatModelOptionCatalog(defaultModelLabel: defaultModelLabel)
+            .options()
+            .map { option in
+                [
+                    "id": option.id,
+                    "label": option.label,
+                    "selected": option.isSelected,
+                ]
+            }
     }
 }

@@ -1285,6 +1285,7 @@
               "toggleBrowserFocusMode",
               "toggleReactGrab",
               "openChat",
+              "openChatWorkspace",
               "openDiffViewer",
               "diffViewerScrollDown",
               "diffViewerScrollUp",

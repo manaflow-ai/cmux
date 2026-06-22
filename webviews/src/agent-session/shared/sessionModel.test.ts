@@ -128,6 +128,41 @@ const providers: ProviderInfo[] = [
   },
 ];
 
+const modelProviders: ProviderInfo[] = [
+  {
+    id: "codex",
+    selectionId: "codex:gpt-5.5",
+    displayName: "Codex - GPT-5.5",
+    executableName: "codex",
+    transportKind: "stdio-jsonrpc",
+    arguments: ["-c", "model=\"gpt-5.5\"", "app-server", "--listen", "stdio://"],
+    autoStart: true,
+    isDefault: true,
+    modelId: "gpt-5.5",
+  },
+  {
+    id: "codex",
+    selectionId: "codex:gpt-5.1",
+    displayName: "Codex - GPT-5.1",
+    executableName: "codex",
+    transportKind: "stdio-jsonrpc",
+    arguments: ["-c", "model=\"gpt-5.1\"", "app-server", "--listen", "stdio://"],
+    autoStart: true,
+    modelId: "gpt-5.1",
+  },
+  {
+    id: "opencode",
+    selectionId: "opencode:google/gemini-2.5-pro",
+    displayName: "OpenCode - Google Gemini 2.5 Pro",
+    executableName: "opencode",
+    transportKind: "http-loopback",
+    arguments: ["serve"],
+    autoStart: true,
+    modelId: "gemini-2.5-pro",
+    openCodeProviderId: "google",
+  },
+];
+
 test("provider started event records running session", () => {
   const starting = reduceSession(
     reduceSession(initialState("react"), { type: "context", context }),
@@ -652,6 +687,20 @@ test("auto start is enabled for idle auto-start providers after context and prov
   expect(shouldAutoStartProvider(state)).toBe(true);
 });
 
+test("initial model selection is preserved when provider list loads", () => {
+  const selectedContext = {
+    ...context,
+    initialProviderSelectionId: "codex:gpt-5.1",
+  };
+  const state = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context: selectedContext }),
+    { type: "providers", providers: modelProviders },
+  );
+
+  expect(state.selectedProviderId).toBe("codex:gpt-5.1");
+  expect(shouldAutoStartProvider(state)).toBe(true);
+});
+
 test("auto start is disabled after a provider has already been attempted", () => {
   const state = reduceSession(
     reduceSession(reduceSession(initialState("react"), { type: "context", context }), {
@@ -664,6 +713,19 @@ test("auto start is disabled after a provider has already been attempted", () =>
   expect(shouldAutoStartProvider(state)).toBe(false);
 });
 
+test("auto start attempts are remembered per model selection", () => {
+  const loaded = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context: { ...context, initialProviderSelectionId: "codex:gpt-5.5" } }),
+    { type: "providers", providers: modelProviders },
+  );
+  const attemptedFirstModel = reduceSession(loaded, { type: "autoStartAttempted", providerId: "codex:gpt-5.5" });
+  const selectedSecondModel = reduceSession(attemptedFirstModel, { type: "selectProvider", providerId: "codex:gpt-5.1" });
+  const attemptedSecondModel = reduceSession(selectedSecondModel, { type: "autoStartAttempted", providerId: "codex:gpt-5.1" });
+
+  expect(shouldAutoStartProvider(selectedSecondModel)).toBe(true);
+  expect(shouldAutoStartProvider(attemptedSecondModel)).toBe(false);
+});
+
 test("auto start attempts are remembered per provider switch", () => {
   const loaded = reduceSession(
     reduceSession(initialState("react"), { type: "context", context }),
@@ -674,6 +736,44 @@ test("auto start attempts are remembered per provider switch", () => {
   const selectedCodexAgain = reduceSession(selectedClaude, { type: "selectProvider", providerId: "codex" });
 
   expect(shouldAutoStartProvider(selectedCodexAgain)).toBe(false);
+});
+
+test("auto start sends selected model metadata", async () => {
+  const loaded = reduceSession(
+    reduceSession(initialState("react"), { type: "context", context: { ...context, initialProviderSelectionId: "codex:gpt-5.1" } }),
+    { type: "providers", providers: modelProviders },
+  );
+  const actions: Action[] = [];
+  const messages: Array<{ method: string; params: Record<string, unknown> }> = [];
+  const globalWithWindow = globalThis as unknown as { window?: unknown };
+  const originalWindow = globalWithWindow.window;
+  globalWithWindow.window = {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          async postMessage(message: unknown) {
+            messages.push(message as { method: string; params: Record<string, unknown> });
+            return { ok: true, value: { sessionId: "session-auto-model" } };
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    await autoStartProvider(loaded, (action) => actions.push(action));
+  } finally {
+    if (originalWindow === undefined) {
+      delete globalWithWindow.window;
+    } else {
+      globalWithWindow.window = originalWindow;
+    }
+  }
+
+  expect(actions[0]).toEqual({ type: "autoStartAttempted", providerId: "codex:gpt-5.1" });
+  expect(messages[0]?.params.providerId).toBe("codex");
+  expect(messages[0]?.params.selectionId).toBe("codex:gpt-5.1");
+  expect(messages[0]?.params.modelId).toBe("gpt-5.1");
 });
 
 test("auto start sends provider start from an explicit snapshot", async () => {

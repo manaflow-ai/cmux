@@ -105,8 +105,36 @@ extension TerminalController {
             return .invalidDirection
         }
         let panelType = inputs.typeRaw.flatMap { surfacePanelType(forRawToken: $0) } ?? .terminal
+        var providerID: AgentSessionProviderID = .codex
+        var rendererKind: AgentSessionRendererKind = .react
+        var modelID: String?
+        var openCodeProviderID: String?
         if panelType == .agentSession {
-            return .agentSessionRejected(typeRawValue: panelType.rawValue)
+            if let providerRaw = inputs.providerRaw {
+                switch v2NormalizedToken(providerRaw) {
+                case "codex": providerID = .codex
+                case "claude", "claudecode": providerID = .claude
+                case "opencode": providerID = .opencode
+                default: return .invalidProvider(rawValue: providerRaw)
+                }
+            }
+            if let rendererRaw = inputs.rendererRaw {
+                switch v2NormalizedToken(rendererRaw) {
+                case "react": rendererKind = .react
+                case "solid": rendererKind = .solid
+                default: return .invalidRenderer(rawValue: rendererRaw)
+                }
+            }
+            let modelSelection = v2AgentSessionModelSelection(
+                providerID: providerID,
+                modelRaw: inputs.modelRaw,
+                openCodeProviderRaw: inputs.openCodeProviderRaw
+            )
+            if let rawValue = modelSelection.invalidOpenCodeModelRawValue {
+                return .invalidOpenCodeModel(rawValue: rawValue)
+            }
+            modelID = modelSelection.modelID
+            openCodeProviderID = modelSelection.openCodeProviderID
         }
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
@@ -165,6 +193,19 @@ extension TerminalController {
                 url: url,
                 focus: focus,
                 creationPolicy: .automationPreload,
+                initialDividerPosition: dividerPosition
+            )?.id
+        } else if panelType == .agentSession {
+            newId = ws.newAgentSessionSplit(
+                from: targetSurfaceId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                providerID: providerID,
+                rendererKind: rendererKind,
+                initialModelID: modelID,
+                initialOpenCodeProviderID: openCodeProviderID,
+                workingDirectory: inputs.workingDirectory,
+                focus: focus,
                 initialDividerPosition: dividerPosition
             )?.id
         } else {
@@ -284,6 +325,8 @@ extension TerminalController {
 
         var providerID: AgentSessionProviderID = .codex
         var rendererKind: AgentSessionRendererKind = .react
+        var modelID: String?
+        var openCodeProviderID: String?
         if panelType == .agentSession {
             if let providerRaw = inputs.providerRaw {
                 switch v2NormalizedToken(providerRaw) {
@@ -300,6 +343,16 @@ extension TerminalController {
                 default: return .invalidRenderer(rawValue: rendererRaw)
                 }
             }
+            let modelSelection = v2AgentSessionModelSelection(
+                providerID: providerID,
+                modelRaw: inputs.modelRaw,
+                openCodeProviderRaw: inputs.openCodeProviderRaw
+            )
+            if let rawValue = modelSelection.invalidOpenCodeModelRawValue {
+                return .invalidOpenCodeModel(rawValue: rawValue)
+            }
+            modelID = modelSelection.modelID
+            openCodeProviderID = modelSelection.openCodeProviderID
         }
 
         let url = inputs.urlRaw.flatMap { URL(string: $0) }
@@ -354,6 +407,8 @@ extension TerminalController {
                 inPane: paneId,
                 providerID: providerID,
                 rendererKind: rendererKind,
+                initialModelID: modelID,
+                initialOpenCodeProviderID: openCodeProviderID,
                 workingDirectory: inputs.workingDirectory,
                 focus: focus
             )?.id

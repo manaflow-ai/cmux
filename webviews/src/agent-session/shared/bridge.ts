@@ -7,12 +7,16 @@ type NativeReply<T> =
   | { ok: false; error?: { code?: string; userMessage?: string } };
 
 type EventListener = (event: AgentEvent) => void;
+type ComposerPointerDownHandler = (x: number, y: number) => boolean;
 
 declare global {
   interface Window {
     cmuxAgentBridge?: {
       applyTheme(theme: AgentSessionTheme): void;
+      focusComposer(): void;
+      pointerDownAt(x: number, y: number): boolean;
       receive(event: AgentEvent): void;
+      submitComposer(): boolean;
     };
     webkit?: {
       messageHandlers?: {
@@ -25,6 +29,9 @@ declare global {
 }
 
 const listeners = new Set<EventListener>();
+let composerFocusHandler: (() => void) | undefined;
+let composerPointerDownHandler: ComposerPointerDownHandler | undefined;
+let composerSubmitHandler: (() => boolean) | undefined;
 
 export class NativeBridgeError extends Error {
   readonly code?: string;
@@ -41,6 +48,12 @@ if (typeof window !== "undefined") {
     applyTheme(theme: AgentSessionTheme) {
       applyAgentTheme(theme);
     },
+    focusComposer() {
+      composerFocusHandler?.();
+    },
+    pointerDownAt(x: number, y: number) {
+      return composerPointerDownHandler?.(x, y) ?? false;
+    },
     receive(event: AgentEvent) {
       if (event.type === "app.theme") {
         applyAgentTheme(event.theme);
@@ -49,6 +62,36 @@ if (typeof window !== "undefined") {
         listener(event);
       }
     },
+    submitComposer() {
+      return composerSubmitHandler?.() ?? false;
+    },
+  };
+}
+
+export function setComposerFocusHandler(handler: () => void): () => void {
+  composerFocusHandler = handler;
+  return () => {
+    if (composerFocusHandler === handler) {
+      composerFocusHandler = undefined;
+    }
+  };
+}
+
+export function setComposerPointerDownHandler(handler: ComposerPointerDownHandler): () => void {
+  composerPointerDownHandler = handler;
+  return () => {
+    if (composerPointerDownHandler === handler) {
+      composerPointerDownHandler = undefined;
+    }
+  };
+}
+
+export function setComposerSubmitHandler(handler: () => boolean): () => void {
+  composerSubmitHandler = handler;
+  return () => {
+    if (composerSubmitHandler === handler) {
+      composerSubmitHandler = undefined;
+    }
   };
 }
 

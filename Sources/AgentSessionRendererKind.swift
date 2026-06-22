@@ -18,7 +18,7 @@ enum AgentSessionRendererKind: String, CaseIterable, Codable, Identifiable, Send
     var resourceHTMLPathComponents: [String] {
         switch self {
         case .react:
-            return ["markdown-viewer", "webviews-app", "agent-session.html"]
+            return ["agent-session-react", "index.html"]
         case .solid:
             return ["agent-session-solid", "index.html"]
         }

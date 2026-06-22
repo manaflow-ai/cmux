@@ -74,6 +74,7 @@ enum KeyboardShortcutSettings {
         case toggleSidebar
         case newTab
         case newBrowserWorkspace
+        case openChatWorkspace
         case openFolder
         case reopenPreviousSession
         case goToWorkspace
@@ -196,6 +197,7 @@ enum KeyboardShortcutSettings {
             case .toggleSidebar: return String(localized: "shortcut.toggleLeftSidebar.label", defaultValue: "Toggle Left Sidebar")
             case .newTab: return String(localized: "shortcut.newWorkspace.label", defaultValue: "New Workspace")
             case .newBrowserWorkspace: return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
+            case .openChatWorkspace: return String(localized: "shortcut.openChatWorkspace.label", defaultValue: "Open Chat in New Workspace")
             case .openFolder: return String(localized: "shortcut.openFolder.label", defaultValue: "Open Folder")
             case .reopenPreviousSession: return String(localized: "shortcut.reopenPreviousSession.label", defaultValue: "Restore Previous App Launch")
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
@@ -343,6 +345,9 @@ enum KeyboardShortcutSettings {
                 // (Cmd+Shift+N) without colliding with any cmux default or an
                 // AppKit-reserved keystroke.
                 return StoredShortcut(key: "n", command: true, shift: false, option: true, control: false)
+            case .openChatWorkspace:
+                // Cmd+Shift+J: same Chat mnemonic as Cmd+J, but creates a new workspace.
+                return StoredShortcut(key: "j", command: true, shift: true, option: false, control: false)
             case .openFolder:
                 return StoredShortcut(key: "o", command: true, shift: false, option: false, control: false)
             case .reopenPreviousSession:
@@ -544,10 +549,8 @@ enum KeyboardShortcutSettings {
             case .toggleReactGrab:
                 return StoredShortcut(key: "g", command: true, shift: true, option: false, control: false)
             case .openChat:
-                // Cmd+Ctrl+Shift+C. Cmd+Opt+C is Safari's JavaScript Console and
-                // Cmd+Ctrl+C is commonly owned by editors/terminal flows, so Shift
-                // keeps the "C for Chat" mnemonic on an app-owned chord.
-                return StoredShortcut(key: "c", command: true, shift: true, option: false, control: true)
+                // Cmd+J: quick jump into the workspace-scoped Chat composer.
+                return StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
             case .openDiffViewer:
                 // Cmd+Ctrl+Shift+D. The plain Cmd+Ctrl+D chord is reserved by macOS for
                 // "Look Up & data detectors" — the OS swallows it before it reaches the

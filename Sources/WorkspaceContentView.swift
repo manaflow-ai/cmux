@@ -717,6 +717,19 @@ struct EmptyPanelView: View {
         _ = workspace.newBrowserSurface(inPane: paneId)
     }
 
+    private func createChat() {
+        #if DEBUG
+        cmuxDebugLog("emptyPane.openChat pane=\(paneId.id.uuidString.prefix(5))")
+        #endif
+        focusPane()
+        _ = workspace.newAgentSessionSurface(
+            inPane: paneId,
+            providerID: .codex,
+            rendererKind: .react,
+            focus: true
+        )
+    }
+
     private var newSurfaceShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .newSurface)
@@ -725,6 +738,11 @@ struct EmptyPanelView: View {
     private var openBrowserShortcut: StoredShortcut {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .openBrowser)
+    }
+
+    private var openChatShortcut: StoredShortcut {
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .openChat)
     }
 
     @ViewBuilder
@@ -760,24 +778,56 @@ struct EmptyPanelView: View {
                 .font(.system(size: 48))
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
+            Text(String(localized: "workspace.emptyPanel.title", defaultValue: "Empty Panel"))
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                emptyPaneActionButton(
-                    title: "Terminal",
-                    systemImage: "terminal.fill",
-                    shortcut: newSurfaceShortcut,
-                    action: createTerminal
-                )
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    emptyPaneActionButton(
+                        title: String(localized: "workspace.emptyPanel.terminal", defaultValue: "Terminal"),
+                        systemImage: "terminal.fill",
+                        shortcut: newSurfaceShortcut,
+                        action: createTerminal
+                    )
 
-                emptyPaneActionButton(
-                    title: "Browser",
-                    systemImage: "globe",
-                    shortcut: openBrowserShortcut,
-                    action: createBrowser
-                )
+                    emptyPaneActionButton(
+                        title: String(localized: "openChat.title", defaultValue: "Open Chat"),
+                        systemImage: "sparkles",
+                        shortcut: openChatShortcut,
+                        action: createChat
+                    )
+
+                    emptyPaneActionButton(
+                        title: String(localized: "workspace.emptyPanel.browser", defaultValue: "Browser"),
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
+
+                VStack(spacing: 10) {
+                    emptyPaneActionButton(
+                        title: String(localized: "workspace.emptyPanel.terminal", defaultValue: "Terminal"),
+                        systemImage: "terminal.fill",
+                        shortcut: newSurfaceShortcut,
+                        action: createTerminal
+                    )
+
+                    emptyPaneActionButton(
+                        title: String(localized: "openChat.title", defaultValue: "Open Chat"),
+                        systemImage: "sparkles",
+                        shortcut: openChatShortcut,
+                        action: createChat
+                    )
+
+                    emptyPaneActionButton(
+                        title: String(localized: "workspace.emptyPanel.browser", defaultValue: "Browser"),
+                        systemImage: "globe",
+                        shortcut: openBrowserShortcut,
+                        action: createBrowser
+                    )
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

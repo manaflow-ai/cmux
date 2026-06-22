@@ -20,7 +20,7 @@ function readConfig(): OpenChatConfig {
 /**
  * Boots the Open Chat composer surface: reads its generated config, applies the
  * cmux/diff-viewer appearance tokens used by internal browser surfaces, then
- * renders the Codex-style composer through the shared webview router.
+ * renders the agent composer through the shared webview router.
  */
 export function mountOpenChatSurface(rootElement: HTMLElement): void {
   const config = readConfig();

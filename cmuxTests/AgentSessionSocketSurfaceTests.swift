@@ -36,6 +36,8 @@ struct AgentSessionSocketSurfaceTests {
                 inPane: paneId,
                 providerID: .opencode,
                 rendererKind: .solid,
+                initialModelID: "gemini-2.5-pro",
+                initialOpenCodeProviderID: "google",
                 workingDirectory: "/tmp",
                 focus: true
             )
@@ -44,9 +46,64 @@ struct AgentSessionSocketSurfaceTests {
         expectEqual(panel.panelType, .agentSession)
         expectEqual(panel.initialProviderID, .opencode)
         expectEqual(panel.rendererKind, .solid)
+        expectEqual(panel.initialModelID, "gemini-2.5-pro")
+        expectEqual(panel.initialOpenCodeProviderID, "google")
+        expectEqual(panel.currentProviderID, .opencode)
+        expectEqual(panel.currentModelID, "gemini-2.5-pro")
+        expectEqual(panel.currentOpenCodeProviderID, "google")
         expectEqual(panel.workingDirectory, "/tmp")
         expectEqual(workspace.panelDirectories[panel.id], "/tmp")
         expectEqual(workspace.focusedPanelId, panel.id)
+    }
+
+    @Test
+    func testOpenCodeModelSelectionRequiresProviderForBareModel() {
+        let controller = TerminalController.shared
+
+        let invalid = controller.v2AgentSessionModelSelection(
+            providerID: .opencode,
+            modelRaw: "gemini-2.5-pro",
+            openCodeProviderRaw: nil
+        )
+        expectEqual(invalid.invalidOpenCodeModelRawValue, "gemini-2.5-pro")
+        #expect(invalid.modelID == nil)
+        #expect(invalid.openCodeProviderID == nil)
+
+        let prefixed = controller.v2AgentSessionModelSelection(
+            providerID: .opencode,
+            modelRaw: "google/gemini-2.5-pro",
+            openCodeProviderRaw: nil
+        )
+        #expect(prefixed.invalidOpenCodeModelRawValue == nil)
+        expectEqual(prefixed.modelID, "gemini-2.5-pro")
+        expectEqual(prefixed.openCodeProviderID, "google")
+
+        let explicitProvider = controller.v2AgentSessionModelSelection(
+            providerID: .opencode,
+            modelRaw: "gemini-2.5-pro",
+            openCodeProviderRaw: "google"
+        )
+        #expect(explicitProvider.invalidOpenCodeModelRawValue == nil)
+        expectEqual(explicitProvider.modelID, "gemini-2.5-pro")
+        expectEqual(explicitProvider.openCodeProviderID, "google")
+    }
+
+    @Test
+    func testRemoteTmuxMirrorRejectsAgentSessionSurface() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        workspace.isRemoteTmuxMirror = true
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let panel = workspace.newAgentSessionSurface(
+            inPane: paneId,
+            providerID: .codex,
+            rendererKind: .react,
+            workingDirectory: "/tmp",
+            focus: true
+        )
+
+        #expect(panel == nil)
     }
 
     @Test
@@ -69,5 +126,46 @@ struct AgentSessionSocketSurfaceTests {
         let panelSnapshot = try #require(snapshot.panels.first { $0.id == panel.id })
         expectEqual(panelSnapshot.directory, "/tmp/cmux-agent-session-cwd")
         expectEqual(panelSnapshot.agentSession?.workingDirectory, "/tmp/cmux-agent-session-cwd")
+    }
+
+    @Test
+    func testWorkspaceSessionSnapshotRoundTripsAgentSessionProviderSelection() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let panel = try #require(
+            workspace.newAgentSessionSurface(
+                inPane: paneId,
+                providerID: .codex,
+                rendererKind: .react,
+                workingDirectory: "/tmp/cmux-agent-session-model",
+                focus: true
+            )
+        )
+
+        panel.rendererSession.onProviderSelectionChanged?(
+            .opencode,
+            "gemini-2.5-pro",
+            "google"
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(snapshot.panels.first { $0.id == panel.id })
+        expectEqual(panelSnapshot.agentSession?.providerID, .opencode)
+        expectEqual(panelSnapshot.agentSession?.modelID, "gemini-2.5-pro")
+        expectEqual(panelSnapshot.agentSession?.openCodeProviderID, "google")
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[panel.id])
+        let restoredPanel = try #require(restored.panels[restoredPanelId] as? AgentSessionPanel)
+
+        expectEqual(restoredPanel.initialProviderID, .opencode)
+        expectEqual(restoredPanel.initialModelID, "gemini-2.5-pro")
+        expectEqual(restoredPanel.initialOpenCodeProviderID, "google")
+        expectEqual(restoredPanel.currentProviderID, .opencode)
+        expectEqual(restoredPanel.currentModelID, "gemini-2.5-pro")
+        expectEqual(restoredPanel.currentOpenCodeProviderID, "google")
     }
 }

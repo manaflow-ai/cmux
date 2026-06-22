@@ -6,13 +6,21 @@ public import Foundation
 /// The coordinator parses the raw tokens; the app maps `directionRaw` →
 /// `SplitDirection`, `typeRaw` → `PanelType`, and `urlRaw` → `URL` (so Bonsplit /
 /// PanelType / URL-availability stay app-side). The coordinator pre-validates and
-/// clamps the divider, and pre-validates the agent-session rejection only as far as
-/// the type token; the app rejects `agent-session` against its real `PanelType`.
+/// clamps the divider. The app resolves panel, provider, and renderer tokens
+/// against its concrete surface types.
 public struct ControlSurfaceSplitInputs: Sendable, Equatable {
     /// The raw `direction` token (validated non-nil/non-empty by the coordinator).
     public let directionRaw: String
     /// The raw `type` token, or `nil` (defaults to terminal).
     public let typeRaw: String?
+    /// The raw agent-session provider token, or `nil` (defaults app-side).
+    public let providerRaw: String?
+    /// The raw agent-session renderer token, or `nil` (defaults app-side).
+    public let rendererRaw: String?
+    /// The raw agent-session model id, or `nil`.
+    public let modelRaw: String?
+    /// The raw OpenCode provider id for brokered models, or `nil`.
+    public let openCodeProviderRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
     /// The requested source `surface_id`, or `nil` to split the focused surface.
@@ -35,9 +43,31 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
     public let initialDividerPosition: Double?
 
     /// Creates surface-split inputs.
+    ///
+    /// - Parameters:
+    ///   - directionRaw: The raw split direction token.
+    ///   - typeRaw: The raw surface type token, if present.
+    ///   - providerRaw: The raw agent-session provider token, if present.
+    ///   - rendererRaw: The raw agent-session renderer token, if present.
+    ///   - modelRaw: The raw agent-session model id, if present.
+    ///   - openCodeProviderRaw: The raw OpenCode provider id, if present.
+    ///   - urlRaw: The raw browser URL string, if present.
+    ///   - requestedSourceSurfaceID: The requested source surface id, if any.
+    ///   - workingDirectory: The trimmed-non-empty working directory, if any.
+    ///   - initialCommand: The trimmed-non-empty initial command, if any.
+    ///   - tmuxStartCommand: The trimmed-non-empty tmux start command, if any.
+    ///   - remotePTYSessionID: The trimmed-non-empty remote PTY session id, if any.
+    ///   - startupEnvironment: The startup environment map.
+    ///   - clientUnsupportedRemoteTmuxOptions: Options the caller cannot honor for routed remote tmux splits.
+    ///   - requestedFocus: Whether to focus the new split.
+    ///   - initialDividerPosition: The clamped initial divider position, if present.
     public init(
         directionRaw: String,
         typeRaw: String?,
+        providerRaw: String?,
+        rendererRaw: String?,
+        modelRaw: String?,
+        openCodeProviderRaw: String?,
         urlRaw: String?,
         requestedSourceSurfaceID: UUID?,
         workingDirectory: String?,
@@ -51,6 +81,10 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
     ) {
         self.directionRaw = directionRaw
         self.typeRaw = typeRaw
+        self.providerRaw = providerRaw
+        self.rendererRaw = rendererRaw
+        self.modelRaw = modelRaw
+        self.openCodeProviderRaw = openCodeProviderRaw
         self.urlRaw = urlRaw
         self.requestedSourceSurfaceID = requestedSourceSurfaceID
         self.workingDirectory = workingDirectory

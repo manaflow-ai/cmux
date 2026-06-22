@@ -1,6 +1,6 @@
 import type { DiffViewerAppearance } from "../appearance";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type OpenChatLabelKey =
   | "accountSwitcher"
@@ -101,6 +101,15 @@ export function OpenChatApp({ config }: { config: OpenChatConfig }) {
   const heading = formatLabel(label("headingFormat"), payload.workspaceName);
   const rateLimitSubtitle = formatLabel(label("rateLimitSubtitleFormat"), payload.rateLimit.resetTime);
 
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+    textarea.focus({ preventScroll: true });
+    resizeTextArea(textarea);
+  }, []);
+
   const menus = useMemo(
     () => ({
       approval: {
@@ -192,7 +201,7 @@ export function OpenChatApp({ config }: { config: OpenChatConfig }) {
         aria-expanded={activeMenu === "model"}
         onClick={() => setActiveMenu(activeMenu === "model" ? null : "model")}
       >
-        <span className="open-chat-app-icon">C</span>
+        <span className="open-chat-app-icon">AI</span>
         <Icon name="chevron" />
       </button>
 

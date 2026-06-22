@@ -42,7 +42,7 @@ bunx esbuild "$ROOT/webviews/src/agent-session/solid/main.ts" \
   --minify \
   --outfile="$OUT_SOLID/assets/app.js"
 
-bunx tailwindcss \
+bunx @tailwindcss/cli \
   -i "$ROOT/webviews/src/agent-session/shared/styles.css" \
   -o "$OUT_REACT/assets/styles.css" \
   --minify
