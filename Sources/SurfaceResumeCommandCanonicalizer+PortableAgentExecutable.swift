@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 extension SurfaceResumeBindingSnapshot {
     var startupCommand: String {
@@ -33,6 +34,9 @@ extension SurfaceResumeCommandCanonicalizer {
         guard executable.hasPrefix("/"),
               (executable as NSString).lastPathComponent == executableName,
               isPATHManagedAgentExecutablePath(executable, executableName: executableName) else {
+            return command
+        }
+        guard !isExecutableFile(atPath: executable) else {
             return command
         }
 
@@ -74,6 +78,10 @@ extension SurfaceResumeCommandCanonicalizer {
             return true
         }
         return components.contains("cmux-cli-shims")
+    }
+
+    private static func isExecutableFile(atPath path: String) -> Bool {
+        path.withCString { access($0, X_OK) == 0 }
     }
 
     private static func commandExecutableWordIndex(

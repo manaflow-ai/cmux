@@ -40,6 +40,34 @@ import Testing
         #expect(!binding.command.contains("/Users/me/.nvm/versions/node/v24.2.0/bin/claude"), "\(binding.command)")
     }
 
+    @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-existing-agent-\(UUID().uuidString)", isDirectory: true)
+        let executable = root
+            .appendingPathComponent(".nvm", isDirectory: true)
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent("node", isDirectory: true)
+            .appendingPathComponent("v24.2.0", isDirectory: true)
+            .appendingPathComponent("bin", isDirectory: true)
+            .appendingPathComponent("codex", isDirectory: false)
+        try fileManager.createDirectory(at: executable.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "#!/bin/sh\n".write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(executable.path)' 'resume' 'session-existing-cli'",
+            checkpointId: "session-existing-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+        #expect(startupInput.contains("'\(executable.path)'"), "\(startupInput)")
+    }
+
     @Test func agentHookSurfaceResumeStartupInputFallsBackWhenRecordedAgentExecutableMoved() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
