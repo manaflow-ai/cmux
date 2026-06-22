@@ -62,6 +62,7 @@
 		4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */; };
 		2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */; };
 		6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */; };
+		D7CD00000000000000000001 /* AppDelegate+PaneSurfaceMoveHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7CD00000000000000000002 /* AppDelegate+PaneSurfaceMoveHosting.swift */; };
 		2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */; };
 		6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */; };
 		6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */; };
@@ -1163,6 +1164,7 @@
 		4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationDeliverySeams.swift"; sourceTree = "<group>"; };
 		2907B0022907B0022907B002 /* AppDelegate+NotificationNavSeams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+NotificationNavSeams.swift"; sourceTree = "<group>"; };
 		6313C7A00000000000000002 /* AppDelegate+PaneMemoryGuardrail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneMemoryGuardrail.swift"; sourceTree = "<group>"; };
+		D7CD00000000000000000002 /* AppDelegate+PaneSurfaceMoveHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+PaneSurfaceMoveHosting.swift"; sourceTree = "<group>"; };
 		2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+RecoverableMainWindowRoutes.swift"; sourceTree = "<group>"; };
 		6419A0026419A0026419A002 /* AppDelegate+ShortcutRoutingTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingTesting.swift"; sourceTree = "<group>"; };
 		6419A0046419A0046419A004 /* AppDelegate+ShortcutRoutingWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ShortcutRoutingWindow.swift"; sourceTree = "<group>"; };
@@ -2667,6 +2669,7 @@
 				D5C0CE7A0000000000000002 /* AppDelegate+SocketListenerLifecycleHost.swift */,
 				E3309A02 /* AppDelegate+EqualizeSplitsShortcut.swift */,
 				D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */,
+				D7CD00000000000000000002 /* AppDelegate+PaneSurfaceMoveHosting.swift */,
 				2907A0022907A0022907A002 /* AppDelegate+RecoverableMainWindowRoutes.swift */,
 				E7B3A0010000000000000002 /* AppDelegate+WorkspaceResolving.swift */,
 				4EDE10010000000000000002 /* AppDelegate+NotificationDeliverySeams.swift */,
@@ -3728,6 +3731,7 @@
 				4EDE10010000000000000001 /* AppDelegate+NotificationDeliverySeams.swift in Sources */,
 				2907B0012907B0012907B001 /* AppDelegate+NotificationNavSeams.swift in Sources */,
 				6313C7A00000000000000001 /* AppDelegate+PaneMemoryGuardrail.swift in Sources */,
+				D7CD00000000000000000001 /* AppDelegate+PaneSurfaceMoveHosting.swift in Sources */,
 				2907A0012907A0012907A001 /* AppDelegate+RecoverableMainWindowRoutes.swift in Sources */,
 				6419A0016419A0016419A001 /* AppDelegate+ShortcutRoutingTesting.swift in Sources */,
 				6419A0036419A0036419A003 /* AppDelegate+ShortcutRoutingWindow.swift in Sources */,
