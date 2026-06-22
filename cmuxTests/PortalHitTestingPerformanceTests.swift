@@ -1,5 +1,5 @@
-import XCTest
 import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,7 +8,8 @@ import AppKit
 #endif
 
 @MainActor
-final class PortalHitTestingPerformanceTests: XCTestCase {
+@Suite(.serialized)
+struct PortalHitTestingPerformanceTests {
     private final class CapturingView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
@@ -58,7 +59,8 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         return event
     }
 
-    func testMouseMovedTabBarPassThroughUsesOnlyRegisteredRegions() throws {
+    @Test
+    func mouseMovedTabBarPassThroughUsesOnlyRegisteredRegions() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
             styleMask: [.titled, .closable],
@@ -67,8 +69,8 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        let contentView = try XCTUnwrap(window.contentView)
-        let container = try XCTUnwrap(contentView.superview)
+        let contentView = try #require(window.contentView)
+        let container = try #require(contentView.superview)
         let tabStrip = CountingTabBarBackgroundNSView(
             frame: NSRect(x: 0, y: contentView.bounds.maxY - 44, width: contentView.bounds.width, height: 44)
         )
@@ -79,24 +81,24 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
 
         let pointInWindow = contentView.convert(NSPoint(x: contentView.bounds.midX, y: tabStrip.frame.midY), to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
-        let decision = try XCTUnwrap(BonsplitTabBarPassThrough.passThroughDecision(
+        let decision = try #require(BonsplitTabBarPassThrough.passThroughDecision(
             at: pointInHost,
             in: host,
             eventType: .mouseMoved
         ))
 
-        XCTAssertFalse(
-            decision.result,
+        #expect(
+            !decision.result,
             "High-frequency hover routing should rely on registered Bonsplit tab-bar geometry."
         )
-        XCTAssertEqual(
-            tabStrip.pointConversionCount,
-            0,
+        #expect(
+            tabStrip.pointConversionCount == 0,
             "A registry miss during mouseMoved should not recurse into TabBarBackgroundNSView descendants."
         )
     }
 
-    func testTerminalSplitDividerHitTestingReusesCachedRegionsForPointerMoves() throws {
+    @Test
+    func terminalSplitDividerHitTestingReusesCachedRegionsForPointerMoves() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -105,7 +107,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         let splitView = CountingSplitView(frame: contentView.bounds)
         splitView.isVertical = true
         splitView.dividerStyle = .thin
@@ -130,21 +132,20 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
         let initialRectConversionCount = splitView.rectConversionCount
 
-        XCTAssertNil(host.performHitTest(at: dividerPointInHost, currentEvent: event))
-        XCTAssertNil(host.performHitTest(at: dividerPointInHost, currentEvent: event))
-        XCTAssertEqual(
-            splitView.rectConversionCount - initialRectConversionCount,
-            2,
+        #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
+        #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
+        #expect(
+            splitView.rectConversionCount - initialRectConversionCount == 2,
             "The first pointer move should collect the split bounds and divider rect once."
         )
-        XCTAssertEqual(
-            splitView.pointConversionCount,
-            0,
+        #expect(
+            splitView.pointConversionCount == 0,
             "Repeated pointer moves should hit cached divider rectangles instead of converting through each split view."
         )
     }
 
-    func testTerminalSplitDividerCacheIgnoresRemovedSplitView() throws {
+    @Test
+    func terminalSplitDividerCacheIgnoresRemovedSplitView() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
             styleMask: [.titled, .closable],
@@ -153,7 +154,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         let splitView = CountingSplitView(frame: contentView.bounds)
         splitView.isVertical = true
         splitView.dividerStyle = .thin
@@ -178,18 +179,19 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
         let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
 
-        XCTAssertNil(host.performHitTest(at: dividerPointInHost, currentEvent: event))
+        #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
 
         splitView.removeFromSuperview()
 
         let hitView = host.performHitTest(at: dividerPointInHost, currentEvent: event)
-        XCTAssertTrue(
+        #expect(
             hitView === hostedView,
             "Removed split views must not leave stale cached divider strips that steal portal hits."
         )
     }
 
-    func testTerminalSplitDividerCacheRefreshesAfterRootSubviewInsertion() throws {
+    @Test
+    func terminalSplitDividerCacheRefreshesAfterRootSubviewInsertion() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable],
@@ -198,7 +200,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         let splitView = CountingSplitView(frame: contentView.bounds)
         splitView.isVertical = true
         let splitDelegate = SplitDelegate()
@@ -219,7 +221,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
             to: nil
         )
         let firstEvent = makeMouseEvent(type: .mouseMoved, at: firstDividerPointInWindow, window: window)
-        XCTAssertNil(host.performHitTest(at: host.convert(firstDividerPointInWindow, from: nil), currentEvent: firstEvent))
+        #expect(host.performHitTest(at: host.convert(firstDividerPointInWindow, from: nil), currentEvent: firstEvent) == nil)
 
         let insertedSplitView = CountingSplitView(frame: contentView.bounds)
         insertedSplitView.isVertical = true
@@ -236,10 +238,11 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
             to: nil
         )
         let insertedEvent = makeMouseEvent(type: .mouseMoved, at: insertedDividerPointInWindow, window: window)
-        XCTAssertNil(host.performHitTest(at: host.convert(insertedDividerPointInWindow, from: nil), currentEvent: insertedEvent))
+        #expect(host.performHitTest(at: host.convert(insertedDividerPointInWindow, from: nil), currentEvent: insertedEvent) == nil)
     }
 
-    func testTerminalSplitDividerCacheRefreshesWhenNestedSplitBecomesVisible() throws {
+    @Test
+    func terminalSplitDividerCacheRefreshesWhenNestedSplitBecomesVisible() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
             styleMask: [.titled, .closable],
@@ -248,7 +251,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         let container = NSView(frame: contentView.bounds)
         container.isHidden = true
         let splitView = CountingSplitView(frame: container.bounds)
@@ -272,14 +275,15 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
             to: nil
         )
         let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
-        XCTAssertTrue(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) === hostedView)
+        #expect(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) === hostedView)
 
         container.isHidden = false
 
-        XCTAssertNil(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event))
+        #expect(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) == nil)
     }
 
-    func testTerminalSplitDividerCacheRefreshesAfterContainerMoves() throws {
+    @Test
+    func terminalSplitDividerCacheRefreshesAfterContainerMoves() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 180),
             styleMask: [.titled, .closable],
@@ -288,7 +292,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         )
         defer { window.orderOut(nil) }
 
-        let contentView = try XCTUnwrap(window.contentView)
+        let contentView = try #require(window.contentView)
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: contentView.bounds.height))
         let splitView = CountingSplitView(frame: container.bounds)
         splitView.isVertical = true
@@ -311,7 +315,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
             to: nil
         )
         let oldEvent = makeMouseEvent(type: .mouseMoved, at: oldDividerPointInWindow, window: window)
-        XCTAssertNil(host.performHitTest(at: host.convert(oldDividerPointInWindow, from: nil), currentEvent: oldEvent))
+        #expect(host.performHitTest(at: host.convert(oldDividerPointInWindow, from: nil), currentEvent: oldEvent) == nil)
 
         container.setFrameOrigin(NSPoint(x: 40, y: 0))
         let newDividerPointInWindow = splitView.convert(
@@ -319,7 +323,7 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
             to: nil
         )
         let newEvent = makeMouseEvent(type: .mouseMoved, at: newDividerPointInWindow, window: window)
-        XCTAssertTrue(host.performHitTest(at: host.convert(oldDividerPointInWindow, from: nil), currentEvent: oldEvent) === hostedView)
-        XCTAssertNil(host.performHitTest(at: host.convert(newDividerPointInWindow, from: nil), currentEvent: newEvent))
+        #expect(host.performHitTest(at: host.convert(oldDividerPointInWindow, from: nil), currentEvent: oldEvent) === hostedView)
+        #expect(host.performHitTest(at: host.convert(newDividerPointInWindow, from: nil), currentEvent: newEvent) == nil)
     }
 }
