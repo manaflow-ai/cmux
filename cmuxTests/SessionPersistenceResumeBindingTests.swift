@@ -315,13 +315,17 @@ import Testing
             "cmux-missing-\(UUID().uuidString)",
             "bin"
         )
+        let oversizedArgument = String(
+            repeating: "x",
+            count: SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes + 1
+        )
         let quotedDirectory = "'\(localDirectory)'"
         #expect(remoteWorkspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
                 name: "Codex",
                 kind: "codex",
                 command: "{ cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ]; } && "
-                    + "'\(staleExecutablePath)' 'resume' 'session-local-resume'",
+                    + "'\(staleExecutablePath)' 'resume' 'session-local-resume' '\(oversizedArgument)'",
                 cwd: localDirectory,
                 checkpointId: "session-local-resume",
                 source: "agent-hook",

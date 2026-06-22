@@ -1218,7 +1218,7 @@ extension Workspace {
                 effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else if restoresLocalTerminalInRemoteWorkspace {
-                effectiveResumeBindingForStartup?.startupInputWithLauncherScript(allowLauncherScript: true)
+                effectiveResumeBindingForStartup?.startupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
                 effectiveResumeBindingForStartup.flatMap {
