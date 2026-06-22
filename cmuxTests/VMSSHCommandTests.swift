@@ -29,8 +29,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.attach_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["id"] as? String, vmID)
-                XCTAssertEqual(params["require_daemon"] as? Bool, true)
+                legacyAssertEqual(params["id"] as? String, vmID)
+                legacyAssertEqual(params["require_daemon"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -47,7 +47,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 )
             case "workspace.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["window_id"] as? String, windowID)
+                legacyAssertEqual(params["window_id"] as? String, windowID)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -94,33 +94,33 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux@gateway.freestyle.sh state=connecting\n")
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux@gateway.freestyle.sh state=connecting\n")
+        legacyAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+            let data = try legacyUnwrap(line.data(using: .utf8))
+            return try legacyUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
-        XCTAssertEqual(
+        legacyAssertEqual(
             requests.compactMap { $0["method"] as? String },
             ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
         )
 
-        let configureRequest = try XCTUnwrap(
+        let configureRequest = try legacyUnwrap(
             requests.first { $0["method"] as? String == "workspace.remote.configure" },
             "Expected workspace.remote.configure RPC request"
         )
-        let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
-        XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(configureParams["destination"] as? String, "cmux@gateway.freestyle.sh")
-        XCTAssertEqual(configureParams["port"] as? Int, 2222)
-        XCTAssertEqual(configureParams["local_socket_path"] as? String, socketPath)
-        XCTAssertEqual(configureParams["skip_daemon_bootstrap"] as? Bool, true)
-        XCTAssertNotNil(configureParams["terminal_startup_command"] as? String)
-        XCTAssertNotNil(configureParams["relay_port"] as? Int)
+        let configureParams = try legacyUnwrap(configureRequest["params"] as? [String: Any])
+        legacyAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
+        legacyAssertEqual(configureParams["destination"] as? String, "cmux@gateway.freestyle.sh")
+        legacyAssertEqual(configureParams["port"] as? Int, 2222)
+        legacyAssertEqual(configureParams["local_socket_path"] as? String, socketPath)
+        legacyAssertEqual(configureParams["skip_daemon_bootstrap"] as? Bool, true)
+        legacyAssertNotNil(configureParams["terminal_startup_command"] as? String)
+        legacyAssertNotNil(configureParams["relay_port"] as? Int)
     }
     @Test
     func testSSHCommandGlobalWindowOverridesCallerEnvironment() throws {
@@ -149,13 +149,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "window.focus":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["window_id"] as? String, windowID)
+                legacyAssertEqual(params["window_id"] as? String, windowID)
                 return self.v2Response(id: id, ok: true, result: ["window_id": windowID])
             case "workspace.create":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["window_id"] as? String, windowID)
-                XCTAssertNil(params["workspace_id"])
-                XCTAssertNil(params["surface_id"])
+                legacyAssertEqual(params["window_id"] as? String, windowID)
+                legacyAssertNil(params["workspace_id"])
+                legacyAssertNil(params["surface_id"])
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -205,17 +205,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "OK workspace=\(workspaceRef) target=cmux-macmini state=connecting\n")
+        legacyAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+            let data = try legacyUnwrap(line.data(using: .utf8))
+            return try legacyUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
-        XCTAssertEqual(
+        legacyAssertEqual(
             requests.compactMap { $0["method"] as? String },
             ["window.focus", "workspace.create", "workspace.remote.configure"]
         )
@@ -269,12 +269,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("ssh cmux@gateway.freestyle.sh -p 2222"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("password:  lease-token"), result.stdout)
-        XCTAssertEqual(
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertTrue(result.stdout.contains("ssh cmux@gateway.freestyle.sh -p 2222"), result.stdout)
+        legacyAssertTrue(result.stdout.contains("password:  lease-token"), result.stdout)
+        legacyAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["vm.ssh_info"]
         )

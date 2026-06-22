@@ -2,6 +2,234 @@ import Darwin
 import Foundation
 import Testing
 
+typealias LegacyExpectation = CLINotifyProcessIntegrationRegressionTests.LegacyExpectation
+
+func legacyExpectation(description: String) -> LegacyExpectation {
+    LegacyExpectation(description: description)
+}
+
+func legacyWait(
+    for expectations: [LegacyExpectation],
+    timeout: TimeInterval,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    _ = legacyWaitForExpectations(
+        expectations,
+        timeout: timeout,
+        recordFailure: true,
+        file: file,
+        line: line
+    )
+}
+
+@discardableResult
+func legacyWaitForExpectations(
+    _ expectations: [LegacyExpectation],
+    timeout: TimeInterval,
+    recordFailure: Bool,
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) -> Bool {
+    var allFulfilled = true
+    for expectation in expectations {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if expectation.pollFulfilled() {
+                break
+            }
+            _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        if !expectation.pollFulfilled() {
+            allFulfilled = false
+            if recordFailure {
+                legacyFailure(expectation.timeoutMessage)
+            }
+        }
+    }
+    return allFulfilled
+}
+
+func runLegacyActivity<T>(named _: String, _ body: () throws -> T) rethrows -> T {
+    try body()
+}
+
+func legacyFailure(_ message: String) {
+    Issue.record(Comment(rawValue: message.isEmpty ? "Assertion failed" : message))
+}
+
+func legacyFail(
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    legacyFailure(message())
+}
+
+func legacyAssertTrue(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        if try !expression() {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertFalse(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        if try expression() {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs != rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertNotEqual<T: Equatable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs == rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertGreaterThan<T: Comparable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs <= rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertGreaterThanOrEqual<T: Comparable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs < rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertLessThan<T: Comparable>(
+    _ expression1: @autoclosure () throws -> T,
+    _ expression2: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs >= rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        if try expression() != nil {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyAssertNotNil<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) {
+    do {
+        if try expression() == nil {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+func legacyUnwrap<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = "",
+    file _: StaticString = #filePath,
+    line _: UInt = #line
+) throws -> T {
+    guard let value = try expression() else {
+        legacyFailure(message())
+        throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests", code: 1)
+    }
+    return value
+}
+
 extension CLINotifyProcessIntegrationRegressionTests {
     final class LegacyExpectation: @unchecked Sendable {
         private let lock = NSLock()
@@ -45,232 +273,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         var timeoutMessage: String {
             "Timed out waiting for expectation: \(description)"
         }
-    }
-
-    func expectation(description: String) -> LegacyExpectation {
-        LegacyExpectation(description: description)
-    }
-
-    func wait(
-        for expectations: [LegacyExpectation],
-        timeout: TimeInterval,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        _ = waitForLegacyExpectations(
-            expectations,
-            timeout: timeout,
-            recordFailure: true,
-            file: file,
-            line: line
-        )
-    }
-
-    @discardableResult
-    func waitForLegacyExpectations(
-        _ expectations: [LegacyExpectation],
-        timeout: TimeInterval,
-        recordFailure: Bool,
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) -> Bool {
-        var allFulfilled = true
-        for expectation in expectations {
-            let deadline = Date().addingTimeInterval(timeout)
-            while Date() < deadline {
-                if expectation.pollFulfilled() {
-                    break
-                }
-                _ = RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-            }
-
-            if !expectation.pollFulfilled() {
-                allFulfilled = false
-                if recordFailure {
-                    legacyFailure(expectation.timeoutMessage)
-                }
-            }
-        }
-        return allFulfilled
-    }
-
-    func runLegacyActivity<T>(named _: String, _ body: () throws -> T) rethrows -> T {
-        try body()
-    }
-
-    func legacyFailure(_ message: String) {
-        Issue.record(Comment(rawValue: message.isEmpty ? "Assertion failed" : message))
-    }
-
-    func XCTFail(
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        legacyFailure(message())
-    }
-
-    func XCTAssertTrue(
-        _ expression: @autoclosure () throws -> Bool,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            if try !expression() {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertFalse(
-        _ expression: @autoclosure () throws -> Bool,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            if try expression() {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertEqual<T: Equatable>(
-        _ expression1: @autoclosure () throws -> T,
-        _ expression2: @autoclosure () throws -> T,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            let lhs = try expression1()
-            let rhs = try expression2()
-            if lhs != rhs {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertNotEqual<T: Equatable>(
-        _ expression1: @autoclosure () throws -> T,
-        _ expression2: @autoclosure () throws -> T,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            let lhs = try expression1()
-            let rhs = try expression2()
-            if lhs == rhs {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertGreaterThan<T: Comparable>(
-        _ expression1: @autoclosure () throws -> T,
-        _ expression2: @autoclosure () throws -> T,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            let lhs = try expression1()
-            let rhs = try expression2()
-            if lhs <= rhs {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertGreaterThanOrEqual<T: Comparable>(
-        _ expression1: @autoclosure () throws -> T,
-        _ expression2: @autoclosure () throws -> T,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            let lhs = try expression1()
-            let rhs = try expression2()
-            if lhs < rhs {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertLessThan<T: Comparable>(
-        _ expression1: @autoclosure () throws -> T,
-        _ expression2: @autoclosure () throws -> T,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            let lhs = try expression1()
-            let rhs = try expression2()
-            if lhs >= rhs {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertNil<T>(
-        _ expression: @autoclosure () throws -> T?,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            if try expression() != nil {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTAssertNotNil<T>(
-        _ expression: @autoclosure () throws -> T?,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) {
-        do {
-            if try expression() == nil {
-                legacyFailure(message())
-            }
-        } catch {
-            legacyFailure("\(message()) \(error)")
-        }
-    }
-
-    func XCTUnwrap<T>(
-        _ expression: @autoclosure () throws -> T?,
-        _ message: @autoclosure () -> String = "",
-        file _: StaticString = #filePath,
-        line _: UInt = #line
-    ) throws -> T {
-        guard let value = try expression() else {
-            legacyFailure(message())
-            throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests", code: 1)
-        }
-        return value
     }
 
     struct ProcessRunResult {
@@ -317,13 +319,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
-        XCTAssertGreaterThanOrEqual(fd, 0)
+        legacyAssertGreaterThanOrEqual(fd, 0)
 
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
         let maxPathLength = MemoryLayout.size(ofValue: addr.sun_path)
         let utf8 = Array(path.utf8)
-        XCTAssertLessThan(utf8.count, maxPathLength)
+        legacyAssertLessThan(utf8.count, maxPathLength)
         _ = withUnsafeMutablePointer(to: &addr.sun_path) { pointer in
             pointer.withMemoryRebound(to: CChar.self, capacity: maxPathLength) { buffer in
                 for index in 0..<utf8.count {
@@ -338,8 +340,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 Darwin.bind(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        XCTAssertEqual(bindResult, 0)
-        XCTAssertEqual(Darwin.listen(fd, 1), 0)
+        legacyAssertEqual(bindResult, 0)
+        legacyAssertEqual(Darwin.listen(fd, 1), 0)
         return fd
     }
 
@@ -407,7 +409,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func startBridgeErrorServer(listenerFD: Int32, message: String) -> LegacyExpectation {
-        let handled = expectation(description: "pty bridge error server handled")
+        let handled = legacyExpectation(description: "pty bridge error server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
 
@@ -457,7 +459,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func startBridgeReadyThenCloseServer(listenerFD: Int32) -> LegacyExpectation {
-        let handled = expectation(description: "pty bridge ready close server handled")
+        let handled = legacyExpectation(description: "pty bridge ready close server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
 
@@ -507,7 +509,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     }
 
     func startBridgeReadyThenResetAfterClientEOFServer(listenerFD: Int32) -> LegacyExpectation {
-        let handled = expectation(description: "pty bridge ready reset server handled")
+        let handled = legacyExpectation(description: "pty bridge ready reset server handled")
         DispatchQueue.global(qos: .userInitiated).async {
             defer { handled.fulfill() }
 
@@ -600,7 +602,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String?
     ) -> LegacyExpectation {
-        let handled = expectation(description: "cli mock socket handled")
+        let handled = legacyExpectation(description: "cli mock socket handled")
         DispatchQueue.global(qos: .userInitiated).async {
             var didFulfill = false
             func fulfillOnce() {
