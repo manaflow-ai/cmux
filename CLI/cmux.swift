@@ -33195,8 +33195,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         } else if let array = value as? [Any] {
             summary["_cmux_array_count"] = array.count
-        } else if let string = value as? String {
-            _ = string
+        } else if value is String {
             summary["_cmux_text_omitted"] = true
         } else if let scalarValue = boundedPostToolUseScalarValue(value) {
             summary["_cmux_value"] = scalarValue.value
@@ -33220,8 +33219,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         rawValue: Any,
         into summary: inout [String: Any]
     ) {
-        if let string = rawValue as? String {
-            _ = string
+        if rawValue is String {
             summary["\(key)_text_omitted"] = true
             return
         }

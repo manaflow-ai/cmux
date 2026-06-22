@@ -148,7 +148,9 @@ struct WorkstreamStoreTests {
         #expect(!store.items.map(\.title).contains("PostCompact"))
         #expect(!store.items.map(\.title).contains("SubagentStart"))
         #expect(!store.items.contains { $0.kind == .sessionStart })
-        if let subagentStartItem = store.items.first(where: { $0.title == "Subagent" }) {
+        if let subagentStartItem = store.items.first(where: {
+            $0.title == "Subagent" && $0.kind == .toolUse
+        }) {
             #expect(subagentStartItem.kind == .toolUse)
             if case .toolUse(let toolName, _) = subagentStartItem.payload {
                 #expect(toolName == "subagent")
