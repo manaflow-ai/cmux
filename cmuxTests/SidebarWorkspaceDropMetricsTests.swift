@@ -156,7 +156,6 @@ import Testing
             metadataBlocksAreExpanded: false,
             sidebarWidth: 600,
             unreadCount: 0,
-            hasMemoryWarning: false,
             canCloseWorkspace: true
         )
         let narrowHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
@@ -167,7 +166,6 @@ import Testing
             metadataBlocksAreExpanded: false,
             sidebarWidth: 216,
             unreadCount: 12,
-            hasMemoryWarning: true,
             canCloseWorkspace: true
         )
         let groupedNarrowHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
@@ -178,7 +176,6 @@ import Testing
             metadataBlocksAreExpanded: false,
             sidebarWidth: 216 - SidebarWorkspaceGroupingMetrics.memberIndent,
             unreadCount: 12,
-            hasMemoryWarning: true,
             canCloseWorkspace: true
         )
 
