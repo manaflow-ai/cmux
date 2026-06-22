@@ -3185,6 +3185,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
         case .missing:
+            if Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+                return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+            }
             return nil
         case .unusable:
             return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
