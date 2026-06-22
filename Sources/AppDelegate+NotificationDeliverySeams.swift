@@ -32,7 +32,7 @@ extension AppDelegate {
     func notificationDeliveryDeliverFeedReply(requestId: String, decision: NotificationFeedDecision) {
         FeedCoordinator.shared.deliverReply(
             requestId: requestId,
-            decision: Self.workstreamDecision(from: decision)
+            decision: decision.workstreamDecision
         )
     }
 
@@ -65,46 +65,5 @@ extension AppDelegate {
 
     func notificationDeliveryActivateApplication() {
         NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private static func workstreamDecision(from decision: NotificationFeedDecision) -> WorkstreamDecision {
-        switch decision {
-        case .permission(let mode):
-            return .permission(workstreamPermissionMode(from: mode))
-        case .exitPlan(let mode):
-            return .exitPlan(workstreamExitPlanMode(from: mode))
-        }
-    }
-
-    private static func workstreamPermissionMode(
-        from mode: NotificationFeedPermissionMode
-    ) -> WorkstreamPermissionMode {
-        switch mode {
-        case .once:
-            return .once
-        case .always:
-            return .always
-        case .all:
-            return .all
-        case .bypass:
-            return .bypass
-        case .deny:
-            return .deny
-        }
-    }
-
-    private static func workstreamExitPlanMode(from mode: NotificationFeedExitPlanMode) -> WorkstreamExitPlanMode {
-        switch mode {
-        case .ultraplan:
-            return .ultraplan
-        case .bypassPermissions:
-            return .bypassPermissions
-        case .autoAccept:
-            return .autoAccept
-        case .manual:
-            return .manual
-        case .deny:
-            return .deny
-        }
     }
 }
