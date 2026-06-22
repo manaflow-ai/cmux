@@ -8068,8 +8068,15 @@ struct VerticalTabsSidebar: View {
         let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
 
         VStack(alignment: .leading, spacing: 1) {
-            HStack(spacing: 7) {
-                Button {
+            ExtensionSidebarSectionHeaderRow(
+                title: extensionSidebarTreeSectionTitle(section.treeSection),
+                isCollapsed: isCollapsed,
+                canCreateWorktree: canCreateWorktree,
+                isWorktreeCreationInFlight: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id),
+                sectionAccessibilityId: section.id,
+                toggleHelp: String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"),
+                createWorktreeHelp: String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"),
+                onToggle: {
                     withAnimation(Self.extensionSidebarDisclosureAnimation) {
                         if isCollapsed {
                             collapsedExtensionSidebarSectionIds.remove(section.id)
@@ -8077,39 +8084,11 @@ struct VerticalTabsSidebar: View {
                             collapsedExtensionSidebarSectionIds.insert(section.id)
                         }
                     }
-                } label: {
-                    Image(systemName: isCollapsed ? "folder" : "folder.fill")
-                        .font(.system(size: 13, weight: .regular))
-                        .offset(y: -0.5)
+                },
+                onCreateWorktree: {
+                    createExtensionWorktreeWorkspace(for: section.treeSection)
                 }
-                .buttonStyle(.plain)
-                .safeHelp(String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"))
-
-                Text(extensionSidebarTreeSectionTitle(section.treeSection))
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Spacer(minLength: 0)
-
-                if canCreateWorktree {
-                    Button {
-                        createExtensionWorktreeWorkspace(for: section.treeSection)
-                    } label: {
-                        Image(systemName: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id) ? "clock" : "plus")
-                            .font(.system(size: 11, weight: .regular))
-                            .frame(width: 18, height: 18)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id))
-                    .safeHelp(String(localized: "sidebar.extension.createWorktree", defaultValue: "Create worktree"))
-                    .accessibilityIdentifier("ExtensionSidebarCreateWorktreeButton.\(section.id)")
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
+            )
 
             if !isCollapsed {
                 VStack(alignment: .leading, spacing: 1) {
@@ -8805,9 +8784,9 @@ private struct SidebarDevFooter: View {
         VStack(alignment: .leading, spacing: 6) {
             SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
             if showSidebarDevBuildBanner {
-                Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.red)
+                SidebarDevBuildBanner(
+                    text: String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD")
+                )
             }
         }
         .padding(.leading, 6)
