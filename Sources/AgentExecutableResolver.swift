@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 struct AgentExecutableResolver {
@@ -53,7 +54,7 @@ struct AgentExecutableResolver {
     }
 
     static func cmuxConfiguredExecutablePaths(defaults: UserDefaults = .standard) -> [AgentSessionProviderID: String] {
-        guard let claudePath = ClaudeCodeIntegrationSettings.customClaudePath(defaults: defaults) else {
+        guard let claudePath = AgentIntegrationSettingsStore(defaults: defaults).customClaudePath else {
             return [:]
         }
         return [.claude: claudePath]

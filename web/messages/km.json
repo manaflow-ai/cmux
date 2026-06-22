@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — ស្ថានីយដែលបង្កើតសម្រាប់ពហុកិច្ចការ",
-    "description": "ស្ថានីយ macOS ដើមកំណើតបង្កើតលើ Ghostty។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។",
-    "ogDescription": "ស្ថានីយ macOS ដើមកំណើតសម្រាប់ភ្នាក់ងារសរសេរកូដ AI។"
+    "description": "ស្ថានីយ macOS ដើមកំណើតប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹង, បន្ទះបំបែក, និង socket API។",
+    "ogDescription": "ស្ថានីយ macOS ប្រភពកូដបើកចំហ និងឥតគិតថ្លៃសម្រាប់ភ្នាក់ងារសរសេរកូដ AI។ ដំណើរការជាមួយ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider និងឧបករណ៍ CLI ណាមួយ។"
   },
   "common": {
     "downloadForMac": "ទាញយកសម្រាប់ Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "ភាសា",
-    "assets": "ធនធាន"
+    "assets": "ធនធាន",
+    "openSource": "ប្រភពកូដបើកចំហ"
   },
   "home": {
     "taglinePrefix": "ទែមីណលដែលបង្កើតសម្រាប់ ",
     "typingCodingAgents": "ភ្នាក់ងារសរសេរកូដ",
     "typingMultitasking": "ពហុកិច្ចការ",
-    "subtitle": "កម្មវិធី macOS ដើមដែលបង្កើតលើ Ghostty។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹងពេល agent ត្រូវការការយកចិត្តទុកដាក់, បន្ទះបំបែក, និង <cliLink>CLI</cliLink> សម្រាប់ការសរសេរកម្មវិធី។",
+    "subtitle": "កម្មវិធី macOS ដើមប្រភពកូដបើកចំហ និងឥតគិតថ្លៃ បង្កើតលើ Ghostty។ ផ្ទាំងបញ្ឈរ, រង្វង់ជូនដំណឹងពេល agent ត្រូវការការយកចិត្តទុកដាក់, បន្ទះបំបែក, និង <cliLink>CLI</cliLink> សម្រាប់ការសរសេរកម្មវិធី។",
     "features": "មុខងារ",
     "faq": "សំណួរញឹកញាប់",
     "communitySection": "សហគមន៍",
@@ -66,7 +67,9 @@
       "lightweight": "ស្រាល",
       "lightweightDesc": ": Swift + AppKit ដើម, គ្មាន Electron",
       "keyboardShortcuts": "ផ្លូវកាត់ក្ដារចុច",
-      "keyboardShortcutsDesc": ": <link>ផ្លូវកាត់ជាច្រើន</link> សម្រាប់ workspace, បំបែក, កម្មវិធីរុករក, និងច្រើនទៀត"
+      "keyboardShortcutsDesc": ": <link>ផ្លូវកាត់ជាច្រើន</link> សម្រាប់ workspace, បំបែក, កម្មវិធីរុករក, និងច្រើនទៀត",
+      "openSource": "ប្រភពកូដបើកចំហ",
+      "openSourceDesc": ": ឥតគិតថ្លៃ និងស្ថិតក្រោមអាជ្ញាបណ្ណ GPL"
     },
     "faqGhosttyQ": "cmux ទាក់ទងនឹង Ghostty យ៉ាងដូចម្ដេច?",
     "faqGhosttyA": "cmux មិនមែនជា fork នៃ Ghostty ទេ។ វាប្រើ <link>libghostty</link> ជាបណ្ណាល័យសម្រាប់ការបង្ហាញទែមីណល, ដូចគ្នានឹងកម្មវិធីប្រើ WebKit សម្រាប់ web views ដែរ។ Ghostty គឺជាទែមីណលឯករាជ្យ; cmux គឺជាកម្មវិធីផ្សេងដែលបង្កើតនៅលើម៉ាស៊ីនបង្ហាញរបស់វា។",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "cmux ដំណើរការជាមួយ coding agent អ្វីខ្លះ?",
     "faqAgentsA": "ទាំងអស់។ cmux គឺជាទែមីណល, ដូច្នេះ agent ណាមួយដែលដំណើរការក្នុងទែមីណលអាចប្រើបានភ្លាមៗ: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, និងអ្វីផ្សេងទៀតដែលអ្នកអាចចាប់ផ្ដើមពីបន្ទាត់ពាក្យបញ្ជា។",
     "faqNotificationsQ": "ការជូនដំណឹងដំណើរការយ៉ាងដូចម្ដេច?",
-    "faqNotificationsA": "នៅពេលដំណើរការមួយត្រូវការការយកចិត្តទុកដាក់, cmux បង្ហាញរង្វង់ជូនដំណឹងជុំវិញបន្ទះ, ស្លាកមិនទាន់អានក្នុងរបារចំហៀង, ផ្ទាំងលេចជូនដំណឹង, និងការជូនដំណឹងផ្ទៃតុ macOS។ ទាំងនេះដំណើរការដោយស្វ័យប្រវត្តិតាមរយៈ terminal escape sequences ស្តង់ដារ (OSC 9/99/777), ឬអ្នកអាចកេះវាដោយ <cliLink>cmux CLI</cliLink> និង <hooksLink>Claude Code hooks</hooksLink>។",
+    "faqNotificationsA": "នៅពេលដំណើរការមួយត្រូវការការយកចិត្តទុកដាក់, cmux បង្ហាញរង្វង់ជូនដំណឹងជុំវិញបន្ទះ, ស្លាកមិនទាន់អានក្នុងរបារចំហៀង, ផ្ទាំងលេចជូនដំណឹង, និងការជូនដំណឹងផ្ទៃតុ macOS។ ទាំងនេះដំណើរការដោយស្វ័យប្រវត្តិតាមរយៈ terminal escape sequences ស្តង់ដារ (OSC 9/99/777), ឬអ្នកអាចកេះវាដោយ <cliLink>cmux CLI</cliLink> និង <hooksLink>agent hooks</hooksLink>។ រាល់ agent ដែលគាំទ្រ hooks ឬ OSC ដំណើរការ រួមមាន Claude Code, Codex, OpenCode, និង pi។",
     "faqShortcutsQ": "តើខ្ញុំអាចប្ដូរផ្លូវកាត់ក្ដារចុចតាមបំណងបានទេ?",
     "faqShortcutsA": "ការចងក្ដារចុចទែមីណលត្រូវបានអានពីឯកសារកំណត់រចនាសម្ព័ន្ធ Ghostty របស់អ្នក (<configPath>~/.config/ghostty/config</configPath>)។ ផ្លូវកាត់ជាក់លាក់របស់ cmux (workspace, បំបែក, កម្មវិធីរុករក, ជូនដំណឹង) អាចប្ដូរតាមបំណងក្នុងការកំណត់។ មើល <link>ផ្លូវកាត់លំនាំដើម</link> សម្រាប់បញ្ជីពេញ។",
     "faqTmuxQ": "វាប្រៀបធៀបជាមួយ tmux យ៉ាងដូចម្ដេច?",
-    "faqTmuxA": "tmux គឺជា terminal multiplexer ដែលដំណើរការក្នុងទែមីណលណាមួយ។ cmux គឺជាកម្មវិធី macOS ដើមជាមួយ GUI: ផ្ទាំងបញ្ឈរ, បន្ទះបំបែក, កម្មវិធីរុករកដែលបង្កប់, និង socket API ទាំងអស់មានស្រាប់។ មិនត្រូវការឯកសារកំណត់រចនាសម្ព័ន្ធ ឬគ្រាប់ចុចបុព្វបទទេ។",
+    "faqTmuxA": "tmux គឺជា terminal multiplexer ដែលដំណើរការក្នុងទែមីណលណាមួយ។ cmux គឺជាកម្មវិធី macOS ដើមជាមួយ GUI: ផ្ទាំងបញ្ឈរ, បន្ទះបំបែក, កម្មវិធីរុករកដែលបង្កប់, និង socket API ទាំងអស់មានស្រាប់ មិនត្រូវការឯកសារកំណត់រចនាសម្ព័ន្ធ ឬគ្រាប់ចុចបុព្វបទទេ។ ទោះជាយ៉ាងណា មនុស្សជាច្រើនប្រើ cmux ជាមួយ SSH និង tmux ជាមួយគ្នាដោយរីករាយ ហើយ cmux អាចភ្ជាប់ទៅសម័យ tmux ពីចម្ងាយរបស់អ្នកដោយដើម (<link>បេតា</link>)។",
     "faqFreeQ": "តើ cmux ឥតគិតថ្លៃទេ?",
-    "faqFreeA": "បាទ/ចាស, cmux ឥតគិតថ្លៃក្នុងការប្រើប្រាស់។ កូដប្រភពមាននៅលើ <link>GitHub</link>។"
+    "faqFreeA": "បាទ/ចាស, cmux ឥតគិតថ្លៃក្នុងការប្រើប្រាស់។ កូដប្រភពមាននៅលើ <link>GitHub</link>។",
+    "faqSessionsQ": "តើសម័យរបស់ខ្ញុំត្រូវបានរក្សាទុកទេ?",
+    "faqSessionsA": "បាទ/ចាស។ cmux ស្ដារបង្អួច, workspace, បន្ទះ, ថតការងារ និង scrollback របស់អ្នកវិញនៅពេលអ្នកបើកឡើងវិញ ហើយស្ថានភាពនេះនៅគង់វង្សសូម្បីពេលចាប់ផ្ដើមកុំព្យូទ័រឡើងវិញទាំងស្រុង មិនមែនត្រឹមតែបិទកម្មវិធីទេ។ សម័យ agent ដូចជា Claude Code, Codex និង OpenCode ក៏ត្រឡប់មកវិញដែរ។ មើល <link>ការស្ដារសម័យ</link>។",
+    "faqScriptableQ": "តើ cmux អាចសរសេរកម្មវិធីបានទេ?",
+    "faqScriptableA": "បាទ/ចាស។ រាល់សកម្មភាពអាចប្រើបានតាមរយៈ cmux CLI និង Unix socket: បង្កើត workspace, បើកបន្ទះបំបែក, ផ្ញើការបញ្ចូល, អានមាតិកាអេក្រង់, ថតអេក្រង់, និងបញ្ជាកម្មវិធីរុករកក្នុងកម្មវិធី។ មើល <cliLink>ឯកសារយោង CLI</cliLink> និងឯកសារ <browserLink>ស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក</browserLink>។",
+    "faqRemoteQ": "តើខ្ញុំអាចប្រើ cmux ជាមួយម៉ាស៊ីនពីចម្ងាយបានទេ?",
+    "faqRemoteA": "បាទ/ចាស។ បើក workspace តាមរយៈ SSH និងភ្ជាប់ទៅសម័យ tmux ពីចម្ងាយ ដូច្នេះ agent អាចដំណើរការនៅលើម៉ាស៊ីនពីចម្ងាយ ខណៈអ្នកបញ្ជាពួកវាពី cmux។ មើល <link>SSH និងពីចម្ងាយ</link>។",
+    "faqOrchestrationQ": "តើ cmux អាចរៀបចំភ្នាក់ងារ និងភ្នាក់ងាររងច្រើនបានទេ?",
+    "faqOrchestrationA": "បាទ/ចាស។ នៅពេល agent បង្កើតភ្នាក់ងាររង ឬដៃគូ cmux ប្រែក្លាយពួកវាទៅជាបន្ទះ និងបន្ទះបំបែកដើម ជំនួសឱ្យដំណើរការផ្ទៃខាងក្រោយដែលលាក់។ វាគាំទ្រការរៀបចំពហុម៉ូដែលរបស់ <teamsLink>Claude Code teams</teamsLink> និង <omoLink>oh-my-opencode</omoLink> ដូច្នេះរាល់ agent ក្នុងការដំណើរការអាចមើលឃើញ និងបញ្ជាបាន។",
+    "faqCustomizeQ": "តើខ្ញុំអាចប្ដូរ cmux តាមបំណងបានទេ?",
+    "faqCustomizeA": "បាទ/ចាស។ ការបង្ហាញស្ថានីយប្រើការកំណត់រចនាសម្ព័ន្ធ Ghostty របស់អ្នក ដូច្នេះ ស្បែក, ពុម្ពអក្សរ, ពណ៌, និងទស្សន៍ទ្រនិចត្រូវបានបញ្ជូនមកដោយផ្ទាល់។ ការកំណត់ផ្ទាល់ខ្លួនរបស់ cmux នៅក្នុង <path>~/.config/cmux/cmux.json</path> បញ្ជារបារចំហៀង, របារផ្ទាំង, បន្ទះបំបែក, និងឥរិយាបថ ហើយរាល់ <shortcutsLink>ផ្លូវកាត់ក្ដារចុច</shortcutsLink> អាចកែបាន។ មើល <link>ការកំណត់រចនាសម្ព័ន្ធ</link>។",
+    "faqIosQ": "តើមានកម្មវិធី iOS ទេ?",
+    "faqIosA": "មាន ក្នុងដំណាក់កាលបេតា។ ផ្គូផ្គង iPhone របស់អ្នកជាមួយ Mac របស់អ្នកពីបង្អួច Mobile Connect ហើយភ្ជាប់ទៅទែមីណលរបស់អ្នកពីទូរសព្ទ ដោយមានជម្រើសបញ្ជូនបន្តការជូនដំណឹងពីទែមីណល។ វាចេញផ្សាយនៅលើ TestFlight ក្នុងនាម cmux BETA។",
+    "faqSkillsQ": "តើ cmux មាន skills ទេ?",
+    "faqSkillsA": "មាន។ Skills គឺជា workflow ដែលអាចប្រើឡើងវិញបាន ដែលអ្នកអាចផ្ដល់ឱ្យ agent ណាមួយដែលដំណើរការក្នុង cmux សម្រាប់រឿងដូចជា ការគ្រប់គ្រង CLI, ការធ្វើស្វ័យប្រវត្តិកម្ម workspace, ការកំណត់, និងផ្ទាំងកម្មវិធីរុករក។ រកមើលបណ្ដុំបើកចំហនៅ <skillsLink>cmux-skills</skillsLink> ឬអាន <link>ឯកសារ skills</link>។",
+    "faqBrowserQ": "តើកម្មវិធីរុករកដែលភ្ជាប់មកស្រាប់អាចធ្វើអ្វីខ្លះ?",
+    "faqBrowserA": "cmux អាចបំបែកផ្ទាំងកម្មវិធីរុករកពិតប្រាកដនៅជាប់នឹងទែមីណលរបស់អ្នក ហើយវាអាចសរសេរកម្មវិធីបញ្ជាបានពេញលេញ៖ រុករក, ថត snapshot DOM, ចុច, វាយ, ដំណើរការ JavaScript, និងអាននូវសកម្មភាព console និងបណ្ដាញតាមរយៈ socket API ដូចគ្នា។ Agent ប្រើវាដើម្បីផ្ទៀងផ្ទាត់ការផ្លាស់ប្ដូរគេហទំព័ររបស់ខ្លួន ដោយមិនបាច់ចាកចេញពី cmux។ សូមមើល <link>ការធ្វើស្វ័យប្រវត្តិកម្មកម្មវិធីរុករក</link>។",
+    "faqSupportQ": "តើខ្ញុំអាចគាំទ្រ cmux យ៉ាងដូចម្ដេច?",
+    "faqSupportA": "cmux គឺឥតគិតថ្លៃ និងជាប្រភពកូដបើកចំហ ហើយនឹងនៅតែដូច្នេះជានិច្ច។ ប្រសិនបើអ្នកចង់គាំទ្រការអភិវឌ្ឍ និងទទួលបានការចូលប្រើមុនគេនូវអ្វីដែលនឹងមកដល់ រួមទាំង cmux AI, កម្មវិធី iOS, និង Cloud VMs សូមមើល <foundersLink>cmux Founders Edition</foundersLink>។",
+    "faqFeatureQ": "ខ្ញុំមានសំណើមុខងារ ឬបានរកឃើញកំហុស",
+    "faqFeatureA": "យើងចង់ស្ដាប់វា។ បើក <issuesLink>issue</issuesLink> ឬ <prLink>pull request</prLink> នៅលើ GitHub ឬ <mailLink>ផ្ញើអ៊ីមែលមកយើង</mailLink>។"
   },
   "community": {
     "title": "សហគមន៍",
@@ -760,17 +783,22 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "បើកដំណើរ cmux integration hooks សម្រាប់ Amp។ ពេលបិទ កម្មវិធីបន្ថែមដែលរួមបញ្ចូលនឹងនៅអសកម្ម ដោយមិនចាំបាច់ដកវាចេញ។",
-          "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។"
+          "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។",
+          "workspaceAutoNaming": "ការដាក់ឈ្មោះស្វ័យប្រវត្តិដោយ AI សម្រាប់កន្លែងធ្វើការ និងផ្ទាំងនានា ពីខ្លឹមសារសន្ទនារបស់ភ្នាក់ងារ (ជាជម្រើស)។ នៅពេលបើកដំណើរការ cmux នឹងសង្ខេបវគ្គភ្នាក់ងារដែលគាំទ្រទៅជាចំណងជើងខ្លីៗ ដោយប្រើប្រាស់ binary ផ្ទាល់របស់ភ្នាក់ងារនីមួយៗ; ការប្ដូរឈ្មោះដោយដៃតែងតែមានអាទិភាពជានិច្ច។",
+          "autoNamingAgent": "ភ្នាក់ងារណាដែលបង្កើតឈ្មោះស្វ័យប្រវត្តិសម្រាប់រាល់សម័យ។ \"auto\" (លំនាំដើម) ដាក់ឈ្មោះសម័យនីមួយៗដោយភ្នាក់ងាររបស់សម័យនោះផ្ទាល់។ slug ភ្នាក់ងារណាមួយ (claude, codex, grok, opencode, pi, omp, …) នឹងជំនួសការដាក់ឈ្មោះសម្រាប់គ្រប់សម័យ រួមទាំងសម័យរបស់ភ្នាក់ងារផ្សេងទៀត។ ភ្នាក់ងារដែលមិនអាចដំណើរការ ឬមិនបានដំឡើង នឹងត្រឡប់ទៅភ្នាក់ងាររបស់សម័យផ្ទាល់ ដូច្នេះការដាក់ឈ្មោះមិនដែលបរាជ័យឡើយ។"
         },
         "app": {
           "confirmQuit": "កំណត់ពេលដែល cmux ស្នើសុំការបញ្ជាក់មុនពេលចាកចេញ។ កំណែ DEV តែងតែចាកចេញភ្លាមៗ ដោយមិនគិតពីការកំណត់នេះទេ។ app.warnBeforeQuit ចាស់នៅតែត្រូវបានទទួលយកជាជម្រើសបម្រុង boolean។",
+          "windowTitleTemplate": "គំរូចំណងជើង NSWindow ជាជម្រើស។ ទុកទទេ ដើម្បីរក្សាឥរិយាបថចំណងជើងលំនាំដើមដែលមានស្រាប់របស់ cmux រួមទាំង fallback ទៅថតបច្ចុប្បន្ន។ Placeholder ដែលគាំទ្រ៖ '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'។",
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
-          "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
+          "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
+          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
           "copyOnSelect": "ចម្លងអត្ថបទ terminal ដែលបានជ្រើសទៅក្ដារតម្រៀបរបស់ប្រព័ន្ធ ពេលការជ្រើសត្រូវបានបញ្ជាក់ រួមទាំងការជ្រើសពាក្យ និងបន្ទាត់ដោយចុចពីរដង និងចុចបីដង។",
+          "scrollSpeed": "មេគុណដែលអនុវត្តចំពោះចលនារមូររបស់កង់រមូរ និងផ្ទាំងប៉ះក្នុង terminal។ តម្លៃកាន់តែខ្ពស់ រមូរកាន់តែលឿន ហើយតម្លៃកាន់តែទាប រមូរកាន់តែយឺត។",
           "showTextBoxOnNewTerminals": "បង្ហាញការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។",
           "focusTextBoxOnNewTerminals": "ផ្តោតការបញ្ចូល TextBox បេតាជាលំនាំដើមសម្រាប់ workspace ផ្ទាំងស្ថានីយ និងស្ប្លីតស្ថានីយដែលទើបបង្កើតថ្មី។ ការផ្តោតក៏បង្ហាញ TextBox ផងដែរ។"
         },
@@ -790,17 +818,26 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
+        },
+        "fileExplorer": {
+          "description": "ការកំណត់កម្មវិធីរុករកឯកសារ (មែកធាងឯកសារ) នៅក្នុងរបារចំហៀងស្តាំ។",
+          "doubleClickAction": "កំណត់អ្វីដែលកើតឡើងពេលចុចពីរដង (ឬចុច Return លើលទ្ធផលស្វែងរក) លើឯកសារនៅក្នុងកម្មវិធីរុករកឯកសារ។ `preview` បើកការមើលជាមុនឯកសារ cmux ដែលភ្ជាប់មកជាមួយ (ជាលំនាំដើម និងជាឥរិយាបថចាស់)។ `defaultEditor` បើកដោយប្រើកម្មវិធីលំនាំដើមរបស់ macOS សម្រាប់ប្រភេទឯកសារនោះ។ `preferredEditor` បើកដោយប្រើពាក្យបញ្ជា `app.preferredEditor` ហើយត្រឡប់ទៅកម្មវិធីលំនាំដើម ប្រសិនបើមិនបានកំណត់។ អនុវត្តតែលើឯកសារ; ថតតែងតែពង្រីក/បង្រួម ហើយកម្មវិធីរុករកឯកសារដែលមិនមែនក្នុងមូលដ្ឋាន (ពីចម្ងាយ) តែងតែបើកការមើលជាមុនរបស់ cmux។"
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។"
+          "when": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា `when` រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ តម្លៃនីមួយៗគឺជាកន្សោម boolean លើគន្លឹះបរិបទ ដែលផ្សំជាមួយ !, &&, || និងវង់ក្រចក។ គន្លឹះ boolean: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible។ គន្លឹះមានប្រភេទគាំទ្រការប្រៀបធៀប: ខ្សែអក្សរ sidebarMode (files, find, sessions, feed ឬ dock) និងចំនួនគត់ paneCount និង workspaceCount។ សញ្ញាប្រៀបធៀបគឺ ==, !=, =~ (regex), <, <=, >, >= និង `in [a, b]`; គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false។ អក្សរ boolean true និង false ក៏អាចប្រើបានដែរ; `key == false` ដូចគ្នានឹង `!key`។ ផ្លូវកាត់របស់សកម្មភាពនឹងដំណើរការ (និងទាស់ជាមួយផ្លូវកាត់ផ្សេងទៀត) តែពេលឃ្លានេះពិតប៉ុណ្ណោះ។ ឧទាហរណ៍: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } ជ្រើសរើស workspace ដោយ Ctrl+1–9 នៅគ្រប់ទីកន្លែង លើកលែងពេលរបារចំហៀងស្តាំមាន focus; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } កំណត់ការចងទៅរបារចំហៀង Find ពេល workspace មានផ្ទាំងច្រើន។",
+          "showModifierHoldHints": "បង្ហាញបន្ទះណែនាំផ្លូវកាត់ ខណៈពេលចុច Cmd ឬ Control ជាប់។"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
       "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "ចុចពីរដងលើឯកសារ៖ preview (លំនាំដើម), defaultEditor (កម្មវិធីលំនាំដើមរបស់ macOS), ឬ preferredEditor (ពាក្យបញ្ជា app.preferredEditor)។",
       "shortcutsWhenIntro": "លក្ខខណ្ឌបរិបទជាជម្រើសសម្រាប់សកម្មភាពនីមួយៗ (ឃ្លា when រចនាប័ទ្ម VS Code) ដែលដាក់សន្ទស្សន៍តាមលេខសម្គាល់សកម្មភាព cmux។ ការចងនឹងដំណើរការ — និងទាស់ជាមួយការចងផ្សេងទៀតលើការចុចដូចគ្នា — តែពេលឃ្លារបស់វាពិតប៉ុណ្ណោះ។ បើមិនដាក់ឃ្លា សកម្មភាពនឹងរក្សាបរិបទដើមរបស់វា។ វាក្យសព្ទក្នុងឃ្លា៖",
       "shortcutsWhenBooleanKeys": "គន្លឹះ boolean។ គន្លឹះមិនស្គាល់ ឬមិនមាននឹងត្រូវអានជា false ហើយក៏អាចប្រើ true និង false ផងដែរ។",
       "shortcutsWhenTypedKeys": "គន្លឹះមានប្រភេទសម្រាប់ការប្រៀបធៀប៖ មុខងារសកម្មរបស់របារចំហៀងស្តាំ (ខ្សែអក្សរ) និងចំនួនផ្ទាំង និង workspace (ចំនួនគត់)។",
@@ -922,6 +959,8 @@
         "surfaces": "Surface",
         "surfacesBlurb": "Surface គឺជាផ្ទាំងក្នុងបន្ទះ។",
         "splitPanes": "បន្ទះបំបែក",
+        "canvas": "ផ្ទាំងក្រណាត់",
+        "canvasBlurb": "របៀបប្លង់ 2D សេរីដែលផ្ទាំងអណ្តែតលើផ្ទាំងក្រណាត់គ្មានដែនកំណត់ដែលអាចរំកិលបាន។ ពាក្យបញ្ជាតម្រឹមនិងចែកចាយមាននៅក្នុងបន្ទះពាក្យបញ្ជា។",
         "browser": "កម្មវិធីរុករក",
         "notifications": "ជូនដំណឹង",
         "find": "ស្វែងរក",
@@ -1222,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (បេតា)"
+      "textBox": "TextBox (បេតា)",
+      "ios": "កម្មវិធី iOS"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1371,6 +1411,46 @@
       "configTitle": "cmux.json",
       "configDesc": "កំណត់លំនាំដើមដូចគ្នានៅក្នុង ~/.config/cmux/cmux.json ក្រោម terminal:",
       "focusNote": "Session ដែលបានស្តារឡើងវិញរក្សាស្ថានភាពបង្ហាញ និង focus របស់ TextBox ដែលបានរក្សាទុក។ លំនាំដើមទាំងនេះអនុវត្តតែចំពោះផ្ទៃស្ថានីយដែលទើបបង្កើតថ្មីប៉ុណ្ណោះ។"
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: OpenCode ពហុភ្នាក់ងារក្នុង cmux",
+      "metaDescription": "oh-my-opencode (cmux omo) ដំណើរការ OpenCode CLI ជាមួយកម្មវិធីជំនួយ oh-my-openagent នៅក្នុង cmux។ រៀបចំ Claude, GPT, Gemini, និង Grok ជាភ្នាក់ងារប៉ារ៉ាឡែល នីមួយៗនៅក្នុងបន្ទះបំបែកដើមរបស់ cmux។"
+    },
+    "ios": {
+      "metaTitle": "កម្មវិធី iOS",
+      "metaDescription": "រៀបចំកម្មវិធីដៃគូ cmux សម្រាប់ iOS៖ ការចូលប្រើតាមរយៈ TestFlight, ការប្រើបណ្តាញផ្ទាល់ខ្លួនជាមួយ Tailscale ឬ WireGuard, ការផ្គូផ្គង, ការជូនដំណឹង, និងទិន្នន័យដែល cmux រក្សាទុក។",
+      "title": "កម្មវិធី iOS",
+      "intro": "កម្មវិធី cmux សម្រាប់ iOS គឺជាដៃគូសម្រាប់ Mac របស់អ្នក។ ផ្គូផ្គង iPhone ឬ iPad របស់អ្នកជាមួយ Mac ដែលដំណើរការ cmux ហើយភ្ជាប់ទៅស្ថានីយរបស់អ្នកពីទូរស័ព្ទរបស់អ្នក ដោយមានជម្រើសក្នុងការបញ្ជូនបន្តការជូនដំណឹងរបស់ស្ថានីយ។",
+      "betaNote": "កម្មវិធី iOS កំពុងស្ថិតក្នុងដំណាក់កាលបេតា។ វាត្រូវបានចែកចាយនៅលើ TestFlight ក្នុងនាម cmux BETA។",
+      "accessTitle": "ការទទួលបានសិទ្ធិចូលប្រើ",
+      "accessDesc": "កម្មវិធីនេះត្រូវបានចែកចាយតាមរយៈ TestFlight។ ការចូលប្រើដំបូងត្រូវបានរួមបញ្ចូលជាមួយ <foundersLink>cmux Founders Edition</foundersLink> រួមជាមួយមុខងារដំបូងផ្សេងទៀត។",
+      "prereqTitle": "តម្រូវការជាមុន",
+      "prereqIntro": "មុនពេលអ្នកចាប់ផ្តើម អ្នកត្រូវការ៖",
+      "prereq1": "Mac ដែលដំណើរការ cmux និងបានចូលគណនី។",
+      "prereq2": "iPhone ឬ iPad ដែលបានដំឡើងកម្មវិធី cmux BETA ពី TestFlight។",
+      "prereq3": "ផ្លូវបណ្តាញពីទូរស័ព្ទរបស់អ្នកទៅកាន់ Mac របស់អ្នក (សូមមើល ការប្រើបណ្តាញផ្ទាល់ខ្លួន ខាងក្រោម)។",
+      "networkingTitle": "ការប្រើបណ្តាញផ្ទាល់ខ្លួន",
+      "networkingDesc": "cmux មិនផ្តល់បណ្តាញដែលអាចប្រើបានភ្លាមៗនោះទេ។ ស្ទ្រីមស្ថានីយហូរដោយផ្ទាល់រវាងទូរស័ព្ទ និង Mac របស់អ្នក ដូច្នេះទូរស័ព្ទរបស់អ្នកត្រូវតែអាចទៅដល់ Mac របស់អ្នកនៅលើបណ្តាញ។ វិធីសាមញ្ញបំផុតគឺបណ្តាញត្រួតលើគ្នាឯកជន។",
+      "tailscaleTitle": "Tailscale (បានណែនាំ)",
+      "tailscaleDesc": "ដំឡើង <link>Tailscale</link> នៅលើទាំង Mac និងទូរស័ព្ទរបស់អ្នក ហើយចូលទៅ tailnet ដូចគ្នា។ បន្ទាប់មកទូរស័ព្ទរបស់អ្នកអាចទៅដល់ Mac របស់អ្នកតាមរយៈអាសយដ្ឋាន tailnet របស់វាពីគ្រប់ទីកន្លែង ដោយមិនចាំបាច់បញ្ជូនបន្តport។",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "ប្រសិនបើអ្នកប្រើ <link>WireGuard</link> រួចហើយ សូមដាក់ Mac និងទូរស័ព្ទរបស់អ្នកនៅលើបណ្តាញដូចគ្នា ហើយប្រើអាសយដ្ឋាន WireGuard របស់ Mac។",
+      "networkingNote": "មិនថាអ្នកជ្រើសរើសមួយណាទេ ការតភ្ជាប់គឺជារបស់អ្នក។ cmux មិនធ្វើជាប្រូកស៊ី ឬបញ្ជូនបន្តចរាចរណ៍ស្ថានីយរវាងឧបករណ៍របស់អ្នកនោះទេ។",
+      "pairTitle": "ផ្គូផ្គង និងតភ្ជាប់",
+      "pairStep1": "នៅលើ Mac សូមបើកបង្អួច Mobile Connect នៅក្នុង cmux។",
+      "pairStep2": "នៅលើទូរស័ព្ទរបស់អ្នក សូមបើកកម្មវិធី cmux BETA ហើយបញ្ជាក់ការផ្គូផ្គងដែលបង្ហាញនៅក្នុង Mobile Connect។",
+      "pairStep3": "នៅពេលផ្គូផ្គងរួច កន្លែងធ្វើការ និងស្ថានីយរបស់អ្នកនឹងបង្ហាញនៅលើទូរស័ព្ទតាមរយៈបណ្តាញរបស់អ្នក។",
+      "pairNote": "ការផ្គូផ្គងគឺតាមឧបករណ៍នីមួយៗ។ ឧបករណ៍ថ្មី ឬកម្មវិធីដែលបានដំឡើងឡើងវិញ នឹងផ្គូផ្គងម្តងទៀត។",
+      "notificationsTitle": "ការជូនដំណឹង",
+      "notificationsDesc": "អ្នកអាចជ្រើសរើសបញ្ជូនបន្តការជូនដំណឹងរបស់ស្ថានីយទៅទូរស័ព្ទរបស់អ្នក ដូច្នេះបន្ទះដែលត្រូវការការយកចិត្តទុកដាក់នឹងជូនដំណឹងទៅឧបករណ៍របស់អ្នក។ នៅពេលការបញ្ជូនបន្តបើក អត្ថបទនៃការជូនដំណឹង (ចំណងជើង និងខ្លឹមសារ ដែលដកស្រង់ចេញពីលទ្ធផលរបស់ស្ថានីយ) ត្រូវបានបញ្ជូនតាមរយៈម៉ាស៊ីនមេ cmux ទៅសេវាpush របស់ Apple ដើម្បីបញ្ជូន។ បើក Hide content នៅក្នុងការកំណត់ការជូនដំណឹង ដើម្បីផ្ញើសារទូទៅជំនួសវិញ ហើយរក្សាអត្ថបទស្ថានីយនៅលើឧបករណ៍របស់អ្នក។ សូមមើល <link>ការជូនដំណឹង</link> អំពីរបៀបដែល cmux បង្កើតពួកវា។",
+      "dataTitle": "ទិន្នន័យអ្វីខ្លះត្រូវបានរក្សាទុក",
+      "dataIntro": "cmux ត្រូវបានបង្កើតឡើងដើម្បីឱ្យស្ថានីយរបស់អ្នកស្ថិតនៅរវាងឧបករណ៍របស់អ្នក។ នៅលើម៉ាស៊ីនមេ cmux យើងរក្សាទុកតែអ្វីដែលចាំបាច់ដើម្បីចូលគណនីអ្នក និងតភ្ជាប់ឧបករណ៍របស់អ្នកប៉ុណ្ណោះ៖",
+      "data1": "គណនីរបស់អ្នកពីការចូល (អ៊ីមែល) ដើម្បីកំណត់អត្តសញ្ញាណអ្នកនៅទូទាំងឧបករណ៍។",
+      "data2": "តូខឹនpush សម្រាប់ឧបករណ៍របស់អ្នក ដើម្បីបញ្ជូនការជូនដំណឹងស្ថានីយដែលបានបញ្ជូនបន្ត។",
+      "data3": "ទិន្នន័យមេតានៃការផ្គូផ្គង និងឧបករណ៍ ដើម្បីតភ្ជាប់ទូរស័ព្ទរបស់អ្នកទៅ Mac របស់អ្នក។",
+      "dataNot": "សម័យស្ថានីយអន្តរកម្មរបស់អ្នក ខ្លឹមសារ និងការវាយបញ្ចូលគ្រាប់ចុចរបស់វា ហូរដោយផ្ទាល់រវាងទូរស័ព្ទ និង Mac របស់អ្នកតាមរយៈបណ្តាញផ្ទាល់ខ្លួនរបស់អ្នក ហើយមិនត្រូវបានបញ្ជូនបន្តតាម ឬរក្សាទុកនៅលើម៉ាស៊ីនមេ cmux នោះទេ។ ករណីលើកលែងតែមួយគត់គឺអត្ថបទនៃការជូនដំណឹងដែលបានបញ្ជូនបន្ត ដែលឆ្លងកាត់ cmux និងសេវាpush របស់ Apple ដើម្បីទៅដល់ទូរស័ព្ទរបស់អ្នក លុះត្រាតែអ្នកបើក Hide content (សូមមើល ការជូនដំណឹង ខាងលើ)។",
+      "enterpriseTitle": "សហគ្រាស និងការដំឡើងផ្ទាល់ខ្លួន",
+      "enterpriseDesc": "សម្រាប់ការដាក់ពង្រាយផ្ទាល់ខ្លួន ឬដែលផ្តាច់ចេញពីបណ្តាញ សូមទាក់ទង <link>founders@manaflow.com</link>។"
     }
   },
   "legal": {

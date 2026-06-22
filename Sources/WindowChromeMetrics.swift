@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CoreGraphics
 
 enum WindowChromeMetrics {
@@ -32,12 +33,21 @@ enum HeaderChromeControlMetrics {
 
 enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
-    static let secondaryBarHeight: CGFloat = WindowChromeMetrics.secondaryTitlebarHeight
+    static var secondaryBarHeight: CGFloat {
+        controlHeight + (barVerticalPadding * 2)
+    }
     static let barHorizontalPadding: CGFloat = 8
     static let barVerticalPadding: CGFloat = 4
-    static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
+    static var controlHeight: CGFloat {
+        let baseHeight = WindowChromeMetrics.secondaryTitlebarHeight - (barVerticalPadding * 2)
+        let scaledTextHeight = GlobalFontMagnification.scaledSize(12)
+        let scaledContentHeight = scaledTextHeight + 8
+        return max(baseHeight, scaledContentHeight)
+    }
     static let controlHorizontalPadding: CGFloat = 8
-    static let controlCornerRadius: CGFloat = 5
+    static var controlCornerRadius: CGFloat {
+        min(10, max(5, controlHeight * 0.25))
+    }
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
     static let headerIconSize: CGFloat = 10
     static let headerIconFrameSize: CGFloat = headerIconSize
@@ -49,8 +59,18 @@ enum RightSidebarChromeMetrics {
 enum SidebarWorkspaceListMetrics {
     static let firstRowTopOffset: CGFloat = MinimalModeChromeMetrics.titlebarHeight + 2
     static let rowVerticalPadding: CGFloat = 8
+    static let rowOuterHorizontalPadding: CGFloat = 6
+    static let rowContentHorizontalPadding: CGFloat = 10
     static let topScrimHeight: CGFloat = firstRowTopOffset + 20
     static let bottomScrimHeight: CGFloat = topScrimHeight
+
+    static var trailingAccessoryRightEdgeOffset: CGFloat {
+        rowOuterHorizontalPadding + rowContentHorizontalPadding
+    }
+
+    static func trailingAccessoryCenterOffset(controlWidth: CGFloat) -> CGFloat {
+        trailingAccessoryRightEdgeOffset + (controlWidth / 2)
+    }
 
     static var scrollTopInset: CGFloat {
         max(0, firstRowTopOffset - rowVerticalPadding)
@@ -76,30 +96,17 @@ enum SidebarWorkspaceScrollLayout {
         viewportHeight: CGFloat,
         insets: SidebarWorkspaceScrollInsets
     ) -> CGFloat {
-        return max(0, viewportHeight - insets.total)
-    }
-
-    /// Height of the empty drop/tap area placed below the last workspace row.
-    ///
-    /// The area fills the remaining viewport (so the content fills the visible
-    /// height when the rows fit) but is clamped to `0` once the rows already
-    /// reach or exceed `contentMinHeight`. Sizing it to this finite remainder —
-    /// rather than `maxHeight: .infinity` — is what keeps the document view
-    /// from perpetually overflowing, so the overlay scroller stays hidden when
-    /// there is nothing to scroll
-    /// (https://github.com/manaflow-ai/cmux/issues/3241).
-    ///
-    /// - Parameters:
-    ///   - contentMinHeight: The viewport height available to the scroll content.
-    ///   - rowsHeight: The measured height of the laid-out rows, or `nil` when
-    ///     no measurement is available yet (in which case the area collapses to
-    ///     `0` and the content's `minHeight` frame still fills the viewport).
-    /// - Returns: The non-negative height for the empty area.
-    nonisolated static func emptyAreaHeight(
-        contentMinHeight: CGFloat,
-        rowsHeight: CGFloat?
-    ) -> CGFloat {
-        guard let rowsHeight, rowsHeight > 0 else { return 0 }
-        return max(0, contentMinHeight - rowsHeight)
+        // Floor the available height to a whole point. The scroll content is
+        // sized to fill exactly `viewportHeight - insets.total`, but on
+        // Retina/scaled displays the viewport is frequently fractional and
+        // AppKit aligns the laid-out document view's frame to the backing store
+        // (rounding up), so a fractional value can land just past the viewport.
+        // That sub-point overflow makes the content barely scrollable and shows
+        // the auto-hiding overlay scroller even with a single workspace.
+        // Flooring to a whole point keeps `content + insets <= viewportHeight`
+        // regardless of the display's backing scale, so the phantom scrollbar
+        // stays hidden when content fits
+        // (https://github.com/manaflow-ai/cmux/issues/3241).
+        return max(0, (viewportHeight - insets.total).rounded(.down))
     }
 }

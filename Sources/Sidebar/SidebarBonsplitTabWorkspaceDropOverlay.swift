@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
 import SwiftUI
 
 struct SidebarBonsplitTabWorkspaceDropOverlay: NSViewRepresentable {
@@ -236,7 +237,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
             setDropIndicator(nil)
         }
 
-        guard let action = SidebarDropPlanner.workspaceAction(for: pendingDrop.point, targets: targets),
+        guard let action = SidebarDropPlanner().workspaceAction(for: pendingDrop.point, targets: targets),
               canPerformAction(action, pendingDrop.transfer) else {
 #if DEBUG
             dlog("sidebar.workspaceDropOverlay.performPending moved=0 reason=notAccepted")
@@ -396,7 +397,7 @@ final class SidebarBonsplitTabWorkspaceDropView: NSView {
     }
 
     private func action(for sender: any NSDraggingInfo) -> SidebarDropPlanner.WorkspaceDropAction? {
-        SidebarDropPlanner.workspaceAction(for: localPoint(sender), targets: targets)
+        SidebarDropPlanner().workspaceAction(for: localPoint(sender), targets: targets)
     }
 
     private func shouldCaptureHitTest() -> Bool {
