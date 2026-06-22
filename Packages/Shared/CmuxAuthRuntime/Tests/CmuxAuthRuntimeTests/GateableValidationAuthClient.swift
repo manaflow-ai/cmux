@@ -32,6 +32,10 @@ actor GateableValidationAuthClient: AuthClient {
     private let teamsGate = Gate()
     private let credentialGate = Gate()
     private let clearGate = Gate()
+    private let storedAccessGate = Gate()
+    private var credentialExchangeIgnoresCancellation = false
+    private(set) var credentialStartCount = 0
+    private(set) var magicLinkStartCount = 0
 
     init(user: CMUXAuthUser, teams: [CMUXAuthTeam] = []) {
         self.user = user
@@ -85,6 +89,13 @@ actor GateableValidationAuthClient: AuthClient {
     func armCredentialGate() { credentialGate.armed = true }
     func credentialDidPark() async { await didPark(credentialGate) }
     func releaseParkedCredential() { release(credentialGate) }
+    func setCredentialExchangeIgnoresCancellation(_ value: Bool) { credentialExchangeIgnoresCancellation = value }
+
+    // MARK: - Stored access gate (sign-out credential capture)
+
+    func armStoredAccessGate() { storedAccessGate.armed = true }
+    func storedAccessDidPark() async { await didPark(storedAccessGate) }
+    func releaseParkedStoredAccess() { release(storedAccessGate) }
 
     // MARK: - Clear gate (the local token-store clear)
 
@@ -110,11 +121,14 @@ actor GateableValidationAuthClient: AuthClient {
     }
 
     func signInWithCredential(email: String, password: String) async throws {
+        credentialStartCount += 1
         await parkIfArmed(credentialGate)
         // Mirror the vendored SDK's `publishSessionTokens` chokepoint: a flow
         // whose task was cancelled while the request was in flight must not
         // persist a session behind UI that already reported the flow as over.
-        try Task.checkCancellation()
+        if !credentialExchangeIgnoresCancellation {
+            try Task.checkCancellation()
+        }
         // The exchange stores fresh tokens when it resumes, even when a
         // sign-out cleared the store while the request was in flight.
         exchangeCounter += 1
@@ -126,10 +140,20 @@ actor GateableValidationAuthClient: AuthClient {
     func refreshToken() async -> String? { refresh }
     func forceRefreshAccessToken() async -> String? { access }
     func sendMagicLinkEmail(email: String, callbackURL: String) async throws -> String { "nonce" }
-    func signInWithMagicLink(code: String) async throws {}
+    func signInWithMagicLink(code: String) async throws {
+        magicLinkStartCount += 1
+        await parkIfArmed(credentialGate)
+        try Task.checkCancellation()
+        exchangeCounter += 1
+        access = "access-\(exchangeCounter)"
+        refresh = "refresh-\(exchangeCounter)"
+    }
     func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {}
 
-    func storedAccessToken() async -> String? { access }
+    func storedAccessToken() async -> String? {
+        await parkIfArmed(storedAccessGate)
+        return access
+    }
 
     func clearLocalSession() async {
         await parkIfArmed(clearGate)

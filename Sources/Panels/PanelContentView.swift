@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 import Foundation
 import Bonsplit
@@ -176,7 +177,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             Text(filePath)
-                .font(.system(size: 11, design: .monospaced))
+                .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
                 .lineLimit(1)
                 .truncationMode(.middle)
