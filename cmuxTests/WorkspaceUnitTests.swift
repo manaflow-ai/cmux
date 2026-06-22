@@ -6425,11 +6425,18 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             return
         }
 
+        // `Workspace` is `@Observable`, so it no longer exposes `objectWillChange`.
+        // The signal these tests are about — "the workspace republished its
+        // sidebar projection" — is the aggregate `sidebarObservationPublisher`
+        // (which fans in the focused git-branch/PR state and de-dups), so observe
+        // that directly. It is the same publisher the sibling
+        // `testSidebarObservationPublisher…` test uses.
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink { _ in
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "main", isDirty: false)
         let baselinePublishCount = publishCount
@@ -6458,11 +6465,14 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
         workspace.updatePanelGitBranch(panelId: panelId, branch: "feature/sidebar-pr", isDirty: false)
 
+        // See the git-branch test above: observe the aggregate sidebar projection
+        // publisher rather than the retired `objectWillChange`.
         var publishCount = 0
-        let cancellable = workspace.objectWillChange.sink { _ in
+        let cancellable = workspace.sidebarObservationPublisher.sink { _ in
             publishCount += 1
         }
         defer { cancellable.cancel() }
+        publishCount = 0
 
         let pullRequestURL = URL(string: "https://github.com/manaflow-ai/cmux/pull/2388")!
         workspace.updatePanelPullRequest(

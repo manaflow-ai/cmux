@@ -110,7 +110,11 @@ struct WorkspaceContentView: View {
         let forceInitialApply: Bool
     }
 
-    @ObservedObject var workspace: Workspace
+    // `Workspace` is `@Observable`; SwiftUI tracks the exact stored properties
+    // this `body` reads (including nested `@Observable` sub-models like
+    // `paneTree`/`surfaceRegistry`/`unreadModel`), so a plain `var` replaces the
+    // legacy `@ObservedObject`.
+    var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let isFullScreen: Bool
@@ -145,6 +149,12 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
+        // Track the shared live-agent index revision so Observation re-renders
+        // this view (and re-evaluates bonsplit's Fork Conversation availability
+        // provider) the moment a background `SharedLiveAgentIndex` refresh lands.
+        // Replaces the former `SharedLiveAgentIndex -> workspace.objectWillChange`
+        // forward now that `Workspace` is `@Observable`.
+        let _ = workspace.liveAgentIndexRevision
         let appearance = PanelAppearance.fromConfig(config)
         let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
             workspace.panels.count > 1
@@ -673,7 +683,7 @@ extension WorkspaceContentView {
 
 /// View shown for empty panes
 struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
+    var workspace: Workspace
     let paneId: PaneID
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 

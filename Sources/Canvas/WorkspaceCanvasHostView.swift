@@ -13,7 +13,9 @@ import CmuxSettingsUI
 /// stores, and the package never sees panel types — content crosses the
 /// seam as `CanvasPaneContentMount` witnesses.
 struct WorkspaceCanvasHostView: View {
-    @ObservedObject var workspace: Workspace
+    // `Workspace` is `@Observable`; a plain `var` lets SwiftUI track the reads
+    // this view makes, replacing the legacy `@ObservedObject`.
+    var workspace: Workspace
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let portalPriority: Int

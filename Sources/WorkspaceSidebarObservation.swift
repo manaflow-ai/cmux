@@ -44,10 +44,10 @@ private struct SidebarObservationState: Equatable {
 extension Workspace {
     func makeSidebarImmediateObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $title,
-            $customDescription,
-            $isPinned,
-            $customColor
+            titlePublisher,
+            customDescriptionPublisher,
+            isPinnedPublisher,
+            customColorPublisher
         )
         let conversationFields = Publishers.CombineLatest3(
             latestConversationMessagePublisher,
@@ -75,8 +75,8 @@ extension Workspace {
 
     func makeSidebarObservationPublisher() -> AnyPublisher<Void, Never> {
         let workspaceFields = Publishers.CombineLatest4(
-            $currentDirectory,
-            $extensionSidebarProjectRootPath,
+            currentDirectoryPublisher,
+            extensionSidebarProjectRootPathPublisher,
             panelsPublisher.map(SidebarPanelObservationState.init),
             panelDirectoriesPublisher
         )
@@ -93,10 +93,10 @@ extension Workspace {
             sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(
-            $remoteConfiguration,
-            $remoteConnectionState,
-            $remoteConnectionDetail,
-            $activeRemoteTerminalSessionCount
+            remoteConfigurationPublisher,
+            remoteConnectionStatePublisher,
+            remoteConnectionDetailPublisher,
+            activeRemoteTerminalSessionCountPublisher
         )
 
         return Publishers.CombineLatest4(
