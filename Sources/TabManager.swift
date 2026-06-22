@@ -2677,6 +2677,8 @@ class TabManager: ObservableObject {
     }
 
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
+        // Stored under the legacy closeWorkspaceOnLastSurfaceShortcut key:
+        // true means the Close shortcut closes the workspace on its last surface.
         closeWorkspaceOnLastSurfacePreferenceEnabled() &&
             workspace.panels.count <= 1 &&
             workspace.panels[panelId] != nil

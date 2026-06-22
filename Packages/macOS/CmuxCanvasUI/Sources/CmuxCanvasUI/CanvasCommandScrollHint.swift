@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// The one-time discovery hint that appears, with a soft scale+fade, after a
@@ -14,11 +15,11 @@ struct CanvasCommandScrollHint: View {
         HStack(spacing: 8) {
             textKeycap("⌘")
             Image(systemName: "plus")
-                .font(.system(size: 9, weight: .bold))
+                .cmuxFont(size: 9, weight: .bold)
                 .foregroundStyle(.secondary)
             symbolKeycap("arrow.up.and.down.and.arrow.left.and.right")
             Text(text)
-                .font(.system(size: 12, weight: .medium))
+                .cmuxFont(size: 12, weight: .medium)
                 .foregroundStyle(.primary)
                 .fixedSize()
         }
@@ -41,14 +42,14 @@ struct CanvasCommandScrollHint: View {
     private func textKeycap(_ text: String) -> some View {
         keycapContainer {
             Text(text)
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
         }
     }
 
     private func symbolKeycap(_ systemName: String) -> some View {
         keycapContainer {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
         }
     }
 
