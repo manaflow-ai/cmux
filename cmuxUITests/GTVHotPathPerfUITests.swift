@@ -48,6 +48,12 @@ final class GTVHotPathPerfUITests: XCTestCase {
     }
 
     override func tearDown() {
+        // Preserve the app debug log to a stable path for post-mortem when a run
+        // misbehaves locally (gated to an opt-in env so CI stays clean).
+        if ProcessInfo.processInfo.environment["CMUX_GTVPERF_KEEP_LOG"] == "1",
+           let data = FileManager.default.contents(atPath: debugLogPath) {
+            try? data.write(to: URL(fileURLWithPath: "/tmp/cmux-gtvperf-applog-last.log"))
+        }
         try? FileManager.default.removeItem(atPath: socketPath)
         try? FileManager.default.removeItem(atPath: diagnosticsPath)
         try? FileManager.default.removeItem(atPath: debugLogPath)
@@ -87,7 +93,7 @@ final class GTVHotPathPerfUITests: XCTestCase {
         // Wait for the shell prompt so input lands in an interactive shell.
         XCTAssertTrue(
             waitForShellReady(surfaceID: surfaceID, timeout: 25.0),
-            "Shell did not become ready. text=\(readTerminalText(surfaceID: surfaceID) ?? "<nil>")"
+            "Shell did not become ready. text=\(readTerminalText(surfaceID: surfaceID) ?? "<nil>")\nDIAG:\n\(shellReadinessDiagnostics(surfaceID: surfaceID))"
         )
         // Make sure the terminal view is the focused first responder for typeText.
         XCTAssertTrue(
@@ -103,19 +109,33 @@ final class GTVHotPathPerfUITests: XCTestCase {
         }
         _ = socketResult(method: "surface.send_text", params: ["surface_id": surfaceID, "text": "for i in $(seq 1 200); do echo warm $i; done"])
         _ = socketResult(method: "surface.send_key", params: ["surface_id": surfaceID, "key": "return"])
-        Thread.sleep(forTimeInterval: 1.0)
+        // Let the warmup render loop fully drain before the measured keyDown burst.
+        // Each `typeText` first blocks on "wait for app to idle"; if the warmup
+        // echo loop is still rendering, that wait can stall for tens of seconds
+        // and XCUITest then aborts the synthesize with a timeout. Wait for the log
+        // (which the render loop is actively appending to) to go quiet first.
+        waitForLogQuiescence(timeout: 20.0, quietFor: 1.5)
 
         // Truncate the log so only measured bursts are parsed.
+        if ProcessInfo.processInfo.environment["CMUX_GTVPERF_KEEP_LOG"] == "1",
+           let data = FileManager.default.contents(atPath: debugLogPath) {
+            try? data.write(to: URL(fileURLWithPath: "/tmp/cmux-gtvperf-applog-warmup.log"))
+        }
         try? "".write(toFile: debugLogPath, atomically: true, encoding: .utf8)
 
         // ---- Burst 1: keyDown burst (real NSEvents via typeText). ----
-        // Alphanumerics only (predictable single-keystroke mapping). Each line is
-        // a separate typeText so AppKit dispatches discrete keyDowns.
+        // Alphanumerics only (predictable single-keystroke mapping). `typeText`
+        // synthesizes one discrete keyDown per character, so a single call types
+        // the whole burst as ~`keyDownLines * keyDownChars.count` real keyDowns
+        // through the responder chain. We type it in one shot rather than 60
+        // separate calls: each `typeText` blocks on "wait for app to idle", and
+        // doing that 60 times while the terminal is redrawing makes one of those
+        // idle-waits eventually stall past XCUITest's synthesize timeout. One
+        // synthesize = one idle wait = deterministic.
         let keyDownLines = 60
         let keyDownChars = "the quick brown fox jumps over 13 lazy dogs "
-        for _ in 0..<keyDownLines {
-            app.typeText(keyDownChars)
-        }
+        let keyDownBurst = String(repeating: keyDownChars, count: keyDownLines)
+        app.typeText(keyDownBurst)
         // Clear the typed buffer so it doesn't run as a command.
         app.typeText("\u{15}") // Ctrl-U (clear line) where supported
 
@@ -448,6 +468,28 @@ final class GTVHotPathPerfUITests: XCTestCase {
             return nil
         }
         return String(data: data, encoding: .utf8)
+    }
+
+    /// Returns the full JSON envelope (ok/result/error) for a socket call so a
+    /// failing readiness gate can report the exact server-side error.
+    private func rawEnvelope(method: String, params: [String: Any]) -> [String: Any]? {
+        let request: [String: Any] = ["id": UUID().uuidString, "method": method, "params": params]
+        return ControlSocketClient(path: socketPath, responseTimeout: 5.0).sendJSON(request)
+    }
+
+    /// One-shot diagnostic block for why the shell never became ready: dumps the
+    /// raw read_text envelope, current workspace, focused-surface state, and the
+    /// surface list so the failure message points at the exact gate.
+    private func shellReadinessDiagnostics(surfaceID: String) -> String {
+        var lines: [String] = []
+        lines.append("read_text envelope: \(String(describing: rawEnvelope(method: "debug.terminal.read_text", params: ["surface_id": surfaceID])))")
+        lines.append("read_text (no surface_id): \(String(describing: rawEnvelope(method: "debug.terminal.read_text", params: [:])))")
+        lines.append("is_focused: \(String(describing: rawEnvelope(method: "debug.terminal.is_focused", params: ["surface_id": surfaceID])))")
+        lines.append("render_stats: \(String(describing: rawEnvelope(method: "debug.terminal.render_stats", params: ["surface_id": surfaceID])))")
+        lines.append("current_workspace: \(String(describing: rawEnvelope(method: "workspace.current", params: [:])))")
+        lines.append("list_surfaces: \(String(describing: rawEnvelope(method: "surface.list", params: [:])))")
+        lines.append("list_workspaces: \(String(describing: rawEnvelope(method: "workspace.list", params: [:])))")
+        return lines.joined(separator: "\n")
     }
 
     private func waitForShellReady(surfaceID: String, timeout: TimeInterval) -> Bool {

@@ -74,7 +74,13 @@ public final class PaneMemoryGuardrailService {
             repeating: Self.pollInterval,
             leeway: .seconds(1)
         )
-        timer.setEventHandler { [weak self] in
+        // The event handler runs on `timerQueue`, NOT the main actor. Because the
+        // enclosing `start()` is `@MainActor`, a bare closure here is inferred
+        // main-actor-isolated and the Swift 6 runtime traps with
+        // `dispatch_assert_queue` (EXC_BREAKPOINT) the first time the timer fires
+        // off-main. Marking the handler `@Sendable` makes it explicitly
+        // non-isolated; the only main-actor work happens inside the hopped Task.
+        timer.setEventHandler { @Sendable [weak self] in
             Task { @MainActor in self?.tick() }
         }
         self.timer = timer
