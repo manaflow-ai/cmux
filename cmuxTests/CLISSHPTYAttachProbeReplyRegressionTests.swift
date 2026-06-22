@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testSSHPTYAttachPreservesPipedProbeLikeInputBeforeForwardingInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyprobe")
@@ -94,7 +95,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [socketHandled], timeout: 5)
+        legacyWait(for: [socketHandled], timeout: 5)
         #expect(bridgeHandled.wait(timeout: .now() + 5) == .success)
         #expect(!result.timedOut)
         #expect(result.status == 0)

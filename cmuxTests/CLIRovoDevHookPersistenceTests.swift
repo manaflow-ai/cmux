@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testRovoDevPromptSubmitInfersSessionIdFromWorkspaceMetadataAndPersistsLaunchCommand() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-infer")
@@ -69,32 +71,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
 
         let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        XCTAssertEqual(session["workspaceId"] as? String, workspaceId)
-        XCTAssertEqual(session["surfaceId"] as? String, surfaceId)
-        XCTAssertEqual(session["cwd"] as? String, workspace.path)
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        let session = try legacyUnwrap(sessions[sessionId] as? [String: Any])
+        legacyAssertEqual(session["workspaceId"] as? String, workspaceId)
+        legacyAssertEqual(session["surfaceId"] as? String, surfaceId)
+        legacyAssertEqual(session["cwd"] as? String, workspace.path)
 
-        let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
-        XCTAssertEqual(launchCommand["launcher"] as? String, "rovodev")
-        XCTAssertEqual(launchCommand["executablePath"] as? String, "/usr/local/bin/acli")
-        XCTAssertEqual(
+        let launchCommand = try legacyUnwrap(session["launchCommand"] as? [String: Any])
+        legacyAssertEqual(launchCommand["launcher"] as? String, "rovodev")
+        legacyAssertEqual(launchCommand["executablePath"] as? String, "/usr/local/bin/acli")
+        legacyAssertEqual(
             launchCommand["arguments"] as? [String],
             ["/usr/local/bin/acli", "rovodev", "run", "--yolo"]
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             state.commands.contains { $0.contains("set_status rovodev Running") && $0.contains("--tab=\(workspaceId)") },
             "Expected Rovo Dev prompt status to target current workspace, saw \(state.commands)"
         )
     }
-
+    @Test
     func testRovoDevPromptSubmitInfersNewestMatchingWorkspaceMetadata() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-newest")
@@ -170,18 +172,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
 
         let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        XCTAssertNil(sessions["rovo-older-session"] as? [String: Any])
-        XCTAssertNotNil(sessions["rovo-newer-session"] as? [String: Any])
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        legacyAssertNil(sessions["rovo-older-session"] as? [String: Any])
+        legacyAssertNotNil(sessions["rovo-newer-session"] as? [String: Any])
     }
-
+    @Test
     func testRovoDevPromptSubmitReadsConfiguredPersistenceDirWithCommentsHashAndApostrophePath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-config")
@@ -268,17 +270,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
 
         let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        XCTAssertNotNil(sessions[sessionId] as? [String: Any])
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        legacyAssertNotNil(sessions[sessionId] as? [String: Any])
     }
-
+    @Test
     func testRovoDevPromptSubmitWithoutCwdDoesNotInferUnrelatedSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-nocwd")
@@ -338,19 +340,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
 
         let storeURL = root.appendingPathComponent("rovodev-hook-sessions.json", isDirectory: false)
         if let data = try? Data(contentsOf: storeURL),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let sessions = json["sessions"] as? [String: Any] {
-            XCTAssertNil(sessions[unrelatedSessionId] as? [String: Any])
+            legacyAssertNil(sessions[unrelatedSessionId] as? [String: Any])
         }
     }
-
+    @Test
     func testRovoDevInstallDoesNotReplaceUnreadableConfigPath() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -375,12 +377,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("could not be read"), result.stderr)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertNotEqual(result.status, 0)
+        legacyAssertTrue(result.stderr.contains("could not be read"), result.stderr)
+        legacyAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
     }
-
+    @Test
     func testRovoAliasCreatesConfigDirAndInstallsRovoDevHooksFromSetup() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -405,19 +407,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("rovodev:"), result.stdout)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertTrue(result.stdout.contains("rovodev:"), result.stdout)
 
         let config = try String(
             contentsOf: configDir.appendingPathComponent("config.yml", isDirectory: false),
             encoding: .utf8
         )
-        XCTAssertTrue(config.contains("eventHooks:"), config)
-        XCTAssertTrue(config.contains(#"hooks rovodev prompt-submit"#), config)
-        XCTAssertTrue(config.contains(#"CMUX_BUNDLED_CLI_PATH"#), config)
+        legacyAssertTrue(config.contains("eventHooks:"), config)
+        legacyAssertTrue(config.contains(#"hooks rovodev prompt-submit"#), config)
+        legacyAssertTrue(config.contains(#"CMUX_BUNDLED_CLI_PATH"#), config)
     }
-
+    @Test
     func testSetupHooksRejectsConflictingAgentFilters() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -436,11 +438,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("Conflicting hooks target"), result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertNotEqual(result.status, 0)
+        legacyAssertTrue(result.stderr.contains("Conflicting hooks target"), result.stderr)
     }
-
+    @Test
     func testSetupHooksRejectsMultiplePositionalTargets() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -459,9 +461,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0)
-        XCTAssertTrue(result.stderr.contains("Too many hooks targets"), result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertNotEqual(result.status, 0)
+        legacyAssertTrue(result.stderr.contains("Too many hooks targets"), result.stderr)
     }
 
     func writeRovoDevSessionMetadata(

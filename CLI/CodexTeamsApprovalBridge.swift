@@ -197,7 +197,7 @@ enum CodexTeamsApprovalBridge {
     }
 
     static func feedSourceSupportsPersistentPermissionModes(_ source: String) -> Bool {
-        source != "hermes-agent"
+        source != "copilot" && source != "hermes-agent"
     }
 
     static func feedSourceSupportsOncePermissionMode(_ source: String, toolInputJSON: String?) -> Bool {
@@ -218,7 +218,7 @@ enum CodexTeamsApprovalBridge {
     }
 
     static func feedSourceSupportsBypassPermissions(_ source: String) -> Bool {
-        source != "codex" && source != "claude" && source != "hermes-agent"
+        source != "codex" && source != "claude" && source != "copilot" && source != "hermes-agent"
     }
 
     static func requestIdString(_ requestId: Any) -> String {

@@ -117,10 +117,11 @@ See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-co
 
 ### GitHub Copilot CLI
 
-Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks) that run shell commands at key lifecycle events. Add to `~/.copilot/config.json`:
+Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks) that run shell commands at key lifecycle events. Add to `~/.copilot/hooks/cmux.json`:
 
 ```json
 {
+  "version": 1,
   "hooks": {
     "userPromptSubmitted": [
       {
@@ -139,7 +140,14 @@ Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copi
     "errorOccurred": [
       {
         "type": "command",
-        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.errorMessage // \"An error occurred\"' 2>/dev/null | head -c 100)\"; cmux set-status copilot_cli Error; else osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'; fi",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \"$(cat | jq -r '.error.message // .error.name // \"An error occurred\"' 2>/dev/null | head -c 100)\"; cmux set-status copilot_cli Error; else osascript -e 'display notification \"An error occurred\" with title \"Copilot CLI\"'; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "notification": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux hooks copilot notification; fi",
         "timeoutSec": 5
       }
     ],

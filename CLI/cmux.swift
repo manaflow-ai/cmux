@@ -25728,6 +25728,32 @@ struct CMUXCLI {
             String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
             def.displayName
         )
+        let rawObject = parsedInput.rawObject ?? object
+        if def.name == "copilot", let error = rawObject["error"] as? [String: Any] {
+            let label = firstString(in: error, keys: ["name", "code", "status", "type"])
+            let details = firstString(in: error, keys: ["message", "description"])
+                ?? firstString(in: rawObject, keys: ["message", "description"])
+            let body: String
+            switch (label.map(normalizedSingleLine), details.map(normalizedSingleLine)) {
+            case let (label?, details?) where !label.isEmpty && !details.isEmpty && details != label:
+                body = "\(label): \(details)"
+            case let (_, details?) where !details.isEmpty:
+                body = details
+            case let (label?, _) where !label.isEmpty:
+                body = label
+            default:
+                body = String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
+                    def.displayName
+                )
+            }
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                body: truncate(body, maxLength: 180),
+                status: .error,
+                isFallback: false
+            )
+        }
         let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = normalizedSingleLine(message)
@@ -26918,10 +26944,7 @@ struct CMUXCLI {
         Self.hookCommandString(for: def, event: event)
     }
 
-    /// Shell command the agent runs for a Feed bridge event. 120s timeout
-    /// inside the shell is applied via the agent's `timeout` field in the
-    /// nested hook config (see `buildHooksDict`); the shell command
-    /// itself just dispatches.
+    /// Shell command the agent runs for a Feed bridge event.
     func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         Self.feedHookCommandString(for: def, agentEvent: agentEvent)
     }
@@ -26949,6 +26972,10 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .copilotJSON(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.copilotHookEntry(command: cmd, timeoutSeconds: timeoutSeconds))
+                result[event.agentEvent] = entries
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -26961,10 +26988,7 @@ struct CMUXCLI {
                 break
             }
         }
-        // Layer in Feed bridge entries. Blocking approval bridges get a long
-        // timeout; Codex telemetry stays short so it never delays Codex's own
-        // approval reviewer. Most nested agents use milliseconds. Codex, Grok,
-        // and Antigravity hook schemas use seconds, so normalize before writing.
+        // Layer in Feed bridge entries; blocking approvals get a long timeout.
         for agentEvent in def.feedHookEvents {
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
             let feedTimeoutMs = feedHookTimeoutMs(for: def, agentEvent: agentEvent)
@@ -26987,6 +27011,15 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .copilotJSON:
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                let timeoutSeconds = Self.timeoutSecondsFromMilliseconds(feedTimeoutMs)
+                entries.append(Self.copilotHookEntry(
+                    command: feedCmd,
+                    timeoutSeconds: timeoutSeconds + (feedTimeoutMs >= 120_000 ? 5 : 0),
+                    matcher: agentEvent == "preToolUse" ? FeedEventClassifier.copilotPreToolUseApprovalToolMatcher : nil
+                ))
+                result[agentEvent] = entries
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -27012,7 +27045,7 @@ struct CMUXCLI {
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
-    private func feedHookTimeoutMs(for def: AgentHookDef, agentEvent _: String) -> Int {
+    private func feedHookTimeoutMs(for def: AgentHookDef, agentEvent: String) -> Int {
         if def.name == "codex" {
             return 5_000
         }
@@ -27022,6 +27055,12 @@ struct CMUXCLI {
     private static func timeoutSecondsFromMilliseconds(_ timeoutMs: Int) -> Int {
         let positiveTimeoutMs = max(timeoutMs, 1)
         return ((positiveTimeoutMs - 1) / 1000) + 1
+    }
+
+    private static func copilotHookEntry(command: String, timeoutSeconds: Int, matcher: String? = nil) -> [String: Any] {
+        var entry: [String: Any] = ["type": "command", "bash": command, "timeoutSec": max(timeoutSeconds, 1)]
+        if let matcher { entry["matcher"] = matcher }
+        return entry
     }
 
     private static func antigravityHookEntry(
@@ -28104,16 +28143,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var cmuxInsertionIndexes: [String: [Int]] = [:]
         for (event, value) in hooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilotJSON:
                 guard let entries = value as? [[String: Any]] else { continue }
                 var rewrittenEntries: [[String: Any]] = []
                 for entry in entries {
-                    if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
-                        Self.appendCmuxHookInsertionIndex(
-                            rewrittenEntries.count,
-                            for: event,
-                            to: &cmuxInsertionIndexes
-                        )
+                    if Self.jsonHookValueContainsCmuxOwnedCommand(entry, for: def) {
+                        if Self.shouldPreserveCmuxHookInsertionIndex(def: def, event: event) {
+                            Self.appendCmuxHookInsertionIndex(
+                                rewrittenEntries.count,
+                                for: event,
+                                to: &cmuxInsertionIndexes
+                            )
+                        }
                         continue
                     }
                     rewrittenEntries.append(entry)
@@ -28133,7 +28174,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         rewrittenGroups.append(group)
                         continue
                     }
-                    if hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }) {
+                    if Self.shouldPreserveCmuxHookInsertionIndex(def: def, event: event),
+                       hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }) {
                         Self.appendCmuxHookInsertionIndex(
                             rewrittenGroups.count,
                             for: event,
@@ -28161,11 +28203,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Add new cmux entries
         for (event, value) in newHooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilotJSON:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
                         Self.insertCmuxHookValues(newEntries, into: &entries, atOriginalIndexes: insertionIndexes)
+                    } else if Self.shouldPrependNewCmuxHookValues(def: def, event: event) {
+                        entries.insert(contentsOf: newEntries, at: 0)
                     } else {
                         entries.append(contentsOf: newEntries)
                     }
@@ -28176,6 +28220,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 if let newGroups = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
                         Self.insertCmuxHookValues(newGroups, into: &groups, atOriginalIndexes: insertionIndexes)
+                    } else if Self.shouldPrependNewCmuxHookValues(def: def, event: event) {
+                        groups.insert(contentsOf: newGroups, at: 0)
                     } else {
                         groups.append(contentsOf: newGroups)
                     }
@@ -28187,7 +28233,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         existing["hooks"] = hooks
-        if case .flat = def.format { existing["version"] = 1 }
+        switch def.format {
+        case .flat, .copilotJSON: existing["version"] = 1
+        default: break
+        }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
@@ -28441,10 +28490,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         for (event, value) in hooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilotJSON:
                 guard var entries = value as? [[String: Any]] else { continue }
                 let before = entries.count
-                entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                entries.removeAll { Self.jsonHookValueContainsCmuxOwnedCommand($0, for: def) }
                 removed += before - entries.count
                 if entries.isEmpty {
                     hooks.removeValue(forKey: event)
@@ -28514,6 +28563,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) {
         if indexes[event]?.isEmpty == false { return }
         indexes[event, default: []].append(index)
+    }
+
+    private static func shouldPreserveCmuxHookInsertionIndex(def: AgentHookDef, event: String) -> Bool {
+        !(def.name == "copilot" && event == "permissionRequest")
+    }
+
+    private static func shouldPrependNewCmuxHookValues(def: AgentHookDef, event: String) -> Bool {
+        def.name == "copilot" && event == "permissionRequest"
     }
 
     private static func insertCmuxHookValues<T>(_ values: [T], into target: inout [T], atOriginalIndexes indexes: [Int]) {
@@ -32855,11 +32912,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
-        let (hookEventName, isActionable) = FeedEventClassifier.classify(
+        var (hookEventName, isActionable) = FeedEventClassifier.classify(
             source: source,
             event: rawEvent,
             toolName: toolName
         )
+        if commandArgs.contains("--telemetry-only") {
+            if rawEvent == "preToolUse" || rawEvent == "PreToolUse" {
+                hookEventName = "PreToolUse"
+            }
+            isActionable = false
+        }
         let env = ProcessInfo.processInfo.environment
         if Self.shouldSuppressKiroFeedEvent(
             source: source,
@@ -32892,7 +32955,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? stdinObj["toolArgs"] ?? toolCall?["args"]
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
             ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
@@ -32922,6 +32985,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
+
+        func emitCopilotPreToolUseDenyIfNeeded() -> Bool {
+            guard source == "copilot",
+                  isActionable,
+                  rawEvent == "preToolUse" || rawEvent == "PreToolUse" else {
+                return false
+            }
+            print(Self.renderAgentDecision(
+                source: source,
+                rawEventName: rawEvent,
+                hookEventName: hookEventName,
+                toolName: toolName,
+                toolInput: eventDict["tool_input"],
+                rawObject: stdinObj,
+                decision: ["kind": "permission", "mode": "deny"]
+            ))
+            return true
+        }
 
         // Sync. For actionable events we block up to 120s waiting
         // for the user's Feed click; the hook's stdout is then a
@@ -32979,12 +33060,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             } catch {
                 feedClient.close()
+                if emitCopilotPreToolUseDenyIfNeeded() {
+                    return
+                }
                 print("{}")
                 return
             }
             ownedClient = feedClient
             activeClient = feedClient
         } else {
+            if emitCopilotPreToolUseDenyIfNeeded() {
+                return
+            }
             print("{}")
             return
         }
@@ -32996,6 +33083,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 responseTimeout: waitTimeout + 5
             )
         } catch {
+            if emitCopilotPreToolUseDenyIfNeeded() {
+                return
+            }
             print("{}")
             return
         }
@@ -33005,6 +33095,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
               let ok = respObj["ok"] as? Bool, ok,
               let result = respObj["result"] as? [String: Any]
         else {
+            if emitCopilotPreToolUseDenyIfNeeded() {
+                return
+            }
             print("{}")
             return
         }
@@ -33016,6 +33109,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let out = Self.renderAgentDecision(
                 source: source,
+                rawEventName: rawEvent,
                 hookEventName: hookEventName,
                 toolName: toolName,
                 toolInput: eventDict["tool_input"],
@@ -33023,6 +33117,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 decision: decision
             )
             print(out)
+            return
+        }
+        if emitCopilotPreToolUseDenyIfNeeded() {
             return
         }
         print("{}")
@@ -33059,12 +33156,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func emitKiroDecisionIfHandled(decision: [String: Any]) -> Bool {
         guard (decision["kind"] as? String) == "permission" else { return false }
         let mode = (decision["mode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Feed permission decisions carry a WorkstreamPermissionMode raw value:
-        // `once` / `always` / `all` / `bypass` all allow the tool; `deny`
-        // blocks. Fail closed on anything else — missing, empty, or an
-        // unrecognized/typo mode — so a malformed decision blocks the tool
-        // (exit 2 is Kiro's preToolUse deny signal) rather than silently
-        // allowing work the user never approved.
+        // Fail closed on unknown Feed permission modes so malformed Kiro decisions never allow unapproved work.
         let allowModes: Set<String> = ["once", "always", "all", "bypass"]
         if let mode, allowModes.contains(mode) {
             print("{}")
@@ -33078,12 +33170,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         exit(2)
     }
 
-    private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
+    private static func copilotPermissionDeniedReason() -> String {
+        String(
+            localized: "cli.hooks.feed.permissionDeniedReason",
+            defaultValue: "User denied permission via cmux Feed."
+        )
+    }
 
-    /// Encodes the user's decision in the agent's expected hook stdout
-    /// shape so the agent honors it.
+    private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
+    /// Encodes the user's decision in the agent's expected hook stdout shape.
     private static func renderAgentDecision(
         source: String,
+        rawEventName: String,
         hookEventName: String,
         toolName: String,
         toolInput: Any?,
@@ -33125,9 +33223,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ]
         }
 
-        // PreToolUse output for non-Claude agents that still use a
-        // PreToolUse-compatible permission bridge. Claude Code does not
-        // use this path.
+        // PreToolUse-compatible permission bridge output for non-Claude agents.
         func nonClaudePreToolDecision(
             permission: String,
             reason: String?,
@@ -33163,7 +33259,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             return out
         }
-
         func hermesAgentBlock(_ message: String) -> String {
             encode(["action": "block", "message": message])
         }
@@ -33195,6 +33290,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     ))
                 }
                 return encode(permissionRequestHookDecision(behavior: "allow"))
+            }
+            if source == "copilot" {
+                let reason = Self.copilotPermissionDeniedReason()
+                if rawEventName == "permissionRequest" || rawEventName == "PermissionRequest" {
+                    if mode == "deny" {
+                        return encode(["behavior": "deny", "message": reason])
+                    }
+                    return "{}"
+                }
+                if mode == "once" {
+                    return encode(["permissionDecision": "allow"])
+                }
+                return encode(["permissionDecision": "deny", "permissionDecisionReason": reason])
             }
             if source == "hermes-agent" {
                 if mode == "deny" {

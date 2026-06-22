@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testLegacyCodexHookAliasReturnsJSONWithoutHelpAndPersistsSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("legacy-codex")
@@ -51,22 +53,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
-        XCTAssertFalse(result.stdout.contains("Usage:"), result.stdout)
-        XCTAssertFalse(result.stderr.contains("Usage:"), result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
+        legacyAssertFalse(result.stdout.contains("Usage:"), result.stdout)
+        legacyAssertFalse(result.stderr.contains("Usage:"), result.stderr)
 
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[surfaceId] as? [String: Any])
-        XCTAssertEqual(session["workspaceId"] as? String, workspaceId)
-        XCTAssertEqual(session["surfaceId"] as? String, surfaceId)
-        XCTAssertNotNil(session["launchCommand"] as? [String: Any])
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        let session = try legacyUnwrap(sessions[surfaceId] as? [String: Any])
+        legacyAssertEqual(session["workspaceId"] as? String, workspaceId)
+        legacyAssertEqual(session["surfaceId"] as? String, surfaceId)
+        legacyAssertNotNil(session["launchCommand"] as? [String: Any])
     }
-
+    @Test
     func testLegacyFeedHookAliasReturnsJSONWithoutHelpOutsideCmuxTerminal() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
@@ -83,10 +85,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
-        XCTAssertFalse(result.stdout.contains("Usage:"), result.stdout)
-        XCTAssertFalse(result.stderr.contains("Usage:"), result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
+        legacyAssertFalse(result.stdout.contains("Usage:"), result.stdout)
+        legacyAssertFalse(result.stderr.contains("Usage:"), result.stderr)
     }
 }

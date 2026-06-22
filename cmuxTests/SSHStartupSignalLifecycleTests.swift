@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testSSHPaneCloseSignalDoesNotReportSessionEndToSharedTransport() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -51,20 +53,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 timeout: 5
             )
 
-            XCTAssertFalse(result.timedOut, result.stderr)
-            let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
-            XCTAssertEqual(result.status, expectedStatus, result.stderr)
+            legacyAssertFalse(result.timedOut, result.stderr)
+            let expectedStatus = try legacyUnwrap(expectedStatuses[signal])
+            legacyAssertEqual(result.status, expectedStatus, result.stderr)
             let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
             let sessionEndCalls = recordedCalls
                 .split(separator: "\n")
                 .filter { $0.contains("ssh-session-end") }
-            XCTAssertTrue(
+            legacyAssertTrue(
                 sessionEndCalls.isEmpty,
                 "Pane-close \(signal) must not call ssh-session-end because that can tear down the shared SSH transport and kill sibling panes; recorded: \(recordedCalls)"
             )
         }
     }
-
+    @Test
     func testSSHPaneCloseSignalDoesNotTerminateWrappedSSHChild() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -122,10 +124,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 timeout: 5
             )
 
-            XCTAssertFalse(result.timedOut, result.stderr)
-            let expectedStatus = try XCTUnwrap(expectedStatuses[signal])
-            XCTAssertEqual(result.status, expectedStatus, result.stderr)
-            XCTAssertTrue(
+            legacyAssertFalse(result.timedOut, result.stderr)
+            let expectedStatus = try legacyUnwrap(expectedStatuses[signal])
+            legacyAssertEqual(result.status, expectedStatus, result.stderr)
+            legacyAssertTrue(
                 waitForSSHSignalLifecycleLog(childSignalLog) { contents in
                     contents.contains("child-completed") ||
                     contents.contains("child-hup") ||
@@ -135,8 +137,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Timed out waiting for fake SSH child to record completion or signal for \(signal)"
             )
             let childSignalLogContents = (try? String(contentsOf: childSignalLog, encoding: .utf8)) ?? ""
-            XCTAssertTrue(childSignalLogContents.contains("child-started"), childSignalLogContents)
-            XCTAssertFalse(
+            legacyAssertTrue(childSignalLogContents.contains("child-started"), childSignalLogContents)
+            legacyAssertFalse(
                 childSignalLogContents.contains("child-hup") ||
                 childSignalLogContents.contains("child-int") ||
                 childSignalLogContents.contains("child-term"),
@@ -146,10 +148,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let sessionEndCalls = recordedCalls
                 .split(separator: "\n")
                 .filter { $0.contains("ssh-session-end") }
-            XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
+            legacyAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
         }
     }
-
+    @Test
     func testSSHStartupRetriesTransientSSHExitBeforeReportingSessionEnd() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -196,20 +198,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
         // The regular `cmux ssh` bootstrap path runs one SSH command to install
         // the remote bootstrap and another to open the session. A transient
         // install-channel failure therefore yields three raw SSH invocations:
         // failed install, retried install, successful session.
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        legacyAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        legacyAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHStartupRemovesStaleCmuxControlSocketBeforeLaunchingPaneSSH() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -228,7 +230,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let staleSocketFD = try bindUnixSocket(at: staleControlPath.path)
         Darwin.close(staleSocketFD)
-        XCTAssertTrue(fileManager.fileExists(atPath: staleControlPath.path))
+        legacyAssertTrue(fileManager.fileExists(atPath: staleControlPath.path))
 
         try writeShellFile(at: fakeCLI, lines: [
             "#!/bin/sh",
@@ -282,15 +284,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertFalse(fileManager.fileExists(atPath: staleControlPath.path))
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(fileManager.fileExists(atPath: staleControlPath.path))
 
         let sshLog = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
-        XCTAssertTrue(sshLog.contains("-G"), sshLog)
-        XCTAssertTrue(sshLog.contains("-O check"), sshLog)
+        legacyAssertTrue(sshLog.contains("-G"), sshLog)
+        legacyAssertTrue(sshLog.contains("-O check"), sshLog)
     }
-
+    @Test
     func testSSHStartupStopsAtConfiguredReconnectLimit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -337,16 +339,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 255, result.stderr)
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 255, result.stderr)
+        legacyAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "3")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        legacyAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHStartupDoesNotRetryNonTransientSSHExit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -392,16 +394,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 1, result.stderr)
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 1, result.stderr)
+        legacyAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        legacyAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHSignalDerivedChildExitReportsSessionEnd() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -441,15 +443,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 130, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 130, result.stderr)
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        legacyAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHSignalDuringReconnectDelayDoesNotStartAnotherSSH() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -500,16 +502,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 143, result.stderr)
-        XCTAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 143, result.stderr)
+        legacyAssertEqual((try? String(contentsOf: attemptFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines), "1")
         let recordedCalls = (try? String(contentsOf: logFile, encoding: .utf8)) ?? ""
         let sessionEndCalls = recordedCalls
             .split(separator: "\n")
             .filter { $0.contains("ssh-session-end") }
-        XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
+        legacyAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHStartupPrintsFinalErrorBannerWhenStderrIsCaptured() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -549,12 +551,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 1, result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 1."), result.stderr)
-        XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 1, result.stderr)
+        legacyAssertTrue(result.stderr.contains("[cmux] ssh exited with status 1."), result.stderr)
+        legacyAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
     }
-
+    @Test
     func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
         // Regression test for cmux ssh sessions where output flowed back from
         // the remote (prompt rendered) but typed keystrokes never reached the
@@ -608,11 +610,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
         let recorded = (try? String(contentsOf: stdinCapture, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        XCTAssertEqual(
+        legacyAssertEqual(
             recorded,
             "FORWARDED_KEYSTROKE",
             "Backgrounded ssh in the startup wrapper must inherit the wrapper's stdin so that keystrokes from the surface PTY reach the remote shell. Got: \(recorded.isEmpty ? "<empty>" : recorded)"
@@ -702,20 +704,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+            let data = try legacyUnwrap(line.data(using: .utf8))
+            return try legacyUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
-        let configureRequest = try XCTUnwrap(
+        let configureRequest = try legacyUnwrap(
             requests.first { ($0["method"] as? String) == "workspace.remote.configure" }
         )
-        let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
-        return try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let configureParams = try legacyUnwrap(configureRequest["params"] as? [String: Any])
+        return try legacyUnwrap(configureParams["terminal_startup_command"] as? String)
     }
 
     private func generatedVMSSHInitialStartupCommand() throws -> String {
@@ -742,8 +744,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "vm.attach_info":
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["id"] as? String, vmID)
-                XCTAssertEqual(params["require_daemon"] as? Bool, true)
+                legacyAssertEqual(params["id"] as? String, vmID)
+                legacyAssertEqual(params["require_daemon"] as? Bool, true)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -804,20 +806,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
+            let data = try legacyUnwrap(line.data(using: .utf8))
+            return try legacyUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
         }
-        let createRequest = try XCTUnwrap(
+        let createRequest = try legacyUnwrap(
             requests.first { ($0["method"] as? String) == "workspace.create" }
         )
-        let createParams = try XCTUnwrap(createRequest["params"] as? [String: Any])
-        return try XCTUnwrap(createParams["initial_command"] as? String)
+        let createParams = try legacyUnwrap(createRequest["params"] as? [String: Any])
+        return try legacyUnwrap(createParams["initial_command"] as? String)
     }
 
     private func writeShellFile(at url: URL, lines: [String]) throws {

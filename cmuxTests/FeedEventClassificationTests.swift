@@ -93,6 +93,32 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
+    /// Copilot's installed `preToolUse` hook gates side-effecting tools after
+    /// the native permission service; read-only pre-tool events must fall
+    /// through as telemetry. `permissionRequest` remains classifiable for
+    /// already-installed hook files and manual invocations.
+    @Test func copilotPreToolUseIsApprovalRequest() {
+        #expect(classify("copilot", "permissionRequest", tool: "bash").name == "PermissionRequest")
+        #expect(classify("copilot", "permissionRequest", tool: "bash").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "bash").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "bash").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "create").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "edit").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "view").name == "PreToolUse")
+        #expect(classify("copilot", "preToolUse", tool: "view").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "grep").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "glob").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "web_fetch").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "ask_user").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "ask_user").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "AskUserQuestion").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "AskUserQuestion").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "ExitPlanMode").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "ExitPlanMode").actionable == true)
+        #expect(classify("copilot", "PreToolUse", tool: "Bash").name == "PermissionRequest")
+        #expect(classify("copilot", "PreToolUse", tool: "Bash").actionable == true)
+    }
+
     /// Even on the maybe-approval (generic pre-tool) path, the two dedicated
     /// approval tool names route to their own wire kinds — they are never
     /// collapsed into a generic `PermissionRequest`. Guards the shared

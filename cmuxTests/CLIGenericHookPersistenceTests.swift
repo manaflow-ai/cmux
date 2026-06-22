@@ -1,5 +1,6 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct GenericHookPersistenceScenario {
@@ -12,7 +13,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let expectedArguments: [String]
         let expectedEnvironment: [String: String]?
     }
-
+    @Test
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
         let scenarios: [GenericHookPersistenceScenario] = [
             GenericHookPersistenceScenario(
@@ -279,12 +280,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         for scenario in scenarios {
-            try XCTContext.runActivity(named: scenario.agent) { _ in
+            try runLegacyActivity(named: scenario.agent) {
                 try runGenericHookPersistenceScenario(scenario)
             }
         }
     }
-
+    @Test
     func testAntigravityStopAndNotificationsUseGenericNotificationPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("antigravity-notification")
@@ -338,7 +339,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -346,9 +347,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
         )
-        XCTAssertFalse(start.timedOut, start.stderr)
-        XCTAssertEqual(start.status, 0, start.stderr)
-        XCTAssertEqual(start.stdout, "{}\n")
+        legacyAssertFalse(start.timedOut, start.stderr)
+        legacyAssertEqual(start.status, 0, start.stderr)
+        legacyAssertEqual(start.stdout, "{}\n")
 
         let backgroundMessage = "Antigravity is waiting on background work"
         let backgroundStopCommandStart = state.commands.count
@@ -356,20 +357,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "stop",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"\#(backgroundMessage)","fullyIdle":false}"#
         )
-        XCTAssertFalse(backgroundStop.timedOut, backgroundStop.stderr)
-        XCTAssertEqual(backgroundStop.status, 0, backgroundStop.stderr)
-        XCTAssertEqual(backgroundStop.stdout, "{}\n")
+        legacyAssertFalse(backgroundStop.timedOut, backgroundStop.stderr)
+        legacyAssertEqual(backgroundStop.status, 0, backgroundStop.stderr)
+        legacyAssertEqual(backgroundStop.stdout, "{}\n")
 
         let backgroundStopCommands = Array(state.commands.dropFirst(backgroundStopCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             backgroundStopCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Antigravity Stop with active background work must not publish idle notifications, saw \(backgroundStopCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             backgroundStopCommands.contains { $0.contains("set_status antigravity Running") },
             "Antigravity Stop with active background work should keep the session running, saw \(backgroundStopCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             backgroundStopCommands.contains { $0.contains("set_status antigravity Idle") },
             "Antigravity Stop with active background work must not mark idle, saw \(backgroundStopCommands)"
         )
@@ -379,16 +380,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 1.0s.","fullyIdle":false}"#
         )
-        XCTAssertFalse(backgroundDuplicate.timedOut, backgroundDuplicate.stderr)
-        XCTAssertEqual(backgroundDuplicate.status, 0, backgroundDuplicate.stderr)
-        XCTAssertEqual(backgroundDuplicate.stdout, "{}\n")
+        legacyAssertFalse(backgroundDuplicate.timedOut, backgroundDuplicate.stderr)
+        legacyAssertEqual(backgroundDuplicate.status, 0, backgroundDuplicate.stderr)
+        legacyAssertEqual(backgroundDuplicate.stdout, "{}\n")
 
         let backgroundDuplicateCommands = Array(state.commands.dropFirst(backgroundDuplicateCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             backgroundDuplicateCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Idle-classified Antigravity notifications must not double-notify while background work is active, saw \(backgroundDuplicateCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             backgroundDuplicateCommands.contains { $0.contains("set_status antigravity Idle") },
             "Idle-classified Antigravity notifications must not override the running status while background work is active, saw \(backgroundDuplicateCommands)"
         )
@@ -398,33 +399,33 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"session_id":"\#(missingFullyIdleSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
         )
-        XCTAssertFalse(missingFullyIdleStart.timedOut, missingFullyIdleStart.stderr)
-        XCTAssertEqual(missingFullyIdleStart.status, 0, missingFullyIdleStart.stderr)
-        XCTAssertEqual(missingFullyIdleStart.stdout, "{}\n")
+        legacyAssertFalse(missingFullyIdleStart.timedOut, missingFullyIdleStart.stderr)
+        legacyAssertEqual(missingFullyIdleStart.status, 0, missingFullyIdleStart.stderr)
+        legacyAssertEqual(missingFullyIdleStart.stdout, "{}\n")
 
         let missingFullyIdleBackgroundStop = runAntigravityHook(
             "stop",
             input: #"{"session_id":"\#(missingFullyIdleSessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"Background work still running","fullyIdle":false}"#
         )
-        XCTAssertFalse(missingFullyIdleBackgroundStop.timedOut, missingFullyIdleBackgroundStop.stderr)
-        XCTAssertEqual(missingFullyIdleBackgroundStop.status, 0, missingFullyIdleBackgroundStop.stderr)
-        XCTAssertEqual(missingFullyIdleBackgroundStop.stdout, "{}\n")
+        legacyAssertFalse(missingFullyIdleBackgroundStop.timedOut, missingFullyIdleBackgroundStop.stderr)
+        legacyAssertEqual(missingFullyIdleBackgroundStop.status, 0, missingFullyIdleBackgroundStop.stderr)
+        legacyAssertEqual(missingFullyIdleBackgroundStop.stdout, "{}\n")
 
         let missingFullyIdleNotificationCommandStart = state.commands.count
         let missingFullyIdleNotification = runAntigravityHook(
             "notification",
             input: #"{"session_id":"\#(missingFullyIdleSessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 2.0s."}"#
         )
-        XCTAssertFalse(missingFullyIdleNotification.timedOut, missingFullyIdleNotification.stderr)
-        XCTAssertEqual(missingFullyIdleNotification.status, 0, missingFullyIdleNotification.stderr)
-        XCTAssertEqual(missingFullyIdleNotification.stdout, "{}\n")
+        legacyAssertFalse(missingFullyIdleNotification.timedOut, missingFullyIdleNotification.stderr)
+        legacyAssertEqual(missingFullyIdleNotification.status, 0, missingFullyIdleNotification.stderr)
+        legacyAssertEqual(missingFullyIdleNotification.stdout, "{}\n")
 
         let missingFullyIdleNotificationCommands = Array(state.commands.dropFirst(missingFullyIdleNotificationCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             missingFullyIdleNotificationCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Antigravity idle notifications without fullyIdle must publish instead of staying suppressed, saw \(missingFullyIdleNotificationCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             missingFullyIdleNotificationCommands.contains { $0.contains("set_status antigravity Idle") },
             "Antigravity idle notifications must not reset the shared status while another background session is running, saw \(missingFullyIdleNotificationCommands)"
         )
@@ -435,19 +436,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "stop",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"AfterAgent","last_assistant_message":"\#(stopMessage)"}"#
         )
-        XCTAssertFalse(stop.timedOut, stop.stderr)
-        XCTAssertEqual(stop.status, 0, stop.stderr)
-        XCTAssertEqual(stop.stdout, "{}\n")
+        legacyAssertFalse(stop.timedOut, stop.stderr)
+        legacyAssertEqual(stop.status, 0, stop.stderr)
+        legacyAssertEqual(stop.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Completed in ")
                     && $0.contains(stopMessage)
             },
             "Expected Antigravity stop to publish a turn-completion notification, saw \(stopCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopCommands.contains { $0.contains("set_status antigravity Idle") },
             "Expected Antigravity stop to leave the session idle, saw \(stopCommands)"
         )
@@ -457,16 +458,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-end",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#
         )
-        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
-        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
-        XCTAssertEqual(sessionEnd.stdout, "{}\n")
+        legacyAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        legacyAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+        legacyAssertEqual(sessionEnd.stdout, "{}\n")
 
         let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             sessionEndCommands.contains { $0.contains("feed.push") },
             "Expected Antigravity SessionEnd to emit feed telemetry, saw \(sessionEndCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             sessionEndCommands.contains { $0.hasPrefix("clear_agent_pid antigravity.") },
             "Antigravity SessionEnd is a turn boundary and must not clear saved routing, saw \(sessionEndCommands)"
         )
@@ -476,12 +477,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 2.0s."}"#
         )
-        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
-        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
-        XCTAssertEqual(duplicateCompletion.stdout, "{}\n")
+        legacyAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        legacyAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        legacyAssertEqual(duplicateCompletion.stdout, "{}\n")
 
         let duplicateCompletionCommands = Array(state.commands.dropFirst(duplicateCompletionCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             duplicateCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Antigravity turn-completion notification must not double-notify after stop already did, saw \(duplicateCompletionCommands)"
         )
@@ -492,18 +493,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","reason":"permission_prompt","message":"\#(permissionMessage)"}"#
         )
-        XCTAssertFalse(permission.timedOut, permission.stderr)
-        XCTAssertEqual(permission.status, 0, permission.stderr)
-        XCTAssertEqual(permission.stdout, "{}\n")
+        legacyAssertFalse(permission.timedOut, permission.stderr)
+        legacyAssertEqual(permission.status, 0, permission.stderr)
+        legacyAssertEqual(permission.stdout, "{}\n")
 
         let permissionCommands = Array(state.commands.dropFirst(permissionCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             permissionCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Permission|\(permissionMessage)")
             },
             "Expected Antigravity permission notifications to publish through cmux, saw \(permissionCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             permissionCommands.contains { $0.contains("set_status antigravity Antigravity needs input") },
             "Expected Antigravity permission notifications to mark needs-input, saw \(permissionCommands)"
         )
@@ -514,18 +515,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "stop",
             input: #"{"conversationId":"\#(sessionId)","workspacePaths":["\#(root.path)"],"hook_event_name":"Stop","terminationReason":"error","error":"\#(stopErrorMessage)","fullyIdle":true}"#
         )
-        XCTAssertFalse(stopError.timedOut, stopError.stderr)
-        XCTAssertEqual(stopError.status, 0, stopError.stderr)
-        XCTAssertEqual(stopError.stdout, "{}\n")
+        legacyAssertFalse(stopError.timedOut, stopError.stderr)
+        legacyAssertEqual(stopError.status, 0, stopError.stderr)
+        legacyAssertEqual(stopError.stdout, "{}\n")
 
         let stopErrorCommands = Array(state.commands.dropFirst(stopErrorCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopErrorCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Error|\(stopErrorMessage)")
             },
             "Expected Antigravity Stop errors to publish through cmux, saw \(stopErrorCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopErrorCommands.contains { $0.contains("set_status antigravity Antigravity error") },
             "Expected Antigravity Stop errors to mark error status, saw \(stopErrorCommands)"
         )
@@ -536,23 +537,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"\#(errorMessage)"}"#
         )
-        XCTAssertFalse(error.timedOut, error.stderr)
-        XCTAssertEqual(error.status, 0, error.stderr)
-        XCTAssertEqual(error.stdout, "{}\n")
+        legacyAssertFalse(error.timedOut, error.stderr)
+        legacyAssertEqual(error.status, 0, error.stderr)
+        legacyAssertEqual(error.stdout, "{}\n")
 
         let errorCommands = Array(state.commands.dropFirst(errorCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             errorCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Error|\(errorMessage)")
             },
             "Expected Antigravity error notifications to publish through cmux, saw \(errorCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             errorCommands.contains { $0.contains("set_status antigravity Antigravity error") },
             "Expected Antigravity error notifications to mark error status, saw \(errorCommands)"
         )
     }
-
+    @Test
     func testHermesAgentNotificationsUseShellHookExtraPayload() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hermes-notification")
@@ -606,24 +607,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
         func storedHermesSession() throws -> [String: Any] {
             let storeURL = root.appendingPathComponent("hermes-agent-hook-sessions.json", isDirectory: false)
-            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-            let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-            return try XCTUnwrap(sessions[sessionId] as? [String: Any])
+            let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+            let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+            return try legacyUnwrap(sessions[sessionId] as? [String: Any])
         }
 
         let start = runHermesHook(
             "session-start",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
         )
-        XCTAssertFalse(start.timedOut, start.stderr)
-        XCTAssertEqual(start.status, 0, start.stderr)
-        XCTAssertEqual(start.stdout, "{}\n")
+        legacyAssertFalse(start.timedOut, start.stderr)
+        legacyAssertEqual(start.status, 0, start.stderr)
+        legacyAssertEqual(start.stdout, "{}\n")
 
         let assistantResponse = "Updated README.md and added usage notes."
         let stopCommandStart = state.commands.count
@@ -631,19 +632,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "agent-response",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"user_message":"make the docs clearer","assistant_response":"\#(assistantResponse)","model":"gpt-4","platform":"cli"}}"#
         )
-        XCTAssertFalse(stop.timedOut, stop.stderr)
-        XCTAssertEqual(stop.status, 0, stop.stderr)
-        XCTAssertEqual(stop.stdout, "{}\n")
+        legacyAssertFalse(stop.timedOut, stop.stderr)
+        legacyAssertEqual(stop.status, 0, stop.stderr)
+        legacyAssertEqual(stop.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Completed in ")
                     && $0.contains("|\(assistantResponse)")
             },
             "Expected Hermes completion notification to use extra.assistant_response, saw \(stopCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopCommands.contains { $0.contains("set_status hermes-agent Idle") },
             "Expected Hermes completion to leave status idle, saw \(stopCommands)"
         )
@@ -653,61 +654,61 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"pre_approval_request","extra":{"command":"rm -rf build","description":"recursive delete","pattern_key":"recursive delete","surface":"cli"}}"#
         )
-        XCTAssertFalse(approval.timedOut, approval.stderr)
-        XCTAssertEqual(approval.status, 0, approval.stderr)
-        XCTAssertEqual(approval.stdout, "{}\n")
+        legacyAssertFalse(approval.timedOut, approval.stderr)
+        legacyAssertEqual(approval.status, 0, approval.stderr)
+        legacyAssertEqual(approval.stdout, "{}\n")
 
         let approvalCommands = Array(state.commands.dropFirst(approvalCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             approvalCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Hermes Agent|Permission|recursive delete: rm -rf build")
             },
             "Expected Hermes approval notification to include description and command, saw \(approvalCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             approvalCommands.contains { $0.contains("set_status hermes-agent Hermes Agent needs input") },
             "Expected Hermes approval notification to mark needs input, saw \(approvalCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             approvalCommands.contains { $0.contains(#""method":"feed.push""#) },
             "Hermes approval notifications are also installed as feed hooks, so the generic notification handler must not push duplicate feed events. Saw \(approvalCommands)"
         )
 
         let session = try storedHermesSession()
-        XCTAssertEqual(session["lastSubtitle"] as? String, "Permission")
-        XCTAssertEqual(session["lastBody"] as? String, "recursive delete: rm -rf build")
-        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+        legacyAssertEqual(session["lastSubtitle"] as? String, "Permission")
+        legacyAssertEqual(session["lastBody"] as? String, "recursive delete: rm -rf build")
+        legacyAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
         let responseCommandStart = state.commands.count
         let response = runHermesHook(
             "approval-response",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_approval_response","extra":{"approved":true}}"#
         )
-        XCTAssertFalse(response.timedOut, response.stderr)
-        XCTAssertEqual(response.status, 0, response.stderr)
-        XCTAssertEqual(response.stdout, "{}\n")
+        legacyAssertFalse(response.timedOut, response.stderr)
+        legacyAssertEqual(response.status, 0, response.stderr)
+        legacyAssertEqual(response.stdout, "{}\n")
 
         let responseCommands = Array(state.commands.dropFirst(responseCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             responseCommands.contains { $0.contains("clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)") },
             "Expected Hermes approval response to clear the approval notification, saw \(responseCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             responseCommands.contains { $0.contains("set_status hermes-agent Running") },
             "Expected Hermes approval response to restore running status, saw \(responseCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             responseCommands.contains { $0.contains(#""method":"feed.push""#) },
             "Hermes approval responses are also installed as feed hooks, so the generic approval handler must not push duplicate feed events. Saw \(responseCommands)"
         )
 
         let responseSession = try storedHermesSession()
-        XCTAssertNil(responseSession["lastSubtitle"])
-        XCTAssertNil(responseSession["lastBody"])
-        XCTAssertNil(responseSession["lastNotificationStatus"])
-        XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
+        legacyAssertNil(responseSession["lastSubtitle"])
+        legacyAssertNil(responseSession["lastBody"])
+        legacyAssertNil(responseSession["lastNotificationStatus"])
+        legacyAssertEqual(responseSession["runtimeStatus"] as? String, "running")
     }
-
+    @Test
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a
@@ -771,7 +772,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -790,18 +791,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_start"}"#
         )
-        XCTAssertFalse(start.timedOut, start.stderr)
-        XCTAssertEqual(start.status, 0, start.stderr)
+        legacyAssertFalse(start.timedOut, start.stderr)
+        legacyAssertEqual(start.status, 0, start.stderr)
 
         // Finish a turn so a restorable record exists for the session.
         let stop = runHermesHook(
             "agent-response",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"post_llm_call","extra":{"user_message":"do the thing","assistant_response":"done","model":"gpt-4","platform":"cli"}}"#
         )
-        XCTAssertFalse(stop.timedOut, stop.stderr)
-        XCTAssertEqual(stop.status, 0, stop.stderr)
+        legacyAssertFalse(stop.timedOut, stop.stderr)
+        legacyAssertEqual(stop.status, 0, stop.stderr)
 
-        XCTAssertNotNil(
+        legacyAssertNotNil(
             try storedHermesSessionIfPresent(),
             "Expected a Hermes session record to exist before the per-turn session-end hook fires"
         )
@@ -813,24 +814,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-end",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_end"}"#
         )
-        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
-        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
-        XCTAssertEqual(sessionEnd.stdout, "{}\n")
+        legacyAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        legacyAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+        legacyAssertEqual(sessionEnd.stdout, "{}\n")
 
         let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             sessionEndCommands.contains { $0.contains("feed.push") },
             "Expected Hermes session-end to emit feed telemetry, saw \(sessionEndCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             sessionEndCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
             "Hermes on_session_end fires per turn and must not clear saved routing, saw \(sessionEndCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             sessionEndCommands.contains { $0.contains("surface.resume.clear") },
             "Hermes on_session_end fires per turn and must not clear the surface resume binding, saw \(sessionEndCommands)"
         )
-        XCTAssertNotNil(
+        legacyAssertNotNil(
             try storedHermesSessionIfPresent(),
             "Hermes on_session_end fires per turn and must not consume the restore record, saw it removed from the store"
         )
@@ -844,25 +845,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-finalize",
             input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"on_session_finalize"}"#
         )
-        XCTAssertFalse(finalize.timedOut, finalize.stderr)
-        XCTAssertEqual(finalize.status, 0, finalize.stderr)
-        XCTAssertEqual(finalize.stdout, "{}\n")
+        legacyAssertFalse(finalize.timedOut, finalize.stderr)
+        legacyAssertEqual(finalize.status, 0, finalize.stderr)
+        legacyAssertEqual(finalize.stdout, "{}\n")
 
         let finalizeCommands = Array(state.commands.dropFirst(finalizeCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             finalizeCommands.contains { $0.hasPrefix("clear_agent_pid hermes-agent.") },
             "Hermes on_session_finalize is a true teardown and must clear agent PID routing, saw \(finalizeCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             finalizeCommands.contains { $0.contains("surface.resume.clear") },
             "Hermes on_session_finalize is a true teardown and must clear the surface resume binding, saw \(finalizeCommands)"
         )
-        XCTAssertNil(
+        legacyAssertNil(
             try storedHermesSessionIfPresent(),
             "Hermes on_session_finalize is a true teardown and must consume the restore record"
         )
     }
-
+    @Test
     func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -882,17 +883,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         let hookURL = root
             .appendingPathComponent(".gemini", isDirectory: true)
             .appendingPathComponent("config", isDirectory: true)
             .appendingPathComponent("hooks.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
-        XCTAssertNil(json["hooks"])
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        legacyAssertNil(json["hooks"])
 
-        let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        let cmuxGroup = try legacyUnwrap(json["cmux"] as? [String: Any])
         let allCommands = cmuxGroup.values
             .compactMap { $0 as? [[String: Any]] }
             .flatMap { entries in
@@ -907,25 +908,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     return commands
                 }
             }
-        XCTAssertFalse(allCommands.isEmpty)
-        XCTAssertTrue(
+        legacyAssertFalse(allCommands.isEmpty)
+        legacyAssertTrue(
             allCommands.allSatisfy { $0.contains("cmux-antigravity-hook-v2") },
             "Expected Antigravity hooks to use the pinned dispatch path, saw \(allCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             allCommands.contains { $0.contains("'\(root.path)'") || $0.contains("\"\(root.path)\"") },
             "Directory-valued CMUX_BUNDLED_CLI_PATH must not be embedded as a hook executable, saw \(allCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             allCommands.contains { $0.contains(#"[ -n "$CMUX_SURFACE_ID" ]"#) },
             "Antigravity hooks must still dispatch when agy does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
         )
 
-        let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
+        let preToolUse = try legacyUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
         let preToolCommands = preToolUse
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
-        XCTAssertTrue(
+        legacyAssertTrue(
             preToolCommands.contains {
                 ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
                     && ($0["timeout"] as? Int) == 120
@@ -933,21 +934,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
         )
 
-        let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
-        XCTAssertTrue(
+        let stop = try legacyUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
+        legacyAssertTrue(
             stop.contains {
                 ($0["command"] as? String)?.contains("hooks antigravity stop") == true
                     && ($0["timeout"] as? Int) == 10
             },
             "Expected Antigravity Stop hook to be a direct command handler, saw \(stop)"
         )
-        XCTAssertNotNil(cmuxGroup["SessionStart"])
-        XCTAssertNotNil(cmuxGroup["SessionEnd"])
-        XCTAssertNotNil(cmuxGroup["turn-completion"])
-        XCTAssertNotNil(cmuxGroup["Notification"])
-        XCTAssertNotNil(cmuxGroup["PostToolUse"])
+        legacyAssertNotNil(cmuxGroup["SessionStart"])
+        legacyAssertNotNil(cmuxGroup["SessionEnd"])
+        legacyAssertNotNil(cmuxGroup["turn-completion"])
+        legacyAssertNotNil(cmuxGroup["Notification"])
+        legacyAssertNotNil(cmuxGroup["PostToolUse"])
     }
-
+    @Test
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -967,9 +968,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertTrue(
             result.stdout.contains("kiro-cli chat --agent cmux"),
             "Expected Kiro install to print the --agent cmux activation hint, saw: \(result.stdout)"
         )
@@ -977,17 +978,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let hookURL = root
             .appendingPathComponent("agents", isDirectory: true)
             .appendingPathComponent("cmux.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
-        XCTAssertEqual(json["name"] as? String, "cmux")
-        XCTAssertNil(json["version"], "Kiro agent configs should not receive Cursor's hooks version field")
-        XCTAssertEqual(
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        legacyAssertEqual(json["name"] as? String, "cmux")
+        legacyAssertNil(json["version"], "Kiro agent configs should not receive Cursor's hooks version field")
+        legacyAssertEqual(
             json["tools"] as? [String], ["*"],
             "Kiro cmux agent must grant the full tool set so `--agent cmux` can run tools and fire preToolUse hooks"
         )
 
-        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
-        let preToolUse = try XCTUnwrap(hooks["preToolUse"] as? [[String: Any]])
-        XCTAssertTrue(
+        let hooks = try legacyUnwrap(json["hooks"] as? [String: Any])
+        let preToolUse = try legacyUnwrap(hooks["preToolUse"] as? [[String: Any]])
+        legacyAssertTrue(
             preToolUse.contains {
                 ($0["command"] as? String)?.contains("hooks feed --source kiro --event preToolUse") == true
                     && ($0["timeout_ms"] as? Int) == 120_000
@@ -997,12 +998,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Expected Kiro preToolUse feed hook to preserve cmux's exit status for deny decisions, saw \(preToolUse)"
         )
-        XCTAssertNotNil(hooks["agentSpawn"])
-        XCTAssertNotNil(hooks["userPromptSubmit"])
-        XCTAssertNotNil(hooks["postToolUse"])
-        XCTAssertNotNil(hooks["stop"])
+        legacyAssertNotNil(hooks["agentSpawn"])
+        legacyAssertNotNil(hooks["userPromptSubmit"])
+        legacyAssertNotNil(hooks["postToolUse"])
+        legacyAssertNotNil(hooks["stop"])
     }
-
+    @Test
     func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("kiro-feed-deny")
@@ -1027,7 +1028,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
-            XCTAssertEqual(method, "feed.push")
+            legacyAssertEqual(method, "feed.push")
             return self.v2Response(
                 id: id,
                 ok: true,
@@ -1058,11 +1059,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-123","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
             timeout: 5
         )
-        wait(for: [serverHandled], timeout: 5)
+        legacyWait(for: [serverHandled], timeout: 5)
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 2, result.stderr)
-        XCTAssertTrue(result.stderr.contains("User denied permission via cmux Feed."), result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 2, result.stderr)
+        legacyAssertTrue(result.stderr.contains("User denied permission via cmux Feed."), result.stderr)
 
         let feedEvents = state.commands.compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
@@ -1073,16 +1074,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             return event
         }
-        XCTAssertEqual(feedEvents.count, 1, "Expected one Kiro Feed event, saw \(state.commands)")
-        XCTAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
-        XCTAssertEqual(feedEvents.first?["_source"] as? String, "kiro")
-        XCTAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
+        legacyAssertEqual(feedEvents.count, 1, "Expected one Kiro Feed event, saw \(state.commands)")
+        legacyAssertEqual(feedEvents.first?["hook_event_name"] as? String, "PermissionRequest")
+        legacyAssertEqual(feedEvents.first?["_source"] as? String, "kiro")
+        legacyAssertEqual(feedEvents.first?["_ppid"] as? Int, 525252)
     }
 
     /// The Feed permission modes that allow a tool (`once` / `always` / `all`
     /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
     /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
     /// exit 2 rather than silently allowing the tool.
+    @Test
     func testKiroFeedAllowModesProceedAndUnknownModeDenies() throws {
         func runKiroDecision(mode: String) throws -> ProcessRunResult {
             let cliPath = try bundledCLIPath()
@@ -1127,21 +1129,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: #"{"hook_event_name":"preToolUse","session_id":"kiro-session-mode","cwd":"\#(root.path)","tool_name":"fs_write","tool_input":{"operations":[{"mode":"Line","path":"\#(root.appendingPathComponent("README.md").path)"}]}}"#,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
         for mode in ["once", "always", "all", "bypass"] {
             let result = try runKiroDecision(mode: mode)
-            XCTAssertFalse(result.timedOut, "\(mode): \(result.stderr)")
-            XCTAssertEqual(result.status, 0, "mode \(mode) should allow (exit 0): \(result.stderr)")
-            XCTAssertEqual(result.stdout, "{}\n", "mode \(mode) should print {}")
+            legacyAssertFalse(result.timedOut, "\(mode): \(result.stderr)")
+            legacyAssertEqual(result.status, 0, "mode \(mode) should allow (exit 0): \(result.stderr)")
+            legacyAssertEqual(result.stdout, "{}\n", "mode \(mode) should print {}")
         }
 
         let unknown = try runKiroDecision(mode: "totally-bogus-mode")
-        XCTAssertFalse(unknown.timedOut, unknown.stderr)
-        XCTAssertEqual(unknown.status, 2, "unrecognized mode must fail closed (exit 2): \(unknown.stderr)")
-        XCTAssertTrue(unknown.stderr.contains("unrecognized"), unknown.stderr)
+        legacyAssertFalse(unknown.timedOut, unknown.stderr)
+        legacyAssertEqual(unknown.status, 2, "unrecognized mode must fail closed (exit 2): \(unknown.stderr)")
+        legacyAssertTrue(unknown.stderr.contains("unrecognized"), unknown.stderr)
     }
 
     /// At the default `standard` notification level, Kiro read-only tool
@@ -1149,6 +1151,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// tools (`fs_write`) still emit. Guards that suppression keys off the
     /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
     /// event — i.e. the suppression actually triggers for real Kiro events.
+    @Test
     func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
         func feedPushCount(forTool tool: String) throws -> Int {
             let cliPath = try bundledCLIPath()
@@ -1186,23 +1189,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: #"{"hook_event_name":"postToolUse","session_id":"kiro-suppress","cwd":"\#(root.path)","tool_name":"\#(tool)"}"#,
                 timeout: 5
             )
-            XCTAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
-            XCTAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
-            XCTAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
+            legacyAssertFalse(result.timedOut, "\(tool): \(result.stderr)")
+            legacyAssertEqual(result.status, 0, "\(tool): \(result.stderr)")
+            legacyAssertEqual(result.stdout, "{}\n", "\(tool) stdout")
             // A non-suppressed event sends one feed.push, so wait for the
             // server to record it (generous timeout to avoid flaking on the
             // socket/process round-trip under CI load). A suppressed event
             // sends nothing, so this wait simply times out silently.
-            _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
+            _ = legacyWaitForExpectations([serverHandled], timeout: 5, recordFailure: false)
             return state.commands.filter { $0.contains("feed.push") }.count
         }
 
-        XCTAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
+        legacyAssertEqual(try feedPushCount(forTool: "fs_read"), 0,
                        "read-only kiro tool at standard level must be suppressed")
-        XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
+        legacyAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
                              "mutating kiro tool at standard level must still emit telemetry")
     }
-
+    @Test
     func testLowercaseGenericFeedToolsStayTelemetryOutsideKiro() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("generic-lowercase-feed-tool")
@@ -1227,7 +1230,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
             }
-            XCTAssertEqual(method, "feed.push")
+            legacyAssertEqual(method, "feed.push")
             return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
         }
 
@@ -1247,11 +1250,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: #"{"hook_event_name":"PreToolUse","session_id":"gemini-session-123","cwd":"\#(root.path)","tool_name":"write","tool_input":{"path":"\#(root.appendingPathComponent("README.md").path)"}}"#,
             timeout: 5
         )
-        wait(for: [serverHandled], timeout: 5)
+        legacyWait(for: [serverHandled], timeout: 5)
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
 
         let feedPushes = state.commands.compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
@@ -1261,16 +1264,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
             return params
         }
-        XCTAssertEqual(feedPushes.count, 1, "Expected one generic Feed event, saw \(state.commands)")
-        let event = try XCTUnwrap(feedPushes.first?["event"] as? [String: Any])
-        let waitTimeout = try XCTUnwrap(feedPushes.first?["wait_timeout_seconds"] as? NSNumber)
-        XCTAssertEqual(event["hook_event_name"] as? String, "PreToolUse")
-        XCTAssertEqual(event["_source"] as? String, "gemini")
-        XCTAssertEqual(event["tool_name"] as? String, "write")
-        XCTAssertEqual(event["_ppid"] as? Int, 626262)
-        XCTAssertEqual(waitTimeout.doubleValue, 0)
+        legacyAssertEqual(feedPushes.count, 1, "Expected one generic Feed event, saw \(state.commands)")
+        let event = try legacyUnwrap(feedPushes.first?["event"] as? [String: Any])
+        let waitTimeout = try legacyUnwrap(feedPushes.first?["wait_timeout_seconds"] as? NSNumber)
+        legacyAssertEqual(event["hook_event_name"] as? String, "PreToolUse")
+        legacyAssertEqual(event["_source"] as? String, "gemini")
+        legacyAssertEqual(event["tool_name"] as? String, "write")
+        legacyAssertEqual(event["_ppid"] as? Int, 626262)
+        legacyAssertEqual(waitTimeout.doubleValue, 0)
     }
-
+    @Test
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("antigravity-feed-stable-session")
@@ -1307,7 +1310,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
                     return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
                 }
-                XCTAssertEqual(method, "feed.push")
+                legacyAssertEqual(method, "feed.push")
                 return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
             }
             let result = runProcess(
@@ -1317,26 +1320,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
         let input = #"{"hook_event_name":"PreToolUse","workspacePaths":["\#(root.path)"],"notification":{"transcript_path":"\#(root.appendingPathComponent("transcript-a.jsonl").path)"},"toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#
         let first = runFeedHook(input: input)
-        XCTAssertFalse(first.timedOut, first.stderr)
-        XCTAssertEqual(first.status, 0, first.stderr)
-        XCTAssertEqual(first.stdout, "{}\n")
+        legacyAssertFalse(first.timedOut, first.stderr)
+        legacyAssertEqual(first.status, 0, first.stderr)
+        legacyAssertEqual(first.stdout, "{}\n")
 
         let second = runFeedHook(input: input)
-        XCTAssertFalse(second.timedOut, second.stderr)
-        XCTAssertEqual(second.status, 0, second.stderr)
-        XCTAssertEqual(second.stdout, "{}\n")
+        legacyAssertFalse(second.timedOut, second.stderr)
+        legacyAssertEqual(second.status, 0, second.stderr)
+        legacyAssertEqual(second.stdout, "{}\n")
 
         let differentTranscriptInput = #"{"hook_event_name":"PreToolUse","workspacePaths":["\#(root.path)"],"notification":{"transcript_path":"\#(root.appendingPathComponent("transcript-b.jsonl").path)"},"toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#
         let third = runFeedHook(input: differentTranscriptInput)
-        XCTAssertFalse(third.timedOut, third.stderr)
-        XCTAssertEqual(third.status, 0, third.stderr)
-        XCTAssertEqual(third.stdout, "{}\n")
+        legacyAssertFalse(third.timedOut, third.stderr)
+        legacyAssertEqual(third.status, 0, third.stderr)
+        legacyAssertEqual(third.stdout, "{}\n")
 
         let events = state.commands.compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
@@ -1348,16 +1351,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return event
         }
         let sessionIds = events.compactMap { $0["session_id"] as? String }
-        XCTAssertEqual(sessionIds.count, 3, "Expected three feed events, saw \(state.commands)")
-        XCTAssertEqual(sessionIds[0], sessionIds[1])
-        XCTAssertNotEqual(sessionIds[1], sessionIds[2])
-        XCTAssertTrue(
+        legacyAssertEqual(sessionIds.count, 3, "Expected three feed events, saw \(state.commands)")
+        legacyAssertEqual(sessionIds[0], sessionIds[1])
+        legacyAssertNotEqual(sessionIds[1], sessionIds[2])
+        legacyAssertTrue(
             sessionIds[0].hasPrefix("antigravity-fallback-"),
             "Expected deterministic Antigravity fallback session id, saw \(sessionIds[0])"
         )
-        XCTAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
+        legacyAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
     }
-
+    @Test
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notification")
@@ -1413,7 +1416,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -1421,10 +1424,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
         )
-        XCTAssertFalse(start.timedOut, start.stderr)
-        XCTAssertEqual(start.status, 0, start.stderr)
-        XCTAssertEqual(start.stdout, "{}\n")
-        XCTAssertFalse(
+        legacyAssertFalse(start.timedOut, start.stderr)
+        legacyAssertEqual(start.status, 0, start.stderr)
+        legacyAssertEqual(start.stdout, "{}\n")
+        legacyAssertFalse(
             state.commands.contains { $0.contains("set_status grok") || $0.hasPrefix("notify_target_async ") },
             "Grok SessionStart should only establish routing state, saw \(state.commands)"
         )
@@ -1434,16 +1437,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "stop",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
         )
-        XCTAssertFalse(stop.timedOut, stop.stderr)
-        XCTAssertEqual(stop.status, 0, stop.stderr)
-        XCTAssertEqual(stop.stdout, "{}\n")
+        legacyAssertFalse(stop.timedOut, stop.stderr)
+        legacyAssertEqual(stop.status, 0, stop.stderr)
+        legacyAssertEqual(stop.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             stopCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Grok Stop should not publish a generic completion notification; Notification carries the real message. Saw \(stopCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopCommands.contains { $0.contains("set_status grok Idle") },
             "Expected Grok Stop to keep task-manager status idle, saw \(stopCommands)"
         )
@@ -1453,41 +1456,41 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Grok finished updating docs"}"#
         )
-        XCTAssertFalse(notification.timedOut, notification.stderr)
-        XCTAssertEqual(notification.status, 0, notification.stderr)
-        XCTAssertEqual(notification.stdout, "{}\n")
+        legacyAssertFalse(notification.timedOut, notification.stderr)
+        legacyAssertEqual(notification.status, 0, notification.stderr)
+        legacyAssertEqual(notification.stdout, "{}\n")
 
         let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             notificationCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok finished updating docs")
             },
             "Expected Grok Notification to forward the payload message, saw \(notificationCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             notificationCommands.contains { $0.contains("set_status grok Idle") },
             "Expected completion notification to leave Grok idle, saw \(notificationCommands)"
         )
 
         let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
-        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        var sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        var session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        XCTAssertEqual(session["lastSubtitle"] as? String, "Completed")
-        XCTAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
-        XCTAssertEqual(session["lastNotificationStatus"] as? String, "idle")
+        var json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        var sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        var session = try legacyUnwrap(sessions[sessionId] as? [String: Any])
+        legacyAssertEqual(session["lastSubtitle"] as? String, "Completed")
+        legacyAssertEqual(session["lastBody"] as? String, "Grok finished updating docs")
+        legacyAssertEqual(session["lastNotificationStatus"] as? String, "idle")
 
         let preAssistantInternalCommandStart = state.commands.count
         let preAssistantInternal = runGrokHook(
             "notification",
             input: #"{"sessionId":"grok-before-assistant","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: session_start } }"}"#
         )
-        XCTAssertFalse(preAssistantInternal.timedOut, preAssistantInternal.stderr)
-        XCTAssertEqual(preAssistantInternal.status, 0, preAssistantInternal.stderr)
-        XCTAssertEqual(preAssistantInternal.stdout, "{}\n")
+        legacyAssertFalse(preAssistantInternal.timedOut, preAssistantInternal.stderr)
+        legacyAssertEqual(preAssistantInternal.status, 0, preAssistantInternal.stderr)
+        legacyAssertEqual(preAssistantInternal.stdout, "{}\n")
 
         let preAssistantInternalCommands = Array(state.commands.dropFirst(preAssistantInternalCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             preAssistantInternalCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Grok internal session notifications should not notify before there is an assistant response, saw \(preAssistantInternalCommands)"
         )
@@ -1497,36 +1500,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"grok-generic-before-assistant","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 3.8s."}"#
         )
-        XCTAssertFalse(preAssistantGeneric.timedOut, preAssistantGeneric.stderr)
-        XCTAssertEqual(preAssistantGeneric.status, 0, preAssistantGeneric.stderr)
-        XCTAssertEqual(preAssistantGeneric.stdout, "{}\n")
+        legacyAssertFalse(preAssistantGeneric.timedOut, preAssistantGeneric.stderr)
+        legacyAssertEqual(preAssistantGeneric.status, 0, preAssistantGeneric.stderr)
+        legacyAssertEqual(preAssistantGeneric.stdout, "{}\n")
 
         let preAssistantGenericCommands = Array(state.commands.dropFirst(preAssistantGenericCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             preAssistantGenericCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
             },
             "Grok generic completion notifications should still fire before there is an assistant response, saw \(preAssistantGenericCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             preAssistantGenericCommands.contains { $0.contains("set_status grok Idle") },
             "Expected generic completion without an assistant response to leave Grok idle, saw \(preAssistantGenericCommands)"
         )
-        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let preAssistantGenericSession = try XCTUnwrap(sessions["grok-generic-before-assistant"] as? [String: Any])
-        XCTAssertEqual(preAssistantGenericSession["lastSubtitle"] as? String, "Completed")
-        XCTAssertEqual(preAssistantGenericSession["lastBody"] as? String, "Task completed")
-        XCTAssertEqual(preAssistantGenericSession["lastNotificationStatus"] as? String, "idle")
+        json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        let preAssistantGenericSession = try legacyUnwrap(sessions["grok-generic-before-assistant"] as? [String: Any])
+        legacyAssertEqual(preAssistantGenericSession["lastSubtitle"] as? String, "Completed")
+        legacyAssertEqual(preAssistantGenericSession["lastBody"] as? String, "Task completed")
+        legacyAssertEqual(preAssistantGenericSession["lastNotificationStatus"] as? String, "idle")
 
         let assistantMessage = "**42.** That's the answer, according to Deep Thought."
         let nextTurnPrompt = runGrokHook(
             "prompt-submit",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"next turn"}"#
         )
-        XCTAssertFalse(nextTurnPrompt.timedOut, nextTurnPrompt.stderr)
-        XCTAssertEqual(nextTurnPrompt.status, 0, nextTurnPrompt.stderr)
-        XCTAssertEqual(nextTurnPrompt.stdout, "{}\n")
+        legacyAssertFalse(nextTurnPrompt.timedOut, nextTurnPrompt.stderr)
+        legacyAssertEqual(nextTurnPrompt.status, 0, nextTurnPrompt.stderr)
+        legacyAssertEqual(nextTurnPrompt.stdout, "{}\n")
 
         try writeGrokAssistantTranscript(
             grokHome: grokHome,
@@ -1539,19 +1542,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "stop",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
         )
-        XCTAssertFalse(enrichedStop.timedOut, enrichedStop.stderr)
-        XCTAssertEqual(enrichedStop.status, 0, enrichedStop.stderr)
-        XCTAssertEqual(enrichedStop.stdout, "{}\n")
+        legacyAssertFalse(enrichedStop.timedOut, enrichedStop.stderr)
+        legacyAssertEqual(enrichedStop.status, 0, enrichedStop.stderr)
+        legacyAssertEqual(enrichedStop.stdout, "{}\n")
 
         let enrichedStopCommands = Array(state.commands.dropFirst(enrichedStopCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             enrichedStopCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
                     && $0.contains(assistantMessage)
             },
             "Expected Grok Stop fallback to publish the cwd-scoped assistant response when Grok only emits internal Notification events, saw \(enrichedStopCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             enrichedStopCommands.contains { $0.contains("set_status grok Idle") },
             "Expected enriched Grok Stop to leave Grok idle, saw \(enrichedStopCommands)"
         )
@@ -1562,15 +1565,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
         )
-        XCTAssertFalse(oversizedStart.timedOut, oversizedStart.stderr)
-        XCTAssertEqual(oversizedStart.status, 0, oversizedStart.stderr)
+        legacyAssertFalse(oversizedStart.timedOut, oversizedStart.stderr)
+        legacyAssertEqual(oversizedStart.status, 0, oversizedStart.stderr)
 
         let oversizedPrompt = runGrokHook(
             "prompt-submit",
             input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"oversized turn"}"#
         )
-        XCTAssertFalse(oversizedPrompt.timedOut, oversizedPrompt.stderr)
-        XCTAssertEqual(oversizedPrompt.status, 0, oversizedPrompt.stderr)
+        legacyAssertFalse(oversizedPrompt.timedOut, oversizedPrompt.stderr)
+        legacyAssertEqual(oversizedPrompt.status, 0, oversizedPrompt.stderr)
 
         let oversizedSessionURL = grokHome
             .appendingPathComponent("sessions", isDirectory: true)
@@ -1586,11 +1589,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "stop",
             input: #"{"sessionId":"\#(oversizedSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
         )
-        XCTAssertFalse(oversizedStop.timedOut, oversizedStop.stderr)
-        XCTAssertEqual(oversizedStop.status, 0, oversizedStop.stderr)
+        legacyAssertFalse(oversizedStop.timedOut, oversizedStop.stderr)
+        legacyAssertEqual(oversizedStop.status, 0, oversizedStop.stderr)
 
         let oversizedStopCommands = Array(state.commands.dropFirst(oversizedStopCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             oversizedStopCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
                     && $0.contains("Oversized Grok assistant response")
@@ -1603,15 +1606,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
         )
-        XCTAssertFalse(multibyteStart.timedOut, multibyteStart.stderr)
-        XCTAssertEqual(multibyteStart.status, 0, multibyteStart.stderr)
+        legacyAssertFalse(multibyteStart.timedOut, multibyteStart.stderr)
+        legacyAssertEqual(multibyteStart.status, 0, multibyteStart.stderr)
 
         let multibytePrompt = runGrokHook(
             "prompt-submit",
             input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"multibyte boundary"}"#
         )
-        XCTAssertFalse(multibytePrompt.timedOut, multibytePrompt.stderr)
-        XCTAssertEqual(multibytePrompt.status, 0, multibytePrompt.stderr)
+        legacyAssertFalse(multibytePrompt.timedOut, multibytePrompt.stderr)
+        legacyAssertEqual(multibytePrompt.status, 0, multibytePrompt.stderr)
 
         let multibyteSessionURL = grokHome
             .appendingPathComponent("sessions", isDirectory: true)
@@ -1638,7 +1641,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 break
             }
         }
-        let historyData = try XCTUnwrap(multibyteHistoryData)
+        let historyData = try legacyUnwrap(multibyteHistoryData)
         try historyData.write(to: multibyteSessionURL.appendingPathComponent("chat_history.jsonl", isDirectory: false))
 
         let multibyteStopCommandStart = state.commands.count
@@ -1646,11 +1649,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "stop",
             input: #"{"sessionId":"\#(multibyteSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
         )
-        XCTAssertFalse(multibyteStop.timedOut, multibyteStop.stderr)
-        XCTAssertEqual(multibyteStop.status, 0, multibyteStop.stderr)
+        legacyAssertFalse(multibyteStop.timedOut, multibyteStop.stderr)
+        legacyAssertEqual(multibyteStop.status, 0, multibyteStop.stderr)
 
         let multibyteStopCommands = Array(state.commands.dropFirst(multibyteStopCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             multibyteStopCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
                     && $0.contains(multibyteAssistantMessage)
@@ -1663,16 +1666,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 3.8s."}"#
         )
-        XCTAssertFalse(genericCompletion.timedOut, genericCompletion.stderr)
-        XCTAssertEqual(genericCompletion.status, 0, genericCompletion.stderr)
-        XCTAssertEqual(genericCompletion.stdout, "{}\n")
+        legacyAssertFalse(genericCompletion.timedOut, genericCompletion.stderr)
+        legacyAssertEqual(genericCompletion.status, 0, genericCompletion.stderr)
+        legacyAssertEqual(genericCompletion.stdout, "{}\n")
 
         let genericCompletionCommands = Array(state.commands.dropFirst(genericCompletionCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             genericCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Grok completion Notification must not double-notify after Stop fallback already published the completion, saw \(genericCompletionCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             genericCompletionCommands.contains { $0.contains("set_status grok Idle") },
             "Expected enriched completion notification to leave Grok idle, saw \(genericCompletionCommands)"
         )
@@ -1683,18 +1686,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sameCwdMissingSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 4.0s."}"#
         )
-        XCTAssertFalse(sameCwdMissing.timedOut, sameCwdMissing.stderr)
-        XCTAssertEqual(sameCwdMissing.status, 0, sameCwdMissing.stderr)
-        XCTAssertEqual(sameCwdMissing.stdout, "{}\n")
+        legacyAssertFalse(sameCwdMissing.timedOut, sameCwdMissing.stderr)
+        legacyAssertEqual(sameCwdMissing.status, 0, sameCwdMissing.stderr)
+        legacyAssertEqual(sameCwdMissing.stdout, "{}\n")
 
         let sameCwdMissingCommands = Array(state.commands.dropFirst(sameCwdMissingCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             sameCwdMissingCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
             },
             "Grok completion without a matching session transcript should still fire a generic completion notification, saw \(sameCwdMissingCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             sameCwdMissingCommands.contains { $0.contains(assistantMessage) },
             "Grok completion notifications must not read another session from the same cwd, saw \(sameCwdMissingCommands)"
         )
@@ -1727,18 +1730,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 4.2s."}"#
         )
-        XCTAssertFalse(envResolved.timedOut, envResolved.stderr)
-        XCTAssertEqual(envResolved.status, 0, envResolved.stderr)
-        XCTAssertEqual(envResolved.stdout, "{}\n")
+        legacyAssertFalse(envResolved.timedOut, envResolved.stderr)
+        legacyAssertEqual(envResolved.status, 0, envResolved.stderr)
+        legacyAssertEqual(envResolved.stdout, "{}\n")
 
         let envResolvedCommands = Array(state.commands.dropFirst(envResolvedCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             envResolvedCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(envResolvedMessage)")
             },
             "Grok completion without a payload session id should use the resolved hook session id, saw \(envResolvedCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             envResolvedCommands.contains { $0.contains(unrelatedLatestMessage) },
             "Grok completion without a payload session id must not fall back to the latest unrelated cwd session, saw \(envResolvedCommands)"
         )
@@ -1748,12 +1751,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: MemoryFlushCompleted { result: written } }"}"#
         )
-        XCTAssertFalse(hookExecution.timedOut, hookExecution.stderr)
-        XCTAssertEqual(hookExecution.status, 0, hookExecution.stderr)
-        XCTAssertEqual(hookExecution.stdout, "{}\n")
+        legacyAssertFalse(hookExecution.timedOut, hookExecution.stderr)
+        legacyAssertEqual(hookExecution.status, 0, hookExecution.stderr)
+        legacyAssertEqual(hookExecution.stdout, "{}\n")
 
         let hookExecutionCommands = Array(state.commands.dropFirst(hookExecutionCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             hookExecutionCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Grok internal session notifications must not replay the last assistant response as a fresh notification, saw \(hookExecutionCommands)"
         )
@@ -1774,22 +1777,22 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(scopedMissSessionId)","cwd":"\#(missingCwd.path)","hookEventName":"Notification","message":"Turn complete in 4.0s."}"#
         )
-        XCTAssertFalse(scopedMiss.timedOut, scopedMiss.stderr)
-        XCTAssertEqual(scopedMiss.status, 0, scopedMiss.stderr)
-        XCTAssertEqual(scopedMiss.stdout, "{}\n")
+        legacyAssertFalse(scopedMiss.timedOut, scopedMiss.stderr)
+        legacyAssertEqual(scopedMiss.status, 0, scopedMiss.stderr)
+        legacyAssertEqual(scopedMiss.stdout, "{}\n")
 
         let scopedMissCommands = Array(state.commands.dropFirst(scopedMissCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             scopedMissCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
             },
             "Grok completion without a cwd-scoped transcript should still fire a generic completion notification, saw \(scopedMissCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             scopedMissCommands.contains { $0.contains(otherProjectMessage) },
             "Grok completion notifications must not read another cwd's latest session, saw \(scopedMissCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             scopedMissCommands.contains { $0.contains("set_status grok Idle") },
             "Expected scoped completion without transcript to leave Grok idle, saw \(scopedMissCommands)"
         )
@@ -1800,18 +1803,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","reason":"idle_prompt","message":"\#(waitingMessage)"}"#
         )
-        XCTAssertFalse(waiting.timedOut, waiting.stderr)
-        XCTAssertEqual(waiting.status, 0, waiting.stderr)
-        XCTAssertEqual(waiting.stdout, "{}\n")
+        legacyAssertFalse(waiting.timedOut, waiting.stderr)
+        legacyAssertEqual(waiting.status, 0, waiting.stderr)
+        legacyAssertEqual(waiting.stdout, "{}\n")
 
         let waitingCommands = Array(state.commands.dropFirst(waitingCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             waitingCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
             },
             "Expected waiting notification to forward the payload message, saw \(waitingCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             waitingCommands.contains { $0.contains("set_status grok Grok needs input") },
             "Expected waiting notification to mark Grok as needing input, saw \(waitingCommands)"
         )
@@ -1821,28 +1824,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification"}"#
         )
-        XCTAssertFalse(fallback.timedOut, fallback.stderr)
-        XCTAssertEqual(fallback.status, 0, fallback.stderr)
-        XCTAssertEqual(fallback.stdout, "{}\n")
+        legacyAssertFalse(fallback.timedOut, fallback.stderr)
+        legacyAssertEqual(fallback.status, 0, fallback.stderr)
+        legacyAssertEqual(fallback.stdout, "{}\n")
 
         let fallbackCommands = Array(state.commands.dropFirst(fallbackCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             fallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
             },
             "Expected empty Grok Notification payload to reuse the saved message, saw \(fallbackCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             fallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
             "Expected fallback notification to preserve the saved needs-input status, saw \(fallbackCommands)"
         )
 
-        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
-        XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
-        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+        json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        session = try legacyUnwrap(sessions[sessionId] as? [String: Any])
+        legacyAssertEqual(session["lastSubtitle"] as? String, "Waiting")
+        legacyAssertEqual(session["lastBody"] as? String, waitingMessage)
+        legacyAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
         for neutralMessage in ["Invalid input format", "Question mark rendered"] {
             let neutralCommandStart = state.commands.count
@@ -1850,16 +1853,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "notification",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(neutralMessage)"}"#
             )
-            XCTAssertFalse(neutral.timedOut, neutral.stderr)
-            XCTAssertEqual(neutral.status, 0, neutral.stderr)
-            XCTAssertEqual(neutral.stdout, "{}\n")
+            legacyAssertFalse(neutral.timedOut, neutral.stderr)
+            legacyAssertEqual(neutral.status, 0, neutral.stderr)
+            legacyAssertEqual(neutral.stdout, "{}\n")
 
             let neutralCommands = Array(state.commands.dropFirst(neutralCommandStart))
-            XCTAssertFalse(
+            legacyAssertFalse(
                 neutralCommands.contains { $0.hasPrefix("notify_target_async ") },
                 "Neutral classifier text should not alert as needs-input, saw \(neutralCommands)"
             )
-            XCTAssertFalse(
+            legacyAssertFalse(
                 neutralCommands.contains { $0.contains("set_status grok ") },
                 "Neutral classifier text should not replace the saved status, saw \(neutralCommands)"
             )
@@ -1871,18 +1874,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(incompleteWaitingMessage)"}"#
         )
-        XCTAssertFalse(incompleteWaiting.timedOut, incompleteWaiting.stderr)
-        XCTAssertEqual(incompleteWaiting.status, 0, incompleteWaiting.stderr)
-        XCTAssertEqual(incompleteWaiting.stdout, "{}\n")
+        legacyAssertFalse(incompleteWaiting.timedOut, incompleteWaiting.stderr)
+        legacyAssertEqual(incompleteWaiting.status, 0, incompleteWaiting.stderr)
+        legacyAssertEqual(incompleteWaiting.stdout, "{}\n")
 
         let incompleteWaitingCommands = Array(state.commands.dropFirst(incompleteWaitingCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             incompleteWaitingCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
             },
             "Incomplete/undone waiting text should not be classified as a completion, saw \(incompleteWaitingCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             incompleteWaitingCommands.contains { $0.contains("Grok|Completed|") },
             "Incomplete/undone waiting text must not emit a completed notification, saw \(incompleteWaitingCommands)"
         )
@@ -1893,49 +1896,49 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(progressMessage)"}"#
         )
-        XCTAssertFalse(progress.timedOut, progress.stderr)
-        XCTAssertEqual(progress.status, 0, progress.stderr)
-        XCTAssertEqual(progress.stdout, "{}\n")
+        legacyAssertFalse(progress.timedOut, progress.stderr)
+        legacyAssertEqual(progress.status, 0, progress.stderr)
+        legacyAssertEqual(progress.stdout, "{}\n")
 
         let progressCommands = Array(state.commands.dropFirst(progressCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             progressCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Unclassified Grok notifications are progress/bookkeeping and should not alert, saw \(progressCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             progressCommands.contains { $0.contains("set_status grok ") },
             "Unclassified Grok notifications should not clear or replace active status, saw \(progressCommands)"
         )
 
-        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
-        XCTAssertEqual(session["lastBody"] as? String, incompleteWaitingMessage)
-        XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+        json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        session = try legacyUnwrap(sessions[sessionId] as? [String: Any])
+        legacyAssertEqual(session["lastSubtitle"] as? String, "Waiting")
+        legacyAssertEqual(session["lastBody"] as? String, incompleteWaitingMessage)
+        legacyAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
         let neutralFallbackCommandStart = state.commands.count
         let neutralFallback = runGrokHook(
             "notification",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification"}"#
         )
-        XCTAssertFalse(neutralFallback.timedOut, neutralFallback.stderr)
-        XCTAssertEqual(neutralFallback.status, 0, neutralFallback.stderr)
-        XCTAssertEqual(neutralFallback.stdout, "{}\n")
+        legacyAssertFalse(neutralFallback.timedOut, neutralFallback.stderr)
+        legacyAssertEqual(neutralFallback.status, 0, neutralFallback.stderr)
+        legacyAssertEqual(neutralFallback.stdout, "{}\n")
 
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             neutralFallbackCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
             },
             "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             neutralFallbackCommands.contains { $0.contains("set_status grok Grok needs input") },
             "Fallback notifications should preserve the saved needs-input status, saw \(neutralFallbackCommands)"
         )
     }
-
+    @Test
     func testGrokStopFallbackCompletionsFireForTwoConcurrentThreads() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-two-threads")
@@ -2006,7 +2009,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2025,18 +2028,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 input: #"{"sessionId":"\#(thread.sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
                 surfaceId: thread.surfaceId
             )
-            XCTAssertFalse(start.timedOut, start.stderr)
-            XCTAssertEqual(start.status, 0, start.stderr)
-            XCTAssertEqual(start.stdout, "{}\n")
+            legacyAssertFalse(start.timedOut, start.stderr)
+            legacyAssertEqual(start.status, 0, start.stderr)
+            legacyAssertEqual(start.stdout, "{}\n")
 
             let prompt = runGrokHook(
                 "prompt-submit",
                 input: #"{"sessionId":"\#(thread.sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"thread \#(thread.index) prompt"}"#,
                 surfaceId: thread.surfaceId
             )
-            XCTAssertFalse(prompt.timedOut, prompt.stderr)
-            XCTAssertEqual(prompt.status, 0, prompt.stderr)
-            XCTAssertEqual(prompt.stdout, "{}\n")
+            legacyAssertFalse(prompt.timedOut, prompt.stderr)
+            legacyAssertEqual(prompt.status, 0, prompt.stderr)
+            legacyAssertEqual(prompt.stdout, "{}\n")
 
             let internalCommandStart = state.commands.count
             let internalNotification = runGrokHook(
@@ -2044,12 +2047,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 input: #"{"sessionId":"\#(thread.sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: user_prompt_submit } }"}"#,
                 surfaceId: thread.surfaceId
             )
-            XCTAssertFalse(internalNotification.timedOut, internalNotification.stderr)
-            XCTAssertEqual(internalNotification.status, 0, internalNotification.stderr)
-            XCTAssertEqual(internalNotification.stdout, "{}\n")
+            legacyAssertFalse(internalNotification.timedOut, internalNotification.stderr)
+            legacyAssertEqual(internalNotification.status, 0, internalNotification.stderr)
+            legacyAssertEqual(internalNotification.stdout, "{}\n")
 
             let internalCommands = Array(state.commands.dropFirst(internalCommandStart))
-            XCTAssertFalse(
+            legacyAssertFalse(
                 internalCommands.contains { $0.hasPrefix("notify_target_async ") },
                 "Prompt-submit bookkeeping for Grok thread \(thread.index) must not notify, saw \(internalCommands)"
             )
@@ -2071,12 +2074,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 input: #"{"sessionId":"\#(thread.sessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#,
                 surfaceId: thread.surfaceId
             )
-            XCTAssertFalse(stop.timedOut, stop.stderr)
-            XCTAssertEqual(stop.status, 0, stop.stderr)
-            XCTAssertEqual(stop.stdout, "{}\n")
+            legacyAssertFalse(stop.timedOut, stop.stderr)
+            legacyAssertEqual(stop.status, 0, stop.stderr)
+            legacyAssertEqual(stop.stdout, "{}\n")
 
             let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-            XCTAssertTrue(
+            legacyAssertTrue(
                 stopCommands.contains {
                     $0.contains("notify_target_async \(workspaceId) \(thread.surfaceId) Grok|Completed in ")
                         && $0.contains(thread.assistantMessage)
@@ -2084,12 +2087,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "Expected Grok Stop fallback to notify for thread \(thread.index), saw \(stopCommands)"
             )
             if thread.index == 1 {
-                XCTAssertFalse(
+                legacyAssertFalse(
                     stopCommands.contains { $0.contains("set_status grok Idle") },
                     "First Grok thread must not reset shared status while thread 2 is still running, saw \(stopCommands)"
                 )
             } else {
-                XCTAssertTrue(
+                legacyAssertTrue(
                     stopCommands.contains { $0.contains("set_status grok Idle") },
                     "Expected final Grok Stop to leave Grok idle, saw \(stopCommands)"
                 )
@@ -2103,18 +2106,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 input: #"{"sessionId":"\#(thread.sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: stop } }"}"#,
                 surfaceId: thread.surfaceId
             )
-            XCTAssertFalse(notification.timedOut, notification.stderr)
-            XCTAssertEqual(notification.status, 0, notification.stderr)
-            XCTAssertEqual(notification.stdout, "{}\n")
+            legacyAssertFalse(notification.timedOut, notification.stderr)
+            legacyAssertEqual(notification.status, 0, notification.stderr)
+            legacyAssertEqual(notification.stdout, "{}\n")
 
             let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
-            XCTAssertFalse(
+            legacyAssertFalse(
                 notificationCommands.contains { $0.hasPrefix("notify_target_async ") },
                 "Internal Grok Notification after Stop fallback must not double-notify thread \(thread.index), saw \(notificationCommands)"
             )
         }
     }
-
+    @Test
     func testGrokStopNotificationFallsBackWhenTranscriptCwdIsUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stop-without-cwd")
@@ -2167,7 +2170,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2175,27 +2178,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"sessionId":"\#(sessionId)","hookEventName":"SessionStart"}"#
         )
-        XCTAssertFalse(start.timedOut, start.stderr)
-        XCTAssertEqual(start.status, 0, start.stderr)
-        XCTAssertEqual(start.stdout, "{}\n")
+        legacyAssertFalse(start.timedOut, start.stderr)
+        legacyAssertEqual(start.status, 0, start.stderr)
+        legacyAssertEqual(start.stdout, "{}\n")
 
         let stopCommandStart = state.commands.count
         let stop = runGrokHook(
             "stop",
             input: #"{"sessionId":"\#(sessionId)","hookEventName":"Stop"}"#
         )
-        XCTAssertFalse(stop.timedOut, stop.stderr)
-        XCTAssertEqual(stop.status, 0, stop.stderr)
-        XCTAssertEqual(stop.stdout, "{}\n")
+        legacyAssertFalse(stop.timedOut, stop.stderr)
+        legacyAssertEqual(stop.status, 0, stop.stderr)
+        legacyAssertEqual(stop.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok session completed")
             },
             "Expected Grok Stop without cwd to notify with a generic completion body, saw \(stopCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             stopCommands.contains { $0.contains("set_status grok Idle") },
             "Expected Grok Stop without cwd to leave Grok idle, saw \(stopCommands)"
         )
@@ -2205,17 +2208,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(sessionId)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#
         )
-        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
-        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
-        XCTAssertEqual(duplicateCompletion.stdout, "{}\n")
+        legacyAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        legacyAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        legacyAssertEqual(duplicateCompletion.stdout, "{}\n")
 
         let duplicateCompletionCommands = Array(state.commands.dropFirst(duplicateCompletionCommandStart))
-        XCTAssertFalse(
+        legacyAssertFalse(
             duplicateCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
             "Generic Grok completion after Stop fallback must not double-notify, saw \(duplicateCompletionCommands)"
         )
     }
-
+    @Test
     func testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-repeat")
@@ -2269,7 +2272,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2277,16 +2280,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "session-start",
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
         )
-        XCTAssertFalse(start.timedOut, start.stderr)
-        XCTAssertEqual(start.status, 0, start.stderr)
+        legacyAssertFalse(start.timedOut, start.stderr)
+        legacyAssertEqual(start.status, 0, start.stderr)
 
         for index in 1...2 {
             let prompt = runGrokHook(
                 "prompt-submit",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"prompt \#(index)"}"#
             )
-            XCTAssertFalse(prompt.timedOut, prompt.stderr)
-            XCTAssertEqual(prompt.status, 0, prompt.stderr)
+            legacyAssertFalse(prompt.timedOut, prompt.stderr)
+            legacyAssertEqual(prompt.status, 0, prompt.stderr)
 
             let message = "Turn complete in \(index).0s."
             let commandStart = state.commands.count
@@ -2296,24 +2299,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 stallFeedTelemetry: index == 2
             )
 
-            XCTAssertFalse(notification.timedOut, notification.stderr)
-            XCTAssertEqual(notification.status, 0, notification.stderr)
-            XCTAssertEqual(notification.stdout, "{}\n")
+            legacyAssertFalse(notification.timedOut, notification.stderr)
+            legacyAssertEqual(notification.status, 0, notification.stderr)
+            legacyAssertEqual(notification.stdout, "{}\n")
 
             let notificationCommands = Array(state.commands.dropFirst(commandStart))
-            XCTAssertTrue(
+            legacyAssertTrue(
                 notificationCommands.contains {
                     $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
                 },
                 "Expected Grok completion notification for prompt \(index), saw \(notificationCommands)"
             )
-            XCTAssertTrue(
+            legacyAssertTrue(
                 notificationCommands.contains { $0.contains("set_status grok Idle") },
                 "Expected Grok completion for prompt \(index) to leave Grok idle, saw \(notificationCommands)"
             )
         }
     }
-
+    @Test
     func testGrokSessionEndDoesNotDropRoutingForLaterChatMessages() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-turns")
@@ -2373,7 +2376,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2382,9 +2385,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
             environment: initialEnvironment
         )
-        XCTAssertFalse(start.timedOut, start.stderr)
-        XCTAssertEqual(start.status, 0, start.stderr)
-        XCTAssertEqual(start.stdout, "{}\n")
+        legacyAssertFalse(start.timedOut, start.stderr)
+        legacyAssertEqual(start.status, 0, start.stderr)
+        legacyAssertEqual(start.stdout, "{}\n")
 
         for index in 1...2 {
             let promptCommandStart = state.commands.count
@@ -2392,20 +2395,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "prompt-submit",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"message \#(index)"}"#
             )
-            XCTAssertFalse(prompt.timedOut, prompt.stderr)
-            XCTAssertEqual(prompt.status, 0, prompt.stderr)
-            XCTAssertEqual(prompt.stdout, "{}\n")
+            legacyAssertFalse(prompt.timedOut, prompt.stderr)
+            legacyAssertEqual(prompt.status, 0, prompt.stderr)
+            legacyAssertEqual(prompt.stdout, "{}\n")
 
             let promptCommands = Array(state.commands.dropFirst(promptCommandStart))
-            XCTAssertTrue(
+            legacyAssertTrue(
                 promptCommands.contains { $0.contains("set_status grok Running") },
                 "Expected Grok prompt \(index) to reuse the saved target without CMUX env, saw \(promptCommands)"
             )
-            XCTAssertTrue(
+            legacyAssertTrue(
                 promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId)" },
                 "Expected Grok prompt \(index) to clear only its own surface notifications, saw \(promptCommands)"
             )
-            XCTAssertFalse(
+            legacyAssertFalse(
                 promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId)" },
                 "Grok prompt \(index) must not clear sibling surface notifications, saw \(promptCommands)"
             )
@@ -2415,12 +2418,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "notification",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: user_prompt_submit } }"}"#
             )
-            XCTAssertFalse(internalNotification.timedOut, internalNotification.stderr)
-            XCTAssertEqual(internalNotification.status, 0, internalNotification.stderr)
-            XCTAssertEqual(internalNotification.stdout, "{}\n")
+            legacyAssertFalse(internalNotification.timedOut, internalNotification.stderr)
+            legacyAssertEqual(internalNotification.status, 0, internalNotification.stderr)
+            legacyAssertEqual(internalNotification.stdout, "{}\n")
 
             let internalCommands = Array(state.commands.dropFirst(internalCommandStart))
-            XCTAssertFalse(
+            legacyAssertFalse(
                 internalCommands.contains { $0.hasPrefix("notify_target_async ") },
                 "Grok internal prompt bookkeeping for chat message \(index) must not notify, saw \(internalCommands)"
             )
@@ -2430,12 +2433,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "notification",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"HookExecution { event_name: user_prompt_submit }"}"#
             )
-            XCTAssertFalse(bareInternalNotification.timedOut, bareInternalNotification.stderr)
-            XCTAssertEqual(bareInternalNotification.status, 0, bareInternalNotification.stderr)
-            XCTAssertEqual(bareInternalNotification.stdout, "{}\n")
+            legacyAssertFalse(bareInternalNotification.timedOut, bareInternalNotification.stderr)
+            legacyAssertEqual(bareInternalNotification.status, 0, bareInternalNotification.stderr)
+            legacyAssertEqual(bareInternalNotification.stdout, "{}\n")
 
             let bareInternalCommands = Array(state.commands.dropFirst(bareInternalCommandStart))
-            XCTAssertFalse(
+            legacyAssertFalse(
                 bareInternalCommands.contains { $0.hasPrefix("notify_target_async ") },
                 "Grok bare hook execution bookkeeping for chat message \(index) must not notify, saw \(bareInternalCommands)"
             )
@@ -2445,18 +2448,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "notification",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in \#(index).0s."}"#
             )
-            XCTAssertFalse(notification.timedOut, notification.stderr)
-            XCTAssertEqual(notification.status, 0, notification.stderr)
-            XCTAssertEqual(notification.stdout, "{}\n")
+            legacyAssertFalse(notification.timedOut, notification.stderr)
+            legacyAssertEqual(notification.status, 0, notification.stderr)
+            legacyAssertEqual(notification.stdout, "{}\n")
 
             let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
-            XCTAssertTrue(
+            legacyAssertTrue(
                 notificationCommands.contains {
                     $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Task completed")
                 },
                 "Expected Grok completion notification for chat message \(index), saw \(notificationCommands)"
             )
-            XCTAssertTrue(
+            legacyAssertTrue(
                 notificationCommands.contains { $0.contains("set_status grok Idle") },
                 "Expected Grok completion for chat message \(index) to leave Grok idle, saw \(notificationCommands)"
             )
@@ -2466,32 +2469,32 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "session-end",
                 input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionEnd"}"#
             )
-            XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
-            XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
-            XCTAssertEqual(sessionEnd.stdout, "{}\n")
+            legacyAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+            legacyAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+            legacyAssertEqual(sessionEnd.stdout, "{}\n")
 
             let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
             let sessionEndMethods = sessionEndCommands.compactMap { self.jsonObject($0)?["method"] as? String }
-            XCTAssertEqual(
+            legacyAssertEqual(
                 sessionEndMethods,
                 ["feed.push"],
                 "Grok SessionEnd should only emit feed telemetry from the saved route, saw \(sessionEndCommands)"
             )
-            XCTAssertFalse(
+            legacyAssertFalse(
                 sessionEndCommands.contains { $0.hasPrefix("clear_agent_pid grok.") },
                 "Grok SessionEnd is a chat-turn boundary and must not clear the saved route, saw \(sessionEndCommands)"
             )
         }
 
         let storeURL = root.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        XCTAssertNotNil(
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        legacyAssertNotNil(
             sessions[sessionId],
             "Expected Grok route to remain available after multiple chat-message SessionEnd events"
         )
     }
-
+    @Test
     func testGrokCompletionDoesNotResetStatusWhileSiblingSessionRuns() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-sibling-status")
@@ -2564,7 +2567,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: input,
                 timeout: 5
             )
-            wait(for: [serverHandled], timeout: 5)
+            legacyWait(for: [serverHandled], timeout: 5)
             return result
         }
 
@@ -2573,38 +2576,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
             input: #"{"sessionId":"\#(runningSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
             environment: environment(surfaceId: runningSurfaceId)
         )
-        XCTAssertFalse(runningStart.timedOut, runningStart.stderr)
-        XCTAssertEqual(runningStart.status, 0, runningStart.stderr)
+        legacyAssertFalse(runningStart.timedOut, runningStart.stderr)
+        legacyAssertEqual(runningStart.status, 0, runningStart.stderr)
 
         let completingStart = runGrokHook(
             "session-start",
             input: #"{"sessionId":"\#(completingSessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
             environment: environment(surfaceId: completingSurfaceId)
         )
-        XCTAssertFalse(completingStart.timedOut, completingStart.stderr)
-        XCTAssertEqual(completingStart.status, 0, completingStart.stderr)
+        legacyAssertFalse(completingStart.timedOut, completingStart.stderr)
+        legacyAssertEqual(completingStart.status, 0, completingStart.stderr)
 
         let runningStop = runGrokHook(
             "stop",
             input: #"{"sessionId":"\#(runningSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
         )
-        XCTAssertFalse(runningStop.timedOut, runningStop.stderr)
-        XCTAssertEqual(runningStop.status, 0, runningStop.stderr)
+        legacyAssertFalse(runningStop.timedOut, runningStop.stderr)
+        legacyAssertEqual(runningStop.status, 0, runningStop.stderr)
 
         let promptCommandStart = state.commands.count
         let runningPrompt = runGrokHook(
             "prompt-submit",
             input: #"{"sessionId":"\#(runningSessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"keep running"}"#
         )
-        XCTAssertFalse(runningPrompt.timedOut, runningPrompt.stderr)
-        XCTAssertEqual(runningPrompt.status, 0, runningPrompt.stderr)
+        legacyAssertFalse(runningPrompt.timedOut, runningPrompt.stderr)
+        legacyAssertEqual(runningPrompt.status, 0, runningPrompt.stderr)
 
         let promptCommands = Array(state.commands.dropFirst(promptCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             promptCommands.contains { $0 == "clear_notifications --tab=\(workspaceId) --panel=\(runningSurfaceId)" },
             "Expected running Grok prompt to clear only its own surface notifications, saw \(promptCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             promptCommands.contains { $0.contains("set_status grok Running") },
             "Expected running Grok prompt to mark Grok running, saw \(promptCommands)"
         )
@@ -2614,23 +2617,23 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "notification",
             input: #"{"sessionId":"\#(completingSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#
         )
-        XCTAssertFalse(completingNotification.timedOut, completingNotification.stderr)
-        XCTAssertEqual(completingNotification.status, 0, completingNotification.stderr)
-        XCTAssertEqual(completingNotification.stdout, "{}\n")
+        legacyAssertFalse(completingNotification.timedOut, completingNotification.stderr)
+        legacyAssertEqual(completingNotification.status, 0, completingNotification.stderr)
+        legacyAssertEqual(completingNotification.stdout, "{}\n")
 
         let completionCommands = Array(state.commands.dropFirst(completionCommandStart))
-        XCTAssertTrue(
+        legacyAssertTrue(
             completionCommands.contains {
                 $0.contains("notify_target_async \(workspaceId) \(completingSurfaceId) Grok|Completed|Task completed")
             },
             "Expected completing Grok session to notify its own surface, saw \(completionCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             completionCommands.contains { $0.contains("set_status grok Idle") },
             "Completing Grok session must not reset the shared Grok status while a sibling session is running, saw \(completionCommands)"
         )
     }
-
+    @Test
     func testGrokCompletionResetsStatusWhenSiblingRunningRecordHasDeadPID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stale-sibling-status")
@@ -2715,21 +2718,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: #"{"sessionId":"\#(completingSessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 1.0s."}"#,
             timeout: 5
         )
-        wait(for: [serverHandled], timeout: 5)
+        legacyWait(for: [serverHandled], timeout: 5)
 
-        XCTAssertFalse(completion.timedOut, completion.stderr)
-        XCTAssertEqual(completion.status, 0, completion.stderr)
-        XCTAssertEqual(completion.stdout, "{}\n")
+        legacyAssertFalse(completion.timedOut, completion.stderr)
+        legacyAssertEqual(completion.status, 0, completion.stderr)
+        legacyAssertEqual(completion.stdout, "{}\n")
 
-        XCTAssertTrue(
+        legacyAssertTrue(
             state.commands.contains { $0.contains("set_status grok Idle") },
             "Dead PID running records must not keep the shared Grok status running, saw \(state.commands)"
         )
 
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let staleSession = try XCTUnwrap(sessions[staleSessionId] as? [String: Any])
-        XCTAssertNil(
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        let staleSession = try legacyUnwrap(sessions[staleSessionId] as? [String: Any])
+        legacyAssertNil(
             staleSession["runtimeStatus"],
             "Dead PID running records should be cleared when they are ignored"
         )
@@ -2774,7 +2777,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         return encoded
     }
-
+    @Test
     func testGrokHookInstallRoutesNotificationEventToNotificationSubcommand() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -2827,16 +2830,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         let hookURL = root
             .appendingPathComponent(".grok", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
             .appendingPathComponent("cmux-session.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
-        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
-        let notificationGroups = try XCTUnwrap(hooks["Notification"] as? [[String: Any]])
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let hooks = try legacyUnwrap(json["hooks"] as? [String: Any])
+        let notificationGroups = try legacyUnwrap(hooks["Notification"] as? [[String: Any]])
         let notificationCommands = notificationGroups
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
@@ -2845,7 +2848,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["timeout"] as? Int }
-        let preToolUseGroups = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
+        let preToolUseGroups = try legacyUnwrap(hooks["PreToolUse"] as? [[String: Any]])
         let preToolUseTimeouts = preToolUseGroups
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
@@ -2857,30 +2860,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
 
-        XCTAssertTrue(
+        legacyAssertTrue(
             notificationCommands.contains { $0.contains("cmux hooks grok notification") },
             "Expected Grok Notification to dispatch to the notification handler, saw \(notificationCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             notificationCommands.contains { $0.contains("cmux hooks grok stop") },
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
-        XCTAssertEqual(notificationTimeouts, [5])
-        XCTAssertEqual(preToolUseTimeouts, [120])
-        XCTAssertFalse(
+        legacyAssertEqual(notificationTimeouts, [5])
+        legacyAssertEqual(preToolUseTimeouts, [120])
+        legacyAssertFalse(
             allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },
             "Grok strips CMUX_* from hook subprocesses, so installed commands must not gate on CMUX_SURFACE_ID. Saw \(allCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             allCommands.contains { $0.contains("$CMUX_") },
             "Grok treats $VAR references as required hook environment, so installed commands must avoid CMUX variable interpolation. Saw \(allCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             FileManager.default.fileExists(atPath: legacyHookURL.path),
             "Expected setup to remove legacy cmux-owned Grok hook file"
         )
     }
-
+    @Test
     func testGrokHookInstallPinsInstallingCLIAndSocketWithoutCMUXInterpolation() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -2906,15 +2909,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         let hookURL = root
             .appendingPathComponent(".grok", isDirectory: true)
             .appendingPathComponent("hooks", isDirectory: true)
             .appendingPathComponent("cmux-session.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
-        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let hooks = try legacyUnwrap(json["hooks"] as? [String: Any])
         let allCommands = hooks.values
             .compactMap { $0 as? [[String: Any]] }
             .flatMap { $0 }
@@ -2922,25 +2925,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
 
-        XCTAssertFalse(allCommands.isEmpty)
-        XCTAssertTrue(
+        legacyAssertFalse(allCommands.isEmpty)
+        legacyAssertTrue(
             allCommands.allSatisfy { $0.contains("cmux-grok-hook-v2") },
             "Expected installed Grok hooks to carry the owned-hook marker, saw \(allCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             allCommands.allSatisfy { $0.contains("'\(pinnedCLI.path)'") },
             "Expected installed Grok hooks to pin the installing CLI path, saw \(allCommands)"
         )
-        XCTAssertTrue(
+        legacyAssertTrue(
             allCommands.allSatisfy { $0.contains("--socket '\(socketPath)'") },
             "Expected installed Grok hooks to pin the installing socket path, saw \(allCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             allCommands.contains { $0.contains("$CMUX_") },
             "Grok hook commands must not depend on CMUX environment interpolation, saw \(allCommands)"
         )
     }
-
+    @Test
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -2989,24 +2992,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
-        let legacyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: legacyHookURL)) as? [String: Any])
-        let hooks = try XCTUnwrap(legacyJSON["hooks"] as? [String: Any])
-        let notificationGroups = try XCTUnwrap(hooks["Notification"] as? [[String: Any]])
+        let legacyJSON = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: legacyHookURL)) as? [String: Any])
+        let hooks = try legacyUnwrap(legacyJSON["hooks"] as? [String: Any])
+        let notificationGroups = try legacyUnwrap(hooks["Notification"] as? [[String: Any]])
         let commands = notificationGroups
             .compactMap { $0["hooks"] as? [[String: Any]] }
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
 
-        XCTAssertEqual(commands, [preservedCommand])
-        XCTAssertFalse(
+        legacyAssertEqual(commands, [preservedCommand])
+        legacyAssertFalse(
             commands.contains { $0.hasPrefix("[ \"$CMUX_GROK_HOOKS_DISABLED\"") },
             "Expected setup to remove only exact cmux-owned legacy commands, saw \(commands)"
         )
     }
-
+    @Test
     func testGrokHookInstallPreservesLegacyFileMetadataWhenPruningOwnedHooks() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3050,14 +3053,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
-        let legacyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: legacyHookURL)) as? [String: Any])
-        XCTAssertEqual(legacyJSON["version"] as? Int, 1)
-        XCTAssertNil(legacyJSON["hooks"])
+        let legacyJSON = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: legacyHookURL)) as? [String: Any])
+        legacyAssertEqual(legacyJSON["version"] as? Int, 1)
+        legacyAssertNil(legacyJSON["hooks"])
     }
-
+    @Test
     func testCodexHookInstallPrefersLaunchingAppBundledCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3106,12 +3109,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
-        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let hooks = try legacyUnwrap(json["hooks"] as? [String: Any])
         let allCommands = hooks.values
             .compactMap { $0 as? [[String: Any]] }
             .flatMap { $0 }
@@ -3119,28 +3122,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .flatMap { $0 }
             .compactMap { $0["command"] as? String }
 
-        XCTAssertTrue(
+        legacyAssertTrue(
             allCommands.contains {
                 $0.contains("CMUX_BUNDLED_CLI_PATH")
                     && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
             },
             "Codex hooks should route through the launching app's bundled CLI, saw \(allCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             allCommands.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
             "Codex hooks must not use the reload-global cmux shim directly, saw \(allCommands)"
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             allCommands.contains { $0 == previousBundledHookCommand },
             "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(allCommands)"
         )
-        XCTAssertEqual(
+        legacyAssertEqual(
             allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
             1,
             "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )
     }
-
+    @Test
     func testGrokHookInstallRejectsFileAtHooksDirectory() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3163,19 +3166,19 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertNotEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertNotEqual(result.status, 0, result.stdout)
+        legacyAssertTrue(
             result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path); remove or rename the conflicting file and re-run `cmux hooks setup`"),
             result.stderr
         )
-        XCTAssertFalse(
+        legacyAssertFalse(
             result.stdout.contains("Required agent configuration is missing."),
             result.stdout
         )
         var isDirectory: ObjCBool = true
-        XCTAssertTrue(FileManager.default.fileExists(atPath: hooksPath.path, isDirectory: &isDirectory))
-        XCTAssertFalse(isDirectory.boolValue)
+        legacyAssertTrue(FileManager.default.fileExists(atPath: hooksPath.path, isDirectory: &isDirectory))
+        legacyAssertFalse(isDirectory.boolValue)
     }
 
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
@@ -3241,25 +3244,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "{}\n")
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "{}\n")
 
         let storeURL = root.appendingPathComponent("\(scenario.agent)-hook-sessions.json", isDirectory: false)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
-        let session = try XCTUnwrap(sessions[scenario.sessionId] as? [String: Any])
-        XCTAssertEqual(session["workspaceId"] as? String, workspaceId)
-        XCTAssertEqual(session["surfaceId"] as? String, surfaceId)
-        XCTAssertEqual(session["cwd"] as? String, workspace.path)
+        let json = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(json["sessions"] as? [String: Any])
+        let session = try legacyUnwrap(sessions[scenario.sessionId] as? [String: Any])
+        legacyAssertEqual(session["workspaceId"] as? String, workspaceId)
+        legacyAssertEqual(session["surfaceId"] as? String, surfaceId)
+        legacyAssertEqual(session["cwd"] as? String, workspace.path)
 
-        let launchCommand = try XCTUnwrap(session["launchCommand"] as? [String: Any])
-        XCTAssertEqual(launchCommand["launcher"] as? String, scenario.agent)
-        XCTAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
-        XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
-        XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
-        XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+        let launchCommand = try legacyUnwrap(session["launchCommand"] as? [String: Any])
+        legacyAssertEqual(launchCommand["launcher"] as? String, scenario.agent)
+        legacyAssertEqual(launchCommand["executablePath"] as? String, scenario.executable)
+        legacyAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
+        legacyAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
+        legacyAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
 
         if scenario.agent == "kiro" {
             let resumeSetRequests = state.commands.compactMap { command -> [String: Any]? in
@@ -3269,17 +3272,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
                 return payload["params"] as? [String: Any]
             }
-            XCTAssertEqual(resumeSetRequests.count, 1, state.commands.joined(separator: "\n"))
-            let params = try XCTUnwrap(resumeSetRequests.first)
-            XCTAssertEqual(params["kind"] as? String, "kiro")
-            XCTAssertEqual(params["checkpoint_id"] as? String, scenario.sessionId)
-            XCTAssertEqual(params["auto_resume"] as? Bool, true)
-            XCTAssertEqual(
+            legacyAssertEqual(resumeSetRequests.count, 1, state.commands.joined(separator: "\n"))
+            let params = try legacyUnwrap(resumeSetRequests.first)
+            legacyAssertEqual(params["kind"] as? String, "kiro")
+            legacyAssertEqual(params["checkpoint_id"] as? String, scenario.sessionId)
+            legacyAssertEqual(params["auto_resume"] as? Bool, true)
+            legacyAssertEqual(
                 params["command"] as? String,
                 "{ cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ]; } && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
             )
-            XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
-            XCTAssertFalse(
+            legacyAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
+            legacyAssertFalse(
                 state.commands.contains { command in
                     self.jsonObject(command)?["method"] as? String == "surface.resume.clear"
                 },
@@ -3294,6 +3297,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// drop CODEX_HOME, so the resume/fork binding fell back to a bare `codex resume <id>` against the
     /// default home and failed with "No saved session found". The hook must still carry the captured
     /// CODEX_HOME into the resume binding's environment.
+    @Test
     func testCodexHookPreservesCodexHomeWhenLaunchCommandUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-home")
@@ -3386,37 +3390,37 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else { return nil }
             return payload["params"] as? [String: Any]
         }
-        let params = try XCTUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
+        let params = try legacyUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
         let boundEnvironment = params["environment"] as? [String: String]
-        XCTAssertEqual(
+        legacyAssertEqual(
             boundEnvironment?["CODEX_HOME"], codexHome,
             "resume binding must carry the captured CODEX_HOME; params=\(params)"
         )
-        let command = try XCTUnwrap(params["command"] as? String)
-        XCTAssertTrue(command.contains("'resume' '\(sessionId)'"), command)
+        let command = try legacyUnwrap(params["command"] as? String)
+        legacyAssertTrue(command.contains("'resume' '\(sessionId)'"), command)
 
         // The env-only record must also be PERSISTED to the hook session store (its arguments are
         // empty, so the store's "only assign launchCommand when arguments is non-empty" gate would
         // otherwise drop it) — a later fork/resume that reads the store rather than re-deriving from a
         // live hook env still needs CODEX_HOME.
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
-        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
-        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
-        let persisted = try XCTUnwrap(sessions[sessionId] as? [String: Any])
-        let persistedLaunch = try XCTUnwrap(
+        let storeJSON = try legacyUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try legacyUnwrap(storeJSON["sessions"] as? [String: Any])
+        let persisted = try legacyUnwrap(sessions[sessionId] as? [String: Any])
+        let persistedLaunch = try legacyUnwrap(
             persisted["launchCommand"] as? [String: Any],
             "env-only launchCommand must be persisted for the fork path"
         )
-        XCTAssertEqual(
+        legacyAssertEqual(
             (persistedLaunch["environment"] as? [String: String])?["CODEX_HOME"], codexHome,
             "persisted launchCommand must carry CODEX_HOME"
         )
@@ -3427,6 +3431,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// When the agent process's controlling TTY is bound to a different, accessible surface in the same
     /// workspace, that TTY is ground truth and must override the leaked env surface — otherwise the
     /// session routes to the wrong pane and the no-pid-gate resume binding persists it across reload.
+    @Test
     func testCodexHookOverridesLeakedEnvSurfaceWithProcessTTYBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-surface")
@@ -3501,17 +3506,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else { return nil }
             return payload["params"] as? [String: Any]
         }
-        let params = try XCTUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
-        XCTAssertEqual(
+        let params = try legacyUnwrap(resumeRequests.last, "expected a surface.resume.set; saw \(state.snapshot())")
+        legacyAssertEqual(
             params["surface_id"] as? String, ttySurfaceId,
             "PID/TTY ground truth must override the leaked env CMUX_SURFACE_ID; params=\(params)"
         )
@@ -3522,6 +3527,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// longer resolves to an accessible surface. That must NOT abort hook routing — the agent's own
     /// TTY-bound pane is valid, so the hook recovers and still publishes the resume binding there
     /// instead of no-op'ing (which would silently lose the session across reload).
+    @Test
     func testCodexHookRecoversFromStaleEnvSurfaceViaProcessTTYBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-stale")
@@ -3589,20 +3595,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
                   payload["method"] as? String == "surface.resume.set" else { return nil }
             return payload["params"] as? [String: Any]
         }
-        let params = try XCTUnwrap(
+        let params = try legacyUnwrap(
             resumeRequests.last,
             "stale ambient surface must not drop the hook; expected a surface.resume.set, saw \(state.snapshot())"
         )
-        XCTAssertEqual(
+        legacyAssertEqual(
             params["surface_id"] as? String, ttySurfaceId,
             "a stale ambient CMUX_SURFACE_ID must fall through to the TTY pane; params=\(params)"
         )
@@ -3612,6 +3618,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// argv so they never get a resume/fork binding. The CODEX_HOME env-only fallback must NOT bypass
     /// that — a captured-but-rejected argv keeps returning nil even when CODEX_HOME is present, so no
     /// env-only record is persisted for the one-shot command.
+    @Test
     func testCodexHookDoesNotPersistEnvOnlyRecordForNonRestorableExec() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-exec")
@@ -3679,9 +3686,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
 
         // No env-only CODEX_HOME record may be persisted for the rejected non-restorable argv.
         let storeURL = root.appendingPathComponent("codex-hook-sessions.json")
@@ -3690,7 +3697,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
            let sessions = storeJSON["sessions"] as? [String: Any],
            let persisted = sessions[sessionId] as? [String: Any] {
             let env = (persisted["launchCommand"] as? [String: Any])?["environment"] as? [String: String]
-            XCTAssertNil(
+            legacyAssertNil(
                 env?["CODEX_HOME"],
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
             )

@@ -262,11 +262,12 @@ esac`}</CodeBlock>
       <p>
         {t.rich("copilotCliHooksDesc", {
           link: (chunks) => (
-            <a href="https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks">{chunks}</a>
+            <a href="https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks">{chunks}</a>
           ),
         })}
       </p>
-      <CodeBlock title="~/.copilot/config.json" lang="json">{`{
+      <CodeBlock title="~/.copilot/hooks/cmux.json" lang="json">{`{
+  "version": 1,
   "hooks": {
     "userPromptSubmitted": [
       {
@@ -285,7 +286,14 @@ esac`}</CodeBlock>
     "errorOccurred": [
       {
         "type": "command",
-        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body 'An error occurred'; cmux set-status copilot_cli Error; fi",
+        "bash": "if command -v cmux &>/dev/null; then cmux notify --title 'Copilot CLI' --subtitle 'Error' --body \\\"$(cat | jq -r '.error.message // .error.name // \\\"An error occurred\\\"' 2>/dev/null | head -c 100)\\\"; cmux set-status copilot_cli Error; fi",
+        "timeoutSec": 5
+      }
+    ],
+    "notification": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux hooks copilot notification; fi",
         "timeoutSec": 5
       }
     ],

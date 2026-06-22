@@ -5,7 +5,7 @@ enum FeedPermissionActionPolicy {
     private typealias CodexPermissionCapabilities = (supportsOnce: Bool, supportsAlways: Bool, supportsAll: Bool)
 
     static func supportsPersistentPermissionModes(source: WorkstreamSource) -> Bool {
-        source != .hermesAgent
+        source != .copilot && source != .hermesAgent
     }
 
     static func supportsOncePermissionMode(source: WorkstreamSource, toolInputJSON: String?) -> Bool {
@@ -26,7 +26,7 @@ enum FeedPermissionActionPolicy {
     }
 
     static func supportsBypassPermissions(source: WorkstreamSource) -> Bool {
-        source != .codex && source != .claude && source != .hermesAgent
+        source != .codex && source != .claude && source != .copilot && source != .hermesAgent
     }
 
     static func codexCapabilityToolInputJSON(source: WorkstreamSource, toolInputJSON: String) -> String? {

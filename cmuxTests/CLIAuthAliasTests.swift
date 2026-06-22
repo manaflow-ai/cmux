@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testTopLevelLoginAliasesAuthLogin() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("auth-login")
@@ -52,16 +54,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "Opening sign-in popup on the cmux web app.\nSigned in as dev@example.com.\n")
-        XCTAssertTrue(
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "Opening sign-in popup on the cmux web app.\nSigned in as dev@example.com.\n")
+        legacyAssertTrue(
             state.commands.contains { $0.contains(#""method":"auth.begin_sign_in""#) },
             "Expected login alias to call auth.begin_sign_in, saw \(state.commands)"
         )
     }
-
+    @Test
     func testTopLevelLogoutAliasesAuthLogout() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("auth-logout")
@@ -112,11 +114,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "Signed out.\n")
-        XCTAssertTrue(
+        legacyWait(for: [serverHandled], timeout: 5)
+        legacyAssertFalse(result.timedOut, result.stderr)
+        legacyAssertEqual(result.status, 0, result.stderr)
+        legacyAssertEqual(result.stdout, "Signed out.\n")
+        legacyAssertTrue(
             state.commands.contains { $0.contains(#""method":"auth.sign_out""#) },
             "Expected logout alias to call auth.sign_out, saw \(state.commands)"
         )

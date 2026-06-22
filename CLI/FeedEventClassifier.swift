@@ -47,8 +47,8 @@ struct FeedEventClassifier {
     private enum FeedEventSemantic {
         /// A real approval is pending; the user must approve/deny. Drives
         /// the blocking Feed wait and the "needs approval" notification.
-        /// Resolved against the tool name so Claude's `ExitPlanMode` /
-        /// `AskUserQuestion` approvals route to their dedicated kinds.
+        /// Resolved against the tool name for agents whose response schema
+        /// supports dedicated `ExitPlanMode` / `AskUserQuestion` decisions.
         case approvalRequest
         /// A tool is about to run but no approval is pending. Telemetry
         /// only. Used by agents that expose a *separate* approval event
@@ -109,8 +109,24 @@ struct FeedEventClassifier {
     ) -> (String, Bool) {
         switch semantic {
         case .approvalRequest:
+            // Copilot's hook response schema only understands top-level
+            // permissionDecision values, so keep every Copilot tool on the
+            // generic PermissionRequest wire kind.
+            if source == "copilot" {
+                return ("PermissionRequest", true)
+            }
             return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
         case .toolStartMaybeApproval:
+            if source == "copilot" {
+                // Copilot's preToolUse fires for every tool. Gate only tools
+                // that need a decision, but keep Copilot on PermissionRequest
+                // so renderAgentDecision emits top-level permissionDecision.
+                if toolName == "ExitPlanMode" || toolName == "AskUserQuestion" || toolName == "ask_user" ||
+                    Self.isSideEffectingTool(toolName, source: source) {
+                    return ("PermissionRequest", true)
+                }
+                return ("PreToolUse", false)
+            }
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
                 return dedicated
             }
@@ -216,6 +232,15 @@ struct FeedEventClassifier {
             "agentSpawn": .sessionStart,
             "stop": .response,
         ],
+        "copilot": [
+            // Copilot's canonical hook config uses camelCase event names. Keep
+            // the PascalCase spelling for already-installed VS Code compatible
+            // hook files.
+            "permissionRequest": .approvalRequest,
+            "PermissionRequest": .approvalRequest,
+            "preToolUse": .toolStartMaybeApproval,
+            "PreToolUse": .toolStartMaybeApproval,
+        ],
     ]
 
     /// Fallback table for agents without a dedicated entry in
@@ -291,15 +316,33 @@ struct FeedEventClassifier {
         "generate_image",
     ]
 
+    /// Copilot's canonical hook payloads use lower-case runtime tool names.
+    /// Keep these source-scoped so another agent's lower-case read telemetry
+    /// is not accidentally broadened into approval traffic.
+    private static let copilotSideEffectingToolAliases: Set<String> = [
+        "bash",
+        "powershell",
+        "create",
+        "edit",
+        "str_replace_editor",
+        "apply_patch",
+    ]
+
+    static let copilotPreToolUseApprovalToolMatcher =
+        copilotSideEffectingToolAliases.union(["ask_user"]).sorted().joined(separator: "|")
+
     /// Whether a tool mutates state and deserves an approval prompt. Exact
-    /// match against ``sideEffectingTools`` for every source; the `kiro`
-    /// source additionally matches its case-insensitive internal aliases.
+    /// match against ``sideEffectingTools`` for every source; `copilot` and
+    /// `kiro` additionally match their case-insensitive internal aliases.
     /// Kept source-scoped so another agent's lowercase tool name is not
     /// escalated into an approval.
     static func isSideEffectingTool(_ toolName: String, source: String) -> Bool {
         guard !toolName.isEmpty else { return false }
         if sideEffectingTools.contains(toolName) {
             return true
+        }
+        if source == "copilot" {
+            return copilotSideEffectingToolAliases.contains(toolName.lowercased())
         }
         if source == "kiro" {
             return kiroSideEffectingToolAliases.contains(toolName.lowercased())
