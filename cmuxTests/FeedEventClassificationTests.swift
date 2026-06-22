@@ -93,9 +93,10 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
-    /// Copilot's `permissionRequest` hook blocks before the native permission
-    /// service, and `preToolUse` still gates side-effecting tools before they
-    /// execute. Read-only pre-tool events must fall through as telemetry.
+    /// Copilot's installed `permissionRequest` hook blocks before the native
+    /// permission service. Unmarked `preToolUse` still gates side-effecting
+    /// tools for legacy hook files and manual invocations; read-only pre-tool
+    /// events must fall through as telemetry.
     @Test func copilotPreToolUseIsApprovalRequest() {
         #expect(classify("copilot", "permissionRequest", tool: "bash").name == "PermissionRequest")
         #expect(classify("copilot", "permissionRequest", tool: "bash").actionable == true)

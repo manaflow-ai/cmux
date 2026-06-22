@@ -83,7 +83,6 @@ struct CLICopilotHookFeedTests {
         #expect(hooks["SessionEnd"] == nil, "Copilot must use canonical camelCase hook names")
         #expect(hooks["PreToolUse"] == nil, "Copilot must install canonical preToolUse hooks")
         #expect(hooks["PermissionRequest"] == nil, "Copilot must install canonical permissionRequest hooks")
-        #expect(hooks["permissionRequest"] == nil, "Copilot uses preToolUse for the installed approval gate")
         let errorOccurred = try #require(hooks["errorOccurred"] as? [[String: Any]])
         #expect(
             errorOccurred.contains {
@@ -97,7 +96,7 @@ struct CLICopilotHookFeedTests {
         #expect(
             preToolUse.contains {
                 ($0["bash"] as? String)?.contains("hooks feed --source copilot --event preToolUse") == true
-                    && ($0["bash"] as? String)?.contains("--telemetry-only") == false
+                    && ($0["bash"] as? String)?.contains("--telemetry-only") == true
                     && ($0["type"] as? String) == "command"
                     && ($0["timeoutSec"] as? Int) == 125
                     && $0["command"] == nil
@@ -105,9 +104,20 @@ struct CLICopilotHookFeedTests {
             },
             "Expected direct preToolUse bash hook with timeout slack, saw \(preToolUse)"
         )
+        let permissionRequest = try #require(hooks["permissionRequest"] as? [[String: Any]])
+        #expect(
+            permissionRequest.contains {
+                ($0["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true
+                    && ($0["type"] as? String) == "command"
+                    && ($0["timeoutSec"] as? Int) == 125
+                    && $0["command"] == nil
+                    && $0["hooks"] == nil
+            },
+            "Expected direct permissionRequest bash hook with timeout slack, saw \(permissionRequest)"
+        )
     }
 
-    @Test func copilotFeedDecisionEmitsPreToolUsePermissionDecision() throws {
+    @Test func copilotFeedDecisionEmitsCopilotPermissionDecisions() throws {
         func runCopilotDecision(mode: String, event: String = "preToolUse") throws -> (ProcessRunResult, [String: Any]) {
             let cliPath = try Self.bundledCLIPath()
             let socketPath = Self.makeSocketPath("copilot-feed-decision")
@@ -174,6 +184,9 @@ struct CLICopilotHookFeedTests {
             return (result, try #require(feedEvents.first))
         }
 
+        // Fresh installs answer Copilot's permission service through
+        // permissionRequest. Keep unmarked preToolUse decision support for
+        // already-installed hook files and manual invocations.
         let (allow, allowEvent) = try runCopilotDecision(mode: "once")
         #expect(!allow.timedOut, Comment(rawValue: allow.stderr))
         #expect(allow.status == 0, Comment(rawValue: allow.stderr))
