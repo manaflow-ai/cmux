@@ -3111,69 +3111,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
         timeoutMs: Int
     ) -> V2BrowserWaitOutcome {
         let timeout = Double(timeoutMs) / 1000.0
-        let waitScript = """
-        (() => {
-          const __cmuxEvaluate = () => {
-            try {
-              return !!(\(conditionScript));
-            } catch (_) {
-              return false;
-            }
-          };
-
-          if (__cmuxEvaluate()) {
-            return true;
-          }
-
-          return new Promise((resolve) => {
-            let finished = false;
-            let observer = null;
-            const cleanups = [];
-            const finish = (value) => {
-              if (finished) return;
-              finished = true;
-              if (observer) observer.disconnect();
-              for (const cleanup of cleanups) {
-                try { cleanup(); } catch (_) {}
-              }
-              resolve(value);
-            };
-            const recheck = () => {
-              if (__cmuxEvaluate()) {
-                finish(true);
-              }
-            };
-            const addListener = (target, eventName, options) => {
-              if (!target || typeof target.addEventListener !== 'function') return;
-              const handler = () => recheck();
-              target.addEventListener(eventName, handler, options);
-              cleanups.push(() => target.removeEventListener(eventName, handler, options));
-            };
-
-            try {
-              observer = new MutationObserver(() => recheck());
-              observer.observe(document.documentElement || document, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-                characterData: true
-              });
-            } catch (_) {}
-
-            addListener(document, 'readystatechange', true);
-            addListener(window, 'load', true);
-            addListener(window, 'pageshow', true);
-            addListener(window, 'hashchange', true);
-            addListener(window, 'popstate', true);
-
-            const timeoutId = window.setTimeout(() => {
-              finish(false);
-            }, \(timeoutMs));
-            cleanups.push(() => window.clearTimeout(timeoutId));
-            recheck();
-          });
-        })()
-        """
+        // Pure script assembly lives in `BrowserControlService` (CmuxBrowser); the
+        // WebKit evaluation below stays here on the worker lane.
+        let waitScript = v2BrowserControl.conditionWaitScript(
+            conditionScript: conditionScript,
+            timeoutMs: timeoutMs
+        )
 
         switch v2RunBrowserJavaScript(
             webView,
@@ -3301,52 +3244,15 @@ class TerminalController: MobileViewportSurfaceLimiting {
         onIsolatedWorldFallback: (() -> Void)? = nil
     ) -> V2JavaScriptResult {
         v2EnsureBrowserDocumentLoaded(webView, surfaceId: surfaceId)
-        let scriptLiteral = v2JSONLiteral(script)
-        let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
-            let selectorLiteral = v2JSONLiteral(frameSelector)
-            framePrelude = """
-            let __cmuxDoc = document;
-            try {
-              const __cmuxFrame = document.querySelector(\(selectorLiteral));
-              if (__cmuxFrame && __cmuxFrame.contentDocument) {
-                __cmuxDoc = __cmuxFrame.contentDocument;
-              }
-            } catch (_) {}
-            """
-        } else {
-            framePrelude = "const __cmuxDoc = document;"
-        }
-
-        let executionBlock: String
-        if useEval {
-            executionBlock = "const __r = eval(\(scriptLiteral));"
-        } else {
-            executionBlock = "const __r = \(script);"
-        }
-
-        let asyncFunctionBody = """
-        \(framePrelude)
-
-        const __cmuxMaybeAwait = async (__r) => {
-          if (__r !== null && (typeof __r === 'object' || typeof __r === 'function') && typeof __r.then === 'function') {
-            return await __r;
-          }
-          return __r;
-        };
-
-        const __cmuxEvalInFrame = async function() {
-          const document = __cmuxDoc;
-          \(executionBlock)
-          const __value = await __cmuxMaybeAwait(__r);
-          return {
-            __cmux_t: (typeof __value === 'undefined') ? 'undefined' : 'value',
-            __cmux_v: __value
-          };
-        };
-
-        return await __cmuxEvalInFrame();
-        """
+        // Pure script assembly (frame prelude, execution block, async wrapper,
+        // pre-macOS-11 fallback) lives in `BrowserControlService` (CmuxBrowser);
+        // the WebKit evaluation and envelope unwrapping below stay here on the
+        // worker lane.
+        let asyncFunctionBody = v2BrowserControl.evalFunctionBody(
+            script: script,
+            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId),
+            useEval: useEval
+        )
 
         var rawResult: V2JavaScriptResult
         if #available(macOS 11.0, *) {
@@ -3358,11 +3264,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 world: .page
             )
         } else {
-            let evaluateFallback = """
-            (async () => {
-              \(asyncFunctionBody)
-            })()
-            """
+            let evaluateFallback = v2BrowserControl.evaluateFallbackScript(asyncFunctionBody: asyncFunctionBody)
             rawResult = v2RunJavaScript(webView, script: evaluateFallback, timeout: timeout, world: .page)
         }
 
