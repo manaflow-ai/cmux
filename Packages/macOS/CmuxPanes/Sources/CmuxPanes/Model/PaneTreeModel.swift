@@ -39,9 +39,7 @@ public final class PaneTreeModel<Panel> {
     /// Rebinding the same panel id to a new surface id removes any stale
     /// surface entries for that panel so focus and input never resolve two
     /// tabs to one live PTY.
-    public var surfaceIdToPanelId: [TabID: UUID] = [:] {
-        didSet { normalizeSurfaceMappings(preferredBy: oldValue) }
-    }
+    public private(set) var surfaceIdToPanelId: [TabID: UUID] = [:]
 
     /// Snapshot of the spatially ordered panel ids from the last geometry
     /// notification, used to gate `paneLayoutVersion` bumps to genuine
@@ -50,9 +48,6 @@ public final class PaneTreeModel<Panel> {
 
     @ObservationIgnored
     private weak var host: (any PaneTreeHosting<Panel>)?
-
-    @ObservationIgnored
-    private var isNormalizingSurfaceMappings = false
 
     /// Creates an empty model; the owning workspace attaches itself as host
     /// before the first mutation.
@@ -65,6 +60,32 @@ public final class PaneTreeModel<Panel> {
         self.host = host
     }
 
+    /// Binds a bonsplit surface id to a panel id.
+    ///
+    /// The binding is exclusive by panel id: a live panel can be represented by
+    /// only one surface at a time, so rebinding the panel removes stale surface
+    /// entries before installing the new owner.
+    public func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
+        var updatedMappings = surfaceIdToPanelId.filter { existingSurfaceId, existingPanelId in
+            existingSurfaceId == surfaceId || existingPanelId != panelId
+        }
+        updatedMappings[surfaceId] = panelId
+        surfaceIdToPanelId = updatedMappings
+    }
+
+    /// Removes the mapping for one bonsplit surface id.
+    public func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
+        surfaceIdToPanelId.removeValue(forKey: surfaceId)
+    }
+
+    /// Removes every mapping that can still resolve to a closed panel.
+    public func removeSurfaceMappings(forPanelId panelId: UUID, includingSurfaceId surfaceId: TabID? = nil) {
+        surfaceIdToPanelId = surfaceIdToPanelId.filter { existingSurfaceId, existingPanelId in
+            let isExplicitSurface = surfaceId.map { existingSurfaceId == $0 } ?? false
+            return existingPanelId != panelId && !isExplicitSurface
+        }
+    }
+
     /// Resolves the owning panel id for a bonsplit surface id (legacy
     /// `Workspace.panelIdFromSurfaceId`).
     public func panelId(forSurfaceId surfaceId: TabID) -> UUID? {
@@ -75,54 +96,5 @@ public final class PaneTreeModel<Panel> {
     /// (legacy `Workspace.surfaceIdFromPanelId`).
     public func surfaceId(forPanelId panelId: UUID) -> TabID? {
         surfaceIdToPanelId.first { $0.value == panelId }?.key
-    }
-
-    private func normalizeSurfaceMappings(preferredBy oldValue: [TabID: UUID]) {
-        guard !isNormalizingSurfaceMappings else { return }
-        let changedSurfaceIds = Set(surfaceIdToPanelId.compactMap { surfaceId, panelId in
-            oldValue[surfaceId] == panelId ? nil : surfaceId
-        })
-        let normalized = Self.normalizedSurfaceMappings(
-            surfaceIdToPanelId,
-            preferredSurfaceIds: changedSurfaceIds
-        )
-        guard normalized != surfaceIdToPanelId else { return }
-
-        isNormalizingSurfaceMappings = true
-        defer { isNormalizingSurfaceMappings = false }
-        surfaceIdToPanelId = normalized
-    }
-
-    private static func normalizedSurfaceMappings(
-        _ mappings: [TabID: UUID],
-        preferredSurfaceIds: Set<TabID>
-    ) -> [TabID: UUID] {
-        let mappingsByPanelId = Dictionary(grouping: mappings) { $0.value }
-        var normalized = mappings
-
-        for entries in mappingsByPanelId.values where entries.count > 1 {
-            guard let retainedSurfaceId = retainedSurfaceId(
-                from: entries,
-                preferredSurfaceIds: preferredSurfaceIds
-            ) else {
-                continue
-            }
-            for (surfaceId, _) in entries where surfaceId != retainedSurfaceId {
-                normalized.removeValue(forKey: surfaceId)
-            }
-        }
-
-        return normalized
-    }
-
-    private static func retainedSurfaceId(
-        from entries: [(key: TabID, value: UUID)],
-        preferredSurfaceIds: Set<TabID>
-    ) -> TabID? {
-        let preferredEntries = entries.filter { preferredSurfaceIds.contains($0.key) }
-        let candidates = preferredEntries.isEmpty ? entries : preferredEntries
-        return candidates.max { lhs, rhs in
-            lhs.key.uuid.uuidString < rhs.key.uuid.uuidString
-        }?.key
     }
 }

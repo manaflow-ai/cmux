@@ -81,7 +81,7 @@ struct PaneTreeModelTests {
         let model = PaneTreeModel<String>()
         let tabId = TabID()
         let panelId = UUID()
-        model.surfaceIdToPanelId[tabId] = panelId
+        model.bindSurface(tabId, toPanelId: panelId)
         #expect(model.surfaceIdToPanelId[tabId] == panelId)
         model.lastOrderedPanelIds = [panelId]
         #expect(model.lastOrderedPanelIds == [panelId])
@@ -94,7 +94,7 @@ struct PaneTreeModelTests {
         let model = PaneTreeModel<String>()
         let tabId = TabID()
         let panelId = UUID()
-        model.surfaceIdToPanelId[tabId] = panelId
+        model.bindSurface(tabId, toPanelId: panelId)
 
         #expect(model.panelId(forSurfaceId: tabId) == panelId)
         #expect(model.surfaceId(forPanelId: panelId) == tabId)
@@ -110,8 +110,8 @@ struct PaneTreeModelTests {
         let newTabId = TabID()
         let panelId = UUID()
 
-        model.surfaceIdToPanelId[oldTabId] = panelId
-        model.surfaceIdToPanelId[newTabId] = panelId
+        model.bindSurface(oldTabId, toPanelId: panelId)
+        model.bindSurface(newTabId, toPanelId: panelId)
 
         #expect(model.panelId(forSurfaceId: oldTabId) == nil)
         #expect(model.panelId(forSurfaceId: newTabId) == panelId)
