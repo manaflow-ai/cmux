@@ -2913,6 +2913,13 @@ class TabManager: ObservableObject {
         return tab.panels[panelId] as? BrowserPanel
     }
 
+    @discardableResult
+    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
+        tabs.reduce(0) { count, workspace in
+            count + workspace.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
+        }
+    }
+
     /// Returns the focused panel if it's a MarkdownPanel showing the rendered
     /// preview, nil otherwise. Zoom applies to the preview WKWebView, so the raw
     /// text-edit mode is deliberately excluded.

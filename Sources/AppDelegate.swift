@@ -2079,7 +2079,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guardrail.onRequestClosePane = { [weak self] workspaceId, panelId in
             _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
         }
+        guardrail.onSystemMemoryPressure = { [weak self] in
+            self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
+        }
         guardrail.start()
+    }
+
+    private func discardHiddenBrowserWebViewsForSystemMemoryPressure() {
+        let now = Date()
+        let discardedCount = tabManagersForSystemMemoryPressure().reduce(0) { count, tabManager in
+            count + tabManager.discardHiddenBrowserWebViewsForSystemMemoryPressure(now: now)
+        }
+#if DEBUG
+        cmuxDebugLog("browser.memoryPressure.discardHidden count=\(discardedCount)")
+#endif
+    }
+
+    private func tabManagersForSystemMemoryPressure() -> [TabManager] {
+        var managers: [TabManager] = []
+        var seen: Set<ObjectIdentifier> = []
+
+        func append(_ manager: TabManager?) {
+            guard let manager else { return }
+            guard seen.insert(ObjectIdentifier(manager)).inserted else { return }
+            managers.append(manager)
+        }
+
+        append(tabManager)
+        for context in mainWindowContexts.values {
+            append(context.tabManager)
+        }
+        return managers
     }
 
     private func scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: TerminalNotificationStore) {

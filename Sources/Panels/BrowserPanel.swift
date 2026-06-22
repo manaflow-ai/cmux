@@ -3306,8 +3306,11 @@ final class BrowserPanel: Panel, ObservableObject {
         isClosingWebViewLifecycle = false
     }
 
-    private func hiddenWebViewDiscardBlockers() -> [String] {
-        hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
+    private func hiddenWebViewDiscardBlockers(includePolicyDisabled: Bool = true) -> [String] {
+        hiddenWebViewDiscardManager.blockers(
+            for: hiddenWebViewDiscardSnapshot,
+            includePolicyDisabled: includePolicyDisabled
+        )
     }
 
     private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
@@ -3332,8 +3335,12 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     @discardableResult
-    func discardHiddenWebViewForMemory(reason: String, now: Date = Date()) -> Bool {
-        let blockers = hiddenWebViewDiscardBlockers()
+    func discardHiddenWebViewForMemory(
+        reason: String,
+        now: Date = Date(),
+        includePolicyDisabledBlocker: Bool = true
+    ) -> Bool {
+        let blockers = hiddenWebViewDiscardBlockers(includePolicyDisabled: includePolicyDisabledBlocker)
         guard blockers.isEmpty else { return false }
 
         cancelHiddenWebViewDiscard()
@@ -3395,6 +3402,15 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
         return true
+    }
+
+    @discardableResult
+    func discardHiddenWebViewForSystemMemoryPressure(now: Date = Date()) -> Bool {
+        discardHiddenWebViewForMemory(
+            reason: "system_memory_pressure",
+            now: now,
+            includePolicyDisabledBlocker: false
+        )
     }
 
     @discardableResult

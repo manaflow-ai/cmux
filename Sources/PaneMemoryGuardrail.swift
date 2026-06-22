@@ -33,6 +33,9 @@ final class PaneMemoryGuardrail {
     /// Fallback when a pane has no high-memory process group to signal: close it.
     @ObservationIgnored
     var onRequestClosePane: (@MainActor (_ workspaceId: UUID, _ panelId: UUID) -> Void)?
+    /// Invoked when the OS reports warning/critical system memory pressure.
+    @ObservationIgnored
+    var onSystemMemoryPressure: (@MainActor () -> Void)?
 
     @ObservationIgnored
     private var engine = PaneMemoryGuardrailEngine()
@@ -40,6 +43,8 @@ final class PaneMemoryGuardrail {
     private let timerQueue = DispatchQueue(label: "com.cmux.pane-memory-guardrail", qos: .utility)
     @ObservationIgnored
     private var timer: DispatchSourceTimer?
+    @ObservationIgnored
+    private var memoryPressureSource: DispatchSourceMemoryPressure?
     @ObservationIgnored
     private var isScanning = false
     @ObservationIgnored
@@ -58,6 +63,7 @@ final class PaneMemoryGuardrail {
     private var pendingKillTasksByKey: [PaneMemoryPaneKey: (id: UUID, task: Task<Void, Never>)] = [:]
 
     func start() {
+        startSystemMemoryPressureSourceIfNeeded()
         guard timer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(
@@ -70,6 +76,31 @@ final class PaneMemoryGuardrail {
         }
         self.timer = timer
         timer.resume()
+    }
+
+    private func startSystemMemoryPressureSourceIfNeeded() {
+        guard memoryPressureSource == nil else { return }
+        // DispatchSource memory-pressure notifications are the system signal for
+        // freeing nonessential WebKit process memory; no async-native equivalent
+        // exists.
+        let source = DispatchSource.makeMemoryPressureSource(
+            eventMask: [.warning, .critical],
+            queue: timerQueue
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in
+                self?.noteSystemMemoryPressure()
+            }
+        }
+        memoryPressureSource = source
+        source.resume()
+    }
+
+    func noteSystemMemoryPressure() {
+#if DEBUG
+        cmuxDebugLog("paneMemGuard.systemMemoryPressure")
+#endif
+        onSystemMemoryPressure?()
     }
 
     // MARK: Settings
