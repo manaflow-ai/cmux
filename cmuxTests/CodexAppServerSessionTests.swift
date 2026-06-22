@@ -21,6 +21,8 @@ struct CodexAppServerSessionTests {
         }
     }
 
+    private struct AppServerWriteFailure: Error {}
+
     @Test
     func testOpenCodeAuthHeaderMatchesServerEnvironment() {
         expectNil(OpenCodeServerAuth(environment: [:]))
@@ -968,6 +970,71 @@ struct CodexAppServerSessionTests {
         let queuedTurnParams = try #require(jsonLine(sentLines[4])["params"] as? [String: Any])
         let queuedInput = try #require(queuedTurnParams["input"] as? [[String: Any]])
         expectEqual(queuedInput.first?["text"] as? String, "second prompt")
+    }
+
+    @Test
+    func testCodexQueuedPromptFailsWhenTurnStartWriteFails() async throws {
+        var sentLines: [String] = []
+        var heldTurnStartWrite: CheckedContinuation<Void, Error>?
+        var shouldHoldTurnStartWrite = true
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                let line = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+                sentLines.append(line)
+                if jsonLine(line)["method"] as? String == "turn/start", shouldHoldTurnStartWrite {
+                    shouldHoldTurnStartWrite = false
+                    try await withCheckedThrowingContinuation { continuation in
+                        heldTurnStartWrite = continuation
+                    }
+                }
+            },
+            outputSink: { _, _ in }
+        )
+
+        try await session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        await Task.yield()
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+
+        let firstSubmit = Task { try await session.submit("first prompt") }
+        for _ in 0..<10 where heldTurnStartWrite == nil {
+            await Task.yield()
+        }
+        let write = try #require(heldTurnStartWrite)
+        let secondSubmit = Task { try await session.submit("second prompt") }
+        await Task.yield()
+
+        write.resume(throwing: AppServerWriteFailure())
+        await expectThrowsErrorAsync { try await firstSubmit.value }
+
+        var secondResult: Result<Void, Error>?
+        let secondObserver = Task { @MainActor in
+            do {
+                try await secondSubmit.value
+                secondResult = .success(())
+            } catch {
+                secondResult = .failure(error)
+            }
+        }
+        for _ in 0..<10 where secondResult == nil {
+            await Task.yield()
+        }
+        if secondResult == nil {
+            Issue.record("Queued prompt should fail when the in-flight turn/start write fails")
+            session.close(with: AppServerWriteFailure())
+            for _ in 0..<10 where secondResult == nil {
+                await Task.yield()
+            }
+        }
+        _ = await secondObserver.result
+        guard case .failure = secondResult else {
+            Issue.record("Queued prompt should complete by throwing")
+            return
+        }
+        expectEqual(sentLines.count, 4)
     }
 
     @Test
