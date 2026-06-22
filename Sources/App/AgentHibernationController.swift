@@ -25,10 +25,12 @@ enum AgentHibernationPlanner {
         now: TimeInterval
     ) -> Set<AgentHibernationPanelKey> {
         guard settings.enabled else { return [] }
-        let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive && !$0.hasLiveProcess }
+        let liveRestorable = inputs.filter { $0.hasRestorableAgent && $0.isLive }
         let excess = liveRestorable.count - settings.maxLiveTerminals
         guard excess > 0 else { return [] }
 
+        // Live scoped processes still create cap pressure, but they are not
+        // eligible for teardown; reclaim safe idle panes first instead.
         let eligible = liveRestorable
             .filter { input in
                 !input.isProtected &&
@@ -197,10 +199,8 @@ final class AgentHibernationController {
                     !record.terminalPanel.isAgentHibernated
             )
         })
-        let liveHibernatableCount = records.filter { record in
-            (isLiveByKey[record.key] ?? false) && !record.hasLiveProcess
-        }.count
-        let shouldMaintainTailSamples = liveHibernatableCount >= settings.maxLiveTerminals
+        let liveRestorableCount = isLiveByKey.values.filter { $0 }.count
+        let shouldMaintainTailSamples = liveRestorableCount >= settings.maxLiveTerminals
         var effectiveActivityByKey: [AgentHibernationPanelKey: TimeInterval] = [:]
         let plannerInputs = records.map { record in
             let isLive = isLiveByKey[record.key] ?? false
