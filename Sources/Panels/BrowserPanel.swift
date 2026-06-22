@@ -8261,22 +8261,9 @@ extension WKWebView {
         guard window != nil else { return }
 
         // Redock preserves the inspector frontend; once it is back in a window,
-        // WebKit can miss AppKit's visibility cycle and leave the attached view white.
-        #if DEBUG
-        var firedSelectors: [String] = []
-        #endif
-        for rawSelector in [
-            "viewDidUnhide",
-            "_enterInWindow",
-            "_endDeferringViewInWindowChangesSync",
-        ] {
-            let selector = NSSelectorFromString(rawSelector)
-            guard responds(to: selector) else { continue }
-            cmuxCallVoid(selector: selector)
-            #if DEBUG
-            firedSelectors.append(rawSelector)
-            #endif
-        }
+        // WebKit can leave the attached view white. Keep this to invalidation and
+        // resize signals; private AppKit/WebKit lifecycle selectors must stay paired
+        // with WebKit's own detach/attach path.
 
         let relatedViews: [NSView?] = [
             enclosingScrollView,
@@ -8310,12 +8297,12 @@ extension WKWebView {
             completionHandler: nil
         )
 
-#if DEBUG
+        #if DEBUG
         cmuxDebugLog(
             "browser.devtools frontend.refresh web=\(Unmanaged.passUnretained(self).toOpaque()) " +
-            "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
+            "reason=\(reason)"
         )
-#endif
+        #endif
     }
 }
 

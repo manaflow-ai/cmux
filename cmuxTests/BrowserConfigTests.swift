@@ -3330,6 +3330,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         frontendWebView.removeFromSuperview()
         frontendWebView.frame = NSRect(x: 260, y: 0, width: 260, height: attachedHost.bounds.height)
         attachedHost.addSubview(frontendWebView)
+        mainWindow.displayIfNeeded()
+        let viewDidUnhideCountAfterReattach = frontendWebView.viewDidUnhideCount
+        let enterInWindowCountAfterReattach = frontendWebView.enterInWindowCount
+        let endDeferringCountAfterReattach = frontendWebView.endDeferringViewInWindowChangesCount
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3343,9 +3347,21 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
-        XCTAssertGreaterThan(frontendWebView.viewDidUnhideCount, 0)
-        XCTAssertGreaterThan(frontendWebView.enterInWindowCount, 0)
-        XCTAssertGreaterThan(frontendWebView.endDeferringViewInWindowChangesCount, 0)
+        XCTAssertEqual(
+            frontendWebView.viewDidUnhideCount,
+            viewDidUnhideCountAfterReattach,
+            "cmux repaint must not manually fire unpaired WebKit/AppKit visibility lifecycle selectors"
+        )
+        XCTAssertEqual(
+            frontendWebView.enterInWindowCount,
+            enterInWindowCountAfterReattach,
+            "cmux repaint must not manually fire unpaired WebKit/AppKit window-entry selectors"
+        )
+        XCTAssertEqual(
+            frontendWebView.endDeferringViewInWindowChangesCount,
+            endDeferringCountAfterReattach,
+            "cmux repaint must not manually fire unpaired WebKit/AppKit deferral selectors"
+        )
         XCTAssertTrue(
             frontendWebView.evaluatedJavaScript.contains {
                 $0.contains("window.dispatchEvent(new Event(\"resize\"))")
