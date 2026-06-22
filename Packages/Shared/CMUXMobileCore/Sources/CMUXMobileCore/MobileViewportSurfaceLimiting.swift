@@ -19,7 +19,7 @@ import Foundation
 /// apply path the caller already holds the resolved panel, whose `id` equals this
 /// surface id, so resolving by id is byte-faithful to the legacy direct call.
 @MainActor
-protocol MobileViewportSurfaceLimiting: AnyObject {
+public protocol MobileViewportSurfaceLimiting: AnyObject {
     /// Cap the resolved surface's render grid to `columns` x `rows`, drawing the
     /// macOS viewport border when the pane is larger. No-op when the surface is
     /// not currently live.

@@ -13,7 +13,7 @@
 7314	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6318	cmuxTests/SessionPersistenceTests.swift
-6311	Sources/TerminalController.swift
+6222	Sources/TerminalController.swift
 6151	CLI/cmux_open.swift
 6077	cmuxTests/GhosttyConfigTests.swift
 6072	Sources/TextBoxInput.swift

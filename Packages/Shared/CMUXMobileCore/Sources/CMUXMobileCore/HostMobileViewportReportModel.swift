@@ -35,7 +35,7 @@ import Observation
 /// schedule-then-immediately-reschedule race the old timer's `cancel()` handled.
 @MainActor
 @Observable
-final class HostMobileViewportReportModel {
+public final class HostMobileViewportReportModel {
     /// A single attached device's reported terminal grid for one surface.
     struct Report: Sendable, Equatable {
         var columns: Int
@@ -50,7 +50,7 @@ final class HostMobileViewportReportModel {
     /// How long a non-sticky report survives without a refresh before the TTL
     /// cleanup drops it. Faithful to the legacy `mobileViewportReportTTL`.
     /// `nonisolated` so it can seed the `init` default argument from any context.
-    nonisolated static let reportTTL: TimeInterval = 5
+    nonisolated public static let reportTTL: TimeInterval = 5
 
     /// Per-surface, per-client reported grids. Keyed by terminal surface id, then
     /// by client id.
@@ -74,7 +74,7 @@ final class HostMobileViewportReportModel {
     ///     drive expiry deterministically).
     ///   - ttl: The non-sticky report lifetime; defaults to ``reportTTL``.
     ///   - now: A `Date` provider, injectable for deterministic tests.
-    init(
+    public init(
         limiter: any MobileViewportSurfaceLimiting,
         clock: any Clock<Duration> = ContinuousClock(),
         ttl: TimeInterval = HostMobileViewportReportModel.reportTTL,
@@ -97,7 +97,7 @@ final class HostMobileViewportReportModel {
     ///   - rows: The raw reported row count (clamped 5...120).
     ///   - sticky: `true` for the dedicated viewport RPC, `false` for the
     ///     input-piggyback path.
-    func apply(surfaceID: UUID, clientID: String, columns rawColumns: Int, rows rawRows: Int, sticky: Bool) {
+    public func apply(surfaceID: UUID, clientID: String, columns rawColumns: Int, rows rawRows: Int, sticky: Bool) {
         let columns = min(max(rawColumns, 20), 300)
         let rows = min(max(rawRows, 5), 120)
         let timestamp = now()
@@ -129,7 +129,7 @@ final class HostMobileViewportReportModel {
     ///   - surfaceID: The surface the client was reporting on.
     ///   - clientID: The client to drop.
     ///   - reason: The debug/telemetry reason forwarded to the surface.
-    func clear(surfaceID: UUID, clientID: String, reason: String) {
+    public func clear(surfaceID: UUID, clientID: String, reason: String) {
         guard var reports = reportsBySurfaceID[surfaceID],
               reports.removeValue(forKey: clientID) != nil else {
             return
@@ -161,7 +161,7 @@ final class HostMobileViewportReportModel {
     /// - Parameters:
     ///   - clientIDs: The client ids to drop everywhere.
     ///   - reason: The debug/telemetry reason forwarded to each surface.
-    func clear(clientIDs: Set<String>, reason: String) {
+    public func clear(clientIDs: Set<String>, reason: String) {
         guard !clientIDs.isEmpty else { return }
         for surfaceID in Array(reportsBySurfaceID.keys) {
             for clientID in clientIDs {
@@ -174,7 +174,7 @@ final class HostMobileViewportReportModel {
     /// limit. Called when the mobile host stops.
     ///
     /// - Parameter reason: The debug/telemetry reason forwarded to each surface.
-    func clearAll(reason: String) {
+    public func clearAll(reason: String) {
         guard !reportsBySurfaceID.isEmpty || !cleanupTasksBySurfaceID.isEmpty else {
             return
         }
@@ -197,7 +197,7 @@ final class HostMobileViewportReportModel {
     /// - Parameters:
     ///   - surfaceID: The surface to prune.
     ///   - reason: The debug/telemetry reason forwarded to the surface.
-    func prune(surfaceID: UUID, reason: String) {
+    public func prune(surfaceID: UUID, reason: String) {
         let timestamp = now()
         guard var reports = reportsBySurfaceID[surfaceID] else {
             cancelCleanup(surfaceID: surfaceID)
@@ -262,12 +262,12 @@ final class HostMobileViewportReportModel {
 
     #if DEBUG
     /// Test-only: clear all reports for a deterministic starting state.
-    func debugResetForTesting() {
+    public func debugResetForTesting() {
         clearAll(reason: "mobile.viewport.testReset")
     }
 
     /// Test-only: seed a single report without driving the surface limiter.
-    func debugSetReportForTesting(
+    public func debugSetReportForTesting(
         surfaceID: UUID,
         clientID: String,
         columns: Int,
@@ -280,7 +280,7 @@ final class HostMobileViewportReportModel {
     }
 
     /// Test-only: the set of client ids currently reporting on a surface.
-    func debugReportClientIDsForTesting(surfaceID: UUID) -> Set<String>? {
+    public func debugReportClientIDsForTesting(surfaceID: UUID) -> Set<String>? {
         guard let reports = reportsBySurfaceID[surfaceID] else { return nil }
         return Set(reports.keys)
     }

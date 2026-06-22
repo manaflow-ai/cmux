@@ -165,12 +165,15 @@ class TerminalController: MobileViewportSurfaceLimiting {
         BrowserAutomationController.downloadWaitMaxTimeoutMs
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
-    /// Owns the shared mobile-terminal viewport state machine (per-surface,
-    /// per-client reported grids + TTL cleanup) drained out of this god class.
-    /// Lazily constructed so the limiter seam can capture `self`; the model holds
-    /// only its own state and drives surface caps through
-    /// ``MobileViewportSurfaceLimiting`` (conformed in an extension on this type).
-    private lazy var mobileViewportReportModel = HostMobileViewportReportModel(limiter: self)
+    /// Reference to the shared mobile-terminal viewport state machine
+    /// (per-surface, per-client reported grids + TTL cleanup), whose owning model
+    /// type `HostMobileViewportReportModel` lives in `CMUXMobileCore`. Lazily
+    /// constructed so the limiter seam can capture `self`; the model holds only
+    /// its own state and drives surface caps through ``MobileViewportSurfaceLimiting``
+    /// (conformed in `TerminalController+MobileViewport.swift`). `internal` so the
+    /// viewport-seam extension in that sibling file can reach it; the model itself
+    /// stays the single owner of the state.
+    lazy var mobileViewportReportModel = HostMobileViewportReportModel(limiter: self)
     static var terminalProcessExitedMessage: String {
         String(
             localized: "socket.terminal.processExited",
@@ -5596,58 +5599,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
     }
 
-    func clearAllMobileViewportReports(reason: String) {
-        mobileViewportReportModel.clearAll(reason: reason)
-    }
-
-    #if DEBUG
-    func debugResetMobileViewportReportsForTesting() {
-        mobileViewportReportModel.debugResetForTesting()
-    }
-
-    func debugSetMobileViewportReportForTesting(
-        surfaceID: UUID,
-        clientID: String,
-        columns: Int,
-        rows: Int,
-        updatedAt: Date = Date()
-    ) {
-        mobileViewportReportModel.debugSetReportForTesting(
-            surfaceID: surfaceID,
-            clientID: clientID,
-            columns: columns,
-            rows: rows,
-            updatedAt: updatedAt
-        )
-    }
-
-    func debugMobileViewportReportClientIDsForTesting(surfaceID: UUID) -> Set<String>? {
-        mobileViewportReportModel.debugReportClientIDsForTesting(surfaceID: surfaceID)
-    }
-    #endif
-
-    private func terminalPanel(surfaceID: UUID) -> TerminalPanel? {
-        guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceID),
-              let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
-            return nil
-        }
-        return workspace.terminalPanel(for: surfaceID)
-    }
-
-    // MARK: - MobileViewportSurfaceLimiting
-
-    func applyMobileViewportLimit(surfaceID: UUID, columns: Int, rows: Int, reason: String) {
-        terminalPanel(surfaceID: surfaceID)?.surface.applyMobileViewportLimit(
-            columns: columns,
-            rows: rows,
-            reason: reason
-        )
-    }
-
-    func clearMobileViewportLimit(surfaceID: UUID, reason: String) {
-        terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
-    }
-
     // Still used by the v1 close-workspace witness (its v2 counterpart moved to
     // ControlCommandCoordinator). Relaxed to `internal` so the witness in the
     // workspace-context conformance file can localize the message app-side,
@@ -6202,46 +6153,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
             payload["terminal_seq"] = seq
         }
         return .ok(payload)
-    }
-
-    /// Parse the piggybacked viewport report off a `terminal.input` /
-    /// `terminal.paste` request (or the dedicated viewport RPC when `sticky`) and
-    /// hand the clamped values to ``mobileViewportReportModel``. The `v2*` param
-    /// parsing stays here (shared v2 control-plane substrate); the report state
-    /// machine lives in the model.
-    private func applyMobileViewportReport(
-        params: [String: Any],
-        terminalPanel: TerminalPanel,
-        sticky: Bool = false
-    ) {
-        guard let clientID = v2String(params, "client_id"),
-              let rawColumns = v2Int(params, "viewport_columns"),
-              let rawRows = v2Int(params, "viewport_rows") else {
-            return
-        }
-        mobileViewportReportModel.apply(
-            surfaceID: terminalPanel.id,
-            clientID: clientID,
-            columns: rawColumns,
-            rows: rawRows,
-            sticky: sticky
-        )
-    }
-
-    /// Remove a single client's viewport report for a surface (dedicated
-    /// `mobile.terminal.viewport` clear, or a disconnect). Forwards to
-    /// ``mobileViewportReportModel``.
-    private func clearMobileViewportReport(surfaceID: UUID, clientID: String, reason: String) {
-        mobileViewportReportModel.clear(surfaceID: surfaceID, clientID: clientID, reason: reason)
-    }
-
-    /// Drop every viewport report owned by the given client IDs across all
-    /// surfaces. Called when a mobile connection closes so a disconnected
-    /// device stops pinning the grid even though it never sent an explicit
-    /// clear. Sticky reports rely on this signal instead of the TTL. Forwards to
-    /// ``mobileViewportReportModel``.
-    func clearMobileViewportReports(clientIDs: Set<String>, reason: String) {
-        mobileViewportReportModel.clear(clientIDs: clientIDs, reason: reason)
     }
 
     func mobileResolveWorkspaceAndSurface(
