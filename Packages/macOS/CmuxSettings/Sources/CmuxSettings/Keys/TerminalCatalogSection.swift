@@ -27,6 +27,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.autoResumeAgentSessions"
     )
 
+    public let titleUpdateWorkspaceListFanoutEnabled = DefaultsKey<Bool>(
+        id: "terminal.titleUpdates.workspaceListFanout.enabled",
+        defaultValue: true,
+        userDefaultsKey: "terminal.titleUpdates.workspaceListFanout.enabled"
+    )
+
     public let agentHibernationEnabled = DefaultsKey<Bool>(
         id: "terminal.agentHibernation.enabled",
         defaultValue: false,

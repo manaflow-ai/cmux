@@ -4306,10 +4306,11 @@ final class Workspace: Identifiable, ObservableObject {
         Self.normalizedCustomDescription(customDescription) != nil
     }
 
-    func applyProcessTitle(_ title: String) {
+    func applyProcessTitle(_ title: String, updatesWorkspaceTitle: Bool = true) {
         if processTitle != title {
             processTitle = title
         }
+        guard updatesWorkspaceTitle else { return }
         guard customTitle == nil else { return }
         guard self.title != title else { return }
 #if DEBUG
@@ -4950,7 +4951,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
-    func updatePanelTitle(panelId: UUID, title: String) -> Bool {
+    func updatePanelTitle(panelId: UUID, title: String, updatesWorkspaceTitle: Bool = true) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
@@ -4978,7 +4979,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         // If this is the only panel and no custom title, update workspace title
         if panels.count == 1, customTitle == nil {
-            if self.title != trimmed {
+            if updatesWorkspaceTitle, self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
                 didMutateWorkspaceTitle = true

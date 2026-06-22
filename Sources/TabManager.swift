@@ -3316,10 +3316,11 @@ class TabManager: ObservableObject {
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        _ = tab.updatePanelTitle(panelId: panelId, title: title)
+        let updatesWorkspaceTitle = PanelTitleWorkspaceListFanoutSettings.isEnabled(settings: settings)
+        _ = tab.updatePanelTitle(panelId: panelId, title: title, updatesWorkspaceTitle: updatesWorkspaceTitle)
 
         if tab.focusedPanelId == panelId {
-            tab.applyProcessTitle(title)
+            tab.applyProcessTitle(title, updatesWorkspaceTitle: updatesWorkspaceTitle)
             if selectedTabId == tabId {
                 updateWindowTitle(for: tab)
             }
@@ -3330,7 +3331,8 @@ class TabManager: ObservableObject {
         guard let tab = tabs.first(where: { $0.id == tabId }),
               let focusedPanelId = tab.focusedPanelId,
               let title = tab.panelTitles[focusedPanelId] else { return }
-        tab.applyProcessTitle(title)
+        let updatesWorkspaceTitle = PanelTitleWorkspaceListFanoutSettings.isEnabled(settings: settings)
+        tab.applyProcessTitle(title, updatesWorkspaceTitle: updatesWorkspaceTitle)
         if selectedTabId == tabId {
             updateWindowTitle(for: tab)
         }

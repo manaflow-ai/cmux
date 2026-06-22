@@ -121,6 +121,49 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a terminal rename must change the mobile summary hash")
     }
 
+    @Test func automaticTerminalTitleCanBeExcludedFromObserverHash() throws {
+        let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 1)
+        let panelId = try #require(ordered.first)
+
+        let includedBefore = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        let excludedBefore = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id,
+            includesAutomaticPanelTitles: false
+        )
+
+        #expect(
+            workspace.updatePanelTitle(
+                panelId: panelId,
+                title: "Runtime title",
+                updatesWorkspaceTitle: false
+            )
+        )
+
+        let includedAfter = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id
+        )
+        let excludedAfter = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id,
+            includesAutomaticPanelTitles: false
+        )
+        #expect(includedBefore != includedAfter)
+        #expect(excludedBefore == excludedAfter)
+
+        workspace.setPanelCustomTitle(panelId: panelId, title: "Manual title")
+        let manualAfter = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: [workspace],
+            selectedTabID: workspace.id,
+            includesAutomaticPanelTitles: false
+        )
+        #expect(excludedAfter != manualAfter)
+    }
+
     @Test func renamingWorkspaceChangesObserverHashAndDisplayedTitle() throws {
         let (workspace, _) = try makeWorkspaceWithTabTerminals(count: 1)
 

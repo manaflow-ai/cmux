@@ -33,6 +33,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.workspaceColors.indicatorStyle) == .leftRail)
         #expect(client.value(for: catalog.workspaceGroups.anchorCloseSuppressed) == false)
         #expect(client.value(for: catalog.workspaceGroups.newWorkspacePlacement) == .afterCurrent)
+        #expect(client.value(for: catalog.terminal.titleUpdateWorkspaceListFanoutEnabled) == true)
     }
 
     @Test func roundTripsEachConvergedKey() throws {
@@ -58,6 +59,10 @@ struct UserDefaultsSettingsClientTests {
         client.set(.end, for: catalog.workspaceGroups.newWorkspacePlacement)
         #expect(defaults.string(forKey: "workspaceGroup.newWorkspacePlacement") == "end")
         #expect(client.value(for: catalog.workspaceGroups.newWorkspacePlacement) == .end)
+
+        client.set(false, for: catalog.terminal.titleUpdateWorkspaceListFanoutEnabled)
+        #expect(defaults.bool(forKey: "terminal.titleUpdates.workspaceListFanout.enabled") == false)
+        #expect(client.value(for: catalog.terminal.titleUpdateWorkspaceListFanoutEnabled) == false)
     }
 
     @Test func resetRestoresDefault() throws {

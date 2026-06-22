@@ -1,4 +1,5 @@
 import Combine
+import CmuxSettings
 import CmuxWorkspaces
 import Foundation
 import OSLog
@@ -26,16 +27,25 @@ final class MobileWorkspaceListObserver {
     private var unreadIndicatorsCancellable: AnyCancellable?
     private var perWorkspaceCancellables: [UUID: AnyCancellable] = [:]
     private var lastSummaryHash: Int = 0
+    private let settings: any SettingsReading
     /// Throttle window with `latest: true`. First event in a burst emits
     /// immediately (iPhone gets the change in milliseconds), subsequent
     /// events within the window collapse to one trailing emit carrying the
     /// final state. So a single action is instant; a burst caps at ~1 emit
     /// per 80 ms. Hash-diff suppresses no-op rebroadcasts.
     private let throttleMilliseconds: Int = 80
+    private var includesAutomaticPanelTitlesInWorkspaceList: Bool {
+        PanelTitleWorkspaceListFanoutSettings.isEnabled(settings: settings)
+    }
 
-    init(tabManager: TabManager, notificationStore: TerminalNotificationStore? = nil) {
+    init(
+        tabManager: TabManager,
+        notificationStore: TerminalNotificationStore? = nil,
+        settings: any SettingsReading = UserDefaultsSettingsClient(defaults: .standard)
+    ) {
         self.tabManager = tabManager
         self.notificationStore = notificationStore
+        self.settings = settings
         #if DEBUG
         cmuxDebugLog("mobile.observer init tabs=\(tabManager.tabs.count)")
         #endif
@@ -50,7 +60,8 @@ final class MobileWorkspaceListObserver {
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
-            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
+            previewSignatures: currentPreviewSignatures(for: tabManager.tabs),
+            includesAutomaticPanelTitles: includesAutomaticPanelTitlesInWorkspaceList
         )
         lastSummaryHash = initial
         emitIfNeeded(force: true)
@@ -166,9 +177,8 @@ final class MobileWorkspaceListObserver {
         // directory fields. Directory changes can arrive from shell prompt
         // updates without changing the terminal set.
         for workspace in tabs where perWorkspaceCancellables[workspace.id] == nil {
-            let publishers: [AnyPublisher<Void, Never>] = [
+            var publishers: [AnyPublisher<Void, Never>] = [
                 workspace.panelsPublisher.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher(),
                 // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
                 // so without this a terminal rename never re-emits to the phone.
                 workspace.$panelCustomTitles.map { _ in () }.eraseToAnyPublisher(),
@@ -190,6 +200,9 @@ final class MobileWorkspaceListObserver {
                 // is the only signal the observer gets for a reorder.
                 workspace.paneLayoutVersionPublisher.map { _ in () }.eraseToAnyPublisher(),
             ]
+            if includesAutomaticPanelTitlesInWorkspaceList {
+                publishers.append(workspace.$panelTitles.map { _ in () }.eraseToAnyPublisher())
+            }
             let merged = Publishers.MergeMany(publishers)
                 .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
             perWorkspaceCancellables[workspace.id] = merged.sink { [weak self] _ in
@@ -204,7 +217,8 @@ final class MobileWorkspaceListObserver {
             for: tabManager.tabs,
             groups: tabManager.workspaceGroups,
             selectedTabID: tabManager.selectedTabId,
-            previewSignatures: currentPreviewSignatures(for: tabManager.tabs)
+            previewSignatures: currentPreviewSignatures(for: tabManager.tabs),
+            includesAutomaticPanelTitles: includesAutomaticPanelTitlesInWorkspaceList
         )
         if !force, hash == lastSummaryHash {
             #if DEBUG
@@ -239,7 +253,8 @@ final class MobileWorkspaceListObserver {
         for tabs: [Workspace],
         groups: [WorkspaceGroup],
         selectedTabID: UUID?,
-        previewSignatures: [UUID: Int]
+        previewSignatures: [UUID: Int],
+        includesAutomaticPanelTitles: Bool
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(tabs.count)
@@ -273,7 +288,13 @@ final class MobileWorkspaceListObserver {
             let panelIDs = workspace.orderedPanelIds
             hasher.combine(panelIDs)
             for id in panelIDs {
-                hasher.combine(workspace.panelTitle(panelId: id))
+                hasher.combine(
+                    workspaceListPanelTitle(
+                        workspace: workspace,
+                        panelId: id,
+                        includesAutomaticPanelTitles: includesAutomaticPanelTitles
+                    )
+                )
                 hasher.combine(workspace.panelDirectories[id])
             }
             hasher.combine(workspace.currentDirectory)
@@ -290,18 +311,35 @@ final class MobileWorkspaceListObserver {
         return hasher.finalize()
     }
 
+    private static func workspaceListPanelTitle(
+        workspace: Workspace,
+        panelId: UUID,
+        includesAutomaticPanelTitles: Bool
+    ) -> String? {
+        if includesAutomaticPanelTitles {
+            return workspace.panelTitle(panelId: panelId)
+        }
+        if let custom = workspace.panelCustomTitles[panelId],
+           !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return custom
+        }
+        return workspace.panels[panelId]?.displayTitle
+    }
+
     #if DEBUG
     static func summaryHashForTesting(
         tabs: [Workspace],
         groups: [WorkspaceGroup] = [],
         selectedTabID: UUID?,
-        previewSignatures: [UUID: Int] = [:]
+        previewSignatures: [UUID: Int] = [:],
+        includesAutomaticPanelTitles: Bool = true
     ) -> Int {
         summaryHash(
             for: tabs,
             groups: groups,
             selectedTabID: selectedTabID,
-            previewSignatures: previewSignatures
+            previewSignatures: previewSignatures,
+            includesAutomaticPanelTitles: includesAutomaticPanelTitles
         )
     }
     #endif
