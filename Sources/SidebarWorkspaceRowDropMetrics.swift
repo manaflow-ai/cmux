@@ -11,6 +11,7 @@ struct SidebarWorkspaceRowDropMetrics {
     static let maxDescriptionLines = 12
     static let maxMetadataBlockLines = 12
     private static let defaultEstimatedCharactersPerLine = 42
+    private static let topLevelSectionSpacing: CGFloat = 4
     private static let titleGlyphWidthFactor: CGFloat = 0.62
     private static let bodyGlyphWidthFactor: CGFloat = 0.58
 
@@ -32,40 +33,58 @@ struct SidebarWorkspaceRowDropMetrics {
     ) -> CGFloat {
         let scale = max(fontScale, 0.5)
         var height = 16 + CGFloat(max(titleLineCount, 1)) * 16 * scale
+        var sectionCount = 1
         if descriptionLineCount > 0 {
             height += (CGFloat(descriptionLineCount) * 13 + 2) * scale
+            sectionCount += 1
         }
         if hasSubtitle {
             height += 24 * scale
+            sectionCount += 1
         }
         if hasRemoteStatus {
             height += 18 * scale
+            sectionCount += 1
         }
-        height += metadataEntriesHeight(
+        let metadataEntryHeight = metadataEntriesHeight(
             entryCount: metadataEntryCount,
             isExpanded: metadataEntryIsExpanded,
             scale: scale
         )
-        height += metadataBlocksHeight(
+        if metadataEntryHeight > 0 {
+            height += metadataEntryHeight
+            sectionCount += 1
+        }
+        let metadataBlockHeight = metadataBlocksHeight(
             lineCounts: metadataBlockLineCounts,
             hasToggle: hasMetadataBlockToggle,
             scale: scale
         )
+        if metadataBlockHeight > 0 {
+            height += metadataBlockHeight
+            sectionCount += 1
+        }
         if hasLog {
             height += 16 * scale
+            sectionCount += 1
         }
         if hasProgress {
             height += 16 * scale
+            sectionCount += 1
         }
         if branchDirectoryRowCount > 0 {
             height += (CGFloat(branchDirectoryRowCount) * 13 + CGFloat(max(branchDirectoryRowCount - 1, 0))) * scale
+            sectionCount += 1
         }
         if pullRequestRowCount > 0 {
             height += (CGFloat(pullRequestRowCount) * 14 + CGFloat(max(pullRequestRowCount - 1, 0))) * scale
+            sectionCount += 1
         }
         if hasPorts {
             height += 16 * scale
+            sectionCount += 1
         }
+        height += CGFloat(max(sectionCount - 1, 0)) * topLevelSectionSpacing
         return max(minimumTargetHeight, height.rounded(.up))
     }
 

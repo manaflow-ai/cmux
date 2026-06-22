@@ -59,6 +59,18 @@ import Testing
         #expect(expanded > collapsed)
     }
 
+    @Test func workspaceRowDropTargetHeightIncludesTopLevelSectionSpacing() {
+        let withDescription = workspaceRowHeight(descriptionLineCount: 1)
+        let withDescriptionAndSubtitle = workspaceRowHeight(
+            descriptionLineCount: 1,
+            hasSubtitle: true
+        )
+
+        #expect(workspaceRowHeight() == 34)
+        #expect(withDescription == 51)
+        #expect(withDescriptionAndSubtitle == 79)
+    }
+
     @Test func metadataBlockLineEstimationOnlyScansVisibleCollapsedBlock() {
         let blocks = [
             SidebarMetadataBlock(key: "visible", markdown: "one", priority: 0, timestamp: Date()),
