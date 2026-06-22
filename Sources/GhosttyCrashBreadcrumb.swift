@@ -18,7 +18,11 @@ nonisolated enum GhosttyCrashBreadcrumb {
         SessionPersistencePolicy.cmuxCrashDirectoryURLs()
     }
 
+    #if compiler(>=6.2)
+    @concurrent
+    #else
     @Sendable
+    #endif
     nonisolated static func pendingCrashFromDefaultStorage() async -> PendingCrash? {
         await Task.detached(priority: .utility) {
             pendingCrash(in: defaultCrashDirectoryURLs)
