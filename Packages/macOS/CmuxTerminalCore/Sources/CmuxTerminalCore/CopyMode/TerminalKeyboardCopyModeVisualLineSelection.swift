@@ -41,6 +41,30 @@ public struct TerminalKeyboardCopyModeVisualLineSelection: Equatable, Sendable {
         min(anchorScreenRow, endpointScreenRow) ... max(anchorScreenRow, endpointScreenRow)
     }
 
+    /// Moves the endpoint to a known scrollback boundary.
+    ///
+    /// - Parameters:
+    ///   - direction: The boundary movement to apply.
+    ///   - totalRows: The total known screen-row count, when available.
+    /// - Returns: `true` when the endpoint was moved without needing viewport cursor projection.
+    @discardableResult
+    public mutating func moveEndpointToBoundary(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        totalRows: UInt64?
+    ) -> Bool {
+        switch direction {
+        case .home:
+            endpointScreenRow = 0
+            return true
+        case .end:
+            guard let totalRows, totalRows > 0 else { return false }
+            endpointScreenRow = totalRows - 1
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Updates the endpoint from a viewport cursor and scroll offset.
     ///
     /// - Parameters:
