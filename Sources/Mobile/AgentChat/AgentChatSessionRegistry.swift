@@ -344,9 +344,13 @@ final class AgentChatSessionRegistry {
         switch event.hookEventName {
         case .sessionStart:
             return .idle
-        case .userPromptSubmit, .preToolUse, .postToolUse, .preCompact, .postCompact, .todoWrite:
+        case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
             if case .working = previous { return previous }
             return .working(since: event.receivedAt)
+        case .preCompact, .postCompact:
+            // Compaction is lifecycle telemetry. It can occur while a session
+            // is idle, so it must not create a synthetic working state.
+            return previous
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
             if case .needsInput = previous { return previous }
             return .needsInput(since: event.receivedAt)

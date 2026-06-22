@@ -492,7 +492,13 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
-def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None, source: str = "codex") -> tuple[dict, dict]:
+def run_feed_hook_optional_frame(
+    cli_path: str,
+    socket_path: Path,
+    payload: dict,
+    decision: dict | None,
+    source: str = "codex",
+) -> tuple[dict, dict | None]:
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
@@ -520,10 +526,21 @@ def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dic
             raise AssertionError(
                 f"hooks feed failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
             )
-        if not fake.frames:
-            raise AssertionError("hooks feed did not send feed.push")
         stdout = json.loads(result.stdout.strip() or "{}")
-        return stdout, fake.frames[0]
+        return stdout, fake.frames[0] if fake.frames else None
+
+
+def run_feed_hook(
+    cli_path: str,
+    socket_path: Path,
+    payload: dict,
+    decision: dict | None,
+    source: str = "codex",
+) -> tuple[dict, dict]:
+    stdout, frame = run_feed_hook_optional_frame(cli_path, socket_path, payload, decision, source)
+    if frame is None:
+        raise AssertionError("hooks feed did not send feed.push")
+    return stdout, frame
 
 
 def assert_permission_output(stdout: dict, behavior: str) -> None:
@@ -2169,6 +2186,32 @@ def test_codex_post_tool_use_redacts_tool_output(cli_path: str, root: Path) -> N
         raise AssertionError(f"stderr omission marker was not recorded: {tool_input!r}")
 
 
+def test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-oversize-post-tool",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 very_noisy.py"},
+        "tool_response": {
+            "exit_code": 0,
+            "stdout": "x" * (1024 * 1024 + 128),
+        },
+    }
+
+    stdout, frame = run_feed_hook_optional_frame(
+        cli_path,
+        root / "cmux-codex-oversize-posttool.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"oversize Codex PostToolUse should fall back to empty output: {stdout!r}")
+    if frame is not None:
+        raise AssertionError(f"oversize Codex PostToolUse should not send feed.push: {frame!r}")
+
+
 def test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path: str, root: Path) -> None:
     payload = {
         "session_id": "codex-session",
@@ -2272,6 +2315,7 @@ def main() -> int:
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
+            test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path, root)
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:

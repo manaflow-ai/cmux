@@ -32921,7 +32921,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         // Read stdin. Claude, Codex, and the other agents all pipe hook
         // JSON through stdin; unknown inputs fall through to `{}`.
-        let stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        guard let stdinData = Self.readBoundedFeedHookStdin() else {
+            print("{}")
+            return
+        }
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
         else {
@@ -33126,6 +33129,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         print("{}")
+    }
+
+    private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+
+    private static func readBoundedFeedHookStdin(
+        handle: FileHandle = .standardInput
+    ) -> Data? {
+        let data = (try? handle.read(upToCount: feedHookMaxStdinBytes + 1)) ?? Data()
+        guard data.count <= feedHookMaxStdinBytes else { return nil }
+        return data
     }
 
     private static let feedPostToolUseScalarStringLimitBytes = 512
