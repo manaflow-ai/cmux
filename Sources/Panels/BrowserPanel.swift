@@ -3067,7 +3067,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var isPlayingMedia: Bool = false {
         didSet {
             guard oldValue != isPlayingMedia else { return }
-            setMediaActivity(isPlayingAudio: isPlayingMedia, reason: "media_playback_changed")
+            reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
         }
     }
     /// Live media activity. ``Workspace`` publishes it to tab/sidebar surfaces.
@@ -3076,9 +3076,9 @@ final class BrowserPanel: Panel, ObservableObject {
     var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
     var isUsingCamera: Bool { mediaActivity.isUsingCamera }
     var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
-    /// Document ids of the frames currently reporting playing media. The pane is
-    /// kept alive while this is non-empty.
+    /// Frame ids reporting playing media; keeps hidden panes alive while non-empty.
     private var playingMediaFrameIDs: Set<String> = []
+    private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
 
     private func setMediaActivity(
@@ -3097,23 +3097,22 @@ final class BrowserPanel: Panel, ObservableObject {
         reevaluateHiddenWebViewDiscardScheduling(reason: reason)
     }
 
-    /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
-    /// the `private(set)` setter stays confined to this file.
-    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool) {
-        if isPlaying {
-            playingMediaFrameIDs.insert(frameID)
-        } else {
-            playingMediaFrameIDs.remove(frameID)
-        }
+    /// Folds a per-frame playback report into retention and audio-glyph state.
+    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool, isAudible: Bool) {
+        if isPlaying { playingMediaFrameIDs.insert(frameID) } else { playingMediaFrameIDs.remove(frameID) }
+        if isPlaying && isAudible { audibleMediaFrameIDs.insert(frameID) } else { audibleMediaFrameIDs.remove(frameID) }
         isPlayingMedia = !playingMediaFrameIDs.isEmpty
+        refreshAudioMediaActivity(reason: "media_audibility_changed")
     }
 
-    /// Clears all tracked playing frames (new webview bind or main-frame
-    /// navigation, where the prior frame hooks are gone).
+    /// Clears tracked frames after a webview bind or main-frame navigation.
     func resetMediaPlaybackTracking() {
-        playingMediaFrameIDs.removeAll()
+        (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
         isPlayingMedia = false
+        refreshAudioMediaActivity(reason: "media_playback_reset")
     }
+
+    private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: !audibleMediaFrameIDs.isEmpty && !isMuted, reason: reason) }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -6081,6 +6080,7 @@ extension BrowserPanel {
         let applied = applyMuteState(muted, to: webView, reason: "setMuted")
         if applied, isMuted != muted {
             isMuted = muted
+            refreshAudioMediaActivity(reason: "audio_mute_changed")
         }
         return applied
     }
