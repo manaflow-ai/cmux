@@ -103,10 +103,7 @@ extension ControlCommandCoordinator {
         guard let mode = string(params, "mode").flatMap(normalizedCanvasMode) else {
             return .err(
                 code: "invalid_params",
-                message: String(
-                    localized: "control.canvas.error.invalidMode",
-                    defaultValue: "mode must be canvas, zoomableSplits, splits, or toggle"
-                ),
+                message: canvasStrings.invalidMode,
                 data: nil
             )
         }
@@ -295,6 +292,14 @@ extension ControlCommandCoordinator {
 
     // MARK: - Shared resolution mapping
 
+    private var canvasStrings: ControlCanvasStrings {
+        context?.controlCanvasStrings() ?? ControlCanvasStrings(
+            invalidMode: "mode must be canvas, zoomableSplits, splits, or toggle",
+            notCanvasOrZoomable: "Workspace is not in canvas or zoomable split layout (run canvas.set_mode first)",
+            requiresFreeformCanvas: "Command requires freeform canvas layout (run canvas.set_mode with mode=canvas first)"
+        )
+    }
+
     func canvasActionResult(_ resolution: ControlCanvasActionResolution) -> ControlCallResult {
         switch resolution {
         case .ok(let mode):
@@ -312,19 +317,13 @@ extension ControlCommandCoordinator {
         case .notCanvasMode:
             return .err(
                 code: "invalid_state",
-                message: String(
-                    localized: "control.canvas.error.notCanvasOrZoomable",
-                    defaultValue: "Workspace is not in canvas or zoomable split layout (run canvas.set_mode first)"
-                ),
+                message: canvasStrings.notCanvasOrZoomable,
                 data: nil
             )
         case .notFreeformCanvasMode:
             return .err(
                 code: "invalid_state",
-                message: String(
-                    localized: "control.canvas.error.requiresFreeformCanvas",
-                    defaultValue: "Command requires freeform canvas layout (run canvas.set_mode with mode=canvas first)"
-                ),
+                message: canvasStrings.requiresFreeformCanvas,
                 data: nil
             )
         case .viewportUnavailable:

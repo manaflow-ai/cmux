@@ -8,6 +8,23 @@ import Foundation
 /// mutations route through `CanvasActionExecutor` / the model so the socket
 /// shares one execution path with shortcuts, the palette, and the View menu.
 extension TerminalController: ControlCanvasContext {
+    func controlCanvasStrings() -> ControlCanvasStrings {
+        ControlCanvasStrings(
+            invalidMode: String(
+                localized: "control.canvas.error.invalidMode",
+                defaultValue: "mode must be canvas, zoomableSplits, splits, or toggle"
+            ),
+            notCanvasOrZoomable: String(
+                localized: "control.canvas.error.notCanvasOrZoomable",
+                defaultValue: "Workspace is not in canvas or zoomable split layout (run canvas.set_mode first)"
+            ),
+            requiresFreeformCanvas: String(
+                localized: "control.canvas.error.requiresFreeformCanvas",
+                defaultValue: "Command requires freeform canvas layout (run canvas.set_mode with mode=canvas first)"
+            )
+        )
+    }
+
     /// The routing twin used by every canvas verb: TabManager, then workspace.
     func resolveCanvasWorkspace(routing: ControlRoutingSelectors) -> Workspace? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }

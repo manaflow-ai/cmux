@@ -9,6 +9,9 @@ public import Foundation
 /// selectors and return ``ControlCanvasActionResolution``.
 @MainActor
 public protocol ControlCanvasContext: AnyObject {
+    /// The localized canvas error messages, resolved against the app bundle.
+    func controlCanvasStrings() -> ControlCanvasStrings
+
     /// Snapshots the resolved workspace's canvas state for `canvas.info`.
     /// Returns `nil` when no workspace resolves.
     func controlCanvasInfo(routing: ControlRoutingSelectors) -> ControlCanvasInfoSnapshot?
