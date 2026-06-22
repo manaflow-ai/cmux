@@ -845,6 +845,61 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
         XCTAssertNil(workspace.customTitle)
         XCTAssertNotEqual(workspace.panelTitles[splitPanel.id], Optional(workspace.title))
     }
+
+    func testGhosttyDidSetTitleEnqueuesTitleUpdateForOwnedTab() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "Owned Title"
+            ]
+        )
+
+        let enqueued = waitForCondition(timeout: 1.0, pollInterval: 0.002) {
+            manager.pendingPanelTitleUpdates.count > 0
+        }
+        XCTAssertTrue(enqueued, "owning manager should enqueue title update for its own tab")
+    }
+
+    func testGhosttyDidSetTitleDoesNotEnqueueForTabOwnedByAnotherManager() throws {
+        let owningManager = TabManager()
+        let foreignManager = TabManager()
+        let workspace = try XCTUnwrap(owningManager.selectedWorkspace)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: "Owner Only"
+            ]
+        )
+
+        // .ghosttyDidSetTitle is observed with object: nil, so every alive
+        // TabManager receives it. Waiting for the owning manager to enqueue
+        // proves the notification has been delivered to both observers.
+        let delivered = waitForCondition(timeout: 1.0, pollInterval: 0.002) {
+            owningManager.pendingPanelTitleUpdates.count > 0
+        }
+        XCTAssertTrue(delivered, "owning manager should enqueue title update for its own tab")
+
+        // Checked before the 30 Hz coalescer fires, so the non-owning manager's
+        // pending queue must still be empty if the boundary guard held.
+        // Before the fix this was 1 (2x fan-out across managers — see #6551).
+        XCTAssertEqual(
+            foreignManager.pendingPanelTitleUpdates.count,
+            0,
+            "non-owning manager must not enqueue title updates for foreign tabs"
+        )
+    }
 }
 
 @MainActor

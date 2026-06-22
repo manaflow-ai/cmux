@@ -281,6 +281,7 @@ class TabManager: ObservableObject {
     func workspaceTabsWillChange(to newValue: [Workspace]) {
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        ownedTabIds = Set(newValue.map { $0.id })
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
@@ -406,11 +407,25 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
-    private struct PanelTitleUpdateKey: Hashable {
+    /// Key into `pendingPanelTitleUpdates`. Internal so the dictionary's
+    /// access level (internal, for `@testable` test observability of the
+    /// coalescing queue) is well-formed.
+    struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
         let panelId: UUID
     }
-    private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
+    /// Coalesced panel-title updates awaiting the next 30 Hz flush.
+    /// Internal so regression tests can assert queue depth via
+    /// `@testable import` instead of a `ForTesting` accessor in production.
+    var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
+    /// O(1) membership index of `workspaces.tabs` by tab id. The
+    /// `.ghosttyDidSetTitle` notification is posted globally (`object: nil`)
+    /// and delivered to every live TabManager on every title change, so the
+    /// ownership guard must be constant-time rather than an O(n) scan of
+    /// `tabs`. Kept in sync from the single `workspaceTabsWillChange(to:)`
+    /// host hook that every `workspaces.tabs` mutation (the computed `tabs`
+    /// setter and the CmuxWorkspaces coordinators) flows through.
+    private var ownedTabIds: Set<UUID> = []
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
 
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
@@ -560,6 +575,7 @@ class TabManager: ObservableObject {
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let change = GhosttyTitleChange(notification: notification) else { return }
+                guard ownedTabIds.contains(change.tabId) else { return }
                 enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
             }
         })
