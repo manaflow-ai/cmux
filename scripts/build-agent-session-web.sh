@@ -11,8 +11,12 @@ if ! command -v bun >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v bunx >/dev/null 2>&1; then
-  echo "error: bunx is required to build AgentSessionWeb" >&2
+BIN_DIR="$ROOT/node_modules/.bin"
+ESBUILD="$BIN_DIR/esbuild"
+TAILWINDCSS="$BIN_DIR/tailwindcss"
+
+if [ ! -x "$ESBUILD" ] || [ ! -x "$TAILWINDCSS" ]; then
+  echo "error: missing AgentSessionWeb build tools; run bun install first" >&2
   exit 1
 fi
 
@@ -24,7 +28,7 @@ fi
 rm -rf "$OUT_REACT" "$OUT_SOLID"
 mkdir -p "$OUT_REACT/assets" "$OUT_SOLID/assets"
 
-bunx esbuild "$ROOT/webviews/src/agent-session/react/standalone.ts" \
+"$ESBUILD" "$ROOT/webviews/src/agent-session/react/standalone.ts" \
   --bundle \
   --format=esm \
   --platform=browser \
@@ -33,7 +37,7 @@ bunx esbuild "$ROOT/webviews/src/agent-session/react/standalone.ts" \
   --minify \
   --outfile="$OUT_REACT/assets/app.js"
 
-bunx esbuild "$ROOT/webviews/src/agent-session/solid/main.ts" \
+"$ESBUILD" "$ROOT/webviews/src/agent-session/solid/main.ts" \
   --bundle \
   --format=esm \
   --platform=browser \
@@ -42,7 +46,7 @@ bunx esbuild "$ROOT/webviews/src/agent-session/solid/main.ts" \
   --minify \
   --outfile="$OUT_SOLID/assets/app.js"
 
-bunx @tailwindcss/cli \
+"$TAILWINDCSS" \
   -i "$ROOT/webviews/src/agent-session/shared/styles.css" \
   -o "$OUT_REACT/assets/styles.css" \
   --minify
