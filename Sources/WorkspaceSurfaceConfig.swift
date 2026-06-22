@@ -31,7 +31,7 @@ func cmuxInheritedSurfaceConfig(
     // inherit-font-size config is disabled.
     let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
     if let points = runtimePoints {
-        config.fontSize = points
+        config.fontSize = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: points)
     }
 
 #if DEBUG

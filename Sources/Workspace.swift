@@ -6558,31 +6558,31 @@ final class Workspace: Identifiable, ObservableObject {
         sourceSurface: ghostty_surface_t,
         inheritedConfig: CmuxSurfaceConfigTemplate
     ) -> Float? {
-        let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
+        let runtimeBasePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface).map { CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: $0) }
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
-            if let runtimePoints, abs(runtimePoints - rooted) > 0.05 {
+            if let runtimeBasePoints, abs(runtimeBasePoints - rooted) > 0.05 {
                 // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
                 // treat runtime as the new root for future descendants.
-                return runtimePoints
+                return runtimeBasePoints
             }
             return rooted
         }
         if inheritedConfig.fontSize > 0 {
             return inheritedConfig.fontSize
         }
-        return runtimePoints
+        return runtimeBasePoints
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
         if let sourceSurface = terminalPanel.surface.surface,
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
+            let runtimeBasePoints = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: runtimePoints)
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
-            if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimePoints
+            if existing == nil || abs((existing ?? runtimeBasePoints) - runtimeBasePoints) > 0.05 {
+                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimeBasePoints
             }
-            lastTerminalConfigInheritanceFontPoints =
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] ?? runtimePoints
+            lastTerminalConfigInheritanceFontPoints = terminalInheritanceFontPointsByPanelId[terminalPanel.id] ?? runtimeBasePoints
         }
     }
 
