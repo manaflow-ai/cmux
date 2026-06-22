@@ -38,21 +38,15 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// Build the ordered list items from a workspace list and its groups.
     ///
     /// Mirrors `SidebarWorkspaceRenderItem.renderItems` on the Mac:
-    /// - Items follow `workspaces` order. A group header is emitted at the first
-    ///   member's position.
+    /// - Items follow `workspaces` order. A group header is emitted at its anchor's
+    ///   position within its parent.
     /// - The anchor workspace is never a separate row (the header represents it).
-    /// - When a group is collapsed, its members are skipped (header kept).
+    /// - When a group is collapsed, its descendants are skipped (header kept).
     /// - Ungrouped workspaces interleave inline by position.
     ///
     /// A `groupID` referencing a group not present in `groups` (e.g. a transient
     /// payload skew) degrades gracefully: the workspace renders as an ungrouped
     /// row rather than vanishing.
-    ///
-    /// Non-contiguous members of an already-emitted group (possible when the
-    /// Mac's spatial order interleaves another row between members) do not
-    /// re-emit the header: the stray member renders at its own position, still
-    /// indented to mark its membership, and is still hidden while its group is
-    /// collapsed. Membership is never silently dropped.
     ///
     /// - Parameters:
     ///   - workspaces: The workspaces in the Mac's spatial order.
@@ -64,55 +58,114 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     ) -> [MobileWorkspaceListItem] {
         guard !workspaces.isEmpty else { return [] }
         let groupsByID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        var anchorGroupByWorkspaceID: [MobileWorkspacePreview.ID: MobileWorkspaceGroupPreview] = [:]
+        for group in groups where anchorGroupByWorkspaceID[group.anchorWorkspaceID] == nil {
+            anchorGroupByWorkspaceID[group.anchorWorkspaceID] = group
+        }
+        let knownGroupIDs = Set(groupsByID.keys)
+        var parentGroupIDByGroupID: [MobileWorkspaceGroupPreview.ID: MobileWorkspaceGroupPreview.ID?] = [:]
+        for group in groups {
+            let parentID: MobileWorkspaceGroupPreview.ID? = {
+                guard let parentGroupID = group.parentGroupID,
+                      parentGroupID != group.id,
+                      knownGroupIDs.contains(parentGroupID) else {
+                    return nil
+                }
+                return parentGroupID
+            }()
+            parentGroupIDByGroupID[group.id] = parentID
+        }
 
         // Aggregate unread state per group up front (membership can be
         // non-contiguous, so this cannot be folded into the emit loop).
         // Mirrors the Mac header badge: anchor-only while expanded, whole
-        // group (anchor included) while collapsed.
+        // subtree (anchor included) while collapsed.
         var anchorUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
-        var anyMemberUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        var directUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        var childGroupsByParentID: [MobileWorkspaceGroupPreview.ID?: [MobileWorkspaceGroupPreview]] = [:]
         for workspace in workspaces {
             guard let groupID = workspace.groupID, let group = groupsByID[groupID] else { continue }
-            anyMemberUnreadByGroupID[groupID, default: false] = anyMemberUnreadByGroupID[groupID, default: false] || workspace.hasUnread
+            directUnreadByGroupID[groupID, default: false] = directUnreadByGroupID[groupID, default: false] || workspace.hasUnread
             if group.anchorWorkspaceID == workspace.id {
                 anchorUnreadByGroupID[groupID] = workspace.hasUnread
+            }
+        }
+        for group in groups {
+            childGroupsByParentID[parentGroupIDByGroupID[group.id] ?? nil, default: []].append(group)
+        }
+
+        var subtreeUnreadByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+        func subtreeHasUnread(for groupID: MobileWorkspaceGroupPreview.ID, visiting: inout Set<MobileWorkspaceGroupPreview.ID>) -> Bool {
+            if let cached = subtreeUnreadByGroupID[groupID] {
+                return cached
+            }
+            guard visiting.insert(groupID).inserted else {
+                return directUnreadByGroupID[groupID, default: false]
+            }
+            var hasUnread = directUnreadByGroupID[groupID, default: false]
+            for childGroup in childGroupsByParentID[Optional(groupID)] ?? [] {
+                hasUnread = hasUnread || subtreeHasUnread(for: childGroup.id, visiting: &visiting)
+            }
+            visiting.remove(groupID)
+            subtreeUnreadByGroupID[groupID] = hasUnread
+            return hasUnread
+        }
+
+        enum ChildRow {
+            case group(MobileWorkspaceGroupPreview)
+            case workspace(MobileWorkspacePreview)
+        }
+
+        func normalizedParentGroupID(for groupID: MobileWorkspaceGroupPreview.ID) -> MobileWorkspaceGroupPreview.ID? {
+            parentGroupIDByGroupID[groupID] ?? nil
+        }
+
+        var childRowsByParentID: [MobileWorkspaceGroupPreview.ID?: [ChildRow]] = [:]
+        for workspace in workspaces {
+            if let anchoredGroup = anchorGroupByWorkspaceID[workspace.id] {
+                childRowsByParentID[
+                    normalizedParentGroupID(for: anchoredGroup.id),
+                    default: []
+                ].append(.group(anchoredGroup))
+                continue
+            }
+            if let groupID = workspace.groupID, groupsByID[groupID] != nil {
+                if groupsByID[groupID]?.anchorWorkspaceID == workspace.id {
+                    continue
+                }
+                childRowsByParentID[Optional(groupID), default: []].append(.workspace(workspace))
+            } else {
+                childRowsByParentID[nil, default: []].append(.workspace(workspace))
             }
         }
 
         var items: [MobileWorkspaceListItem] = []
         items.reserveCapacity(workspaces.count + groups.count)
-        var lastEmittedGroupID: MobileWorkspaceGroupPreview.ID?
         var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
-        var collapsedByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
 
-        for workspace in workspaces {
-            // Resolve the membership only when the referenced group actually
-            // exists; otherwise treat the workspace as ungrouped.
-            let groupID: MobileWorkspaceGroupPreview.ID? = workspace.groupID
-                .flatMap { groupsByID[$0] != nil ? $0 : nil }
+        func appendGroup(_ group: MobileWorkspaceGroupPreview) {
+            guard emittedHeaders.insert(group.id).inserted else { return }
+            var visiting: Set<MobileWorkspaceGroupPreview.ID> = []
+            let hasUnread = group.isCollapsed
+                ? subtreeHasUnread(for: group.id, visiting: &visiting)
+                : anchorUnreadByGroupID[group.id, default: false]
+            items.append(.groupHeader(group, hasUnread: hasUnread))
+            guard !group.isCollapsed else { return }
+            appendChildren(of: group.id)
+        }
 
-            if groupID != lastEmittedGroupID {
-                lastEmittedGroupID = groupID
-                if let groupID, let group = groupsByID[groupID], !emittedHeaders.contains(groupID) {
-                    let hasUnread = group.isCollapsed
-                        ? anyMemberUnreadByGroupID[groupID, default: false]
-                        : anchorUnreadByGroupID[groupID, default: false]
-                    items.append(.groupHeader(group, hasUnread: hasUnread))
-                    emittedHeaders.insert(groupID)
-                    collapsedByGroupID[groupID] = group.isCollapsed
+        func appendChildren(of parentGroupID: MobileWorkspaceGroupPreview.ID?) {
+            for row in childRowsByParentID[parentGroupID] ?? [] {
+                switch row {
+                case .group(let group):
+                    appendGroup(group)
+                case .workspace(let workspace):
+                    items.append(.workspace(workspace, indented: parentGroupID != nil))
                 }
             }
-
-            if let groupID, let group = groupsByID[groupID], group.anchorWorkspaceID == workspace.id {
-                // Anchor is represented exclusively by the group header.
-                continue
-            }
-
-            let isCollapsed = groupID.map { collapsedByGroupID[$0] ?? false } ?? false
-            if groupID == nil || !isCollapsed {
-                items.append(.workspace(workspace, indented: groupID != nil))
-            }
         }
+
+        appendChildren(of: nil)
         return items
     }
 }

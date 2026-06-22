@@ -175,6 +175,38 @@ import Testing
         #expect(withoutPreview.previewAt == nil)
     }
 
+    @Test func workspaceListResponseDecodesNestedGroupParent() throws {
+        let json = Data("""
+        {
+          "workspaces": [],
+          "groups": [
+            {
+              "id": "hotels",
+              "name": "Hotels",
+              "is_collapsed": false,
+              "is_pinned": false,
+              "anchor_workspace_id": "hotels-anchor"
+            },
+            {
+              "id": "marriott",
+              "name": "Marriott",
+              "is_collapsed": true,
+              "is_pinned": false,
+              "parent_group_id": "hotels",
+              "anchor_workspace_id": "marriott-anchor"
+            }
+          ]
+        }
+        """.utf8)
+
+        let response = try MobileSyncWorkspaceListResponse.decode(json)
+        let child = try #require(response.groups.last)
+        #expect(child.parentGroupID == "hotels")
+
+        let mapped = MobileWorkspaceGroupPreview(remote: child)
+        #expect(mapped.parentGroupID == "hotels")
+    }
+
     /// The Mac stamps `last_activity_at` on every workspace (falling back to
     /// creation time when there is no notification) and emits `has_unread` for
     /// the row's unread dot. Both must decode when present and degrade safely

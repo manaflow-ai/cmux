@@ -22,6 +22,7 @@ import Testing
         anchor: String,
         collapsed: Bool = false,
         pinned: Bool = false,
+        parent: String? = nil,
         name: String? = nil
     ) -> MobileWorkspaceGroupPreview {
         MobileWorkspaceGroupPreview(
@@ -29,6 +30,7 @@ import Testing
             name: name ?? id,
             isCollapsed: collapsed,
             isPinned: pinned,
+            parentGroupID: parent.map { .init(rawValue: $0) },
             anchorWorkspaceID: .init(rawValue: anchor)
         )
     }
@@ -175,6 +177,72 @@ import Testing
         #expect(items == [
             .groupHeader(group("g", anchor: "a", collapsed: true), hasUnread: true),
             .workspace(workspace("mid"), indented: false),
+        ])
+    }
+
+    @Test func nestedGroupsRenderUnderExpandedParent() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("hotels-anchor", group: "hotels"),
+                workspace("hotels-loose", group: "hotels"),
+                workspace("marriott-anchor", group: "marriott"),
+                workspace("terminal", group: "marriott"),
+                workspace("outside"),
+            ],
+            groups: [
+                group("hotels", anchor: "hotels-anchor"),
+                group("marriott", anchor: "marriott-anchor", parent: "hotels"),
+            ]
+        )
+
+        #expect(items == [
+            .groupHeader(group("hotels", anchor: "hotels-anchor"), hasUnread: false),
+            .workspace(workspace("hotels-loose", group: "hotels"), indented: true),
+            .groupHeader(group("marriott", anchor: "marriott-anchor", parent: "hotels"), hasUnread: false),
+            .workspace(workspace("terminal", group: "marriott"), indented: true),
+            .workspace(workspace("outside"), indented: false),
+        ])
+    }
+
+    @Test func collapsedParentGroupHidesDescendantGroupsAndRows() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("hotels-anchor", group: "hotels"),
+                workspace("marriott-anchor", group: "marriott"),
+                workspace("terminal", group: "marriott", unread: true),
+                workspace("outside"),
+            ],
+            groups: [
+                group("hotels", anchor: "hotels-anchor", collapsed: true),
+                group("marriott", anchor: "marriott-anchor", parent: "hotels"),
+            ]
+        )
+
+        #expect(items == [
+            .groupHeader(group("hotels", anchor: "hotels-anchor", collapsed: true), hasUnread: true),
+            .workspace(workspace("outside"), indented: false),
+        ])
+    }
+
+    @Test func collapsedChildGroupRemainsVisibleUnderExpandedParent() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("hotels-anchor", group: "hotels"),
+                workspace("marriott-anchor", group: "marriott"),
+                workspace("terminal", group: "marriott", unread: true),
+            ],
+            groups: [
+                group("hotels", anchor: "hotels-anchor"),
+                group("marriott", anchor: "marriott-anchor", collapsed: true, parent: "hotels"),
+            ]
+        )
+
+        #expect(items == [
+            .groupHeader(group("hotels", anchor: "hotels-anchor"), hasUnread: false),
+            .groupHeader(
+                group("marriott", anchor: "marriott-anchor", collapsed: true, parent: "hotels"),
+                hasUnread: true
+            ),
         ])
     }
 }

@@ -388,6 +388,34 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func topLevelDragPromotesNestedWorkspaceGroupToRoot() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let hotelsMember = CoordinatorStubTab()
+        let marriottMember = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [hotelsMember, marriottMember, outside]
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try #require(groups.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [marriottMember.id],
+            parentGroupId: hotelsId
+        ))
+        let marriottAnchorId = try #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: marriottAnchorId,
+            toIndex: 0,
+            isDragOperation: true,
+            usesTopLevelRows: true
+        )
+
+        #expect(moved)
+        #expect(model.workspaceGroups.first { $0.id == marriottId }?.parentGroupId == nil)
+        #expect(Array(model.workspaceGroups.map(\.id).prefix(2)) == [marriottId, hotelsId])
+    }
+
+    @Test
     func reorderingRootGroupPublishesDescendantWorkspaceIds() throws {
         let (model, host, groups, reorder) = makeWorld()
         let hotelsMember = CoordinatorStubTab()
