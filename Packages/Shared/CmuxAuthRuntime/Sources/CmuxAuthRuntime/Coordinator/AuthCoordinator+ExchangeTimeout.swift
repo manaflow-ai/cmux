@@ -75,10 +75,16 @@ extension AuthCoordinator {
             let exchangeWaiter = Task {
                 do {
                     let refreshToken = try await exchange.value
+                    guard await race.winOperation() else {
+                        if let refreshToken {
+                            await waitForSignOutCredentialCapture()
+                            await self.client.clearLocalSession(ifRefreshTokenMatches: refreshToken)
+                        }
+                        return
+                    }
+                    await phaseTimeoutRegistry.end(phase, id: id)
                     tokenStoreWriteHighWater = max(tokenStoreWriteHighWater, attempt)
                     latestSignInRefreshToken = refreshToken
-                    await phaseTimeoutRegistry.end(phase, id: id)
-                    guard await race.winOperation() else { return }
                     continuation.yield(())
                     continuation.finish()
                 } catch {

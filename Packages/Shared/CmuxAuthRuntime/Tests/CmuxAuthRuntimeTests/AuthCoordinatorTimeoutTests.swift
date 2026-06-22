@@ -140,6 +140,29 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
     }
 
+    @Test func timedOutCredentialExchangeClearsTokensWrittenByLateExchange() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let coordinator = makeCoordinator(client: client, clock: clock)
+
+        await client.setCredentialExchangeIgnoresCancellation(true)
+        await client.armCredentialGate()
+        let signIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+        await clock.waitUntilSleepers()
+        clock.advance(by: Self.testTimeouts.network)
+
+        await #expect(throws: AuthError.timedOut) { try await signIn.value }
+        await client.releaseParkedCredential()
+        await waitUntilSignInExchangeCleanupFinished(coordinator)
+        await waitUntilTokensCleared(client)
+
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+        #expect(coordinator.isAuthenticated == false)
+    }
+
     @Test func cancelledCredentialExchangeDoesNotStartSecondStuckExchange() async throws {
         let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
