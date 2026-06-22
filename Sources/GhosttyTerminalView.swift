@@ -4243,13 +4243,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModeVisualActive = false
         keyboardCopyModeVisualLineSelection = nil
         keyboardCopyModePendingViewportJumpGeneration += 1
-        keyboardCopyModePendingViewportJumpSync = false
-        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
-        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
-        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
-        keyboardCopyModePendingViewportJumpVisualLineReselect = false
-        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
-        keyboardCopyModeViewportJumpSyncExpirationTimer = nil
+        clearKeyboardCopyModeViewportJumpCursorSync()
         keyboardCopyModeActive = active
         if active, let surface {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
@@ -4414,8 +4408,27 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
+    private func clearKeyboardCopyModeViewportJumpCursorSync() {
+        keyboardCopyModePendingViewportJumpSync = false
+        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+        keyboardCopyModePendingViewportJumpVisualLineReselect = false
+        keyboardCopyModePendingViewportJumpVisualLineSelection = nil
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
+        keyboardCopyModeViewportJumpSyncExpirationTimer = nil
+    }
+
     private func beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: Int? = nil, visualLineReselect: Bool = false) {
-        _ = flushPendingScrollbarIfAvailable()
+        let flushedScrollbar = flushPendingScrollbarIfAvailable()
+        // Keep one optimistic fallback per pending non-visual scroll until Ghostty reports the real offset.
+        if keyboardCopyModePendingViewportJumpSync,
+           !flushedScrollbar,
+           !keyboardCopyModePendingViewportJumpVisualLineReselect,
+           !visualLineReselect {
+            scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration()
+            return
+        }
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
         keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
@@ -4484,26 +4497,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard keyboardCopyModePendingViewportJumpSync,
               generation == keyboardCopyModePendingViewportJumpGeneration else { return }
 
-        keyboardCopyModePendingViewportJumpSync = false
-        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
-        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
-        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
-        keyboardCopyModePendingViewportJumpVisualLineReselect = false
-        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
-        keyboardCopyModeViewportJumpSyncExpirationTimer = nil
+        clearKeyboardCopyModeViewportJumpCursorSync()
     }
 
     private func finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: GhosttyScrollbar? = nil) {
         guard keyboardCopyModePendingViewportJumpSync else { return }
         keyboardCopyModePendingViewportJumpSync = false
-        defer {
-            keyboardCopyModePendingViewportJumpScrollbarOffset = nil
-            keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
-            keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
-            keyboardCopyModePendingViewportJumpVisualLineReselect = false
-            keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
-            keyboardCopyModeViewportJumpSyncExpirationTimer = nil
-        }
+        defer { clearKeyboardCopyModeViewportJumpCursorSync() }
 
         guard keyboardCopyModeActive, let surface else { return }
         let resolvedNewOffset = newScrollbar?.offset ?? scrollbar?.offset
