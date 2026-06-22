@@ -33,6 +33,11 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.workspaceColors.indicatorStyle) == .leftRail)
         #expect(client.value(for: catalog.workspaceGroups.anchorCloseSuppressed) == false)
         #expect(client.value(for: catalog.workspaceGroups.newWorkspacePlacement) == .afterCurrent)
+        #expect(client.value(for: catalog.performance.diagnosticsEnabled) == false)
+        #expect(client.value(for: catalog.performance.diagnosticsIntervalSeconds) == 5)
+        #expect(client.value(for: catalog.performance.diagnosticsSignpostsEnabled) == true)
+        #expect(client.value(for: catalog.performance.diagnosticsTitleScopeEnabled) == true)
+        #expect(client.value(for: catalog.performance.diagnosticsRendererScopeEnabled) == true)
     }
 
     @Test func roundTripsEachConvergedKey() throws {
@@ -58,6 +63,13 @@ struct UserDefaultsSettingsClientTests {
         client.set(.end, for: catalog.workspaceGroups.newWorkspacePlacement)
         #expect(defaults.string(forKey: "workspaceGroup.newWorkspacePlacement") == "end")
         #expect(client.value(for: catalog.workspaceGroups.newWorkspacePlacement) == .end)
+
+        client.set(true, for: catalog.performance.diagnosticsEnabled)
+        client.set(2.5, for: catalog.performance.diagnosticsIntervalSeconds)
+        client.set(false, for: catalog.performance.diagnosticsRendererScopeEnabled)
+        #expect(defaults.bool(forKey: "performance.diagnostics.enabled") == true)
+        #expect(defaults.double(forKey: "performance.diagnostics.intervalSeconds") == 2.5)
+        #expect(defaults.bool(forKey: "performance.diagnostics.scopes.renderer") == false)
     }
 
     @Test func resetRestoresDefault() throws {

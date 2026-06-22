@@ -208,6 +208,12 @@ final class MobileWorkspaceListObserver {
         )
         if !force, hash == lastSummaryHash {
             #if DEBUG
+            PerfDiagnostics.shared.recordMobileObserver(
+                result: "skip",
+                summaryHash: hash,
+                tabCount: tabManager.tabs.count,
+                force: force
+            )
             cmuxDebugLog("mobile.observer skip: hash unchanged=\(hash) tabs=\(tabManager.tabs.count)")
             #endif
             return
@@ -215,6 +221,12 @@ final class MobileWorkspaceListObserver {
         lastSummaryHash = hash
         mobileWorkspaceObserverLog.debug("emitting workspace.updated (hash=\(hash, privacy: .public))")
         #if DEBUG
+        PerfDiagnostics.shared.recordMobileObserver(
+            result: "emit",
+            summaryHash: hash,
+            tabCount: tabManager.tabs.count,
+            force: force
+        )
         cmuxDebugLog("mobile.observer EMIT workspace.updated hash=\(hash) tabs=\(tabManager.tabs.count) force=\(force)")
         #endif
         MobileHostService.shared.emitEvent(topic: "workspace.updated", payload: [:])

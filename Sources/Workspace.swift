@@ -4898,6 +4898,16 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
 #if DEBUG
+        PerfDiagnostics.shared.recordTitleMutation(
+            workspaceId: id,
+            panelId: panelId,
+            mutated: didMutate,
+            panelChanged: didMutatePanelTitle,
+            workspaceChanged: didMutateWorkspaceTitle,
+            panelCount: panels.count,
+            hasCustomTitle: customTitle != nil,
+            title: trimmed
+        )
         if didMutate {
             cmuxDebugLog(
                 "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +

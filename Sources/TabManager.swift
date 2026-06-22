@@ -557,6 +557,13 @@ class TabManager: ObservableObject {
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 guard let change = GhosttyTitleChange(notification: notification) else { return }
+#if DEBUG
+                PerfDiagnostics.shared.recordTitleNotification(
+                    tabId: change.tabId,
+                    panelId: change.surfaceId,
+                    title: change.title
+                )
+#endif
                 enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
             }
         })
@@ -3295,8 +3302,14 @@ class TabManager: ObservableObject {
 
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else {
 #if DEBUG
+            PerfDiagnostics.shared.recordTitleDroppedEmpty(tabId: tabId, panelId: panelId)
+#endif
+            return
+        }
+#if DEBUG
+        PerfDiagnostics.shared.recordTitleEnqueue(tabId: tabId, panelId: panelId, title: trimmed)
         cmuxDebugLog(
             "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
             "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
@@ -3313,6 +3326,9 @@ class TabManager: ObservableObject {
         guard !pendingPanelTitleUpdates.isEmpty else { return }
         let updates = pendingPanelTitleUpdates
         pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
+#if DEBUG
+        PerfDiagnostics.shared.recordTitleFlush(pendingCount: updates.count)
+#endif
         for (key, title) in updates {
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
         }
@@ -3320,7 +3336,17 @@ class TabManager: ObservableObject {
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        _ = tab.updatePanelTitle(panelId: panelId, title: title)
+        let mutated = tab.updatePanelTitle(panelId: panelId, title: title)
+#if DEBUG
+        PerfDiagnostics.shared.recordTitleApply(
+            tabId: tabId,
+            panelId: panelId,
+            mutated: mutated,
+            focused: tab.focusedPanelId == panelId,
+            selected: selectedTabId == tabId,
+            title: title
+        )
+#endif
 
         if tab.focusedPanelId == panelId {
             tab.applyProcessTitle(title)

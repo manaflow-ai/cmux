@@ -46,6 +46,7 @@ public struct SettingCatalog: SettingCatalogSection {
     public let shortcuts = KeyboardShortcutsCatalogSection()
     public let integrations = IntegrationsCatalogSection()
     public let account = AccountCatalogSection()
+    public let performance = PerformanceCatalogSection()
 
     public init() {}
 }

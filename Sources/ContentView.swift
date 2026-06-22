@@ -13737,6 +13737,12 @@ struct TabItemView: View, Equatable {
         ) { _ in
 #if DEBUG
             let description = tab.customDescription ?? ""
+            PerfDiagnostics.shared.recordSidebarInvalidation(
+                workspaceId: tab.id,
+                source: "immediate",
+                title: tab.title,
+                descriptionLength: (description as NSString).length
+            )
             cmuxDebugLog(
                 "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
                 "source=immediate " +
@@ -13757,6 +13763,12 @@ struct TabItemView: View, Equatable {
         ) { _ in
 #if DEBUG
             let description = tab.customDescription ?? ""
+            PerfDiagnostics.shared.recordSidebarInvalidation(
+                workspaceId: tab.id,
+                source: "debounced",
+                title: tab.title,
+                descriptionLength: (description as NSString).length
+            )
             cmuxDebugLog(
                 "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
                 "source=debounced " +

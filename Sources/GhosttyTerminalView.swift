@@ -8260,6 +8260,13 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.layoutSubtreeIfNeeded()
         displayIfNeeded()
         surfaceView.displayIfNeeded()
+#if DEBUG
+        PerfDiagnostics.shared.recordRendererRefresh(
+            surfaceId: surfaceView.terminalSurface?.id,
+            workspaceId: surfaceView.tabId,
+            reason: reason
+        )
+#endif
         surfaceView.terminalSurface?.forceRefresh(reason: reason)
     }
 
@@ -9232,6 +9239,12 @@ final class GhosttySurfaceScrollView: NSView {
             surfaceView.terminalSurface?.setOcclusion(visible)
         }
 #if DEBUG
+        PerfDiagnostics.shared.recordRendererVisibility(
+            surfaceId: surfaceView.terminalSurface?.id,
+            workspaceId: surfaceView.tabId,
+            visible: visible,
+            changed: wasVisible != visible
+        )
         if wasVisible != visible {
             let transition = "\(wasVisible ? 1 : 0)->\(visible ? 1 : 0)"
             let suffix = debugVisibilityStateSuffix(transition: transition)
