@@ -1312,7 +1312,7 @@ nonisolated enum TerminalStartupReturnShellScript {
     }
 }
 
-private enum SurfaceResumeBindingScriptStore {
+enum SurfaceResumeBindingScriptStore {
     private static let directoryName = "cmux-surface-resume"
     private static let scriptTTL: TimeInterval = 24 * 60 * 60
 
