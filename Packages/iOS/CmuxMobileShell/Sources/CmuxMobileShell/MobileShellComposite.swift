@@ -832,6 +832,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         pairedMacs = []
+        invalidateNotificationFeedRefreshes()
         notificationsStore.apply([])
         registryDevices = []
         // Reset restoring flags and supersede in-flight reconnects.
@@ -3488,8 +3489,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
-        notificationFeedRefreshTask?.cancel()
-        notificationFeedRefreshTask = nil
+        invalidateNotificationFeedRefreshes()
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
     }

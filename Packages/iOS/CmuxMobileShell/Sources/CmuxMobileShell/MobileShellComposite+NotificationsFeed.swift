@@ -55,13 +55,17 @@ extension MobileShellComposite {
         notificationsStore.apply(claim.previousNotifications)
     }
 
+    func invalidateNotificationFeedRefreshes() {
+        notificationFeedRefreshGeneration &+= 1
+        notificationFeedRefreshTask?.cancel()
+        notificationFeedRefreshTask = nil
+    }
+
     /// Refetch the notification feed from the connected Mac.
     @discardableResult
     public func refreshNotifications() async -> Bool {
-        notificationFeedRefreshGeneration &+= 1
+        invalidateNotificationFeedRefreshes()
         let generation = notificationFeedRefreshGeneration
-        notificationFeedRefreshTask?.cancel()
-        notificationFeedRefreshTask = nil
         return await refreshNotifications(generation: generation)
     }
 
@@ -95,9 +99,8 @@ extension MobileShellComposite {
 
     func scheduleNotificationsRefreshFromEvent() {
         guard supportsNotificationsFeed, remoteClient != nil else { return }
-        notificationFeedRefreshGeneration &+= 1
+        invalidateNotificationFeedRefreshes()
         let generation = notificationFeedRefreshGeneration
-        notificationFeedRefreshTask?.cancel()
         notificationFeedRefreshTask = Task { @MainActor [weak self] in
             defer {
                 if self?.notificationFeedRefreshGeneration == generation {

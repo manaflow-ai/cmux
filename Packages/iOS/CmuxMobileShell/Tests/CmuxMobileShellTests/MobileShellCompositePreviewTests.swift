@@ -106,6 +106,19 @@ import Testing
         #expect(store.notificationsStore.notifications.map(\.isRead) == [true])
     }
 
+    @Test func signOutInvalidatesOptimisticNotificationReadRollback() async {
+        let store = MobileShellComposite.preview()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", title: "private", isRead: false),
+        ])
+
+        let claim = store.beginOptimisticNotificationRead(forWorkspace: "workspace-main")
+        store.signOut()
+        await store.finishOptimisticNotificationRead(claim, mutationSucceeded: false)
+
+        #expect(store.notificationsStore.notifications.isEmpty)
+    }
+
     @Test func deeplinkNavigationSelectsAndBumpsToken() {
         let store = MobileShellComposite.preview()
         let target = try! #require(store.workspaces.last?.id)
