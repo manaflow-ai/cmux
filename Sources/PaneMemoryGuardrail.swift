@@ -89,14 +89,14 @@ final class PaneMemoryGuardrail {
         )
         source.setEventHandler { [weak self] in
             Task { @MainActor in
-                self?.noteSystemMemoryPressure()
+                self?.handleSystemMemoryPressure()
             }
         }
         memoryPressureSource = source
         source.resume()
     }
 
-    func noteSystemMemoryPressure() {
+    private func handleSystemMemoryPressure() {
 #if DEBUG
         cmuxDebugLog("paneMemGuard.systemMemoryPressure")
 #endif

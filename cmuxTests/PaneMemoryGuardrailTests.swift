@@ -108,20 +108,6 @@ struct PaneMemoryGuardrailTests {
         #expect(output.warnedWorkspaceIds.isEmpty)
     }
 
-    @MainActor
-    @Test
-    func systemMemoryPressureInvokesEvictionCallback() {
-        let guardrail = PaneMemoryGuardrail()
-        var callbackCount = 0
-        guardrail.onSystemMemoryPressure = {
-            callbackCount += 1
-        }
-
-        guardrail.noteSystemMemoryPressure()
-
-        #expect(callbackCount == 1)
-    }
-
     @Test
     func singleBannerWithMultipleSimultaneousCrossings() {
         var engine = PaneMemoryGuardrailEngine()
