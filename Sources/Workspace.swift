@@ -11932,16 +11932,14 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
-            if let remoteTmuxWorkspaceCloseButton {
-                pendingRemoteDisconnectReplacement = nil
-                let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-                let closeRequested = remoteTmuxWorkspaceCloseButton ? (manager?.closeWorkspaceFromTabCloseButton(self) ?? false) : (manager?.closeWorkspaceFromCloseTabGesture(self) ?? false)
-                let appDelegate = AppDelegate.shared
-                let windowCloseCanVeto = (manager?.tabs.count ?? 0) <= 1 && appDelegate?.mainWindowContexts.count == 1 && appDelegate?.mainWindowContexts.values.contains(where: { $0.tabManager === manager }) == true
-                if closeRequested && (!windowCloseCanVeto || manager?.tabs.contains(where: { $0.id == id }) == false) { scheduleTerminalGeometryReconcile(); return }
-                remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
+            if remoteTmuxWorkspaceCloseButton != nil {
+                pendingRemoteDisconnectReplacement = nil; remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
                 remoteTmuxWindowMirrors.removeAll()
                 AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+                let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+                if let manager, manager.tabs.count > 1 { manager.closeWorkspace(self, recordHistory: false); scheduleTerminalGeometryReconcile(); return }
+                if let windowId = manager.flatMap({ AppDelegate.shared?.windowId(for: $0) }) { AppDelegate.shared?.discardMainWindowWithoutClosedHistory(windowId: windowId) }
+                scheduleTerminalGeometryReconcile(); return
             }
             if remoteTmuxKeepWorkspaceOpen {
                 pendingRemoteDisconnectReplacement = nil; remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
