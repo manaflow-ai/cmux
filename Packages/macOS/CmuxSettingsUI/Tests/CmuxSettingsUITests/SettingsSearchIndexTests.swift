@@ -11,11 +11,10 @@ import Testing
 @Suite("SettingsSearchIndex")
 struct SettingsSearchIndexTests {
     @MainActor
-    @Test func settingsWindowRootsReuseRuntimeCachedIndex() throws {
+    @Test func settingsWindowRootsReuseRuntimeCachedIndex() {
         let catalog = SettingCatalog()
         let suiteName = "SettingsSearchIndexTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defer { UserDefaults.standard.removePersistentDomain(forName: suiteName) }
         let expectedID = "setting:app:issue-3384-cache-sentinel"
         let searchIndex = SettingsSearchIndex(
             catalog: catalog,
@@ -30,7 +29,7 @@ struct SettingsSearchIndexTests {
         )
         let runtime = SettingsRuntime(
             catalog: catalog,
-            userDefaultsStore: UserDefaultsSettingsStore(defaults: defaults),
+            userDefaultsStore: Self.makeDefaultsStore(suiteName: suiteName),
             jsonStore: JSONConfigStore(
                 fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
             ),
@@ -46,6 +45,10 @@ struct SettingsSearchIndexTests {
 
         #expect(firstRoot.searchIndex.match("issue3384-cache-sentinel").contains { $0.id == expectedID })
         #expect(secondRoot.searchIndex.match("issue3384-cache-sentinel").contains { $0.id == expectedID })
+    }
+
+    private static func makeDefaultsStore(suiteName: String) -> UserDefaultsSettingsStore {
+        UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
     }
 
     @Test func emptyQueryReturnsAllSectionEntries() {
