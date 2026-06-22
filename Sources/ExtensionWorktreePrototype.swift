@@ -257,34 +257,19 @@ enum CmuxExtensionWorktreePrototype {
     static func removeWorktree(worktreePath: String, force: Bool) async throws {
         try await Task.detached(priority: .userInitiated) {
             let worktree = URL(fileURLWithPath: worktreePath, isDirectory: true).standardizedFileURL.path
-
-            // Resolve the parent repository from the shared common dir so the
-            // prune/branch cleanup run against the main working tree regardless
-            // of the on-disk worktree layout.
-            var commonDir = (try? await runGitTrimmed(
-                ["-C", worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-                failureDescription: ""
-            )) ?? ""
-            if commonDir.isEmpty {
-                // Older git lacks `--path-format`; fall back to the raw value
-                // and resolve it relative to the worktree when it is relative.
-                let raw = try await runGitTrimmed(
-                    ["-C", worktree, "rev-parse", "--git-common-dir"],
-                    failureDescription: "Could not resolve the parent repository."
+            guard let identity = managedWorktreeIdentity(gitRootPath: worktree) else {
+                throw NSError(
+                    domain: "CmuxExtensionWorktreePrototype",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "Could not resolve the parent repository."]
                 )
-                commonDir = raw.hasPrefix("/")
-                    ? raw
-                    : URL(fileURLWithPath: worktree, isDirectory: true)
-                        .appendingPathComponent(raw)
-                        .standardizedFileURL.path
             }
-            let parentRepo = URL(fileURLWithPath: commonDir, isDirectory: true)
-                .deletingLastPathComponent()
-                .standardizedFileURL.path
+            let parentRepo = identity.parentRepoPath
+            let worktreeToRemove = identity.worktreePath
 
             var removeArgs = ["-C", parentRepo, "worktree", "remove"]
             if force { removeArgs.append("--force") }
-            removeArgs.append(worktree)
+            removeArgs.append(worktreeToRemove)
             _ = try await runGitTrimmed(removeArgs, failureDescription: "Could not remove the worktree.")
 
             // Prune stale administrative entries in the parent repository.
