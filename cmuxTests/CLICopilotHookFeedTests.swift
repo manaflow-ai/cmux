@@ -74,7 +74,7 @@ struct CLICopilotHookFeedTests {
 
         #expect(hooks["SessionStart"] != nil, "Missing SessionStart hook")
         #expect(hooks["Stop"] != nil, "Missing Stop hook")
-        #expect(hooks["Notification"] != nil, "Missing Notification hook")
+        #expect(hooks["Notification"] == nil, "Copilot notifications must not be installed as stop hooks")
         #expect(hooks["SessionEnd"] != nil, "Missing SessionEnd hook")
         let preToolUse = try #require(hooks["PreToolUse"] as? [[String: Any]])
         #expect(
