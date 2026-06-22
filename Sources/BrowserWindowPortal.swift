@@ -278,6 +278,8 @@ final class WindowBrowserHostView: NSView {
         let rectInWindow: NSRect
         let isVertical: Bool
         let isInHostedContent: Bool
+        weak var splitView: NSSplitView?
+        let dividerIndex: Int
     }
 
     private struct DividerHit {
@@ -427,12 +429,16 @@ final class WindowBrowserHostView: NSView {
             self?.invalidateDividerRegionCache()
             self?.reapplyHostedInspectorDividerIfNeeded(in: slotView, reason: "slot.layout")
         }
+        slot.onDividerRegionVisibilityChanged = { [weak self] _ in
+            self?.invalidateDividerRegionCache()
+        }
     }
 
     override func willRemoveSubview(_ subview: NSView) {
         invalidateDividerRegionCache()
         if let slot = subview as? WindowBrowserSlotView {
             slot.onHostedInspectorLayout = nil
+            slot.onDividerRegionVisibilityChanged = nil
         }
         super.willRemoveSubview(subview)
     }
@@ -946,9 +952,8 @@ final class WindowBrowserHostView: NSView {
     }
 
     private func dividerRegions(in rootView: NSView) -> [DividerRegion] {
-        if cachedDividerRegionGeneration == dividerRegionCacheGeneration,
-           cachedDividerRegionRootView === rootView {
-            return cachedDividerRegions
+        if let regions = refreshedCachedDividerRegions(in: rootView) {
+            return regions
         }
 
         var regions: [DividerRegion] = []
@@ -960,6 +965,33 @@ final class WindowBrowserHostView: NSView {
         debugDividerRegionBuildCountForTesting += 1
 #endif
         return regions
+    }
+
+    private func refreshedCachedDividerRegions(in rootView: NSView) -> [DividerRegion]? {
+        guard cachedDividerRegionGeneration == dividerRegionCacheGeneration,
+              cachedDividerRegionRootView === rootView,
+              let window,
+              rootView.window === window,
+              !Self.isHiddenOrAncestorHidden(rootView) else {
+            return nil
+        }
+
+        for index in cachedDividerRegions.indices {
+            let cached = cachedDividerRegions[index]
+            guard let splitView = cached.splitView,
+                  splitView.window === window,
+                  (splitView === rootView || splitView.isDescendant(of: rootView)),
+                  !Self.isHiddenOrAncestorHidden(splitView),
+                  let refreshed = Self.dividerRegion(
+                    in: splitView,
+                    dividerIndex: cached.dividerIndex,
+                    hostView: self
+                  ) else {
+                return nil
+            }
+            cachedDividerRegions[index] = refreshed
+        }
+        return cachedDividerRegions
     }
 
     private func dividerSearchRootView() -> NSView? {
@@ -1255,6 +1287,16 @@ final class WindowBrowserHostView: NSView {
             view.frame.height > 1
     }
 
+    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
+        if view.isHidden { return true }
+        var current = view.superview
+        while let ancestor = current {
+            if ancestor.isHidden { return true }
+            current = ancestor.superview
+        }
+        return false
+    }
+
     private static func collectSplitDividerRegions(
         in view: NSView,
         hostView: WindowBrowserHostView,
@@ -1265,38 +1307,57 @@ final class WindowBrowserHostView: NSView {
         if let splitView = view as? NSSplitView {
             let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
             for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                let thickness = splitView.dividerThickness
-                let dividerRect: NSRect
-                if splitView.isVertical {
-                    // Keep divider hit-testing active even when one side is nearly collapsed,
-                    // so users can drag the divider back out from the border.
-                    // But ignore transient states where both panes are effectively 0-width.
-                    guard first.width > 1 || second.width > 1 else { continue }
-                    let x = max(0, first.maxX)
-                    dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-                } else {
-                    // Same behavior for horizontal splits with a near-zero-height pane.
-                    guard first.height > 1 || second.height > 1 else { continue }
-                    let y = max(0, first.maxY)
-                    dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-                }
-                let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-                guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
-                result.append(
-                    DividerRegion(
-                        rectInWindow: dividerRectInWindow,
-                        isVertical: splitView.isVertical,
-                        isInHostedContent: splitView.isDescendant(of: hostView)
-                    )
-                )
+                guard let region = dividerRegion(
+                    in: splitView,
+                    dividerIndex: dividerIndex,
+                    hostView: hostView
+                ) else { continue }
+                result.append(region)
             }
         }
 
         for subview in view.subviews.reversed() {
             collectSplitDividerRegions(in: subview, hostView: hostView, into: &result)
         }
+    }
+
+    private static func dividerRegion(
+        in splitView: NSSplitView,
+        dividerIndex: Int,
+        hostView: WindowBrowserHostView
+    ) -> DividerRegion? {
+        guard dividerIndex >= 0,
+              dividerIndex + 1 < splitView.arrangedSubviews.count else {
+            return nil
+        }
+
+        let first = splitView.arrangedSubviews[dividerIndex].frame
+        let second = splitView.arrangedSubviews[dividerIndex + 1].frame
+        let thickness = splitView.dividerThickness
+        let dividerRect: NSRect
+        if splitView.isVertical {
+            // Keep divider hit-testing active even when one side is nearly collapsed,
+            // so users can drag the divider back out from the border.
+            // But ignore transient states where both panes are effectively 0-width.
+            guard first.width > 1 || second.width > 1 else { return nil }
+            let x = max(0, first.maxX)
+            dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
+        } else {
+            // Same behavior for horizontal splits with a near-zero-height pane.
+            guard first.height > 1 || second.height > 1 else { return nil }
+            let y = max(0, first.maxY)
+            dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
+        }
+
+        let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
+        guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { return nil }
+        return DividerRegion(
+            rectInWindow: dividerRectInWindow,
+            isVertical: splitView.isVertical,
+            isInHostedContent: splitView.isDescendant(of: hostView),
+            splitView: splitView,
+            dividerIndex: dividerIndex
+        )
     }
 
 }
@@ -1511,7 +1572,9 @@ final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
         didSet {
-            guard isHidden, !oldValue, let window else { return }
+            guard isHidden != oldValue else { return }
+            onDividerRegionVisibilityChanged?(self)
+            guard isHidden, let window else { return }
             yieldOwnedFirstResponderIfNeeded(in: window, reason: "slotHidden")
         }
     }
@@ -1531,6 +1594,7 @@ final class WindowBrowserSlotView: NSView {
     private var preferredHostedInspectorWidthFraction: CGFloat?
     fileprivate var isHostedInspectorDividerDragActive = false
     var onHostedInspectorLayout: ((WindowBrowserSlotView) -> Void)?
+    var onDividerRegionVisibilityChanged: ((WindowBrowserSlotView) -> Void)?
     fileprivate var isApplyingHostedInspectorLayout = false
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 

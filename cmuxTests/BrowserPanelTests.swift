@@ -1545,6 +1545,90 @@ final class WindowBrowserHostViewTests: XCTestCase {
 #endif
     }
 
+    func testHostViewInvalidatesHostedDividerRegionsWhenSlotHidesAndReveals() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let slot = WindowBrowserSlotView(frame: host.bounds)
+        slot.autoresizingMask = [.width, .height]
+        host.addSubview(slot)
+
+        let inspectorSplit = NSSplitView(frame: slot.bounds)
+        inspectorSplit.autoresizingMask = [.width, .height]
+        inspectorSplit.isVertical = false
+        inspectorSplit.dividerStyle = .thin
+        let inspectorDelegate = BonsplitMockSplitDelegate()
+        inspectorSplit.delegate = inspectorDelegate
+        let pageView = CapturingView(frame: NSRect(x: 0, y: 0, width: slot.bounds.width, height: 140))
+        let inspectorView = CapturingView(frame: NSRect(x: 0, y: 141, width: slot.bounds.width, height: 79))
+        inspectorSplit.addSubview(pageView)
+        inspectorSplit.addSubview(inspectorView)
+        slot.addSubview(inspectorSplit)
+        inspectorSplit.setPosition(140, ofDividerAt: 0)
+        inspectorSplit.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSplit = NSPoint(
+            x: inspectorSplit.bounds.midX,
+            y: inspectorSplit.arrangedSubviews[0].frame.maxY + (inspectorSplit.dividerThickness * 0.5)
+        )
+        let dividerPointInWindow = inspectorSplit.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        let warmHit = host.hitTest(dividerPointInHost)
+        XCTAssertNotNil(warmHit)
+        XCTAssertFalse(warmHit === child)
+        let buildCountAfterWarmHit = host.debugDividerRegionBuildCountForTesting
+        XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
+
+        slot.isHidden = true
+        XCTAssertTrue(
+            host.hitTest(dividerPointInHost) === child,
+            "Hidden browser slots must not keep stale hosted inspector divider hit regions active"
+        )
+        let buildCountAfterHide = host.debugDividerRegionBuildCountForTesting
+        XCTAssertGreaterThan(
+            buildCountAfterHide,
+            buildCountAfterWarmHit,
+            "Hiding a browser slot should invalidate hosted divider regions"
+        )
+
+        slot.isHidden = false
+        let revealedHit = host.hitTest(dividerPointInHost)
+        XCTAssertNotNil(revealedHit)
+        XCTAssertFalse(
+            revealedHit === child,
+            "Revealed browser slots should rebuild hosted inspector divider regions without waiting for a resize"
+        )
+        XCTAssertGreaterThan(
+            host.debugDividerRegionBuildCountForTesting,
+            buildCountAfterHide,
+            "Revealing a browser slot should invalidate hosted divider regions"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testWindowBrowserPortalIgnoresHostedInspectorSplitResizeNotifications() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),

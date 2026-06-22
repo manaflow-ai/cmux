@@ -13,6 +13,8 @@ final class WindowTerminalHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
         let isVertical: Bool
+        weak var splitView: NSSplitView?
+        let dividerIndex: Int
     }
 
     private enum DividerCursorKind: Equatable {
@@ -439,9 +441,8 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func dividerRegions(in rootView: NSView) -> [DividerRegion] {
-        if cachedDividerRegionGeneration == dividerRegionCacheGeneration,
-           cachedDividerRegionRootView === rootView {
-            return cachedDividerRegions
+        if let regions = refreshedCachedDividerRegions(in: rootView) {
+            return regions
         }
 
         var regions: [DividerRegion] = []
@@ -453,6 +454,29 @@ final class WindowTerminalHostView: NSView {
         debugDividerRegionBuildCountForTesting += 1
 #endif
         return regions
+    }
+
+    private func refreshedCachedDividerRegions(in rootView: NSView) -> [DividerRegion]? {
+        guard cachedDividerRegionGeneration == dividerRegionCacheGeneration,
+              cachedDividerRegionRootView === rootView,
+              let window,
+              rootView.window === window,
+              !Self.isHiddenOrAncestorHidden(rootView) else {
+            return nil
+        }
+
+        for index in cachedDividerRegions.indices {
+            let cached = cachedDividerRegions[index]
+            guard let splitView = cached.splitView,
+                  splitView.window === window,
+                  (splitView === rootView || splitView.isDescendant(of: rootView)),
+                  !Self.isHiddenOrAncestorHidden(splitView),
+                  let refreshed = Self.dividerRegion(in: splitView, dividerIndex: cached.dividerIndex) else {
+                return nil
+            }
+            cachedDividerRegions[index] = refreshed
+        }
+        return cachedDividerRegions
     }
 
     private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerCursorKind? {
@@ -471,37 +495,58 @@ final class WindowTerminalHostView: NSView {
         if let splitView = view as? NSSplitView {
             let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
             for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                let thickness = splitView.dividerThickness
-                let dividerRect: NSRect
-                if splitView.isVertical {
-                    // Keep divider hit-testing active even when one side is nearly collapsed,
-                    // so users can drag the divider back out from the border.
-                    // But ignore transient states where both panes are effectively 0-width.
-                    guard first.width > 1 || second.width > 1 else { continue }
-                    let x = max(0, first.maxX)
-                    dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-                } else {
-                    // Same behavior for horizontal splits with a near-zero-height pane.
-                    guard first.height > 1 || second.height > 1 else { continue }
-                    let y = max(0, first.maxY)
-                    dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-                }
-                let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-                guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
-                result.append(
-                    DividerRegion(
-                        rectInWindow: dividerRectInWindow,
-                        isVertical: splitView.isVertical
-                    )
-                )
+                guard let region = dividerRegion(in: splitView, dividerIndex: dividerIndex) else { continue }
+                result.append(region)
             }
         }
 
         for subview in view.subviews.reversed() {
             collectSplitDividerRegions(in: subview, into: &result)
         }
+    }
+
+    private static func dividerRegion(in splitView: NSSplitView, dividerIndex: Int) -> DividerRegion? {
+        guard dividerIndex >= 0,
+              dividerIndex + 1 < splitView.arrangedSubviews.count else {
+            return nil
+        }
+
+        let first = splitView.arrangedSubviews[dividerIndex].frame
+        let second = splitView.arrangedSubviews[dividerIndex + 1].frame
+        let thickness = splitView.dividerThickness
+        let dividerRect: NSRect
+        if splitView.isVertical {
+            // Keep divider hit-testing active even when one side is nearly collapsed,
+            // so users can drag the divider back out from the border.
+            // But ignore transient states where both panes are effectively 0-width.
+            guard first.width > 1 || second.width > 1 else { return nil }
+            let x = max(0, first.maxX)
+            dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
+        } else {
+            // Same behavior for horizontal splits with a near-zero-height pane.
+            guard first.height > 1 || second.height > 1 else { return nil }
+            let y = max(0, first.maxY)
+            dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
+        }
+
+        let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
+        guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { return nil }
+        return DividerRegion(
+            rectInWindow: dividerRectInWindow,
+            isVertical: splitView.isVertical,
+            splitView: splitView,
+            dividerIndex: dividerIndex
+        )
+    }
+
+    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
+        if view.isHidden { return true }
+        var current = view.superview
+        while let ancestor = current {
+            if ancestor.isHidden { return true }
+            current = ancestor.superview
+        }
+        return false
     }
 
 #if DEBUG

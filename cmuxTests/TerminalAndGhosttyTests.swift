@@ -3903,6 +3903,69 @@ final class WindowTerminalHostViewTests: XCTestCase {
 #endif
     }
 
+    func testHostViewInvalidatesCachedDividerRegionsWhenSplitBecomesHidden() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let splitView = NSSplitView(frame: contentView.bounds)
+        splitView.autoresizingMask = [.width, .height]
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        let splitDelegate = BonsplitMockSplitDelegate()
+        splitView.delegate = splitDelegate
+        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height))
+        let second = NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height))
+        splitView.addSubview(first)
+        splitView.addSubview(second)
+        contentView.addSubview(splitView)
+        splitView.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.autoresizingMask = [.width, .height]
+        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        XCTAssertNil(host.hitTest(dividerPointInHost))
+        let buildCountAfterWarmHit = host.debugDividerRegionBuildCountForTesting
+        XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
+
+        splitView.isHidden = true
+        contentView.layoutSubtreeIfNeeded()
+
+        assertHitFallsInsideHostedTerminal(
+            host.hitTest(dividerPointInHost),
+            hostedView: hostedView,
+            message: "Hidden cached split dividers must not keep stealing terminal hits"
+        )
+        XCTAssertGreaterThan(
+            host.debugDividerRegionBuildCountForTesting,
+            buildCountAfterWarmHit,
+            "Hidden split views should invalidate cached terminal divider regions on the next pointer hit"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testHostViewStopsSidebarPassThroughJustInsideTerminalContent() {
         let terminalSideOverlapWidth: CGFloat = 2
         let window = NSWindow(
