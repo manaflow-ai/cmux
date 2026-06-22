@@ -10354,11 +10354,11 @@ struct CMUXCLI {
 
     private static func freestyleInteractiveShellScript() -> String {
         """
-        if ! command -v zsh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
+        if ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
           if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
             if command -v apt-get >/dev/null 2>&1; then
               sudo -n apt-get update >/dev/null 2>&1 || true
-              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions htop btop >/dev/null 2>&1 || true
+              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop >/dev/null 2>&1 || true
             fi
           fi
         fi
@@ -10388,12 +10388,26 @@ struct CMUXCLI {
           PROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
         fi
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+        if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
+          export CMUX_CLOUD_WELCOME_SHOWN=1
+          cat <<'CMUX_CLOUD_WELCOME'
+          ::
+            ::::              cmux cloud
+              ::::::
+                ::::::        persistent Freestyle VM
+              ::::::          ready for coding agents
+            ::::
+          ::
+
+        CMUX_CLOUD_WELCOME
+        fi
         CMUX_USER_ZSHRC
           fi
           if [ ! -e "$HOME/.zshrc.local" ]; then
             cat > "$HOME/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
         # Personal zsh overrides for this Freestyle VM.
         # Examples:
+        #   CMUX_CLOUD_WELCOME=0
         #   CMUX_PROMPT_USER='cmux-cloud'
         #   CMUX_PROMPT_CHAR='>'
         #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
@@ -10415,10 +10429,10 @@ struct CMUXCLI {
           cmux_home="/home/$cmux_user"
         fi
 
-        if [ ! -f /etc/cmux/zsh-bootstrap-v2 ] || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
+        if [ ! -f /etc/cmux/zsh-bootstrap-v3 ] || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
           if command -v apt-get >/dev/null 2>&1; then
             apt-get update >/dev/null 2>&1 || true
-            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions htop btop >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop >/dev/null 2>&1 || true
           fi
         fi
 
@@ -10450,6 +10464,19 @@ struct CMUXCLI {
         # cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.
         [ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+        if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
+          export CMUX_CLOUD_WELCOME_SHOWN=1
+          cat <<'CMUX_CLOUD_WELCOME'
+          ::
+            ::::              cmux cloud
+              ::::::
+                ::::::        persistent Freestyle VM
+              ::::::          ready for coding agents
+            ::::
+          ::
+
+        CMUX_CLOUD_WELCOME
+        fi
         CMUX_USER_ZSHRC
         fi
 
@@ -10457,6 +10484,7 @@ struct CMUXCLI {
           cat > "$cmux_home/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
         # Personal zsh overrides for this Freestyle VM.
         # Examples:
+        #   CMUX_CLOUD_WELCOME=0
         #   CMUX_PROMPT_USER='cmux-cloud'
         #   CMUX_PROMPT_CHAR='>'
         #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
@@ -10465,11 +10493,13 @@ struct CMUXCLI {
 
         if command -v zsh >/dev/null 2>&1; then
           chsh -s "$(command -v zsh)" "$cmux_user" >/dev/null 2>&1 || true
-          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 2>/dev/null || true
+          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 /etc/cmux/zsh-bootstrap-v3 2>/dev/null || true
         fi
         touch "$cmux_home/.hushlogin" 2>/dev/null || true
         chown "$cmux_user:$cmux_user" "$cmux_home/.zshrc" "$cmux_home/.zshrc.local" 2>/dev/null || true
         chown "$cmux_user:$cmux_user" "$cmux_home/.hushlogin" 2>/dev/null || true
+        mkdir -p "$cmux_home/.config" 2>/dev/null || true
+        chown "$cmux_user:$cmux_user" "$cmux_home/.config" 2>/dev/null || true
         chown -R "$cmux_user:$cmux_user" "$cmux_home/.config/cmux" 2>/dev/null || true
         """
     }

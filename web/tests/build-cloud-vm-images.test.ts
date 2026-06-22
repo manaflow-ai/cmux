@@ -114,8 +114,9 @@ describe("Cloud VM image build helpers", () => {
     expect(browserSmoke).toContain("requires a subcommand");
   });
 
-  test("image smoke checks include terminal process monitors", () => {
+  test("image smoke checks include useful shell tools", () => {
     const smoke = cloudImageSmokeTestCommands().join("\n");
+    expect(smoke).toContain("gh --version");
     expect(smoke).toContain("htop --version");
     expect(smoke).toContain("btop --version");
   });

@@ -26,6 +26,7 @@ const CLOUD_SHELL_PACKAGES = [
   "ca-certificates",
   "curl",
   "dirmngr",
+  "gh",
   "git",
   "gnupg",
   "gpg-agent",
@@ -374,6 +375,7 @@ export function cloudImageSmokeTestCommands(): string[] {
   );
   return [
     "openssl version -a >/tmp/cmux-openssl-version.txt 2>&1",
+    "gh --version >/tmp/cmux-gh-version.txt 2>&1",
     "htop --version >/tmp/cmux-htop-version.txt 2>&1",
     "btop --version >/tmp/cmux-btop-version.txt 2>&1",
     "python3 -X faulthandler -c 'import ssl; print(ssl.OPENSSL_VERSION)'",
