@@ -27,7 +27,7 @@ struct ExtensionWorktreeSpawnArgsTests {
 
     @Test("setup command runs as interactive shell input")
     func setupCommandRunsAsShellInput() {
-        let setup = "cd '/tmp/sample' && python3 -m http.server 4100"
+        let setup = "echo hi"
         let args = makeResult(setupCommand: setup).workspaceSpawnArgs()
 
         // The setup command must NOT become the workspace's primary process (a
