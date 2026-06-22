@@ -19,7 +19,7 @@ final class PortScanner: @unchecked Sendable {
     /// Callback delivers `(workspaceId, panelId, ports)` on the main actor.
     var onPortsUpdated: (@MainActor (_ workspaceId: UUID, _ panelId: UUID, _ ports: [Int]) -> Void)?
     /// Callback delivers workspace-scoped ports owned by tracked agents.
-    var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Void)?
+    var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Bool)?
     /// Provider returns tracked agent root PIDs for the given workspaces.
     var agentPIDsProvider: (@MainActor (_ workspaceIds: Set<UUID>) -> [UUID: Set<Int>])?
 
@@ -420,10 +420,28 @@ final class PortScanner: @unchecked Sendable {
                 agentRevisions: agentRevisions
             )
             guard !validatedResults.isEmpty else { return }
-            await MainActor.run {
-                for (workspaceId, ports) in validatedResults {
+            let appliedResults = await MainActor.run {
+                validatedResults.filter { workspaceId, ports in
                     agentCallback(workspaceId, ports)
                 }
+            }
+            await self.acknowledgeAgentResults(appliedResults)
+        }
+    }
+
+    private func acknowledgeAgentResults(_ results: [(UUID, [Int])]) async {
+        guard !results.isEmpty else { return }
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                for (workspaceId, ports) in results {
+                    forceAgentResultWorkspaces.remove(workspaceId)
+                    if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
+                        lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                    } else {
+                        lastAgentPortsByWorkspace[workspaceId] = ports
+                    }
+                }
+                continuation.resume()
             }
         }
     }
@@ -442,15 +460,9 @@ final class PortScanner: @unchecked Sendable {
                     guard currentRevision == expectedRevision else { continue }
                     let ports = Array(agentPortsByWorkspace[workspaceId] ?? []).sorted()
                     let previousPorts = lastAgentPortsByWorkspace[workspaceId]
-                    let forceDelivery = forceAgentResultWorkspaces.remove(workspaceId) != nil
-                    if !forceDelivery {
+                    if !forceAgentResultWorkspaces.contains(workspaceId) {
                         guard previousPorts != ports else { continue }
                         guard previousPorts != nil || !ports.isEmpty else { continue }
-                    }
-                    if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
-                        lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
-                    } else {
-                        lastAgentPortsByWorkspace[workspaceId] = ports
                     }
                     results.append((workspaceId, ports))
                 }
