@@ -72,19 +72,26 @@ struct CLICopilotHookFeedTests {
         #expect(json["version"] as? Int == 1)
         let hooks = try #require(json["hooks"] as? [String: Any])
 
-        #expect(hooks["SessionStart"] != nil, "Missing SessionStart hook")
-        #expect(hooks["Stop"] != nil, "Missing Stop hook")
+        #expect(hooks["sessionStart"] != nil, "Missing sessionStart hook")
+        #expect(hooks["userPromptSubmitted"] != nil, "Missing userPromptSubmitted hook")
+        #expect(hooks["agentStop"] != nil, "Missing agentStop hook")
+        #expect(hooks["errorOccurred"] != nil, "Missing errorOccurred hook")
         #expect(hooks["Notification"] == nil, "Copilot notifications must not be installed as stop hooks")
-        #expect(hooks["SessionEnd"] != nil, "Missing SessionEnd hook")
-        let preToolUse = try #require(hooks["PreToolUse"] as? [[String: Any]])
+        #expect(hooks["sessionEnd"] != nil, "Missing sessionEnd hook")
+        #expect(hooks["SessionStart"] == nil, "Copilot must use canonical camelCase hook names")
+        #expect(hooks["Stop"] == nil, "Copilot must use canonical agentStop/errorOccurred hook names")
+        #expect(hooks["SessionEnd"] == nil, "Copilot must use canonical camelCase hook names")
+        #expect(hooks["PreToolUse"] == nil, "Copilot must install canonical preToolUse hooks")
+        let preToolUse = try #require(hooks["preToolUse"] as? [[String: Any]])
         #expect(
             preToolUse.contains {
-                ($0["command"] as? String)?.contains("hooks feed --source copilot --event PreToolUse") == true
+                ($0["bash"] as? String)?.contains("hooks feed --source copilot --event preToolUse") == true
                     && ($0["type"] as? String) == "command"
                     && ($0["timeoutSec"] as? Int) == 125
+                    && $0["command"] == nil
                     && $0["hooks"] == nil
             },
-            "Expected direct PreToolUse command hook with timeout slack, saw \(preToolUse)"
+            "Expected direct preToolUse bash hook with timeout slack, saw \(preToolUse)"
         )
     }
 
@@ -126,7 +133,7 @@ struct CLICopilotHookFeedTests {
 
             let result = Self.runProcess(
                 executablePath: cliPath,
-                arguments: ["hooks", "feed", "--source", "copilot", "--event", "PreToolUse"],
+                arguments: ["hooks", "feed", "--source", "copilot", "--event", "preToolUse"],
                 environment: [
                     "HOME": root.path,
                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -137,7 +144,7 @@ struct CLICopilotHookFeedTests {
                     "CMUX_COPILOT_PID": "525252",
                     "CMUX_CLI_SENTRY_DISABLED": "1",
                 ],
-                standardInput: #"{"hook_event_name":"PreToolUse","session_id":"copilot-session-123","cwd":"\#(root.path)","tool_name":"Bash","tool_input":{"command":"touch \#(root.appendingPathComponent("README.md").path)"}}"#,
+                standardInput: #"{"sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"bash","toolArgs":{"command":"touch \#(root.appendingPathComponent("README.md").path)"}}"#,
                 timeout: 5
             )
             #expect(server.wait(timeout: 5), "socket server did not observe feed.push")

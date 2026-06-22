@@ -26947,7 +26947,9 @@ struct CMUXCLI {
                 ] as [String: Any])
                 result[event.agentEvent] = groups
             case .copilotJSON(let timeoutSeconds):
-                var entries = result[event.agentEvent] as? [[String: Any]] ?? []; entries.append(Self.copilotHookEntry(command: cmd, timeoutSeconds: timeoutSeconds)); result[event.agentEvent] = entries
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.copilotHookEntry(command: cmd, timeoutSeconds: timeoutSeconds))
+                result[event.agentEvent] = entries
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -26984,7 +26986,12 @@ struct CMUXCLI {
                 ] as [String: Any])
                 result[agentEvent] = groups
             case .copilotJSON:
-                var entries = result[agentEvent] as? [[String: Any]] ?? []; entries.append(Self.copilotHookEntry(command: feedCmd, timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs) + 5)); result[agentEvent] = entries
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.copilotHookEntry(
+                    command: feedCmd,
+                    timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs) + 5
+                ))
+                result[agentEvent] = entries
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -27022,7 +27029,13 @@ struct CMUXCLI {
         return ((positiveTimeoutMs - 1) / 1000) + 1
     }
 
-    private static func copilotHookEntry(command: String, timeoutSeconds: Int) -> [String: Any] { ["type": "command", "command": command, "timeoutSec": max(timeoutSeconds, 1)] }
+    private static func copilotHookEntry(command: String, timeoutSeconds: Int) -> [String: Any] {
+        [
+            "type": "command",
+            "bash": command,
+            "timeoutSec": max(timeoutSeconds, 1),
+        ]
+    }
 
     private static func antigravityHookEntry(
         command: String,
@@ -32895,7 +32908,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? stdinObj["toolArgs"] ?? toolCall?["args"]
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
             ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {

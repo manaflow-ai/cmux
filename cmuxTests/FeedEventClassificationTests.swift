@@ -93,21 +93,25 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
-    /// Copilot's `PreToolUse` hook is the approval gate itself, but it also
+    /// Copilot's `preToolUse` hook is the approval gate itself, but it also
     /// fires before read-only tools. Mutating tools must block with Copilot's
     /// top-level permission-decision path; read-only tools must fall through.
     @Test func copilotPreToolUseIsApprovalRequest() {
+        #expect(classify("copilot", "preToolUse", tool: "bash").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "bash").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "create").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "edit").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "view").name == "PreToolUse")
+        #expect(classify("copilot", "preToolUse", tool: "view").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "grep").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "glob").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "web_fetch").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "AskUserQuestion").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "AskUserQuestion").actionable == true)
+        #expect(classify("copilot", "preToolUse", tool: "ExitPlanMode").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "ExitPlanMode").actionable == true)
         #expect(classify("copilot", "PreToolUse", tool: "Bash").name == "PermissionRequest")
         #expect(classify("copilot", "PreToolUse", tool: "Bash").actionable == true)
-        #expect(classify("copilot", "PreToolUse", tool: "Read").name == "PreToolUse")
-        #expect(classify("copilot", "PreToolUse", tool: "Read").actionable == false)
-        #expect(classify("copilot", "PreToolUse", tool: "Grep").actionable == false)
-        #expect(classify("copilot", "PreToolUse", tool: "Glob").actionable == false)
-        #expect(classify("copilot", "PreToolUse", tool: "WebFetch").actionable == false)
-        #expect(classify("copilot", "PreToolUse", tool: "AskUserQuestion").name == "PermissionRequest")
-        #expect(classify("copilot", "PreToolUse", tool: "AskUserQuestion").actionable == true)
-        #expect(classify("copilot", "PreToolUse", tool: "ExitPlanMode").name == "PermissionRequest")
-        #expect(classify("copilot", "PreToolUse", tool: "ExitPlanMode").actionable == true)
     }
 
     /// Even on the maybe-approval (generic pre-tool) path, the two dedicated

@@ -118,7 +118,7 @@ struct FeedEventClassifier {
             return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
         case .toolStartMaybeApproval:
             if source == "copilot" {
-                // Copilot's PreToolUse fires for every tool. Gate only tools
+                // Copilot's preToolUse fires for every tool. Gate only tools
                 // that need a decision, but keep Copilot on PermissionRequest
                 // so renderAgentDecision emits top-level permissionDecision.
                 if toolName == "ExitPlanMode" || toolName == "AskUserQuestion" ||
@@ -233,9 +233,10 @@ struct FeedEventClassifier {
             "stop": .response,
         ],
         "copilot": [
-            // Copilot's PreToolUse hook is the permission gate itself, but it
-            // also fires before read-only tools. Resolve against the tool name
-            // so read-only tools fall through immediately with `{}`.
+            // Copilot's canonical hook config uses camelCase event names. Keep
+            // the PascalCase spelling for already-installed VS Code compatible
+            // hook files.
+            "preToolUse": .toolStartMaybeApproval,
             "PreToolUse": .toolStartMaybeApproval,
         ],
     ]
@@ -313,15 +314,30 @@ struct FeedEventClassifier {
         "generate_image",
     ]
 
+    /// Copilot's canonical hook payloads use lower-case runtime tool names.
+    /// Keep these source-scoped so another agent's lower-case read telemetry
+    /// is not accidentally broadened into approval traffic.
+    private static let copilotSideEffectingToolAliases: Set<String> = [
+        "bash",
+        "powershell",
+        "create",
+        "edit",
+        "str_replace_editor",
+        "apply_patch",
+    ]
+
     /// Whether a tool mutates state and deserves an approval prompt. Exact
-    /// match against ``sideEffectingTools`` for every source; the `kiro`
-    /// source additionally matches its case-insensitive internal aliases.
+    /// match against ``sideEffectingTools`` for every source; `copilot` and
+    /// `kiro` additionally match their case-insensitive internal aliases.
     /// Kept source-scoped so another agent's lowercase tool name is not
     /// escalated into an approval.
     static func isSideEffectingTool(_ toolName: String, source: String) -> Bool {
         guard !toolName.isEmpty else { return false }
         if sideEffectingTools.contains(toolName) {
             return true
+        }
+        if source == "copilot" {
+            return copilotSideEffectingToolAliases.contains(toolName.lowercased())
         }
         if source == "kiro" {
             return kiroSideEffectingToolAliases.contains(toolName.lowercased())

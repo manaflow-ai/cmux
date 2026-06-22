@@ -315,11 +315,13 @@ extension CMUXCLI {
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
             hookMarker: "cmux hooks copilot", format: .copilotJSON(timeoutSeconds: 5),
             events: [
-                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+                .init(agentEvent: "sessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "userPromptSubmitted", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "agentStop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "errorOccurred", cmuxSubcommand: "stop"),
+                .init(agentEvent: "sessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["preToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",
