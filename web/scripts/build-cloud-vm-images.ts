@@ -22,12 +22,15 @@ const STRICT_SEMVER_RE =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 const CLOUD_SHELL_PACKAGES = [
   "bash",
+  "btop",
   "ca-certificates",
   "curl",
   "dirmngr",
+  "gh",
   "git",
   "gnupg",
   "gpg-agent",
+  "htop",
   "libssl3t64",
   "locales",
   "openssl",
@@ -372,6 +375,9 @@ export function cloudImageSmokeTestCommands(): string[] {
   );
   return [
     "openssl version -a >/tmp/cmux-openssl-version.txt 2>&1",
+    "gh --version >/tmp/cmux-gh-version.txt 2>&1",
+    "htop --version >/tmp/cmux-htop-version.txt 2>&1",
+    "btop --version >/tmp/cmux-btop-version.txt 2>&1",
     "python3 -X faulthandler -c 'import ssl; print(ssl.OPENSSL_VERSION)'",
     "python3 -m http.server --help >/dev/null",
     "node --version >/tmp/cmux-node-version.txt 2>&1",

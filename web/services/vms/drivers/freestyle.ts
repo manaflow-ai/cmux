@@ -307,6 +307,43 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  async fork(vmId: string): Promise<VMHandle> {
+    return withVmSpan(
+      "cmux.vm.provider.fork",
+      {
+        "cmux.vm.provider": "freestyle",
+        "cmux.vm.operation": "fork",
+        "cmux.vm.id": vmId,
+        "cmux.timeout_ms": SNAPSHOT_TIMEOUT_MS,
+      },
+      async (span) => {
+        try {
+          const fs = client(SNAPSHOT_TIMEOUT_MS);
+          const ref = fs.vms.ref({ vmId });
+          const out = await ref.fork({ count: 1 });
+          const fork = out.forks[0];
+          if (!fork) throw new Error("fork response contained no child VM");
+          const info = await fork.vm.getInfo();
+          const status = mapStatus(info.state);
+          setSpanAttributes(span, {
+            "cmux.vm.fork_id": fork.vmId,
+            "cmux.vm.provider_state": info.state,
+            "cmux.vm.status": status,
+          });
+          return {
+            provider: "freestyle",
+            providerVmId: fork.vmId,
+            status,
+            image: "freestyle:fork",
+            createdAt: Date.now(),
+          };
+        } catch (err) {
+          throw new ProviderError("freestyle", `fork(${vmId})`, err);
+        }
+      },
+    );
+  }
+
   /**
    * Prefer the baked cmuxd WebSocket daemon. Older VMs without an exposed 443 -> 7777 port
    * still fall back to Freestyle SSH, but the mac client must treat that as shell-only.

@@ -878,6 +878,30 @@ final class CommandPaletteAuthCommandTests: XCTestCase {
     }
 }
 
+final class CommandPaletteCloudCommandTests: XCTestCase {
+    func testCloudCommandPaletteIncludesCloudWorkspaceActions() {
+        let commandIds = Set(ContentView.commandPaletteCloudCommandContributions().map(\.commandId))
+
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudOpenCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudForkCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudSnapshotCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudRestoreCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPromoteTemplateCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudStatusCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudPortsCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudToolsCommandId))
+        XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
+    }
+
+    func testCloudVMIdParsingUsesFreestyleGatewayDestination() {
+        XCTAssertEqual(
+            AppDelegate.cloudVMId(fromRemoteDestination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh"),
+            "nncop8f8h6w9blhns6sy"
+        )
+        XCTAssertNil(AppDelegate.cloudVMId(fromRemoteDestination: "lawrence@example.com"))
+    }
+}
+
 
 final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
     func testFirstEntryPinsToTopAnchor() {

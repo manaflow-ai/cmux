@@ -11,7 +11,7 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let items = try await VMClient.shared.list()
                 return [
-                    "vms": items.map { ["id": $0.id, "provider": $0.provider, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
+                    "vms": items.map(Self.socketWorkerVMSummaryPayload),
                 ]
             }
         case "vm.create":
@@ -27,7 +27,51 @@ extension TerminalController {
             }
             return v2VmCall(id: id) {
                 let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
-                return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.status":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.status requires `id`. Run `cmux vm ls` to find one.")
+            }
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.status(id: vmId)
+                return Self.socketWorkerVMSummaryPayload(vm)
+            }
+        case "vm.snapshot":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.snapshot requires `id`. Run `cmux vm ls` to find one.")
+            }
+            let name = Self.socketWorkerString(params["name"])
+            return v2VmCall(id: id) {
+                let snapshot = try await VMClient.shared.snapshot(id: vmId, name: name)
+                return ["id": snapshot.id, "snapshot_id": snapshot.id, "name": snapshot.name ?? NSNull(), "created_at": snapshot.createdAt]
+            }
+        case "vm.fork":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.fork requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let idempotencyKey = Self.socketWorkerString(params["idempotency_key"]), !idempotencyKey.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.fork requires `idempotency_key`. Use `cmux vm fork` instead of calling the socket method directly.")
+            }
+            let name = Self.socketWorkerString(params["name"])
+            return v2VmCall(id: id) {
+                let result = try await VMClient.shared.fork(id: vmId, name: name, idempotencyKey: idempotencyKey)
+                var payload = Self.socketWorkerVMSummaryPayload(result.vm)
+                payload["snapshot_id"] = result.snapshot?.id ?? NSNull()
+                return payload
+            }
+        case "vm.restore":
+            guard let snapshotId = Self.socketWorkerString(params["snapshot_id"]) ?? Self.socketWorkerString(params["snapshotId"]),
+                  !snapshotId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.restore requires `snapshot_id`. Run `cmux vm snapshot <id>` first.")
+            }
+            guard let idempotencyKey = Self.socketWorkerString(params["idempotency_key"]), !idempotencyKey.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.restore requires `idempotency_key`. Use `cmux vm restore` instead of calling the socket method directly.")
+            }
+            let provider = Self.socketWorkerString(params["provider"])
+            return v2VmCall(id: id) {
+                let vm = try await VMClient.shared.restore(snapshotID: snapshotId, provider: provider, idempotencyKey: idempotencyKey)
+                return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.destroy":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -124,6 +168,16 @@ extension TerminalController {
         ]
     }
 
+    private nonisolated static func socketWorkerVMSummaryPayload(_ vm: VMSummary) -> [String: Any] {
+        [
+            "id": vm.id,
+            "provider": vm.provider,
+            "image": vm.image,
+            "status": vm.status ?? NSNull(),
+            "createdAt": vm.createdAt,
+        ]
+    }
+
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {
         guard let array = raw as? [Any] else { return [] }
         return array.compactMap { socketWorkerString($0) }
@@ -131,6 +185,7 @@ extension TerminalController {
 
     private nonisolated static func socketWorkerSSHInfoPayload(_ endpoint: VMSSHEndpoint) -> [String: Any] {
         [
+            "transport": endpoint.transport,
             "host": endpoint.host,
             "port": endpoint.port,
             "username": endpoint.username,
@@ -142,9 +197,7 @@ extension TerminalController {
     private nonisolated static func socketWorkerAttachInfoPayload(_ endpoint: VMAttachEndpoint) -> [String: Any] {
         switch endpoint {
         case .ssh(let ssh):
-            var payload = socketWorkerSSHInfoPayload(ssh)
-            payload["transport"] = "ssh"
-            return payload
+            return socketWorkerSSHInfoPayload(ssh)
         case .websocket(let websocket):
             var payload: [String: Any] = [
                 "transport": "websocket",

@@ -3067,6 +3067,93 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(roundTrip.panels.first?.terminal?.remotePTYSessionID)
     }
 
+    func testSessionSnapshotRestoresDefaultFreestyleSSHDAsSelfHealingAttach() throws {
+        let snapshot = SessionRemoteWorkspaceSnapshot(
+            transport: .ssh,
+            destination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=no",
+                "UserKnownHostsFile=/dev/null",
+                "LogLevel=ERROR",
+            ],
+            preserveAfterTerminalExit: nil,
+            skipDaemonBootstrap: true,
+            relayPort: nil,
+            persistentDaemonSlot: nil
+        )
+
+        let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
+        let terminalStartupCommand = try XCTUnwrap(configuration.terminalStartupCommand)
+
+        XCTAssertEqual(configuration.preserveAfterTerminalExit, true)
+        XCTAssertEqual(configuration.persistentDaemonSlot, "cmux-default-freestyle-sshd-v1")
+        XCTAssertEqual(configuration.skipDaemonBootstrap, true)
+        XCTAssertNil(configuration.relayPort)
+        XCTAssertNil(configuration.localSocketPath)
+        XCTAssertFalse(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("ssh -p 22"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("vm ssh-attach"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("--id nncop8f8h6w9blhns6sy"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("--default-freestyle-sshd"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("CMUX_SSH_RECONNECT_LIMIT"), terminalStartupCommand)
+    }
+
+    func testSessionRestoreDropsStalePTYSessionForDefaultFreestyleSSHD() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("sshd")
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=no",
+                "UserKnownHostsFile=/dev/null",
+            ],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "old raw ssh attach",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let originalPanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+
+        var legacySnapshot = manager.sessionSnapshot(includeScrollback: false)
+        let workspaceIndex = try XCTUnwrap(
+            legacySnapshot.workspaces.firstIndex { $0.customTitle == "sshd" }
+        )
+        let panelIndex = try XCTUnwrap(
+            legacySnapshot.workspaces[workspaceIndex].panels.firstIndex { $0.id == originalPanelId }
+        )
+        legacySnapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.remotePTYSessionID = "ssh-stale-session"
+        legacySnapshot.workspaces[workspaceIndex].panels[panelIndex].terminal?.isRemoteTerminal = false
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(legacySnapshot)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "sshd" })
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredInitialCommand = try XCTUnwrap(
+            restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
+        )
+        XCTAssertFalse(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
+        XCTAssertFalse(restoredInitialCommand.contains("ssh-stale-session"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("vm ssh-attach"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("--default-freestyle-sshd"), restoredInitialCommand)
+        XCTAssertEqual(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == restoredPanelId }?.terminal?.remotePTYSessionID,
+            nil
+        )
+    }
+
     func testSessionRemoteWorkspaceSnapshotRequiresPersistentDaemonSlotForPTYRestore() throws {
         let snapshot = SessionRemoteWorkspaceSnapshot(
             transport: .ssh,

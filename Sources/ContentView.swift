@@ -6321,6 +6321,7 @@ struct ContentView: View {
         }
 
         var contributions: [CommandPaletteCommandContribution] = []
+        contributions.append(contentsOf: Self.commandPaletteCloudCommandContributions())
 
         contributions.append(
             CommandPaletteCommandContribution(
@@ -7693,6 +7694,7 @@ struct ContentView: View {
         }
         registerViewCommandHandlers(&registry)
         registerCanvasCommandHandlers(&registry)
+        registerCloudCommandHandlers(&registry)
         registry.register(commandId: "palette.showNotifications") {
             AppDelegate.shared?.toggleNotificationsPopover(animated: false)
         }

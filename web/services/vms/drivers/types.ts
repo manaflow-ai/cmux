@@ -88,6 +88,7 @@ export interface VMProvider {
 
   snapshot(vmId: string, name?: string): Promise<SnapshotRef>;
   restore(snapshotId: string): Promise<VMHandle>;
+  fork?(vmId: string): Promise<VMHandle>;
 
   // Returns a live attach endpoint the client can dial into. Providers prefer cmuxd-remote
   // WebSocket PTY with a short-lived one-use lease, with provider-specific fallbacks.

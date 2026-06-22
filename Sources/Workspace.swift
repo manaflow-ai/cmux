@@ -524,8 +524,10 @@ extension Workspace {
                 },
                 resumeBinding: resumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
-                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
-                remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
+                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId) || isDefaultFreestyleSSHDRemoteWorkspace,
+                remotePTYSessionID: isDefaultFreestyleSSHDRemoteWorkspace
+                    ? nil
+                    : remotePTYSessionIDForSnapshot(panelId: panelId),
                 wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
@@ -1263,6 +1265,9 @@ extension Workspace {
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
             let restoredRemotePTYSessionID: String? = {
+                guard !isDefaultFreestyleSSHDRemoteWorkspace else {
+                    return nil
+                }
                 guard remoteConfiguration?.preserveAfterTerminalExit == true,
                       remoteConfiguration?.persistentDaemonSlot != nil else {
                     return nil
@@ -1278,6 +1283,9 @@ extension Workspace {
             let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map {
                 remotePTYAttachStartupCommand(sessionID: $0)
             }
+            let snapshotIsRemoteTerminal =
+                snapshot.terminal?.isRemoteTerminal == true ||
+                isDefaultFreestyleSSHDRemoteWorkspace
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript?.path
@@ -1295,10 +1303,11 @@ extension Workspace {
             let suppressWorkspaceRemoteStartupCommand =
                 remoteConfiguration != nil &&
                 snapshot.terminal?.isRemoteTerminal == false &&
-                restoredRemotePTYAttachCommand == nil
+                restoredRemotePTYAttachCommand == nil &&
+                !isDefaultFreestyleSSHDRemoteWorkspace
             let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
             let restoresRemoteWorkspaceTerminalSnapshot =
-                remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal == true
+                remoteConfiguration != nil && snapshotIsRemoteTerminal
             let localWorkingDirectory = effectiveRemoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
@@ -5599,20 +5608,48 @@ final class Workspace: Identifiable, ObservableObject {
         controller.start()
     }
 
-    func reconnectRemoteConnection(surfaceId: UUID? = nil) {
-        guard let configuration = remoteConfiguration else { return }
-        let reconnectingPlaceholderSurfaceId = surfaceId.flatMap { candidate -> UUID? in
-            guard remoteDisconnectPlaceholderPanelIds.contains(candidate),
-                  panels[candidate] is TerminalPanel else {
-                return nil
+    @discardableResult
+    func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
+        guard let configuration = remoteConfiguration else { return false }
+        var didRespawnTerminal = false
+        if let startupCommand = configuration.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !startupCommand.isEmpty,
+           let reconnectingSurfaceId = remoteReconnectTerminalSurfaceId(requestedSurfaceId: surfaceId) {
+            let shouldRespawnSurface =
+                surfaceId != nil ||
+                remoteDisconnectPlaceholderPanelIds.contains(reconnectingSurfaceId) ||
+                !activeRemoteTerminalSurfaceIds.contains(reconnectingSurfaceId) ||
+                activeRemoteTerminalSurfaceIds.isEmpty ||
+                remoteConnectionState != .connected
+            remoteDisconnectPlaceholderPanelIds.remove(reconnectingSurfaceId)
+            if shouldRespawnSurface {
+                didRespawnTerminal = respawnTerminalSurface(
+                    panelId: reconnectingSurfaceId,
+                    command: startupCommand,
+                    tmuxStartCommand: startupCommand,
+                    waitAfterCommand: true
+                ) != nil
             }
-            return candidate
-        }
-        if let reconnectingPlaceholderSurfaceId {
-            remoteDisconnectPlaceholderPanelIds.remove(reconnectingPlaceholderSurfaceId)
-            trackRemoteTerminalSurface(reconnectingPlaceholderSurfaceId)
+            trackRemoteTerminalSurface(reconnectingSurfaceId)
         }
         configureRemoteConnection(configuration, autoConnect: true)
+        return didRespawnTerminal
+    }
+
+    private func remoteReconnectTerminalSurfaceId(requestedSurfaceId: UUID?) -> UUID? {
+        if let requestedSurfaceId,
+           panels[requestedSurfaceId] is TerminalPanel {
+            return requestedSurfaceId
+        }
+        if let focusedPanelId,
+           panels[focusedPanelId] is TerminalPanel {
+            return focusedPanelId
+        }
+        let terminalPanelIds = panels.compactMap { panelId, panel in
+            panel is TerminalPanel ? panelId : nil
+        }
+        return terminalPanelIds.count == 1 ? terminalPanelIds.first : nil
     }
 
     private static func normalizedForegroundAuthToken(_ token: String?) -> String? {
@@ -6112,6 +6149,15 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    private var isDefaultFreestyleSSHDRemoteWorkspace: Bool {
+        guard remoteConfiguration?.skipDaemonBootstrap == true,
+              remoteConfiguration?.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1",
+              remoteConfiguration?.destination.hasSuffix("+cmux@vm-ssh.freestyle.sh") == true else {
+            return false
+        }
+        return true
+    }
+
     func discardRemotePTYSessionID(panelId: UUID) {
         remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
         endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
@@ -6150,8 +6196,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func markPersistentRemotePTYAttachFailed(surfaceId: UUID) {
-        guard remoteConfiguration?.preserveAfterTerminalExit == true else { return }
+        guard let configuration = remoteConfiguration,
+              configuration.preserveAfterTerminalExit == true else { return }
 
+        rememberPendingRemoteDisconnectReplacement(configuration: configuration)
+        remoteDisconnectPlaceholderPanelIds.insert(surfaceId)
         remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
         endedPersistentRemotePTYAttachSurfaceIds.remove(surfaceId)
         removeRemoteRelaySurfaceAliases(targeting: surfaceId)
@@ -6162,6 +6211,7 @@ final class Workspace: Identifiable, ObservableObject {
             activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         }
         syncRemotePortScanTTYs()
+        disconnectRemoteConnectionAfterTerminalExit()
         applyBrowserRemoteWorkspaceStatusToPanels()
     }
 
@@ -7439,7 +7489,8 @@ final class Workspace: Identifiable, ObservableObject {
         command: String,
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        waitAfterCommand: Bool = false
     ) -> TerminalPanel? {
         guard let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
@@ -7450,7 +7501,12 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else { return nil }
 
-        let inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        if waitAfterCommand {
+            var config = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            config.waitAfterCommand = true
+            inheritedConfig = config
+        }
         let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
             sourcePanelId: panelId

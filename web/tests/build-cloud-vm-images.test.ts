@@ -114,6 +114,13 @@ describe("Cloud VM image build helpers", () => {
     expect(browserSmoke).toContain("requires a subcommand");
   });
 
+  test("image smoke checks include useful shell tools", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+    expect(smoke).toContain("gh --version");
+    expect(smoke).toContain("htop --version");
+    expect(smoke).toContain("btop --version");
+  });
+
   test("snapshot recovery window tolerates provider clock skew", () => {
     expect(freestyleRecoveryWindowStart(new Date("2026-05-09T05:00:00.000Z"))).toBe(
       "2026-05-09T04:58:00.000Z",

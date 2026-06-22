@@ -207,12 +207,37 @@ struct RemotePortScanGatingTests {
         coordinator.stop()
     }
 
+    @Test("Baked VM preflight ignores persistent PTY capabilities")
+    func bakedVMPreflightIgnoresPersistentPTYCapabilities() {
+        let runner = SpyProcessRunner()
+        let coordinator = Self.makeCoordinator(
+            runner: runner,
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+
+        #expect(coordinator.requiredDaemonCapabilities == [
+            "proxy.stream.push",
+            "pty.session",
+            "pty.session.token",
+            "pty.write.notification",
+            "pty.resize.notification",
+            "pty.session.persistent_daemon",
+        ])
+        #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
+        coordinator.stop()
+    }
+
     // MARK: - Harness
 
     private static func makeCoordinator(
         runner: SpyProcessRunner,
         terminalStartupCommand: String? = nil,
-        relayPort: Int? = nil
+        relayPort: Int? = nil,
+        preserveAfterTerminalExit: Bool = false,
+        persistentDaemonSlot: String? = nil,
+        skipDaemonBootstrap: Bool = false
     ) -> RemoteSessionCoordinator {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "user@example.test",
@@ -225,8 +250,9 @@ struct RemotePortScanGatingTests {
             relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: terminalStartupCommand,
-            preserveAfterTerminalExit: false,
-            persistentDaemonSlot: nil
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
         )
         return RemoteSessionCoordinator(
             host: NoopRemoteSessionHost(),

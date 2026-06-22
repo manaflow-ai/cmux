@@ -103,8 +103,18 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
 
     /// `destination` or `destination:port` for user-facing status text.
     public var displayTarget: String {
+        if isManagedCloudVMSSHD {
+            return "cloud VM"
+        }
         guard let port else { return destination }
         return "\(destination):\(port)"
+    }
+
+    private var isManagedCloudVMSSHD: Bool {
+        skipDaemonBootstrap &&
+            persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
+            destination.trimmingCharacters(in: .whitespacesAndNewlines)
+                .hasSuffix("+cmux@vm-ssh.freestyle.sh")
     }
 
     /// The stable key the proxy broker uses to share one daemon tunnel across
