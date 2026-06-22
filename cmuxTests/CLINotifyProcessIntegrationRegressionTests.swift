@@ -159,7 +159,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let result = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "pre-tool-use"],
-            standardInput: #"{"session_id":"exitplan-session","cwd":"\#(context.root.path)","permission_mode":"bypassPermissions","hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"# Plan: echo hi\n\n## Step\n1. Run echo hi"}}"#
+            // Use ##"…"## delimiters: the plan text contains `"#`, which would
+            // otherwise close a #"…"# raw string early.
+            standardInput: ##"{"session_id":"exitplan-session","cwd":"\##(context.root.path)","permission_mode":"bypassPermissions","hook_event_name":"PreToolUse","tool_name":"ExitPlanMode","tool_input":{"plan":"# Plan: echo hi\n\n## Step\n1. Run echo hi"}}"##
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
@@ -180,12 +182,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context.state.commands.contains { $0.hasPrefix("set_status claude_code Running ") },
             "ExitPlanMode PreToolUse must not set a Running status while blocked on plan approval, saw \(context.state.commands)"
         )
+        // Assert on the bell icon rather than the status text, which is localized.
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Needs input ")
+                $0.hasPrefix("set_status claude_code ")
+                    && $0.contains("--icon=bell.fill")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "ExitPlanMode under bypassPermissions must publish a Needs input status (no PermissionRequest/Notification follows), saw \(context.state.commands)"
+            "ExitPlanMode under bypassPermissions must publish a needs-input (bell) status (no PermissionRequest/Notification follows), saw \(context.state.commands)"
         )
         XCTAssertTrue(
             context.state.commands.contains {
@@ -237,12 +241,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             context.state.commands.contains { $0.hasPrefix("set_status claude_code Running ") },
             "AskUserQuestion PreToolUse must not set a Running status, saw \(context.state.commands)"
         )
+        // Assert on the bell icon rather than the status text, which is localized.
         XCTAssertTrue(
             context.state.commands.contains {
-                $0.hasPrefix("set_status claude_code Needs input ")
+                $0.hasPrefix("set_status claude_code ")
+                    && $0.contains("--icon=bell.fill")
                     && $0.contains("--panel=\(context.surfaceId)")
             },
-            "AskUserQuestion under bypassPermissions must publish a Needs input status, saw \(context.state.commands)"
+            "AskUserQuestion under bypassPermissions must publish a needs-input (bell) status, saw \(context.state.commands)"
         )
         XCTAssertTrue(
             context.state.commands.contains {
