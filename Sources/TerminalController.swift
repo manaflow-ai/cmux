@@ -4216,38 +4216,19 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     private nonisolated func v2BrowserGetText(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "get.text") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              return { ok: true, value: String(el.innerText || el.textContent || '') };
-            })()
-            """
+            v2BrowserControl.getTextScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserGetHTML(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "get.html") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              return { ok: true, value: String(el.outerHTML || '') };
-            })()
-            """
+            v2BrowserControl.getHTMLScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserGetValue(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "get.value") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              const value = ('value' in el) ? el.value : (el.textContent || '');
-              return { ok: true, value: String(value || '') };
-            })()
-            """
+            v2BrowserControl.getValueScript(selectorLiteral: selectorLiteral)
         }
     }
 
@@ -4256,14 +4237,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return .err(code: "invalid_params", message: "Missing attr/name", data: nil)
         }
         return v2BrowserSelectorAction(params: params, actionName: "get.attr") { selectorLiteral in
-            let attrLiteral = v2JSONLiteral(attr)
-            return """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              return { ok: true, value: el.getAttribute(String(\(attrLiteral))) };
-            })()
-            """
+            v2BrowserControl.getAttrScript(selectorLiteral: selectorLiteral, attrLiteral: v2JSONLiteral(attr))
         }
     }
 
@@ -4276,8 +4250,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = "document.querySelectorAll(\(selectorLiteral)).length"
+            let script = v2BrowserControl.getCountScript(selectorLiteral: v2JSONLiteral(selector))
             switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
@@ -4296,14 +4269,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     private nonisolated func v2BrowserGetBox(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "get.box") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              const r = el.getBoundingClientRect();
-              return { ok: true, value: { x: r.x, y: r.y, width: r.width, height: r.height, top: r.top, left: r.left, right: r.right, bottom: r.bottom } };
-            })()
-            """
+            v2BrowserControl.getBoxScript(selectorLiteral: selectorLiteral)
         }
     }
 
@@ -4311,73 +4277,30 @@ class TerminalController: MobileViewportSurfaceLimiting {
         let property = v2String(params, "property")
         return v2BrowserSelectorAction(params: params, actionName: "get.styles") { selectorLiteral in
             if let property {
-                let propLiteral = v2JSONLiteral(property)
-                return """
-                (() => {
-                  const el = document.querySelector(\(selectorLiteral));
-                  if (!el) return { ok: false, error: 'not_found' };
-                  const style = getComputedStyle(el);
-                  return { ok: true, value: style.getPropertyValue(String(\(propLiteral))) };
-                })()
-                """
+                return v2BrowserControl.getStylesPropertyScript(
+                    selectorLiteral: selectorLiteral,
+                    propertyLiteral: v2JSONLiteral(property)
+                )
             }
-            return """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              const style = getComputedStyle(el);
-              return { ok: true, value: {
-                display: style.display,
-                visibility: style.visibility,
-                opacity: style.opacity,
-                color: style.color,
-                background: style.background,
-                width: style.width,
-                height: style.height
-              } };
-            })()
-            """
+            return v2BrowserControl.getStylesSummaryScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserIsVisible(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "is.visible") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              const style = getComputedStyle(el);
-              const rect = el.getBoundingClientRect();
-              const visible = style.display !== 'none' && style.visibility !== 'hidden' && parseFloat(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
-              return { ok: true, value: visible };
-            })()
-            """
+            v2BrowserControl.isVisibleScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserIsEnabled(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "is.enabled") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              const enabled = !el.disabled;
-              return { ok: true, value: !!enabled };
-            })()
-            """
+            v2BrowserControl.isEnabledScript(selectorLiteral: selectorLiteral)
         }
     }
 
     private nonisolated func v2BrowserIsChecked(params: [String: Any]) -> V2CallResult {
         v2BrowserSelectorAction(params: params, actionName: "is.checked") { selectorLiteral in
-            """
-            (() => {
-              const el = document.querySelector(\(selectorLiteral));
-              if (!el) return { ok: false, error: 'not_found' };
-              const checked = ('checked' in el) ? !!el.checked : false;
-              return { ok: true, value: checked };
-            })()
-            """
+            v2BrowserControl.isCheckedScript(selectorLiteral: selectorLiteral)
         }
     }
 
@@ -5060,21 +4983,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             guard let selector = v2BrowserResolveSelector(rawSelector, surfaceId: surfaceId) else {
                 return .elementRefNotFound(rawSelector: rawSelector)
             }
-            let selectorLiteral = v2JSONLiteral(selector)
-            let script = """
-            (() => {
-              const frame = document.querySelector(\(selectorLiteral));
-              if (!frame) return { ok: false, error: 'not_found' };
-              if (!('contentDocument' in frame)) return { ok: false, error: 'not_frame' };
-              try {
-                const sameOrigin = !!frame.contentDocument;
-                if (!sameOrigin) return { ok: false, error: 'cross_origin' };
-              } catch (_) {
-                return { ok: false, error: 'cross_origin' };
-              }
-              return { ok: true };
-            })()
-            """
+            let script = v2BrowserControl.frameSelectProbeScript(selectorLiteral: v2JSONLiteral(selector))
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script) {
             case .failure(let message):
                 return .jsError(message: message)
