@@ -422,7 +422,7 @@
           "type": "boolean",
           "default": false,
           "descriptionKey": "schemaDescriptions.terminal.copyOnSelect",
-          "description": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click."
+          "description": "When true, copy selected terminal text to the system clipboard when the selection is committed. When false, cmux does not emit a Ghostty copy-on-select override; Ghostty config and defaults control selection-clipboard behavior."
         },
         "autoResumeAgentSessions": {
           "type": "boolean",
