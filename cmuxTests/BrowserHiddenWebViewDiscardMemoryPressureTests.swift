@@ -74,12 +74,22 @@ private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot() -> BrowserH
 private func withMemoryPressureHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
     let defaults = UserDefaults.standard
     let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    let previousHiddenDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
     defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+    defaults.set(
+        BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
+        forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
+    )
     defer {
         if let previousEnabled {
             defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         } else {
             defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        }
+        if let previousHiddenDelay {
+            defaults.set(previousHiddenDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
         }
     }
     body()
