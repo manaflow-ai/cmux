@@ -1444,6 +1444,7 @@ extension Workspace {
             let restorableClaudeResume = restorableAgent?.kind == .claude
                 && (restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput)
             let bindingClaudeResume = restoredBindingLaunch != nil
+                && resumeBinding?.isAgentHookBinding == true
                 && RestorableAgentKind(rawValue: resumeBinding?.kind ?? "") == .claude
             let armsClaudeResume = restorableClaudeResume || bindingClaudeResume
             if armsClaudeResume {

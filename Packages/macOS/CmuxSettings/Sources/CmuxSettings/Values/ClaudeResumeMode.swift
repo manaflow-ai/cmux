@@ -14,9 +14,10 @@ public enum ClaudeResumeMode: String, CaseIterable, Sendable, Identifiable, Sett
 
     public var id: String { rawValue }
 
-    /// Tolerant parse shared by every configuration surface (`cmux.json`,
-    /// `settings.json`, the control socket): trims whitespace and accepts a few
-    /// natural spellings case-insensitively.
+    /// Parse shared by every configuration surface (`cmux.json`, `settings.json`,
+    /// the control socket): trims whitespace and accepts only the exact schema
+    /// enum values (`ask`/`full`/`summary`) case-insensitively; anything else is
+    /// rejected so out-of-schema config is reported invalid.
     public init?(rawString: String?) {
         guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
