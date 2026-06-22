@@ -10,17 +10,89 @@ extension SurfaceResumeBindingSnapshot {
     static func sanitizedStartupCommand(
         _ command: String,
         cwd: String?,
-        kind: String?,
         source: String?
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard source == "agent-hook" else { return trimmed }
-        let canonicalCommand = TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
+        return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
             in: trimmed,
             workingDirectory: cwd
         )
+    }
+
+    func inlineStartupInput(repairPortableAgentExecutable: Bool) -> String? {
+        let trimmed = resolvedStartupCommand(
+            repairPortableAgentExecutable: repairPortableAgentExecutable
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let environment, !environment.isEmpty else {
+            return trimmed + "\n"
+        }
+        let assignments = environment.keys.sorted().compactMap { key -> String? in
+            guard let value = environment[key] else { return nil }
+            return "\(key)=\(value)"
+        }
+        let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
+        return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
+    }
+
+    func startupInputWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true,
+        repairPortableAgentExecutable: Bool
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput(
+            repairPortableAgentExecutable: repairPortableAgentExecutable
+        ) else { return nil }
+        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+            return inlineInput
+        }
+        guard allowLauncherScript else { return inlineInput }
+        guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+            inlineInput: inlineInput,
+            binding: self,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        ) else {
+            return nil
+        }
+
+        let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
+        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+
+    func remoteStartupInputWithLauncherScript(allowLauncherScript: Bool = false) -> String? {
+        startupInputWithLauncherScript(
+            allowLauncherScript: allowLauncherScript,
+            repairPortableAgentExecutable: false
+        )
+    }
+
+    func startupCommandWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        repairPortableAgentExecutable: Bool
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput(repairPortableAgentExecutable: repairPortableAgentExecutable),
+              let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+                  inlineInput: inlineInput,
+                  binding: self,
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  returnToLoginShell: true
+              ) else {
+            return nil
+        }
+        return "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))"
+    }
+
+    private func resolvedStartupCommand(repairPortableAgentExecutable: Bool) -> String {
+        guard repairPortableAgentExecutable, isAgentHookBinding else {
+            return startupCommand
+        }
         return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
-            in: canonicalCommand,
+            in: startupCommand,
             kind: kind
         )
     }

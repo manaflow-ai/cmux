@@ -43,11 +43,13 @@ import Testing
         }
         """
         let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
+        let startupInput = try #require(binding.startupInput)
 
-        #expect(binding.command.contains("/bin/sh -c"), "\(binding.command)")
-        #expect(binding.command.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(binding.command)")
-        #expect(binding.command.contains("--resume"), "\(binding.command)")
-        #expect(!binding.command.contains(executablePath), "\(binding.command)")
+        #expect(binding.command.contains(executablePath), "\(binding.command)")
+        #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("--resume"), "\(startupInput)")
+        #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
     @Test func agentHookBindingRewritesSupportedLocalManagedExecutablePaths() throws {
@@ -137,13 +139,14 @@ import Testing
             source: "agent-hook",
             autoResume: true
         )
+        let startupInput = try #require(binding.startupInput)
 
         #expect(
-            binding.command.contains("CMUX_TRACE='bar baz' claude '--resume' 'session-env-cli'"),
-            "\(binding.command)"
+            startupInput.contains("CMUX_TRACE='bar baz' claude '--resume' 'session-env-cli'"),
+            "\(startupInput)"
         )
-        #expect(!binding.command.contains("'CMUX_TRACE=bar baz'"), "\(binding.command)")
-        #expect(!binding.command.contains(staleExecutablePath), "\(binding.command)")
+        #expect(!startupInput.contains("'CMUX_TRACE=bar baz'"), "\(startupInput)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
     @Test func agentHookClaudeBindingWithShellOperatorKeepsOriginalCommandShape() throws {
@@ -179,6 +182,39 @@ import Testing
 
         let startupInput = try #require(binding.startupInput)
         #expect(startupInput.contains("'\(remoteExecutablePath)' 'resume' 'session-remote-cli'"), "\(startupInput)")
+    }
+
+    @Test func remoteStartupInputPreservesLocalLookingManagedExecutablePaths() throws {
+        let executablePaths = [
+            Self.homeManagedExecutablePath(
+                executableName: "codex",
+                ".nvm",
+                "versions",
+                "node",
+                "cmux-missing-\(UUID().uuidString)",
+                "bin"
+            ),
+            "/tmp/cmux-cli-shims/\(UUID().uuidString)/codex",
+        ]
+
+        for executablePath in executablePaths {
+            let binding = SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "'\(executablePath)' 'resume' 'session-remote-local-looking-cli'",
+                checkpointId: "session-remote-local-looking-cli",
+                source: "agent-hook",
+                autoResume: true
+            )
+
+            let startupInput = try #require(binding.startupInputWithLauncherScript(
+                allowLauncherScript: false,
+                repairPortableAgentExecutable: false
+            ))
+            #expect(
+                startupInput.contains("'\(executablePath)' 'resume' 'session-remote-local-looking-cli'"),
+                "\(startupInput)"
+            )
+        }
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {

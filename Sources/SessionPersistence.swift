@@ -313,7 +313,6 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         self.command = Self.sanitizedStartupCommand(
             command,
             cwd: normalizedCwd,
-            kind: normalizedKind,
             source: normalizedSource
         )
         self.cwd = normalizedCwd
@@ -394,17 +393,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     }
 
     var inlineStartupInput: String? {
-        let trimmed = startupCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard let environment, !environment.isEmpty else {
-            return trimmed + "\n"
-        }
-        let assignments = environment.keys.sorted().compactMap { key -> String? in
-            guard let value = environment[key] else { return nil }
-            return "\(key)=\(value)"
-        }
-        let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
-        return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
+        inlineStartupInput(repairPortableAgentExecutable: true)
     }
 
     func startupInputWithLauncherScript(
@@ -488,7 +477,7 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         return sensitiveFragments.contains { uppercasedKey.contains($0) }
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
+    static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }

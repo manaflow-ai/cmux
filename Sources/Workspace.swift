@@ -1214,7 +1214,7 @@ extension Workspace {
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if remoteStartupCommand != nil {
                 effectiveResumeBindingForStartup?
-                    .startupInputWithLauncherScript(allowLauncherScript: false)
+                    .remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
                 effectiveResumeBindingForStartup.flatMap {
