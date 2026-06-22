@@ -831,6 +831,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
+    private var globalFontMagnificationObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
@@ -1450,6 +1451,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         installMainWindowKeyObserver()
         refreshGhosttyGotoSplitShortcuts()
         installGhosttyConfigObserver()
+        installGlobalFontMagnificationObserver()
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
@@ -1785,6 +1787,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        PortScanner.shared.setTrackedAgentScanningPaused(false)
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -1997,6 +2000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
+        PortScanner.shared.setTrackedAgentScanningPaused(true)
         clearConfiguredShortcutChordState()
         if Self.shouldSaveSessionSnapshotOnApplicationResign(isTerminatingApp: isTerminatingApp) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
@@ -2076,6 +2080,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guardrail.onRequestClosePane = { [weak self] workspaceId, panelId in
             _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
+        }
+        guardrail.onSystemMemoryPressure = { [weak self] in
+            self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
         }
         guardrail.start()
     }
@@ -3164,9 +3171,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !didPrepareStartupSessionSnapshot else { return }
         didPrepareStartupSessionSnapshot = true
         Self.removeLegacyPersistedWindowGeometry()
-        sessionSnapshotStore.syncManualRestoreSnapshotCache()
+        syncManualRestoreSnapshotCachePruningCrashDiagnostics()
+        let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
         guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot()
+        startupSessionSnapshot = sanitizedStartupSnapshot
+    }
+
+    private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+        guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
+        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
+        case .loaded(let snapshot):
+            if let prunedSnapshot = SessionPersistencePolicy
+                .pruningCmuxCrashDiagnosticWindows(from: snapshot)
+                .snapshot {
+                return prunedSnapshot
+            }
+            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+        case .missing:
+            if Self.hasCrashOnlyPrimarySnapshotRemovalMarker() {
+                return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+            }
+            return nil
+        case .unusable:
+            return loadManualRestoreSessionSnapshotPruningCrashDiagnostics()
+        }
+    }
+
+    private func loadManualRestoreSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
+        sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil).flatMap {
+            SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: $0).snapshot
+        }
     }
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
@@ -3352,6 +3386,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
+        guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
+            return false
+        }
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
@@ -3968,6 +4005,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
@@ -3998,16 +4036,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        guard let snapshot = buildSessionSnapshot(
+        let snapshotBuildResult = buildSessionSnapshotResult(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
             surfaceResumeBindingIndex: surfaceResumeBindingIndex
-        ) else {
+        )
+        guard let snapshot = snapshotBuildResult.snapshot else {
+            let preserveManualRestoreBackup =
+                preserveManualRestoreBackupOnMissingPrimary ||
+                snapshotBuildResult.removedCrashDiagnosticState
             persistSessionSnapshot(
                 nil,
-                removeWhenEmpty: removeWhenEmpty,
+                removeWhenEmpty: removeWhenEmpty || snapshotBuildResult.removedCrashDiagnosticState,
                 persistedGeometryData: nil,
-                synchronously: writeSynchronously
+                synchronously: writeSynchronously,
+                preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackup
             )
             return false
         }
@@ -4253,7 +4296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
-        removeWhenEmpty: Bool = false
+        removeWhenEmpty: Bool = false,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         let generation = nextProcessDetectedSessionSaveGeneration()
         Task { @MainActor [weak self] in
@@ -4264,6 +4308,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,
                 removeWhenEmpty: removeWhenEmpty,
+                preserveManualRestoreBackupOnMissingPrimary: preserveManualRestoreBackupOnMissingPrimary,
                 restorableAgentIndex: resumeIndexes.restorableAgentIndex,
                 surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
             )
@@ -4336,7 +4381,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
         persistedGeometryData: Data?,
-        synchronously: Bool
+        synchronously: Bool,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
@@ -4349,8 +4395,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if let snapshot {
+                Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
             } else if removeWhenEmpty {
+                if preserveManualRestoreBackupOnMissingPrimary {
+                    Self.markCrashOnlyPrimarySnapshotRemoval()
+                } else {
+                    Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+                }
                 self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
             }
         }
@@ -4380,39 +4432,65 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
+        buildSessionSnapshotResult(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: suppliedRestorableAgentIndex,
+            surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+        ).snapshot
+    }
+
+    private func buildSessionSnapshotResult(
+        includeScrollback: Bool,
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> (snapshot: AppSessionSnapshot?, removedCrashDiagnosticState: Bool) {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
-        guard !contexts.isEmpty else { return nil }
+        guard !contexts.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows = Array(
-            contexts.lazy.compactMap { context -> SessionWindowSnapshot? in
-                let snapshot = self.sessionWindowSnapshot(
-                    for: context,
-                    includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-                )
-                // A dedicated remote-tmux mirror window needs a live SSH control
-                // connection and should not restore as an empty shell. If the user
-                // dragged local workspaces into that window, keep those local
-                // workspaces: TabManager already prunes remote mirror workspaces
-                // from its snapshot.
-                if self.remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
-                   snapshot.tabManager.workspaces.isEmpty {
-                    return nil
-                }
-                return snapshot
+        var windows: [SessionWindowSnapshot] = []
+        var removedCrashDiagnosticState = false
+        let createdAt = Date().timeIntervalSince1970
+        for context in contexts {
+            let windowSnapshot = sessionWindowSnapshot(
+                for: context,
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            )
+            // A dedicated remote-tmux mirror window needs a live SSH control
+            // connection and should not restore as an empty shell. If the user
+            // dragged local workspaces into that window, keep those local
+            // workspaces: TabManager already prunes remote mirror workspaces
+            // from its snapshot.
+            if remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
+               windowSnapshot.tabManager.workspaces.isEmpty {
+                continue
             }
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-        )
 
-        guard !windows.isEmpty else { return nil }
-        return AppSessionSnapshot(
+            let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
+                from: AppSessionSnapshot(
+                    version: SessionSnapshotSchema.currentVersion,
+                    createdAt: createdAt,
+                    windows: [windowSnapshot]
+                )
+            )
+            removedCrashDiagnosticState = removedCrashDiagnosticState || pruned.removedAny
+            guard let prunedWindow = pruned.snapshot?.windows.first else { continue }
+            windows.append(prunedWindow)
+            if windows.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
+                break
+            }
+        }
+
+        guard !windows.isEmpty else { return (nil, removedCrashDiagnosticState) }
+        let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
-            createdAt: Date().timeIntervalSince1970,
+            createdAt: createdAt,
             windows: windows
         )
+        return (snapshot, removedCrashDiagnosticState)
     }
 
     private func sessionWindowSnapshot(
@@ -7754,7 +7832,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         FinderServicePathResolver.orderedUniqueDirectories(
             from: urls.filter { $0.isFileURL },
             excludingDescendantsOf: [Bundle.main.bundleURL]
-        )
+        ).filter {
+            !SessionPersistencePolicy.isCmuxCrashStoragePath($0)
+        }
     }
 
     private func externalOpenFileURLs(from urls: [URL]) -> [URL] {
@@ -7763,6 +7843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for url in urls where url.isFileURL && !externalOpenURLIsDirectory(url) {
             let standardized = url.standardizedFileURL.resolvingSymlinksInPath()
             guard !externalOpenURLIsDescendantOfCurrentBundle(standardized) else { continue }
+            guard !SessionPersistencePolicy.isCmuxCrashStorageURL(standardized) else { continue }
             let path = standardized.path(percentEncoded: false)
             guard seen.insert(path).inserted else { continue }
             fileURLs.append(url.standardizedFileURL)
@@ -8377,6 +8458,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // optional, so a nil runtime just leaves reads at their seeded
             // catalog default.
             .environment(\.settingsRuntime, settingsRuntime)
+            .cmuxFontMagnificationEnvironment()
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
@@ -12272,7 +12354,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // here would swallow the first stroke and leave the second one
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
-            guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            guard action != .showHideAllWindows && action != .globalSearch && action.allowsChordShortcut else { return false }
             guard !action.isBrowserContentShortcut else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
@@ -12317,6 +12399,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             self?.refreshGhosttyGotoSplitShortcuts()
+        }
+    }
+
+    private func installGlobalFontMagnificationObserver() {
+        guard globalFontMagnificationObserver == nil else { return }
+        globalFontMagnificationObserver = NotificationCenter.default.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            GhosttyConfig.invalidateLoadCache()
+            MainActor.assumeIsolated {
+                self?.reloadConfiguration(
+                    source: "globalFontMagnificationDidChange",
+                    reloadSettingsFromFile: false
+                )
+            }
         }
     }
 
@@ -12936,6 +13035,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
 #endif
             return false
+        }
+        if handleFocusedFileExplorerOpenSelectionShortcut(
+            event,
+            preferredWindow: mainWindowForShortcutEvent(event) ?? resolvedShortcutEventWindow(event) ?? shortcutRoutingActiveWindow
+        ) {
+            return true
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
@@ -15159,7 +15264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        for action in KeyboardShortcutSettings.Action.allCases {
+        for action in KeyboardShortcutSettings.Action.allCases where canCurrentShortcutPreventStaleMenuSuppression(action) {
             if currentShortcutMatchesKeyboardShortcutEvent(event, action: action) {
                 return false
             }
@@ -15179,7 +15284,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
-        action != .showHideAllWindows && action != .globalSearch && action != .clearScreenKeepScrollback
+        action != .showHideAllWindows
+            && action != .globalSearch
+            && action != .clearScreenKeepScrollback
+            && action != .fileExplorerOpenSelection
+            && action != .fileExplorerOpenSelectionFinderAlias
+    }
+
+    private func canCurrentShortcutPreventStaleMenuSuppression(_ action: KeyboardShortcutSettings.Action) -> Bool {
+        action != .fileExplorerOpenSelection && action != .fileExplorerOpenSelectionFinderAlias
     }
 
     private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
@@ -15784,8 +15897,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
         let closingContext = contextForMainTerminalWindow(window, reindex: false)
+        let closingWindowIsCrashDiagnostic = closingContext.map { context in
+            closeWindowSnapshotPruningCrashDiagnostics(
+                for: context,
+                includeScrollback: false,
+                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
+            )
+                .isCrashDiagnostic
+        } ?? false
 
-        if let closingContext {
+        if let closingContext, !closingWindowIsCrashDiagnostic {
             recordClosedWindowHistoryIfNeeded(for: closingContext)
         }
 
@@ -15823,8 +15944,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
-            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+                includeScrollback: false,
+                removeWhenEmpty: closingWindowIsCrashDiagnostic,
+                preserveManualRestoreBackupOnMissingPrimary: closingWindowIsCrashDiagnostic
+            )
         }
+    }
+
+    private func closeWindowSnapshotPruningCrashDiagnostics(
+        for context: MainWindowContext,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex
+    ) -> (snapshot: SessionWindowSnapshot?, isCrashDiagnostic: Bool) {
+        let windowSnapshot = sessionWindowSnapshot(
+            for: context,
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex
+        )
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
+            from: AppSessionSnapshot(
+                version: SessionSnapshotSchema.currentVersion,
+                createdAt: Date().timeIntervalSince1970,
+                windows: [windowSnapshot]
+            )
+        )
+        return (
+            pruned.snapshot?.windows.first,
+            pruned.removedAny && pruned.snapshot == nil
+        )
     }
 
     private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
@@ -15834,23 +15982,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
-        // Closing the last tab closes the window, recording undo history. Prefer the warm
-        // cached agent index over a synchronous `RestorableAgentSessionIndex.load()` so the
-        // close does not freeze the main thread; fall back to a fresh load only while the
-        // cache has not loaded yet (see closedPanelHistoryEntry).
-        let snapshot = sessionWindowSnapshot(
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? RestorableAgentSessionIndex.load()
+        guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
             includeScrollback: true,
-            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                ?? RestorableAgentSessionIndex.load()
-        )
+            restorableAgentIndex: restorableAgentIndex
+        ).snapshot else {
+            return
+        }
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
         ClosedItemHistoryStore.shared.push(.window(ClosedWindowHistoryEntry(
             windowId: context.windowId,
             snapshot: snapshot,
-            workspaceIds: context.tabManager.sessionSnapshotWorkspaceIds()
+            workspaceIds: snapshot.tabManager.workspaces.compactMap(\.workspaceId)
         )))
     }
 
@@ -16278,6 +16425,15 @@ private extension NSApplication {
             return
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(
+                event,
+                preferredWindow: event.window ?? keyWindow ?? mainWindow
+            ) == true {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent routed file explorer shortcut before stale cmux menu shortcut")
+#endif
+                return
+            }
             if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
 #if DEBUG
                 cmuxDebugLog("app.sendEvent routed configured shortcut before stale cmux menu shortcut")
@@ -16901,6 +17057,12 @@ private extension NSWindow {
             return true
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            if AppDelegate.shared?.handleFocusedFileExplorerOpenSelectionShortcut(event, preferredWindow: self) == true {
+#if DEBUG
+                cmuxDebugLog("  → consumed by file explorer shortcut before stale cmux menu shortcut")
+#endif
+                return true
+            }
             if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
 #if DEBUG
                 cmuxDebugLog("  → consumed by configured shortcut before stale cmux menu shortcut")

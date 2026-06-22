@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Hit rects for one rendered tab, in the tab bar's local coordinates.
@@ -123,7 +124,7 @@ private struct CanvasPaneTabItem: View {
         HStack(spacing: 6) {
             iconOrClose
             Text(tab.title)
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(textColor)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -151,12 +152,12 @@ private struct CanvasPaneTabItem: View {
         ZStack {
             if isHovered {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .cmuxFont(size: 9, weight: .bold)
                     .foregroundStyle(Color(nsColor: .labelColor))
                     .frame(width: 16, height: 16)
             } else if let iconSystemName = tab.iconSystemName {
                 Image(systemName: iconSystemName)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundStyle(textColor)
             }
         }
