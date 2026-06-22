@@ -12,14 +12,16 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `e81fb65f`, which bounds
+Current cmux pinned fork head: `301e0791`, which removes the unused raw
+`ghostty_surface_read_screen_text` export so absolute-row text access stays on
+the bounded clipboard formatter API. The prior `e81fb65f` head bounds
 `ghostty_surface_read_screen_clipboard_text` formatting with the caller's byte
 cap so bounded visual-line copy-mode fallbacks over absolute screen rows keep
 Ghostty's clipboard formatter options without unbounded codepoint-map expansion.
-The prior `edad0cfec` head adds that formatter API for trimming, wrapping, and
-codepoint mapping. The earlier `46bd03a7d` head adds
-`ghostty_surface_read_screen_text` for bounded copy-mode reads from absolute
-screen rows on top of Ghostty fork `main`. The earlier `05c3e2908` head adds
+The earlier `edad0cfec` head adds that formatter API for trimming, wrapping,
+and codepoint mapping. The earlier `46bd03a7d` head added absolute screen-row
+text reading before the raw unbounded export was removed. The earlier
+`05c3e2908` head adds
 the Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives
 `displayUnrealized()`/`displayRealized()`) on top of `5697db81`. cmux uses it to
@@ -33,7 +35,7 @@ the copy-mode read branches `issue-6170-surface-read-screen-text-main` and
 `issue-6170-screen-clipboard-text`, and
 https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
 archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e81fb65f6351eda2cfbe049ab30c761dfe31d46c-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-301e0791b4718c2f007bbe6b4d4ad9c6e6be937b-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The prior head was refreshed from upstream `main` on May 1, 2026.
