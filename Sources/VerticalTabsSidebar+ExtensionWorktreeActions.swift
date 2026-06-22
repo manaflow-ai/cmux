@@ -62,19 +62,34 @@ extension VerticalTabsSidebar {
             }
 
             let worktreeName = URL(fileURLWithPath: worktreePath, isDirectory: true).lastPathComponent
+            let targetTabManagers = extensionWorktreeRemovalTabManagers()
+            let windowWorkspaces = Self.extensionWorktreeRemovalWindowWorkspaces(in: targetTabManagers)
+            let closePlans = Self.extensionWorktreeRemovalClosePlans(
+                inWorktreePath: worktreePath,
+                windowWorkspaces: windowWorkspaces
+            )
 
-            guard confirmRemoveExtensionWorktree(worktreeName: worktreeName, safety: safety) else { return }
+            guard confirmRemoveExtensionWorktree(
+                worktreeName: worktreeName,
+                worktreePath: worktreePath,
+                closePlans: closePlans,
+                safety: safety
+            ) else { return }
 
             await performRemoveExtensionWorktree(
                 worktreePath: worktreePath,
-                worktreeName: worktreeName
+                worktreeName: worktreeName,
+                targetTabManagers: targetTabManagers,
+                closePlans: closePlans
             )
         }
     }
 
     func performRemoveExtensionWorktree(
         worktreePath: String,
-        worktreeName: String
+        worktreeName: String,
+        targetTabManagers: [TabManager],
+        closePlans: [ExtensionWorktreeRemovalClosePlan]
     ) async {
         do {
             try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: false)
@@ -107,23 +122,11 @@ extension VerticalTabsSidebar {
             }
         }
 
-        let targetTabManagers = extensionWorktreeRemovalTabManagers()
-        let windowWorkspaces = targetTabManagers.map { manager in
-            manager.tabs.map {
-                (
-                    id: $0.id,
-                    candidateDirectories: $0.extensionWorktreeRemovalCandidateDirectories()
-                )
-            }
-        }
-        let closePlans = Self.extensionWorktreeRemovalClosePlans(
-            inWorktreePath: worktreePath,
-            windowWorkspaces: windowWorkspaces
-        )
         let parentRepo = CmuxExtensionWorktreePrototype
             .managedWorktreeIdentity(gitRootPath: worktreePath)?.parentRepoPath
 
         for plan in closePlans where plan.needsReplacement {
+            guard targetTabManagers.indices.contains(plan.windowIndex) else { continue }
             let manager = targetTabManagers[plan.windowIndex]
             manager.addWorkspace(
                 workingDirectory: parentRepo,
@@ -134,6 +137,7 @@ extension VerticalTabsSidebar {
         }
 
         for plan in closePlans {
+            guard targetTabManagers.indices.contains(plan.windowIndex) else { continue }
             let manager = targetTabManagers[plan.windowIndex]
             let idsToClose = Set(plan.workspaceIds)
             let workspacesToClose = manager.tabs.filter { idsToClose.contains($0.id) }
@@ -144,24 +148,58 @@ extension VerticalTabsSidebar {
         refreshExtensionSidebarSnapshot()
     }
 
+    typealias ExtensionWorktreeRemovalWorkspaceSnapshot = (
+        id: UUID,
+        title: String,
+        candidateDirectories: [String?]
+    )
+
+    typealias ExtensionWorktreeRemovalClosePlan = (
+        windowIndex: Int,
+        workspaceIds: [UUID],
+        workspaceTitles: [String],
+        needsReplacement: Bool
+    )
+
     static func extensionWorktreeRemovalClosePlans(
         inWorktreePath worktreePath: String,
-        windowWorkspaces: [[(id: UUID, candidateDirectories: [String?])]]
-    ) -> [(windowIndex: Int, workspaceIds: [UUID], needsReplacement: Bool)] {
+        windowWorkspaces: [[ExtensionWorktreeRemovalWorkspaceSnapshot]]
+    ) -> [ExtensionWorktreeRemovalClosePlan] {
         windowWorkspaces.enumerated().compactMap { index, workspaces in
             let workspaceIds = CmuxExtensionWorktreePrototype.workspaceIdsRooted(
                 inWorktreePath: worktreePath,
-                workspaces: workspaces
+                workspaces: workspaces.map {
+                    (id: $0.id, candidateDirectories: $0.candidateDirectories)
+                }
             )
             guard !workspaceIds.isEmpty else { return nil }
+            let titleByWorkspaceId = Dictionary(
+                uniqueKeysWithValues: workspaces.map { ($0.id, $0.title) }
+            )
+            let workspaceTitles = workspaceIds.compactMap { titleByWorkspaceId[$0] }
             return (
                 windowIndex: index,
                 workspaceIds: workspaceIds,
+                workspaceTitles: workspaceTitles,
                 needsReplacement: CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
                     totalWorkspaceCount: workspaces.count,
                     closingCount: workspaceIds.count
                 )
             )
+        }
+    }
+
+    private static func extensionWorktreeRemovalWindowWorkspaces(
+        in targetTabManagers: [TabManager]
+    ) -> [[ExtensionWorktreeRemovalWorkspaceSnapshot]] {
+        targetTabManagers.map { manager in
+            manager.tabs.map { workspace in
+                (
+                    id: workspace.id,
+                    title: manager.resolvedWorkspaceDisplayTitle(for: workspace),
+                    candidateDirectories: workspace.extensionWorktreeRemovalCandidateDirectories()
+                )
+            }
         }
     }
 

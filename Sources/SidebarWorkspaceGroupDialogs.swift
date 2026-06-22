@@ -99,6 +99,8 @@ func confirmDeleteWorkspaceGroup(groupName: String, otherMemberCount: Int) -> Bo
 @MainActor
 func confirmRemoveExtensionWorktree(
     worktreeName: String,
+    worktreePath: String,
+    closePlans: [VerticalTabsSidebar.ExtensionWorktreeRemovalClosePlan],
     safety: CmuxExtensionWorktreeRemovalSafety
 ) -> Bool {
     let alert = NSAlert()
@@ -113,6 +115,51 @@ func confirmRemoveExtensionWorktree(
         defaultValue: "Removing the worktree \u{201C}%@\u{201D} deletes its working directory on disk."
     )
     lines.append(String.localizedStringWithFormat(base, worktreeName))
+    let pathFormat = String(
+        localized: "dialog.removeWorktree.message.path",
+        defaultValue: "Path: %@"
+    )
+    lines.append(String.localizedStringWithFormat(pathFormat, worktreePath))
+
+    let affectedWorkspaceLines = closePlans.flatMap { plan in
+        plan.workspaceTitles.map { title in
+            let collapsedTitle = title
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let displayTitle: String
+            if collapsedTitle.isEmpty {
+                displayTitle = String(
+                    localized: "menu.history.untitledWorkspace",
+                    defaultValue: "Untitled Workspace"
+                )
+            } else {
+                displayTitle = collapsedTitle
+            }
+            let workspaceFormat = String(
+                localized: "dialog.removeWorktree.affected.workspace",
+                defaultValue: "\u{2022} Window %1$lld: %2$@"
+            )
+            return String.localizedStringWithFormat(
+                workspaceFormat,
+                Int64(plan.windowIndex + 1),
+                displayTitle
+            )
+        }
+    }
+    if affectedWorkspaceLines.isEmpty {
+        lines.append(String(
+            localized: "dialog.removeWorktree.affected.none",
+            defaultValue: "No open workspaces are rooted in this worktree."
+        ))
+    } else {
+        let header = String(
+            localized: "dialog.removeWorktree.affected.header",
+            defaultValue: "Open workspaces rooted in this worktree will be closed:"
+        )
+        lines.append(([header] + affectedWorkspaceLines).joined(separator: "\n"))
+    }
+
     if safety.inspectionFailed {
         lines.append(String(
             localized: "dialog.removeWorktree.warning.unknown",

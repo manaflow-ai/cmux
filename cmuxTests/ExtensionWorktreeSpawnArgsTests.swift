@@ -240,16 +240,18 @@ struct ExtensionWorktreeManagementTests {
         let firstWindowOnlyTab = UUID()
         let secondWindowWorktreeTab = UUID()
         let secondWindowOtherTab = UUID()
+        let firstWindowTitle = "Only tab"
+        let secondWindowTitle = "Nested tab"
 
         let plans = VerticalTabsSidebar.extensionWorktreeRemovalClosePlans(
             inWorktreePath: worktree,
             windowWorkspaces: [
                 [
-                    (id: firstWindowOnlyTab, candidateDirectories: [worktree])
+                    (id: firstWindowOnlyTab, title: firstWindowTitle, candidateDirectories: [worktree])
                 ],
                 [
-                    (id: secondWindowWorktreeTab, candidateDirectories: [worktree + "/nested"]),
-                    (id: secondWindowOtherTab, candidateDirectories: ["/Users/me/repo"]),
+                    (id: secondWindowWorktreeTab, title: secondWindowTitle, candidateDirectories: [worktree + "/nested"]),
+                    (id: secondWindowOtherTab, title: "Parent repo", candidateDirectories: ["/Users/me/repo"]),
                 ],
             ]
         )
@@ -257,9 +259,11 @@ struct ExtensionWorktreeManagementTests {
         #expect(plans.count == 2)
         #expect(plans[0].windowIndex == 0)
         #expect(plans[0].workspaceIds == [firstWindowOnlyTab])
+        #expect(plans[0].workspaceTitles == [firstWindowTitle])
         #expect(plans[0].needsReplacement)
         #expect(plans[1].windowIndex == 1)
         #expect(plans[1].workspaceIds == [secondWindowWorktreeTab])
+        #expect(plans[1].workspaceTitles == [secondWindowTitle])
         #expect(plans[1].needsReplacement == false)
     }
 
