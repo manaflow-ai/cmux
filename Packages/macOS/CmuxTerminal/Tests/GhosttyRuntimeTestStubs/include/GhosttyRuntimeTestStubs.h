@@ -54,4 +54,10 @@ void ghostty_surface_text(void);
 void ghostty_surface_text_input(void);
 ghostty_string_s ghostty_surface_tty_name(void *surface);
 
+// Test-only stand-in for the GhosttyKit symbol referenced by
+// CmuxTerminalCore's GhosttyWindowBlurInterop.applyWindowBackgroundBlur; no
+// test calls it. Matches GhosttyKit's
+// `void ghostty_set_window_background_blur(ghostty_app_t, void*)`.
+void ghostty_set_window_background_blur(void *app, void *window);
+
 #endif

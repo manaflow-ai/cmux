@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import CmuxCore
+import CmuxTerminalCore
 import CmuxWorkspaces
 
 /// Type of panel content
@@ -131,6 +132,27 @@ struct WorkspaceAttentionFlashPresentation: Equatable, Sendable {
     let accent: WorkspaceAttentionFlashAccent
     let glowOpacity: Double
     let glowRadius: CGFloat
+
+    /// Lowers this app-target presentation into the AppKit-free `Sendable` ring
+    /// presentation consumed by the terminal-surface overlay container.
+    ///
+    /// Resolves the accent `NSColor` to straight sRGB components and folds in the
+    /// shared ``PanelOverlayRingMetrics`` so the view layer never imports either
+    /// the attention palette or the ring metrics.
+    func ringPresentation() -> TerminalPaneRingPresentation {
+        let color = accent.strokeColor.usingColorSpace(.sRGB) ?? accent.strokeColor
+        return TerminalPaneRingPresentation(
+            red: Double(color.redComponent),
+            green: Double(color.greenComponent),
+            blue: Double(color.blueComponent),
+            alpha: Double(color.alphaComponent),
+            glowOpacity: glowOpacity,
+            glowRadius: glowRadius,
+            lineWidth: PanelOverlayRingMetrics.lineWidth,
+            inset: PanelOverlayRingMetrics.inset,
+            cornerRadius: PanelOverlayRingMetrics.cornerRadius
+        )
+    }
 }
 
 /// Canonical definition lives in `CmuxCore.WorkspaceAttentionPersistentState`;
@@ -217,6 +239,22 @@ enum FocusFlashPattern {
     static let keyTimes: [Double] = [0, 0.25, 0.5, 0.75, 1]
     static let duration: TimeInterval = 0.9
     static let curves: [FocusFlashCurve] = [.easeOut, .easeIn, .easeOut, .easeIn]
+
+    /// This pattern lowered into the AppKit-free `Sendable` spec the terminal
+    /// overlay container animates from.
+    static var paneAnimationSpec: TerminalPaneFlashAnimationSpec {
+        TerminalPaneFlashAnimationSpec(
+            values: values,
+            keyTimes: keyTimes,
+            duration: duration,
+            curves: curves.map { curve in
+                switch curve {
+                case .easeIn: return .easeIn
+                case .easeOut: return .easeOut
+                }
+            }
+        )
+    }
     static let ringInset: Double = Double(PanelOverlayRingMetrics.inset)
     static let ringCornerRadius: Double = Double(PanelOverlayRingMetrics.cornerRadius)
 
