@@ -53,7 +53,12 @@ extension SessionPersistencePolicy {
         guard !trimmedPath.isEmpty else { return false }
         let crashDirectoryComponents = cmuxCrashDirectoryURLs(homeDirectory: homeDirectory, environment: environment)
             .map { pathComponents(for: $0.path(percentEncoded: false)) }
-        return isCmuxCrashStoragePath(trimmedPath, crashDirectoryComponents: crashDirectoryComponents)
+        var pathCache: [String: Bool] = [:]
+        return isCmuxCrashStoragePath(
+            trimmedPath,
+            crashDirectoryComponents: crashDirectoryComponents,
+            pathCache: &pathCache
+        )
     }
 
     static func pruningCmuxCrashDiagnosticWindows(
@@ -64,13 +69,18 @@ extension SessionPersistencePolicy {
         let crashDirectoryComponents = cmuxCrashDirectoryURLs(homeDirectory: homeDirectory, environment: environment)
             .map { pathComponents(for: $0.path(percentEncoded: false)) }
         var removedAny = false
-        let windows = snapshot.windows.compactMap { window -> SessionWindowSnapshot? in
+        var pathCache: [String: Bool] = [:]
+        var windows: [SessionWindowSnapshot] = []
+        for window in snapshot.windows {
             let result = pruningCmuxCrashDiagnosticWorkspaces(
                 from: window,
-                crashDirectoryComponents: crashDirectoryComponents
+                crashDirectoryComponents: crashDirectoryComponents,
+                pathCache: &pathCache
             )
             removedAny = removedAny || result.removedAny
-            return result.window
+            if let window = result.window {
+                windows.append(window)
+            }
         }
 
         if windows.count != snapshot.windows.count {
@@ -94,18 +104,34 @@ extension SessionPersistencePolicy {
             .map { pathComponents(for: $0.path(percentEncoded: false)) }
         let workspaces = window.tabManager.workspaces
         guard !workspaces.isEmpty else { return false }
-        return workspaces.allSatisfy {
-            isCmuxCrashDiagnosticWorkspace($0, crashDirectoryComponents: crashDirectoryComponents)
+        var pathCache: [String: Bool] = [:]
+        for workspace in workspaces {
+            guard isCmuxCrashDiagnosticWorkspace(
+                workspace,
+                crashDirectoryComponents: crashDirectoryComponents,
+                pathCache: &pathCache
+            ) else {
+                return false
+            }
         }
+        return true
     }
 
     private static func pruningCmuxCrashDiagnosticWorkspaces(
         from window: SessionWindowSnapshot,
-        crashDirectoryComponents: [[String]]
+        crashDirectoryComponents: [[String]],
+        pathCache: inout [String: Bool]
     ) -> (window: SessionWindowSnapshot?, removedAny: Bool) {
         let originalWorkspaces = window.tabManager.workspaces
-        let kept = originalWorkspaces.enumerated().filter { _, workspace in
-            !isCmuxCrashDiagnosticWorkspace(workspace, crashDirectoryComponents: crashDirectoryComponents)
+        var kept: [(offset: Int, element: SessionWorkspaceSnapshot)] = []
+        for (offset, workspace) in originalWorkspaces.enumerated() {
+            if !isCmuxCrashDiagnosticWorkspace(
+                workspace,
+                crashDirectoryComponents: crashDirectoryComponents,
+                pathCache: &pathCache
+            ) {
+                kept.append((offset, workspace))
+            }
         }
 
         guard kept.count != originalWorkspaces.count else { return (window, false) }
@@ -131,13 +157,15 @@ extension SessionPersistencePolicy {
 
     private static func isCmuxCrashDiagnosticWorkspace(
         _ workspace: SessionWorkspaceSnapshot,
-        crashDirectoryComponents: [[String]]
+        crashDirectoryComponents: [[String]],
+        pathCache: inout [String: Bool]
     ) -> Bool {
         guard workspace.remote == nil else { return false }
         if workspace.panels.isEmpty {
             return isCmuxCrashStoragePath(
                 workspace.currentDirectory,
-                crashDirectoryComponents: crashDirectoryComponents
+                crashDirectoryComponents: crashDirectoryComponents,
+                pathCache: &pathCache
             )
         }
         guard workspace.panels.allSatisfy(isPlainLocalTerminalPanel) else { return false }
@@ -149,9 +177,16 @@ extension SessionPersistencePolicy {
         .filter { !$0.isEmpty }
 
         guard !paths.isEmpty else { return false }
-        return paths.allSatisfy {
-            isCmuxCrashStoragePath($0, crashDirectoryComponents: crashDirectoryComponents)
+        for path in paths {
+            guard isCmuxCrashStoragePath(
+                path,
+                crashDirectoryComponents: crashDirectoryComponents,
+                pathCache: &pathCache
+            ) else {
+                return false
+            }
         }
+        return true
     }
 
     private static func isPlainLocalTerminalPanel(_ panel: SessionPanelSnapshot) -> Bool {
@@ -211,25 +246,35 @@ extension SessionPersistencePolicy {
 
     private static func isCmuxCrashStoragePath(
         _ path: String,
-        crashDirectoryComponents: [[String]]
+        crashDirectoryComponents: [[String]],
+        pathCache: inout [String: Bool]
     ) -> Bool {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty else { return false }
         let candidatePath = standardizedPath(trimmedPath)
+        if let cached = pathCache[candidatePath] {
+            return cached
+        }
         let candidateComponents = pathComponents(for: candidatePath)
-        guard !candidateComponents.isEmpty else { return false }
+        guard !candidateComponents.isEmpty else {
+            pathCache[candidatePath] = false
+            return false
+        }
         if isPathComponents(candidateComponents, inAnyCrashDirectory: crashDirectoryComponents) {
+            pathCache[candidatePath] = true
             return true
         }
 
         let resolvedPath = URL(fileURLWithPath: candidatePath)
             .resolvingSymlinksInPath()
             .path(percentEncoded: false)
-        guard resolvedPath != candidatePath else { return false }
-        return isPathComponents(
-            pathComponents(for: resolvedPath),
-            inAnyCrashDirectory: crashDirectoryComponents
-        )
+        let matches = resolvedPath != candidatePath
+            && isPathComponents(
+                pathComponents(for: resolvedPath),
+                inAnyCrashDirectory: crashDirectoryComponents
+            )
+        pathCache[candidatePath] = matches
+        return matches
     }
 
     private static func isPathComponents(
