@@ -536,6 +536,19 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
         XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .plainText))
     }
 
+    func testIgnoresGhosttyCrashReportsInCmuxCrashDirectory() {
+        let crashReport = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash/cmux.ghosttycrash", isDirectory: false)
+
+        XCTAssertNil(
+            TerminalDefaultFileOpenRequest(
+                fileURL: crashReport,
+                contentType: .unixExecutable,
+                isExecutable: true
+            )
+        )
+    }
+
     func testBuildsLaunchInputForExtensionlessUnixExecutable() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-terminal-default-executable-\(UUID().uuidString)", isDirectory: true)

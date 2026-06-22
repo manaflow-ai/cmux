@@ -6001,6 +6001,46 @@ extension SessionPersistenceTests {
         XCTAssertNil(cleanScanBinding)
     }
 
+    @MainActor
+    func testAppDelegateSessionSnapshotDropsCrashDiagnosticWindow() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let projectDirectory = "/tmp/cmux-project"
+        let projectManager = TabManager(
+            initialWorkingDirectory: projectDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let projectWindowId = app.registerMainWindowContextForTesting(tabManager: projectManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: projectWindowId)
+        }
+
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let crashManager = TabManager(
+            initialWorkingDirectory: crashDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let crashWindowId = app.registerMainWindowContextForTesting(tabManager: crashManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: crashWindowId)
+        }
+
+        let snapshot = try XCTUnwrap(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
+        let restoredDirectories = snapshot.windows.flatMap { window in
+            window.tabManager.workspaces.map(\.currentDirectory)
+        }
+
+        XCTAssertEqual(snapshot.windows.count, 1)
+        XCTAssertEqual(restoredDirectories, [projectDirectory])
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
