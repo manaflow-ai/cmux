@@ -7349,7 +7349,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             for: webView,
             relativeTo: host.window
         )
-        panel.canvasInlineHostingActive = true
         let didAttachWebViewToLocalHost =
             !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
@@ -7445,6 +7444,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             in: host.currentHostedWebViewContainer(preferredSlotView: slotView)
         )
         coordinator.ownsLocalInlineHosting = !shouldPreserveExternalFullscreenHost
+        panel.canvasInlineHostingActive = coordinator.ownsLocalInlineHosting
         // Local-inline hosting takes ownership of the live WKWebView hierarchy.
         // Drop any stale portal entry once local-inline hosting owns the live
         // WKWebView hierarchy so deferred portal recovery cannot mutate the
