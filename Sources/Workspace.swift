@@ -3473,19 +3473,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // conformance in `Workspace+AgentHibernationHosting.swift`.
     var agentHibernationAutoResumePresentationVisible = true
     private var isAttemptingLayoutFollowUp = false
-    /// The pending non-focusing-split focus re-assert request (the value
-    /// type now lives in CmuxWorkspaceCore); stored in the surface-registry
-    /// sub-model.
-    private var pendingNonFocusSplitFocusReassert: PendingNonFocusSplitFocusReassert? {
-        get { surfaceRegistry.pendingNonFocusSplitFocusReassert }
-        set { surfaceRegistry.pendingNonFocusSplitFocusReassert = newValue }
-    }
-    /// Monotonic focus re-assert generation counter; stored in the
-    /// surface-registry sub-model.
-    private var nonFocusSplitFocusReassertGeneration: UInt64 {
-        get { surfaceRegistry.nonFocusSplitFocusReassertGeneration }
-        set { surfaceRegistry.nonFocusSplitFocusReassertGeneration = newValue }
-    }
+    // The non-focusing-split focus-reassert state (the pending request and the
+    // monotonic generation counter) lives in `surfaceRegistry`
+    // (`SurfaceRegistryModel`), which also owns the reassert state-machine
+    // methods (`beginNonFocusSplitFocusReassert` / `matches…` / `clear…` /
+    // `markExplicitFocusIntent`). The `Workspace` `BonsplitDelegate` methods
+    // forward into it, so no app-side accessor mirror is needed.
 
     /// Captured detach transfer payloads; stored in the split-layout
     /// sub-model. Mutations go through the model's detach-choreography
@@ -10310,18 +10303,19 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    // Thin forwards into `SurfaceRegistryModel`, which owns the non-focusing-
+    // split focus-reassert state machine (the generation counter and the
+    // pending request). The deferred-turn scheduling and AppKit focus
+    // reassertion stay app-side in `preserveFocusAfterNonFocusSplit` /
+    // `reassertFocusAfterNonFocusSplit`.
     private func beginNonFocusSplitFocusReassert(
         preferredPanelId: UUID,
         splitPanelId: UUID
     ) -> UInt64 {
-        nonFocusSplitFocusReassertGeneration &+= 1
-        let generation = nonFocusSplitFocusReassertGeneration
-        pendingNonFocusSplitFocusReassert = PendingNonFocusSplitFocusReassert(
-            generation: generation,
+        surfaceRegistry.beginNonFocusSplitFocusReassert(
             preferredPanelId: preferredPanelId,
             splitPanelId: splitPanelId
         )
-        return generation
     }
 
     private func matchesPendingNonFocusSplitFocusReassert(
@@ -10329,16 +10323,15 @@ extension Workspace: BonsplitDelegate {
         preferredPanelId: UUID,
         splitPanelId: UUID
     ) -> Bool {
-        guard let pending = pendingNonFocusSplitFocusReassert else { return false }
-        return pending.generation == generation &&
-            pending.preferredPanelId == preferredPanelId &&
-            pending.splitPanelId == splitPanelId
+        surfaceRegistry.matchesPendingNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        )
     }
 
     private func clearNonFocusSplitFocusReassert(generation: UInt64? = nil) {
-        guard let pending = pendingNonFocusSplitFocusReassert else { return }
-        if let generation, pending.generation != generation { return }
-        pendingNonFocusSplitFocusReassert = nil
+        surfaceRegistry.clearNonFocusSplitFocusReassert(generation: generation)
     }
 
     private func shouldTreatCurrentEventAsExplicitFocusIntent() -> Bool {
@@ -10354,11 +10347,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     private func markExplicitFocusIntent(on panelId: UUID) {
-        guard let pending = pendingNonFocusSplitFocusReassert,
-              pending.splitPanelId == panelId else {
-            return
-        }
-        pendingNonFocusSplitFocusReassert = nil
+        surfaceRegistry.markExplicitFocusIntent(on: panelId)
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldCloseTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {

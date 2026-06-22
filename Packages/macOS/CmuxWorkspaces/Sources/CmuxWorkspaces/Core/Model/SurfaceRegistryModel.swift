@@ -408,6 +408,74 @@ public final class SurfaceRegistryModel<TabSelectionRequest> {
         return max(rawTarget, pinnedCount)
     }
 
+    // MARK: - Non-focusing-split focus re-assert
+
+    /// Opens a new focus-reassert request after a non-focusing split, bumping
+    /// the generation counter and recording the pending request keyed by it.
+    /// Returns the new generation so the caller can guard its deferred
+    /// reassert turns against a newer split superseding this one.
+    ///
+    /// Faithful lift of the private
+    /// `Workspace.beginNonFocusSplitFocusReassert(preferredPanelId:splitPanelId:)`.
+    /// The body touches only this model's own reassert state (the legacy
+    /// `Workspace.nonFocusSplitFocusReassertGeneration` /
+    /// `pendingNonFocusSplitFocusReassert`, both already owned here), so it
+    /// moves without a host seam; the deferred-turn scheduling and the actual
+    /// AppKit focus reassertion stay app-side in
+    /// `Workspace.preserveFocusAfterNonFocusSplit` /
+    /// `reassertFocusAfterNonFocusSplit`, which forward into these methods.
+    public func beginNonFocusSplitFocusReassert(
+        preferredPanelId: UUID,
+        splitPanelId: UUID
+    ) -> UInt64 {
+        nonFocusSplitFocusReassertGeneration &+= 1
+        let generation = nonFocusSplitFocusReassertGeneration
+        pendingNonFocusSplitFocusReassert = PendingNonFocusSplitFocusReassert(
+            generation: generation,
+            preferredPanelId: preferredPanelId,
+            splitPanelId: splitPanelId
+        )
+        return generation
+    }
+
+    /// Whether the current pending reassert request matches the given
+    /// generation/preferred/split triple, so a deferred reassert turn only
+    /// fires for the request it was scheduled for. Faithful lift of the private
+    /// `Workspace.matchesPendingNonFocusSplitFocusReassert(generation:preferredPanelId:splitPanelId:)`.
+    public func matchesPendingNonFocusSplitFocusReassert(
+        generation: UInt64,
+        preferredPanelId: UUID,
+        splitPanelId: UUID
+    ) -> Bool {
+        guard let pending = pendingNonFocusSplitFocusReassert else { return false }
+        return pending.generation == generation &&
+            pending.preferredPanelId == preferredPanelId &&
+            pending.splitPanelId == splitPanelId
+    }
+
+    /// Clears the pending reassert request, optionally only when it still
+    /// matches `generation` (so a stale final clear cannot drop a newer
+    /// request). Faithful lift of the private
+    /// `Workspace.clearNonFocusSplitFocusReassert(generation:)`.
+    public func clearNonFocusSplitFocusReassert(generation: UInt64? = nil) {
+        guard let pending = pendingNonFocusSplitFocusReassert else { return }
+        if let generation, pending.generation != generation { return }
+        pendingNonFocusSplitFocusReassert = nil
+    }
+
+    /// Drops a pending reassert request when the user explicitly focuses the
+    /// very split panel that request was guarding, since the explicit gesture
+    /// supersedes the deferred reassert. A no-op when no request is pending or
+    /// it guards a different panel. Faithful lift of the private
+    /// `Workspace.markExplicitFocusIntent(on:)`.
+    public func markExplicitFocusIntent(on panelId: UUID) {
+        guard let pending = pendingNonFocusSplitFocusReassert,
+              pending.splitPanelId == panelId else {
+            return
+        }
+        pendingNonFocusSplitFocusReassert = nil
+    }
+
     // MARK: - Close-history eligibility
 
     /// Surface ids whose next close attempt should be treated as an explicit
