@@ -27031,7 +27031,7 @@ struct CMUXCLI {
                 ] as [String: Any])
                 result[agentEvent] = groups
             case .copilotJSON:
-                var entries = result[agentEvent] as? [[String: Any]] ?? []; entries.append(Self.copilotHookEntry(command: feedCmd, timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs))); result[agentEvent] = entries
+                var entries = result[agentEvent] as? [[String: Any]] ?? []; entries.append(Self.copilotHookEntry(command: feedCmd, timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs) + 5)); result[agentEvent] = entries
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(

@@ -44,10 +44,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
             preToolUse.contains {
                 ($0["command"] as? String)?.contains("hooks feed --source copilot --event PreToolUse") == true
                     && ($0["type"] as? String) == "command"
-                    && ($0["timeoutSec"] as? Int) == 120
+                    && ($0["timeoutSec"] as? Int) == 125
                     && $0["hooks"] == nil
             },
-            "Expected direct PreToolUse command hook with 120s timeout, saw \(preToolUse)"
+            "Expected direct PreToolUse command hook with timeout slack, saw \(preToolUse)"
         )
     }
 
