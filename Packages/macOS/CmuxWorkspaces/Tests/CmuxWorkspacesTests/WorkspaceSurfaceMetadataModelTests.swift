@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 @testable import CmuxWorkspaces
@@ -13,10 +14,8 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
     var agentPorts: [Int] = []
     var detectedPorts: [Int] = []
     var forwardedPorts: [Int] = []
-    var listeningPorts: [Int] = []
     var existingPanelIds: Set<UUID> = []
     private(set) var clearedGuardedPanelIds: [UUID] = []
-    private(set) var listeningPortWrites = 0
     private(set) var ignoredReports: [(panelId: UUID, missing: String, saved: String, reported: String)] = []
 
     var surfaceMetadataFocusedPanelId: UUID? { focusedPanelId }
@@ -53,33 +52,6 @@ private final class SurfaceMetadataHostStub: SurfaceMetadataHosting {
     var surfaceMetadataAgentListeningPorts: [Int] { agentPorts }
     var surfaceMetadataRemoteDetectedPorts: [Int] { detectedPorts }
     var surfaceMetadataRemoteForwardedPorts: [Int] { forwardedPorts }
-
-    var surfaceMetadataListeningPorts: [Int] {
-        get { listeningPorts }
-        set {
-            listeningPorts = newValue
-            listeningPortWrites += 1
-        }
-    }
-
-    var latestConversationMessage: String?
-    var latestSubmittedMessage: String?
-    var latestSubmittedAt: Date?
-
-    var surfaceMetadataLatestConversationMessage: String? {
-        get { latestConversationMessage }
-        set { latestConversationMessage = newValue }
-    }
-
-    var surfaceMetadataLatestSubmittedMessage: String? {
-        get { latestSubmittedMessage }
-        set { latestSubmittedMessage = newValue }
-    }
-
-    var surfaceMetadataLatestSubmittedAt: Date? {
-        get { latestSubmittedAt }
-        set { latestSubmittedAt = newValue }
-    }
 
     func surfaceMetadataLogIgnoredRestoredCwdReport(
         panelId: UUID,
@@ -242,19 +214,32 @@ struct WorkspaceSurfaceMetadataModelTests {
 
         model.recomputeListeningPorts()
 
-        #expect(host.listeningPorts == [22, 3000, 8080, 9000])
+        #expect(model.listeningPorts == [22, 3000, 8080, 9000])
     }
 
     @Test
     func recomputeListeningPortsSkipsWriteWhenUnchanged() {
+        // Bind `host`: it is held `weak` by the model, so discarding it would
+        // deallocate it and make `recomputeListeningPorts` early-return.
         let (model, registry, host) = makeModel()
+        _ = host
         registry.surfaceListeningPorts = [UUID(): [3000]]
+
+        // The model's `listeningPortsPublisher` replays the seed then emits on
+        // every landed `didSet`. The unchanged-value guard must keep the second
+        // recompute from emitting, so a subscriber sees seed [] + first-write
+        // [3000] and no third value.
+        var emissions: [[Int]] = []
+        let cancellable = model.listeningPortsPublisher.sink { emissions.append($0) }
+        defer { cancellable.cancel() }
+
         model.recomputeListeningPorts()
-        let writesAfterFirst = host.listeningPortWrites
+        let countAfterFirst = emissions.count
 
         model.recomputeListeningPorts()
 
-        #expect(host.listeningPortWrites == writesAfterFirst)
+        #expect(emissions.count == countAfterFirst)
+        #expect(model.listeningPorts == [3000])
     }
 
     @Test
@@ -312,31 +297,31 @@ struct WorkspaceSurfaceMetadataModelTests {
     }
 
     @Test
-    func recordConversationMessageStoresDedupedPreviewOnHost() {
-        let (model, _, host) = makeModel()
+    func recordConversationMessageStoresDedupedPreview() {
+        let (model, _, _) = makeModel()
 
         #expect(model.recordConversationMessage("  Done.  "))
-        #expect(host.latestConversationMessage == "Done.")
+        #expect(model.latestConversationMessage == "Done.")
         // Unchanged deduped preview is rejected.
         #expect(!model.recordConversationMessage("Done."))
         // Empty/whitespace message is rejected and leaves the prior value.
         #expect(!model.recordConversationMessage("   "))
-        #expect(host.latestConversationMessage == "Done.")
+        #expect(model.latestConversationMessage == "Done.")
     }
 
     @Test
     func recordSubmittedMessageStampsConversationSubmittedAndTime() {
-        let (model, _, host) = makeModel()
+        let (model, _, _) = makeModel()
         let before = Date()
 
         #expect(model.recordSubmittedMessage("ship it"))
-        #expect(host.latestConversationMessage == "ship it")
-        #expect(host.latestSubmittedMessage == "ship it")
-        #expect((host.latestSubmittedAt ?? .distantPast) >= before)
+        #expect(model.latestConversationMessage == "ship it")
+        #expect(model.latestSubmittedMessage == "ship it")
+        #expect((model.latestSubmittedAt ?? .distantPast) >= before)
 
         // Whitespace-only submission records nothing.
-        host.latestSubmittedAt = nil
+        model.latestSubmittedAt = nil
         #expect(!model.recordSubmittedMessage(" \n "))
-        #expect(host.latestSubmittedAt == nil)
+        #expect(model.latestSubmittedAt == nil)
     }
 }
