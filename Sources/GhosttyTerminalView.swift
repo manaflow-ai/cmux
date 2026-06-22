@@ -4410,6 +4410,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         fallbackLineDelta: Int? = nil,
         visualLineReselect: Bool = false
     ) {
+        _ = flushPendingScrollbarIfAvailable()
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
         keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
@@ -4930,7 +4931,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let scrollDelta = cursor.move(direction, count: count, rows: metrics.rows, columns: metrics.columns)
         keyboardCopyModeCursor = cursor
         if scrollDelta != 0 {
-            _ = flushPendingScrollbarIfAvailable()
             beginKeyboardCopyModeViewportJumpCursorSync(
                 fallbackLineDelta: scrollDelta,
                 visualLineReselect: true
