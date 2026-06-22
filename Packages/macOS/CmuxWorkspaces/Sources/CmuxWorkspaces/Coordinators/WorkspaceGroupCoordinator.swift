@@ -560,54 +560,43 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     private func applyWorkspaceGroupSlotOrderToTabs() {
-        let rootGroupsByAnchorId = Dictionary(
-            uniqueKeysWithValues: model.workspaceGroups
-                .filter { $0.parentGroupId == nil }
-                .map { ($0.anchorWorkspaceId, $0) }
-        )
-        let topLevelIds = model.sidebarTopLevelWorkspaceIds()
-        let tabsById = Dictionary(uniqueKeysWithValues: model.tabs.map { ($0.id, $0) })
-
-        var pinnedTopLevelIds: [UUID] = []
-        var unpinnedTopLevelIds: [UUID] = []
-        pinnedTopLevelIds.reserveCapacity(topLevelIds.count)
-        unpinnedTopLevelIds.reserveCapacity(topLevelIds.count)
-        for id in topLevelIds {
-            let isPinned = rootGroupsByAnchorId[id]?.isPinned ?? (tabsById[id]?.isPinned == true)
-            if isPinned {
-                pinnedTopLevelIds.append(id)
-            } else {
-                unpinnedTopLevelIds.append(id)
-            }
-        }
-        let tieredTopLevelIds = pinnedTopLevelIds + unpinnedTopLevelIds
-
-        var pinnedAnchors: [UUID] = []
-        var unpinnedAnchors: [UUID] = []
-        pinnedAnchors.reserveCapacity(model.workspaceGroups.count)
-        unpinnedAnchors.reserveCapacity(model.workspaceGroups.count)
+        var groupsByAnchorId: [UUID: WorkspaceGroup] = [:]
+        var pinnedAnchorsByParentId: [UUID?: [UUID]] = [:]
+        var unpinnedAnchorsByParentId: [UUID?: [UUID]] = [:]
         for group in model.workspaceGroups {
-            guard group.parentGroupId == nil else { continue }
+            if groupsByAnchorId[group.anchorWorkspaceId] == nil {
+                groupsByAnchorId[group.anchorWorkspaceId] = group
+            }
             if group.isPinned {
-                pinnedAnchors.append(group.anchorWorkspaceId)
+                pinnedAnchorsByParentId[group.parentGroupId, default: []].append(group.anchorWorkspaceId)
             } else {
-                unpinnedAnchors.append(group.anchorWorkspaceId)
+                unpinnedAnchorsByParentId[group.parentGroupId, default: []].append(group.anchorWorkspaceId)
             }
         }
-        var pinnedAnchorIndex = 0
-        var unpinnedAnchorIndex = 0
-        let desiredIds = tieredTopLevelIds.map { id -> UUID in
-            guard let group = rootGroupsByAnchorId[id] else { return id }
-            if group.isPinned, pinnedAnchorIndex < pinnedAnchors.count {
-                defer { pinnedAnchorIndex += 1 }
-                return pinnedAnchors[pinnedAnchorIndex]
+
+        var nextPinnedIndexByParentId: [UUID?: Int] = [:]
+        var nextUnpinnedIndexByParentId: [UUID?: Int] = [:]
+        var desiredIds: [UUID] = []
+        desiredIds.reserveCapacity(model.tabs.count)
+        for tab in model.tabs {
+            guard let group = groupsByAnchorId[tab.id] else {
+                desiredIds.append(tab.id)
+                continue
             }
-            if !group.isPinned, unpinnedAnchorIndex < unpinnedAnchors.count {
-                defer { unpinnedAnchorIndex += 1 }
-                return unpinnedAnchors[unpinnedAnchorIndex]
+            let parentGroupId = group.parentGroupId
+            if group.isPinned {
+                let index = nextPinnedIndexByParentId[parentGroupId, default: 0]
+                let anchors = pinnedAnchorsByParentId[parentGroupId] ?? []
+                desiredIds.append(index < anchors.count ? anchors[index] : tab.id)
+                nextPinnedIndexByParentId[parentGroupId] = index + 1
+            } else {
+                let index = nextUnpinnedIndexByParentId[parentGroupId, default: 0]
+                let anchors = unpinnedAnchorsByParentId[parentGroupId] ?? []
+                desiredIds.append(index < anchors.count ? anchors[index] : tab.id)
+                nextUnpinnedIndexByParentId[parentGroupId] = index + 1
             }
-            return id
         }
+
         model.normalizeWorkspaceGroupRunsPreservingOrder(desiredIds)
         model.syncWorkspaceGroupsOrderToAnchorOrder()
     }
