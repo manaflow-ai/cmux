@@ -3071,6 +3071,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         surfaceList.attach(tree: self)
         surfaceLifecycle.attach(host: self)
         layoutCoordinator.attach(host: self)
+        layoutFollowUpCoordinator.attach(host: self)
         splitMoveReorder.attach(host: self)
         splitClose.attach(host: self)
         splitDetach.attach(host: self)
@@ -3456,23 +3457,23 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     private var debugLastDidMoveTabTimestamp: TimeInterval = 0
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
-    private var layoutFollowUpObservers: [NSObjectProtocol] = []
-    private var layoutFollowUpPanelsObservation: PaneTreeObservation?
-    private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
-    private var layoutFollowUpReason: String?
-    private var layoutFollowUpTerminalFocusPanelId: UUID?
-    private var layoutFollowUpBrowserPanelId: UUID?
-    private var layoutFollowUpBrowserExitFocusPanelId: UUID?
-    private var layoutFollowUpNeedsGeometryPass = false
-    private var layoutFollowUpAttemptScheduled = false
-    private var layoutFollowUpAttemptVersion: Int = 0
-    private var layoutFollowUpStalledAttemptCount = 0
-    private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
-    private var portalRenderingEnabled = true
+    /// Owns the event-driven layout-follow-up state machine (the pending
+    /// reason/focus/browser-panel ids, the needs-geometry flag, the attempt
+    /// version + stall count, the reparent-focus suppression set, the
+    /// `portalRenderingEnabled` flag, and the Clock-driven retry/timeout). The
+    /// portal show/hide + geometry reconcile primitives stay app-side: this
+    /// `Workspace` is the coordinator's ``WorkspaceLayoutFollowUpHosting`` (see
+    /// `Workspace+WorkspaceLayoutFollowUpHosting.swift`).
+    let layoutFollowUpCoordinator: WorkspaceLayoutFollowUpCoordinator = {
+#if DEBUG
+        return WorkspaceLayoutFollowUpCoordinator(debugLog: { cmuxDebugLog($0) })
+#else
+        return WorkspaceLayoutFollowUpCoordinator()
+#endif
+    }()
     // `internal` (not `private`): also read by the `AgentHibernationHosting`
     // conformance in `Workspace+AgentHibernationHosting.swift`.
     var agentHibernationAutoResumePresentationVisible = true
-    private var isAttemptingLayoutFollowUp = false
     // The non-focusing-split focus-reassert state (the pending request and the
     // monotonic generation counter) lives in `surfaceRegistry`
     // (`SurfaceRegistryModel`), which also owns the reassert state-machine
@@ -7723,8 +7724,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // `private` rather than widening for the cross-file conformance (the
     // ``SplitDetachHosting`` precedent). Remaining witnesses live in
     // `Workspace+SurfaceTeardownHosting.swift`.
-    func disablePortalRendering() { portalRenderingEnabled = false }
-    func surfaceTeardownClearLayoutFollowUp() { clearLayoutFollowUp() }
+    func disablePortalRendering() { layoutFollowUpCoordinator.disablePortalRendering() }
+    func surfaceTeardownClearLayoutFollowUp() { layoutFollowUpCoordinator.clear() }
     func surfaceTeardownClearRemoteConfigurationIfWorkspaceBecameLocal() {
         clearRemoteConfigurationIfWorkspaceBecameLocal()
     }
@@ -8288,7 +8289,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         let targetHostedView = terminalPanel(for: panelId)?.hostedView
         let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
             hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
-                pendingReparentFocusSuppressionViews.values.contains { $0 === hostedView }
+                layoutFollowUpCoordinator.hasPendingReparentFocusSuppression(for: hostedView)
         } ?? false
         let shouldSuppressReentrantRefocus =
             trigger == .terminalFirstResponder &&
@@ -8604,21 +8605,12 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         }
     }
 
+    /// Enables/disables portal rendering for this workspace. Forwards to
+    /// ``WorkspaceLayoutFollowUpCoordinator/setPortalRenderingEnabled(_:reason:)``;
+    /// the coordinator owns the `portalRenderingEnabled` flag and drives the
+    /// hide-all teardown through ``WorkspaceLayoutFollowUpHosting``.
     func setPortalRenderingEnabled(_ enabled: Bool, reason: String) {
-        let changed = portalRenderingEnabled != enabled
-        portalRenderingEnabled = enabled
-        if enabled {
-            if changed {
-                beginEventDrivenLayoutFollowUp(
-                    reason: reason,
-                    includeGeometry: true
-                )
-            }
-        } else {
-            clearLayoutFollowUp()
-            hideAllTerminalPortalViews()
-            hideAllBrowserPortalViews()
-        }
+        layoutFollowUpCoordinator.setPortalRenderingEnabled(enabled, reason: reason)
     }
 
     func setAgentHibernationAutoResumePresentationVisible(_ isVisible: Bool) {
@@ -8778,7 +8770,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     private func reconcileFocusState() {
-        guard portalRenderingEnabled else { return }
+        guard layoutFollowUpCoordinator.portalRenderingEnabled else { return }
         guard !isReconcilingFocusState else { return }
         isReconcilingFocusState = true
         defer { isReconcilingFocusState = false }
@@ -8835,7 +8827,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// Reconcile focus/first-responder convergence.
     /// Coalesce to the next main-queue turn so bonsplit selection/pane mutations settle first.
     func scheduleFocusReconcile() {
-        guard portalRenderingEnabled else { return }
+        guard layoutFollowUpCoordinator.portalRenderingEnabled else { return }
 #if DEBUG
         if isDetachingCloseTransaction {
             debugFocusReconcileScheduledDuringDetachCount += 1
@@ -8845,7 +8837,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         focusReconcileScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            guard self.portalRenderingEnabled else {
+            guard self.layoutFollowUpCoordinator.portalRenderingEnabled else {
                 self.focusReconcileScheduled = false
                 return
             }
@@ -8854,6 +8846,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         }
     }
 
+    /// Begins (or refreshes) an event-driven layout follow-up. Forwards to
+    /// ``WorkspaceLayoutFollowUpCoordinator/begin(reason:browserPanelId:browserExitFocusPanelId:terminalFocusPanelId:includeGeometry:)``,
+    /// which owns the follow-up state machine.
     private func beginEventDrivenLayoutFollowUp(
         reason: String,
         browserPanelId: UUID? = nil,
@@ -8861,229 +8856,46 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         terminalFocusPanelId: UUID? = nil,
         includeGeometry: Bool = false
     ) {
-        guard portalRenderingEnabled else { return }
-        layoutFollowUpReason = reason
-        if let browserPanelId {
-            layoutFollowUpBrowserPanelId = browserPanelId
-        }
-        if let browserExitFocusPanelId {
-            layoutFollowUpBrowserExitFocusPanelId = browserExitFocusPanelId
-        }
-        if let terminalFocusPanelId {
-            layoutFollowUpTerminalFocusPanelId = terminalFocusPanelId
-        }
-        layoutFollowUpNeedsGeometryPass = layoutFollowUpNeedsGeometryPass || includeGeometry
-        layoutFollowUpStalledAttemptCount = 0
-        // Invalidate any pending retry whose delay was computed from a stale stall count.
-        // Incrementing the version causes old closures to exit early; clearing the flag
-        // allows scheduleLayoutFollowUpAttempt() below to enqueue a fresh asyncAfter(0).
-        layoutFollowUpAttemptVersion &+= 1
-        layoutFollowUpAttemptScheduled = false
-
-        if layoutFollowUpTimeoutWorkItem == nil {
-            installLayoutFollowUpObservers()
-        }
-        refreshLayoutFollowUpTimeout()
-        // Use async scheduling instead of a synchronous call here. beginEventDrivenLayoutFollowUp
-        // is often invoked from splitTabBar(_:didChangeGeometry:), which fires from inside
-        // SwiftUI's .onChange(of: geometry) during an active layout pass. Calling
-        // attemptEventDrivenLayoutFollowUp() synchronously in that context causes
-        // flushWorkspaceWindowLayouts() → displayIfNeeded() to be called re-entrantly,
-        // incrementing AppKit's per-window constraint-pass counter on every display cycle
-        // until it exceeds the limit and crashes with NSGenericException.
-        // scheduleLayoutFollowUpAttempt() defers via asyncAfter(0) so the flush always
-        // happens after the current layout pass completes.
-        scheduleLayoutFollowUpAttempt()
+        layoutFollowUpCoordinator.begin(
+            reason: reason,
+            browserPanelId: browserPanelId,
+            browserExitFocusPanelId: browserExitFocusPanelId,
+            terminalFocusPanelId: terminalFocusPanelId,
+            includeGeometry: includeGeometry
+        )
     }
 
+    /// Suppresses a terminal view's reparent-focus side effects until the layout
+    /// follow-up settles. Forwards to
+    /// ``WorkspaceLayoutFollowUpCoordinator/suppressReparentFocus(_:reason:)``.
     private func suppressReparentFocusUntilLayoutFollowUp(
         _ hostedView: GhosttySurfaceScrollView?,
         reason: String
     ) {
-        guard let hostedView else { return }
-        hostedView.suppressReparentFocus()
-        pendingReparentFocusSuppressionViews[ObjectIdentifier(hostedView)] = hostedView
-#if DEBUG
-        cmuxDebugLog("focus.reparent.suppressPending reason=\(reason) count=\(pendingReparentFocusSuppressionViews.count)")
-#endif
-
-        guard portalRenderingEnabled else {
-            clearPendingReparentFocusSuppressions(reason: "\(reason).portalDisabled")
-            return
-        }
-
-        beginEventDrivenLayoutFollowUp(reason: reason, includeGeometry: true)
-    }
-
-    private func clearPendingReparentFocusSuppressions(reason: String) {
-        guard !pendingReparentFocusSuppressionViews.isEmpty else { return }
-        let hostedViews = Array(pendingReparentFocusSuppressionViews.values)
-        pendingReparentFocusSuppressionViews.removeAll()
-#if DEBUG
-        cmuxDebugLog("focus.reparent.clearPending reason=\(reason) count=\(hostedViews.count)")
-#endif
-        for hostedView in hostedViews {
-            hostedView.clearSuppressReparentFocus()
-        }
-    }
-
-    private func clearReadyPendingReparentFocusSuppressions(reason: String) {
-        guard !pendingReparentFocusSuppressionViews.isEmpty else { return }
-        let readyKeys = pendingReparentFocusSuppressionViews.compactMap { key, hostedView in
-            hostedView.canClearPendingReparentFocusSuppressionAfterLayoutAttempt() ? key : nil
-        }
-        guard !readyKeys.isEmpty else { return }
-        let hostedViews = readyKeys.compactMap { pendingReparentFocusSuppressionViews[$0] }
-        for key in readyKeys {
-            pendingReparentFocusSuppressionViews.removeValue(forKey: key)
-        }
-#if DEBUG
-        cmuxDebugLog("focus.reparent.clearReady reason=\(reason) count=\(hostedViews.count)")
-#endif
-        for hostedView in hostedViews {
-            hostedView.clearSuppressReparentFocus()
-        }
+        layoutFollowUpCoordinator.suppressReparentFocus(hostedView, reason: reason)
     }
 
 #if DEBUG
     func debugBeginReparentFocusSuppressionForTesting(_ hostedView: GhosttySurfaceScrollView, reason: String) {
-        suppressReparentFocusUntilLayoutFollowUp(hostedView, reason: reason)
+        layoutFollowUpCoordinator.suppressReparentFocus(hostedView, reason: reason)
     }
 
     func debugAttemptEventDrivenLayoutFollowUpForTesting() {
-        attemptEventDrivenLayoutFollowUp()
+        layoutFollowUpCoordinator.attempt()
     }
 
     func debugHasPendingReparentFocusSuppressionsForTesting() -> Bool {
-        !pendingReparentFocusSuppressionViews.isEmpty
+        layoutFollowUpCoordinator.hasActivePendingReparentFocusSuppressions
     }
 #endif
 
-    private func installLayoutFollowUpObservers() {
-        guard layoutFollowUpTimeoutWorkItem == nil else { return }
-
-        let enqueueAttempt: () -> Void = { [weak self] in
-            self?.scheduleLayoutFollowUpAttempt()
-        }
-
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: NSWindow.didUpdateNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceDidBecomeReady,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: .terminalSurfaceHostedViewDidMoveToWindow,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: .terminalPortalVisibilityDidChange,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: .browserPortalRegistryDidChange,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: .ghosttyDidBecomeFirstResponderSurface,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
-        layoutFollowUpObservers.append(NotificationCenter.default.addObserver(
-            forName: .browserDidBecomeFirstResponderWebView,
-            object: nil,
-            queue: .main
-        ) { _ in
-            enqueueAttempt()
-        })
-        // `@Observable` replacement for the legacy `panelsPublisher` subscriber;
-        // `fireImmediately` reproduces `CurrentValueSubject.sink`'s replay-on-subscribe.
-        layoutFollowUpPanelsObservation = paneTree.observePanels(fireImmediately: true) {
-            enqueueAttempt()
-        }
-    }
-
-    private func refreshLayoutFollowUpTimeout() {
-        layoutFollowUpTimeoutWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.clearLayoutFollowUp()
-        }
-        layoutFollowUpTimeoutWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: workItem)
-    }
-
-    private func clearLayoutFollowUp() {
-        clearPendingReparentFocusSuppressions(reason: "workspace.layoutFollowUpEnd")
-        layoutFollowUpTimeoutWorkItem?.cancel()
-        layoutFollowUpTimeoutWorkItem = nil
-        layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        layoutFollowUpObservers.removeAll()
-        layoutFollowUpPanelsObservation?.cancel()
-        layoutFollowUpPanelsObservation = nil
-        layoutFollowUpReason = nil
-        layoutFollowUpTerminalFocusPanelId = nil
-        layoutFollowUpBrowserPanelId = nil
-        layoutFollowUpBrowserExitFocusPanelId = nil
-        layoutFollowUpNeedsGeometryPass = false
-        layoutFollowUpAttemptVersion &+= 1
-        layoutFollowUpAttemptScheduled = false
-        layoutFollowUpStalledAttemptCount = 0
-    }
-
-    private func scheduleLayoutFollowUpAttempt() {
-        guard portalRenderingEnabled else { return }
-        guard layoutFollowUpTimeoutWorkItem != nil else { return }
-        guard !layoutFollowUpAttemptScheduled else { return }
-
-        layoutFollowUpAttemptScheduled = true
-        let delay = layoutFollowUpBackoffDelay()
-        let version = layoutFollowUpAttemptVersion
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
-            guard self.layoutFollowUpAttemptVersion == version else { return }
-            guard self.portalRenderingEnabled else {
-                self.layoutFollowUpAttemptScheduled = false
-                self.clearLayoutFollowUp()
-                return
-            }
-            self.layoutFollowUpAttemptScheduled = false
-            self.attemptEventDrivenLayoutFollowUp()
-        }
-    }
-
-    private func layoutFollowUpBackoffDelay() -> TimeInterval {
-        guard layoutFollowUpStalledAttemptCount > 0 else { return 0 }
-        let baseDelay: TimeInterval = 0.01
-        let exponent = min(layoutFollowUpStalledAttemptCount - 1, 5)
-        return min(0.25, baseDelay * pow(2.0, Double(exponent)))
-    }
-
-    private func flushWorkspaceWindowLayouts() {
+    func flushWorkspaceWindowLayouts() {
         for window in NSApp.windows where window.isVisible {
             window.contentView?.layoutSubtreeIfNeeded()
         }
     }
 
-    private func browserPortalAnchorReady(for browserPanel: BrowserPanel) -> Bool {
+    func browserPortalAnchorReady(for browserPanel: BrowserPanel) -> Bool {
         let anchorView = browserPanel.portalAnchorView
         return
             anchorView.window != nil &&
@@ -9092,14 +8904,14 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
             anchorView.bounds.height > 1
     }
 
-    private func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
+    func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
         browserPortalAnchorReady(for: browserPanel) &&
             browserPanel.webView.window != nil &&
             browserPanel.webView.superview != nil &&
             BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: browserPanel.portalAnchorView)
     }
 
-    private func browserSplitZoomExitFocusNeedsFollowUp(panelId: UUID) -> Bool {
+    func browserSplitZoomExitFocusNeedsFollowUp(panelId: UUID) -> Bool {
         guard let browserPanel = browserPanel(for: panelId),
               let paneId = paneId(forPanelId: panelId),
               let tabId = surfaceIdFromPanelId(panelId) else {
@@ -9111,141 +8923,9 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return !selectionConverged || !browserPortalAnchorReady(for: browserPanel)
     }
 
-    private func terminalFocusNeedsFollowUp() -> Bool {
-        guard let panelId = layoutFollowUpTerminalFocusPanelId,
-              let terminalPanel = terminalPanel(for: panelId) else {
-            return false
-        }
-        return focusedPanelId != panelId || !terminalPanel.hostedView.isSurfaceViewFirstResponder()
-    }
-
-    private func browserPanelNeedsFollowUp() -> Bool {
-        guard let panelId = layoutFollowUpBrowserPanelId,
-              let browserPanel = browserPanel(for: panelId) else {
-            return false
-        }
-        return !browserPortalReady(for: browserPanel)
-    }
-
-    private func attemptEventDrivenLayoutFollowUp() {
-        guard layoutFollowUpTimeoutWorkItem != nil, !isAttemptingLayoutFollowUp else { return }
-        guard portalRenderingEnabled else {
-            clearLayoutFollowUp()
-            hideAllTerminalPortalViews()
-            hideAllBrowserPortalViews()
-            return
-        }
-        isAttemptingLayoutFollowUp = true
-        defer { isAttemptingLayoutFollowUp = false }
-
-        flushWorkspaceWindowLayouts()
-
-        let geometryPendingBefore = layoutFollowUpNeedsGeometryPass
-        let terminalPortalPendingBefore = terminalPortalVisibilityNeedsFollowUp()
-        let browserVisibilityPendingBefore = browserPortalVisibilityNeedsFollowUp()
-        let terminalFocusPendingBefore = terminalFocusNeedsFollowUp()
-        let browserPanelPendingBefore = browserPanelNeedsFollowUp()
-        let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
-        let reparentFocusPendingBefore = !pendingReparentFocusSuppressionViews.isEmpty
-
-        if layoutFollowUpNeedsGeometryPass {
-            layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
-        }
-
-        if let terminalFocusPanelId = layoutFollowUpTerminalFocusPanelId {
-            if let terminalPanel = terminalPanel(for: terminalFocusPanelId),
-               focusedPanelId == terminalFocusPanelId {
-                terminalPanel.hostedView.ensureFocus(for: id, surfaceId: terminalFocusPanelId)
-                if terminalPanel.hostedView.isSurfaceViewFirstResponder() {
-                    layoutFollowUpTerminalFocusPanelId = nil
-                }
-            } else if terminalPanel(for: terminalFocusPanelId) == nil {
-                layoutFollowUpTerminalFocusPanelId = nil
-            }
-        }
-
-        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
-        let terminalPortalPending = terminalPortalVisibilityNeedsFollowUp()
-        clearReadyPendingReparentFocusSuppressions(reason: "workspace.layoutAttempt")
-        let reparentFocusPending = !pendingReparentFocusSuppressionViews.isEmpty
-
-        let reason = layoutFollowUpReason ?? "workspace.layout"
-        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
-        let browserVisibilityPending = browserPortalVisibilityNeedsFollowUp()
-
-        if let browserPanelId = layoutFollowUpBrowserPanelId {
-            if let browserPanel = browserPanel(for: browserPanelId) {
-                let anchorReady = browserPortalAnchorReady(for: browserPanel)
-                let wasReady = browserPortalReady(for: browserPanel)
-                if anchorReady && !wasReady {
-                    BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
-                }
-                let isReady = browserPortalReady(for: browserPanel)
-                if isReady,
-                   (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
-                    BrowserWindowPortalRegistry.refresh(
-                        webView: browserPanel.webView,
-                        reason: reason
-                    )
-                }
-                if isReady {
-                    layoutFollowUpBrowserPanelId = nil
-                }
-            } else {
-                layoutFollowUpBrowserPanelId = nil
-            }
-        }
-
-        if let browserExitFocusPanelId = layoutFollowUpBrowserExitFocusPanelId {
-            if browserSplitZoomExitFocusNeedsFollowUp(panelId: browserExitFocusPanelId) {
-                if browserPanel(for: browserExitFocusPanelId) != nil {
-                    focusPanel(browserExitFocusPanelId)
-                    scheduleFocusReconcile()
-                } else {
-                    layoutFollowUpBrowserExitFocusPanelId = nil
-                }
-            } else {
-                layoutFollowUpBrowserExitFocusPanelId = nil
-            }
-        }
-
-        let terminalFocusPending = terminalFocusNeedsFollowUp()
-        let browserPanelPending = browserPanelNeedsFollowUp()
-        let browserExitPending = layoutFollowUpBrowserExitFocusPanelId != nil
-        let needsMoreWork =
-            layoutFollowUpNeedsGeometryPass ||
-            terminalPortalPending ||
-            browserVisibilityPending ||
-            terminalFocusPending ||
-            browserPanelPending ||
-            browserExitPending ||
-            reparentFocusPending
-
-        if !needsMoreWork {
-            clearLayoutFollowUp()
-            return
-        }
-
-        let didMakeProgress =
-            (geometryPendingBefore && !layoutFollowUpNeedsGeometryPass) ||
-            (terminalPortalPendingBefore && !terminalPortalPending) ||
-            (browserVisibilityPendingBefore && !browserVisibilityPending) ||
-            (terminalFocusPendingBefore && !terminalFocusPending) ||
-            (browserPanelPendingBefore && !browserPanelPending) ||
-            (browserExitPendingBefore && !browserExitPending) ||
-            (reparentFocusPendingBefore && !reparentFocusPending)
-
-        if didMakeProgress {
-            layoutFollowUpStalledAttemptCount = 0
-            scheduleLayoutFollowUpAttempt()
-        } else {
-            layoutFollowUpStalledAttemptCount += 1
-        }
-    }
-
     /// Reconcile remaining terminal view geometries after split topology changes.
     /// This keeps AppKit bounds and Ghostty surface sizes in sync in the next runloop turn.
-    private func reconcileTerminalGeometryPass() -> Bool {
+    func reconcileTerminalGeometryPass() -> Bool {
         var needsFollowUpPass = false
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
@@ -9313,16 +8993,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 #endif
 
     func scheduleTerminalGeometryReconcile() {
-        beginEventDrivenLayoutFollowUp(
-            reason: "workspace.geometry",
-            includeGeometry: true
-        )
+        layoutFollowUpCoordinator.scheduleTerminalGeometryReconcile()
     }
 
     // `internal` (not `private`): also read by the `AgentHibernationHosting`
     // conformance in `Workspace+AgentHibernationHosting.swift`.
     func renderedVisiblePanelIdsForCurrentLayout() -> Set<UUID> {
-        guard portalRenderingEnabled else { return [] }
+        guard layoutFollowUpCoordinator.portalRenderingEnabled else { return [] }
         // Canvas mode renders one panel per canvas pane — its selected tab.
         // Background tabs are unmounted, so reporting them as rendered makes
         // the terminal window portal float them at stale frames (chromeless
@@ -9391,7 +9068,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return didChange
     }
 
-    private func terminalPortalVisibilityNeedsFollowUp() -> Bool {
+    func terminalPortalVisibilityNeedsFollowUp() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
         for panel in panels.values {
@@ -9484,7 +9161,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return didChange
     }
 
-    private func browserPortalVisibilityNeedsFollowUp() -> Bool {
+    func browserPortalVisibilityNeedsFollowUp() -> Bool {
         let visiblePanelIds = renderedVisiblePanelIdsForCurrentLayout()
 
         for panel in panels.values {
@@ -9507,30 +9184,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         return false
     }
 
-    private func scheduleMovedTerminalRefresh(panelId: UUID) {
-        guard terminalPanel(for: panelId) != nil else { return }
-
-        // Force an NSViewRepresentable update after drag/move reparenting. This keeps
-        // portal host binding current when a pane auto-closes during tab moves.
-        terminalPanel(for: panelId)?.requestViewReattach()
-
-        let runRefreshPass: (TimeInterval) -> Void = { [weak self] delay in
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard let self, let panel = self.terminalPanel(for: panelId) else { return }
-                panel.hostedView.reconcileGeometryNow()
-                if panel.surface.surface != nil {
-                    panel.surface.forceRefresh()
-                }
-                if panel.surface.surface == nil {
-                    panel.surface.requestBackgroundSurfaceStartIfNeeded()
-                }
-            }
-        }
-
-        // Run once immediately and once on the next turn so rapid split close/reparent
-        // sequences still get a post-layout redraw.
-        runRefreshPass(0)
-        runRefreshPass(0.03)
+    /// Forces a post-move terminal refresh. Forwards to
+    /// ``WorkspaceLayoutFollowUpCoordinator/scheduleMovedTerminalRefresh(panelId:)``,
+    /// which runs the immediate pass plus a Clock-delayed second pass (replacing
+    /// the legacy `DispatchQueue.main.asyncAfter`) and drives the actual reattach
+    /// + geometry refresh through ``WorkspaceLayoutFollowUpHosting``.
+    func scheduleMovedTerminalRefresh(panelId: UUID) {
+        layoutFollowUpCoordinator.scheduleMovedTerminalRefresh(panelId: panelId)
     }
 
     @discardableResult
