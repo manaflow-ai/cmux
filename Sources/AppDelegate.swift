@@ -4407,36 +4407,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !contexts.isEmpty else { return (nil, false) }
         let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
 
-        let windows = Array(
-            contexts.lazy.compactMap { context -> SessionWindowSnapshot? in
-                let snapshot = self.sessionWindowSnapshot(
-                    for: context,
-                    includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-                )
-                // A dedicated remote-tmux mirror window needs a live SSH control
-                // connection and should not restore as an empty shell. If the user
-                // dragged local workspaces into that window, keep those local
-                // workspaces: TabManager already prunes remote mirror workspaces
-                // from its snapshot.
-                if self.remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
-                   snapshot.tabManager.workspaces.isEmpty {
-                    return nil
-                }
-                return snapshot
+        var windows: [SessionWindowSnapshot] = []
+        var removedCrashDiagnosticState = false
+        let createdAt = Date().timeIntervalSince1970
+        for context in contexts {
+            let windowSnapshot = sessionWindowSnapshot(
+                for: context,
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
+            )
+            // A dedicated remote-tmux mirror window needs a live SSH control
+            // connection and should not restore as an empty shell. If the user
+            // dragged local workspaces into that window, keep those local
+            // workspaces: TabManager already prunes remote mirror workspaces
+            // from its snapshot.
+            if remoteTmuxController.isDedicatedRemoteWindow(context.windowId),
+               windowSnapshot.tabManager.workspaces.isEmpty {
+                continue
             }
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-        )
 
-        guard !windows.isEmpty else { return (nil, false) }
+            let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
+                from: AppSessionSnapshot(
+                    version: SessionSnapshotSchema.currentVersion,
+                    createdAt: createdAt,
+                    windows: [windowSnapshot]
+                )
+            )
+            removedCrashDiagnosticState = removedCrashDiagnosticState || pruned.removedAny
+            guard let prunedWindow = pruned.snapshot?.windows.first else { continue }
+            windows.append(prunedWindow)
+            if windows.count >= SessionPersistencePolicy.maxWindowsPerSnapshot {
+                break
+            }
+        }
+
+        guard !windows.isEmpty else { return (nil, removedCrashDiagnosticState) }
         let snapshot = AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion,
-            createdAt: Date().timeIntervalSince1970,
+            createdAt: createdAt,
             windows: windows
         )
-        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
-        return (pruned.snapshot, pruned.removedAny)
+        return (snapshot, removedCrashDiagnosticState)
     }
 
     private func sessionWindowSnapshot(
