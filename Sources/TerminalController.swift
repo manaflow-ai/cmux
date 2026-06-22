@@ -1888,33 +1888,15 @@ class TerminalController: MobileViewportSurfaceLimiting {
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.memory payload", data: nil)
         }
-        func intParam(_ key: String) -> Int? {
-            if let i = params[key] as? Int { return i }
-            if let n = params[key] as? NSNumber {
-                guard CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
-                let value = n.doubleValue
-                guard value.isFinite,
-                      value.rounded(.towardZero) == value,
-                      value >= Double(Int.min),
-                      value <= Double(Int.max) else {
-                    return nil
-                }
-                return n.intValue
-            }
-            if let s = params[key] as? String {
-                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty,
-                      trimmed.range(of: #"^[+-]?\d+$"#, options: .regularExpression) != nil else {
-                    return nil
-                }
-                return Int(trimmed)
-            }
-            return nil
-        }
+        // The former inline `intParam` closure was a byte-equivalent twin of the
+        // shared `v2StrictIntAny` strict-integer parser (non-boolean integral
+        // number truncated toward zero with range/finite guards, or a decimal
+        // string), so the group-limit validation reuses the single shared helper
+        // rather than carrying a duplicate parser in the god dispatch path.
         var invalidLimitKey: String?
         func groupLimitParam(_ key: String) -> Int? {
             guard params[key] != nil else { return nil }
-            guard let value = intParam(key), (1...100).contains(value) else {
+            guard let value = v2StrictIntAny(params[key]), (1...100).contains(value) else {
                 invalidLimitKey = key
                 return nil
             }
