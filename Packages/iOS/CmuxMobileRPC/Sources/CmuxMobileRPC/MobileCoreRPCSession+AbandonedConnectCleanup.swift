@@ -48,11 +48,15 @@ extension MobileCoreRPCSession {
                     task,
                     timeoutNanoseconds: cleanupTimeoutNanoseconds
                 )
-                await cleaner.closeCandidate(
+                let didClose = await cleaner.closeCandidate(
                     candidate,
                     timeoutNanoseconds: lateCloseTimeoutNanoseconds
                 )
-                await cleaner.clearFinishedConnectGate()
+                if didClose {
+                    await cleaner.clearFinishedConnectGate()
+                } else {
+                    await cleaner.clearTimedOutAbandonedCleanupGate()
+                }
             } catch MobileShellConnectionError.requestTimedOut {
                 if tracksRouteGate {
                     await connectAttemptRegistry.clearTimedOutAbandonedCleanup(lease: lease)
@@ -84,26 +88,38 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
                     task,
                     timeoutNanoseconds: timeoutNanoseconds
                 )
-                await closeCandidate(candidate, timeoutNanoseconds: timeoutNanoseconds)
-                await clearFinishedConnectGate()
+                let didClose = await closeCandidate(candidate, timeoutNanoseconds: timeoutNanoseconds)
+                if didClose {
+                    await clearFinishedConnectGate()
+                } else {
+                    await clearTimedOutAbandonedCleanupGate()
+                }
             } catch {
             }
         }
     }
 
-    func closeCandidate(_ candidate: any CmxByteTransport, timeoutNanoseconds: UInt64) async {
+    func closeCandidate(_ candidate: any CmxByteTransport, timeoutNanoseconds: UInt64) async -> Bool {
         let closeTask = Task<Void, any Error> {
             await candidate.close()
         }
         do {
             try await RPCTaskTimeout().value(closeTask, timeoutNanoseconds: timeoutNanoseconds)
+            return true
         } catch {
-            _ = try? await closeTask.value
+            closeTask.cancel()
+            return false
         }
     }
 
     func clearFinishedConnectGate() async {
         guard tracksRouteGate else { return }
         await registry.clearFinishedConnect(lease: lease)
+    }
+
+    func clearTimedOutAbandonedCleanupGate() async {
+        guard tracksRouteGate else { return }
+        await registry.markAbandoned(lease: lease)
+        await registry.clearTimedOutAbandonedCleanup(lease: lease)
     }
 }
