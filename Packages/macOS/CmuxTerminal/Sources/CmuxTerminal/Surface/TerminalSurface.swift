@@ -70,12 +70,11 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
     let restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling
     let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
-    /// Port ordinal base/range for CMUX_PORT assignment, snapshotted once per
-    /// app session by the composition root so every runtime startup path uses
-    /// the same immutable workspace port range.
+    /// Port ordinal base/range for CMUX_PORT assignment, snapshotted by the app composition root.
     let sessionPortBase: Int
     let sessionPortRangeSize: Int
     let scrollbackReplayEnvironmentKey: String
+    let globalFontMagnificationPercent: @Sendable () -> Int
 
     /// cmux renderer reclamation: whether the current runtime surface's GPU
     /// renderer (Metal swap chain / IOSurface, ~40MB) is realized. A freshly
@@ -414,6 +413,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.sessionPortBase = dependencies.sessionPortBase
         self.sessionPortRangeSize = dependencies.sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = dependencies.scrollbackReplayEnvironmentKey
+        self.globalFontMagnificationPercent = dependencies.globalFontMagnificationPercent
         // Match Ghostty's own SurfaceView: ensure a non-zero initial frame so the backing layer
         // has non-zero bounds and the renderer can initialize without presenting a blank/stretched
         // intermediate frame on the first real resize.

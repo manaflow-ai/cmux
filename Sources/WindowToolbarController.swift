@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
@@ -99,6 +100,16 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 self?.updateToolbarVisibilityIfNeeded()
             }
         })
+
+        observers.append(center.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applyCommandLabelFont()
+            }
+        })
     }
 
     private func updateToolbarVisibilityIfNeeded() {
@@ -179,6 +190,13 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         }
     }
 
+    private func applyCommandLabelFont() {
+        let font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
+        for label in commandLabels.values {
+            label.font = font
+        }
+    }
+
     // MARK: - NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -193,7 +211,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         if itemIdentifier == commandItemIdentifier {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             let label = NSTextField(labelWithString: "Cmd: —")
-            label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            label.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingMiddle
             label.setContentHuggingPriority(.defaultHigh, for: .horizontal)

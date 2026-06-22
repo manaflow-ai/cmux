@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — The terminal built for multitasking",
-    "description": "Native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
-    "ogDescription": "Native macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
+    "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
+    "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
   "common": {
     "downloadForMac": "Download for Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Language",
-    "assets": "Assets"
+    "assets": "Assets",
+    "openSource": "Open source"
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
     "typingCodingAgents": "coding agents",
     "typingMultitasking": "multitasking",
-    "subtitle": "Native macOS app built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
+    "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
     "features": "Features",
     "faq": "FAQ",
     "communitySection": "Community",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": ": split a browser alongside your terminal with a scriptable API",
       "splitPanes": "Split panes",
       "splitPanesDesc": ": horizontal and vertical splits within each tab",
-      "scriptable": "Scriptable",
+      "scriptable": "Programmable",
       "scriptableDesc": ": CLI and socket API for automation and scripting",
       "gpuAccelerated": "GPU-accelerated",
       "gpuAcceleratedDesc": ": powered by libghostty for smooth rendering",
       "lightweight": "Lightweight",
       "lightweightDesc": ": native Swift + AppKit, no Electron",
       "keyboardShortcuts": "Keyboard shortcuts",
-      "keyboardShortcutsDesc": ": <link>extensive shortcuts</link> for workspaces, splits, browser, and more"
+      "keyboardShortcutsDesc": ": <link>extensive shortcuts</link> for workspaces, splits, browser, and more",
+      "openSource": "Open source",
+      "openSourceDesc": ": free and GPL-licensed"
     },
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "What coding agents does cmux work with?",
     "faqAgentsA": "All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.",
     "faqNotificationsQ": "How do notifications work?",
-    "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>Claude Code hooks</hooksLink>.",
+    "faqNotificationsA": "When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the <cliLink>cmux CLI</cliLink> and <hooksLink>agent hooks</hooksLink>. Any agent that supports hooks or OSC works, including Claude Code, Codex, OpenCode, and pi.",
     "faqShortcutsQ": "Can I customize keyboard shortcuts?",
     "faqShortcutsA": "Terminal keybindings are read from your Ghostty config file (<configPath>~/.config/ghostty/config</configPath>). cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the <link>default shortcuts</link> for a full list.",
     "faqTmuxQ": "How does it compare to tmux?",
-    "faqTmuxA": "tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API are all built in. No config files or prefix keys needed.",
+    "faqTmuxA": "tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API, all built in, no config files or prefix keys needed. That said, lots of people happily run cmux with SSH and tmux together, and cmux can attach to your remote tmux sessions natively (<link>beta</link>).",
     "faqFreeQ": "Is cmux free?",
-    "faqFreeA": "Yes, cmux is free to use. The source code is available on <link>GitHub</link>."
+    "faqFreeA": "Yes, cmux is free to use. The source code is available on <link>GitHub</link>.",
+    "faqSessionsQ": "Are my sessions saved?",
+    "faqSessionsA": "Yes. cmux restores your windows, workspaces, panes, working directories, and scrollback when you relaunch, and the state survives a full computer restart, not just quitting the app. Agent sessions like Claude Code, Codex, and OpenCode come back too. See <link>session restore</link>.",
+    "faqScriptableQ": "Is cmux programmable?",
+    "faqScriptableA": "Yes. Every action is available through the cmux CLI and a Unix socket: create workspaces, open split panes, send input, read screen contents, take screenshots, and drive the in-app browser. See the <cliLink>CLI reference</cliLink> and <browserLink>browser automation</browserLink> docs.",
+    "faqRemoteQ": "Can I use cmux with remote machines?",
+    "faqRemoteA": "Yes. Open workspaces over SSH and attach to remote tmux sessions, so agents can run on a remote host while you drive them from cmux. See <link>SSH and remote</link>.",
+    "faqOrchestrationQ": "Can cmux orchestrate multiple agents and subagents?",
+    "faqOrchestrationA": "Yes. When an agent spawns subagents or teammates, cmux turns them into native panes and splits instead of hidden background processes. It supports <teamsLink>Claude Code teams</teamsLink> and <omoLink>oh-my-opencode</omoLink> multi-model orchestration, so every agent in a run is visible and controllable.",
+    "faqCustomizeQ": "Can I customize cmux?",
+    "faqCustomizeA": "Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and cursor carry over directly. cmux's own settings in <path>~/.config/cmux/cmux.json</path> control the sidebar, tab bar, split panes, and behavior, and every <shortcutsLink>keyboard shortcut</shortcutsLink> is editable. See <link>configuration</link>.",
+    "faqSkillsQ": "Does cmux have skills?",
+    "faqSkillsA": "Yes. Skills are reusable workflows you can give any agent running in cmux, for things like CLI control, workspace automation, settings, and browser surfaces. Browse the open collection at <skillsLink>cmux-skills</skillsLink>, or read the <link>skills docs</link>.",
+    "faqFeatureQ": "I have a feature request or found a bug",
+    "faqFeatureA": "We want to hear it. Open an <issuesLink>issue</issuesLink> or <prLink>pull request</prLink> on GitHub, or <mailLink>email us</mailLink>.",
+    "faqIosQ": "Is there an iOS app?",
+    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA.",
+    "faqSupportQ": "How can I support cmux?",
+    "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqBrowserQ": "What can the built-in browser do?",
+    "faqBrowserA": "cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See <link>browser automation</link>."
   },
   "community": {
     "title": "Community",
@@ -924,7 +947,8 @@
           "warnBeforeQuit": "Legacy boolean fallback for quit confirmation. Use app.confirmQuit for new configs.",
           "warnBeforeClosingTabXButton": "Show a confirmation before closing a tab with the tab close button.",
           "hideTabCloseButton": "Hide tab close buttons in the pane tab bar.",
-          "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination."
+          "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
+          "globalFontMagnification": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
         "terminal": {
           "copyOnSelect": "Copy selected terminal text to the system clipboard when the selection is committed, including word and line selections from double- and triple-click.",
@@ -1553,8 +1577,8 @@
     },
     "ohMyOpenCode": {
       "title": "oh-my-opencode",
-      "metaTitle": "oh-my-opencode - cmux",
-      "metaDescription": "Run OpenCode with oh-my-openagent inside cmux. Multi-model agent orchestration with native cmux splits.",
+      "metaTitle": "oh-my-opencode: OpenCode multi-agent in cmux",
+      "metaDescription": "oh-my-opencode (cmux omo) runs the OpenCode CLI with the oh-my-openagent plugin inside cmux. Orchestrate Claude, GPT, Gemini, and Grok as parallel agents, each in a native cmux split.",
       "nightlyWarning": "Available in <nightly>nightly builds</nightly> only.",
       "intro": "cmux omo launches OpenCode with the oh-my-openagent plugin in a cmux-aware environment. oh-my-openagent orchestrates multiple AI models (Claude, GPT, Gemini, Grok) as specialized agents working in parallel. When it spawns agent panes, they become native cmux splits.",
       "usage": "Usage",
@@ -1688,7 +1712,8 @@
       "ohMyClaudeCode": "oh-my-claudecode",
       "changelog": "Changelog",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "iOS App"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1736,6 +1761,42 @@
       "configTitle": "cmux.json",
       "configDesc": "Set the same defaults in ~/.config/cmux/cmux.json under terminal:",
       "focusNote": "Restored sessions keep their saved TextBox visibility and focus state. These defaults apply only to newly created terminal surfaces."
+    },
+    "ios": {
+      "metaTitle": "iOS App",
+      "metaDescription": "Set up the cmux iOS companion app: TestFlight access, bring-your-own networking with Tailscale or WireGuard, pairing, notifications, and what data cmux stores.",
+      "title": "iOS App",
+      "intro": "The cmux iOS app is a companion for your Mac. Pair your iPhone or iPad with a Mac running cmux and attach to your terminals from your phone, with optional forwarding of terminal notifications.",
+      "betaNote": "The iOS app is in beta. It ships on TestFlight as cmux BETA.",
+      "accessTitle": "Getting access",
+      "accessDesc": "The app is distributed through TestFlight. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>, alongside other early features.",
+      "prereqTitle": "Prerequisites",
+      "prereqIntro": "Before you start, you need:",
+      "prereq1": "A Mac running cmux and signed in.",
+      "prereq2": "An iPhone or iPad with the cmux BETA app installed from TestFlight.",
+      "prereq3": "A network path from your phone to your Mac (see Bring your own networking below).",
+      "networkingTitle": "Bring your own networking",
+      "networkingDesc": "cmux does not provide networking out of the box. The terminal stream flows directly between your phone and your Mac, so your phone has to be able to reach your Mac on the network. The simplest way is a private overlay network.",
+      "tailscaleTitle": "Tailscale (recommended)",
+      "tailscaleDesc": "Install <link>Tailscale</link> on both your Mac and your phone and sign in to the same tailnet. Your phone can then reach your Mac by its tailnet address from anywhere, with no port forwarding.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "If you already run <link>WireGuard</link>, put your Mac and phone on the same network and use the Mac's WireGuard address.",
+      "networkingNote": "Whichever you choose, the connection is yours. cmux does not proxy or relay terminal traffic between your devices.",
+      "pairTitle": "Pair and connect",
+      "pairStep1": "On the Mac, open the Mobile Connect window in cmux.",
+      "pairStep2": "On your phone, open the cmux BETA app and confirm the pairing shown in Mobile Connect.",
+      "pairStep3": "Once paired, your workspaces and terminals appear on the phone over your network.",
+      "pairNote": "Pairing is per device. A new device, or a reinstalled app, pairs again.",
+      "notificationsTitle": "Notifications",
+      "notificationsDesc": "You can opt in to forward terminal notifications to your phone, so a pane that needs attention pushes to your device. When forwarding is on, the notification text (title and body, drawn from terminal output) is sent through cmux servers to Apple's push service to deliver it. Turn on Hide content in the notification settings to send a generic message instead and keep terminal text on your devices. See <link>notifications</link> for how cmux raises them.",
+      "dataTitle": "What data is stored",
+      "dataIntro": "cmux is built so your terminal stays between your devices. On cmux servers we store only what is needed to sign you in and connect your devices:",
+      "data1": "Your account from sign-in (email), to identify you across devices.",
+      "data2": "A push token for your device, to deliver forwarded terminal notifications.",
+      "data3": "Pairing and device metadata, to connect your phone to your Mac.",
+      "dataNot": "Your interactive terminal session, its contents and keystrokes, flows directly between your phone and your Mac over your own network, and is not relayed through or stored on cmux servers. The one exception is forwarded notification text, which transits cmux and Apple's push service to reach your phone, unless you enable Hide content (see Notifications above).",
+      "enterpriseTitle": "Enterprise and self-hosted",
+      "enterpriseDesc": "For a self-hosted or air-gapped deployment, contact <link>founders@manaflow.com</link>."
     }
   },
   "deeplink": {
