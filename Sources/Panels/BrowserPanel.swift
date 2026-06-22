@@ -3124,6 +3124,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
     private let developerToolsTransitionSettleDelay: TimeInterval = 0.15
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
+    private let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
@@ -6364,25 +6365,35 @@ extension BrowserPanel {
         return closed
     }
 
-    private func scheduleDetachedDeveloperToolsWindowCloseResolution(source: String) {
+    private func scheduleDetachedDeveloperToolsWindowCloseResolution(
+        source: String,
+        startedAt: Date = Date()
+    ) {
         detachedDeveloperToolsWindowCloseResolutionWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             self?.detachedDeveloperToolsWindowCloseResolutionWorkItem = nil
-            self?.resolveDetachedDeveloperToolsWindowClose(source: source)
+            self?.resolveDetachedDeveloperToolsWindowClose(source: source, startedAt: startedAt)
         }
         detachedDeveloperToolsWindowCloseResolutionWorkItem = workItem
+        // WebKit exposes no completion callback for re-dock. It closes the
+        // detached window before the attached frontend/layout is observable.
         DispatchQueue.main.asyncAfter(
             deadline: .now() + developerToolsAttachedManualCloseDetectionDelay,
             execute: workItem
         )
     }
 
-    private func resolveDetachedDeveloperToolsWindowClose(source: String) {
+    private func resolveDetachedDeveloperToolsWindowClose(source: String, startedAt: Date) {
         guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
 
-        if isDeveloperToolsTransitionInFlight {
-            scheduleDetachedDeveloperToolsWindowCloseResolution(source: "\(source).transition")
+        let elapsed = Date().timeIntervalSince(startedAt)
+        if isDeveloperToolsTransitionInFlight,
+           elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
+            scheduleDetachedDeveloperToolsWindowCloseResolution(
+                source: "\(source).transition",
+                startedAt: startedAt
+            )
             return
         }
 
