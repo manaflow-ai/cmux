@@ -101,7 +101,7 @@ extension SurfaceResumeBindingSnapshot {
 extension SurfaceResumeCommandCanonicalizer {
     static func replacingPortableAgentExecutable(in command: String, kind: String?) -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
-        guard let executableIndex = commandExecutableWordIndex(in: words) else { return command }
+        guard let executableIndex = commandExecutableWordIndex(in: words, command: command) else { return command }
         let executable = words[executableIndex].value
         guard executable.hasPrefix("/") else { return command }
         let executableBasename = (executable as NSString).lastPathComponent
@@ -233,6 +233,7 @@ extension SurfaceResumeCommandCanonicalizer {
         }
         guard canRenderStaleClaudeCommandAsPortableArgv(
             words: words,
+            command: command,
             commandStartIndex: commandStartIndex,
             executableIndex: executableIndex
         ) else {
@@ -262,7 +263,7 @@ extension SurfaceResumeCommandCanonicalizer {
             if index == executableIndex {
                 return AgentResumeArgv.claudeWrapperShellExecutableToken
             }
-            return renderedPortableShellWord(words[index].value)
+            return renderedPortableShellWord(words[index], in: command)
         }
         let renderedCommand = AgentResumeArgv.portableClaudeResumeShellCommand(
             posixCommand: renderedParts.joined(separator: " ")
@@ -271,26 +272,36 @@ extension SurfaceResumeCommandCanonicalizer {
         return String(command[..<commandStart]) + renderedCommand
     }
 
-    private static func renderedPortableShellWord(_ word: String) -> String {
-        if isShellControlSyntax(word) { return word }
-        if let renderedAssignment = renderedEnvironmentAssignment(word) {
+    private static func renderedPortableShellWord(
+        _ word: TerminalStartupWorkingDirectoryPrefix.ShellWordRange,
+        in command: String
+    ) -> String {
+        if isShellControlSyntax(word.value),
+           String(command[word.range]) == word.value {
+            return word.value
+        }
+        if let renderedAssignment = renderedEnvironmentAssignment(word, in: command) {
             return renderedAssignment
         }
-        return shellQuoted(word)
+        return shellQuoted(word.value)
     }
 
-    private static func renderedEnvironmentAssignment(_ word: String) -> String? {
-        guard isEnvironmentAssignment(word),
-              let equals = word.firstIndex(of: "=") else {
+    private static func renderedEnvironmentAssignment(
+        _ word: TerminalStartupWorkingDirectoryPrefix.ShellWordRange,
+        in command: String
+    ) -> String? {
+        guard isEnvironmentAssignmentSyntax(word, in: command),
+              let equals = word.value.firstIndex(of: "=") else {
             return nil
         }
-        let name = String(word[..<equals])
-        let valueStart = word.index(after: equals)
-        return "\(name)=\(shellQuoted(String(word[valueStart...])))"
+        let name = String(word.value[..<equals])
+        let valueStart = word.value.index(after: equals)
+        return "\(name)=\(shellQuoted(String(word.value[valueStart...])))"
     }
 
     private static func canRenderStaleClaudeCommandAsPortableArgv(
         words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        command: String,
         commandStartIndex: Int,
         executableIndex: Int
     ) -> Bool {
@@ -303,7 +314,7 @@ extension SurfaceResumeCommandCanonicalizer {
             return false
         }
         return words[(commandStartIndex + 1)..<executableIndex].allSatisfy {
-            isEnvironmentAssignment($0.value)
+            isEnvironmentAssignmentSyntax($0, in: command)
         }
     }
 
@@ -334,17 +345,18 @@ extension SurfaceResumeCommandCanonicalizer {
     }
 
     private static func commandExecutableWordIndex(
-        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange]
+        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        command: String
     ) -> Int? {
         var index = commandStartWordIndex(in: words)
         guard index < words.count else { return nil }
-        while index < words.count, isEnvironmentAssignment(words[index].value) {
+        while index < words.count, isEnvironmentAssignmentSyntax(words[index], in: command) {
             index += 1
         }
         guard index < words.count else { return nil }
         if words[index].value == "env" || words[index].value == "/usr/bin/env" {
             index += 1
-            while index < words.count, isEnvironmentAssignment(words[index].value) {
+            while index < words.count, isEnvironmentAssignmentSyntax(words[index], in: command) {
                 index += 1
             }
         }
@@ -379,5 +391,18 @@ extension SurfaceResumeCommandCanonicalizer {
         let allowedNameScalars = allowedFirstScalars.union(CharacterSet(charactersIn: "0123456789"))
         guard let first = name.unicodeScalars.first, allowedFirstScalars.contains(first) else { return false }
         return name.unicodeScalars.allSatisfy { allowedNameScalars.contains($0) }
+    }
+
+    private static func isEnvironmentAssignmentSyntax(
+        _ word: TerminalStartupWorkingDirectoryPrefix.ShellWordRange,
+        in command: String
+    ) -> Bool {
+        guard isEnvironmentAssignment(word.value),
+              let valueEquals = word.value.firstIndex(of: "=") else {
+            return false
+        }
+        let rawWord = String(command[word.range])
+        guard let rawEquals = rawWord.firstIndex(of: "=") else { return false }
+        return rawWord[..<rawEquals] == word.value[..<valueEquals]
     }
 }
