@@ -431,14 +431,14 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     }
 
     private func pointerHitTargetsDocumentContent(_ event: NSEvent, in window: NSWindow) -> Bool {
-        guard !Self.containsPaneTabBar(atWindowPoint: event.locationInWindow, in: window) else { return false }
+        guard let contentView = window.contentView else { return false }
+        let rootPoint = convert(event.locationInWindow, from: nil)
+        let documentPoint = documentView.convert(rootPoint, from: self)
+        if let workspace, Self.pointTargetsPaneChrome(atDocumentPoint: documentPoint, in: workspace.bonsplitController.layoutSnapshot()) { return false }
         guard !Self.containsSplitDivider(
             atWindowPoint: event.locationInWindow,
             in: documentView
-        ) else {
-            return false
-        }
-        guard let contentView = window.contentView else { return false }
+        ) else { return false }
         let contentPoint = contentView.convert(event.locationInWindow, from: nil)
         guard let hitView = contentView.hitTest(contentPoint) else { return false }
         return hitView === documentView || hitView.isDescendant(of: documentView)

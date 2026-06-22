@@ -149,41 +149,34 @@ struct ZoomableSplitViewportTests {
         ))
     }
 
-    @Test func paneTabBarHitIsDetectedForPointerFocusOptOut() throws {
-        let controller = BonsplitController()
-        _ = controller.createTab(title: "Base")
-
-        let hostingView = NSHostingView(
-            rootView: BonsplitView(controller: controller) { _, _ in
-                Color.clear
-            } emptyPane: { _ in
-                Color.clear
-            }
-        )
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: false
-        )
-        defer { window.orderOut(nil) }
-        let contentView = try #require(window.contentView)
-        hostingView.frame = contentView.bounds
-        hostingView.autoresizingMask = [.width, .height]
-        contentView.addSubview(hostingView)
-
-        window.makeKeyAndOrderFront(nil)
-        contentView.layoutSubtreeIfNeeded()
-        hostingView.layoutSubtreeIfNeeded()
-
-        let tabBarPoint = contentView.convert(
-            NSPoint(x: contentView.bounds.midX, y: contentView.bounds.maxY - 16),
-            to: nil
+    @Test func paneChromeHitIsDetectedFromSplitSnapshot() {
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 40, y: 80, width: 320, height: 200),
+            panes: [
+                PaneGeometry(
+                    paneId: UUID().uuidString,
+                    frame: PixelRect(x: 40, y: 80, width: 160, height: 200),
+                    selectedTabId: UUID().uuidString,
+                    tabIds: []
+                ),
+                PaneGeometry(
+                    paneId: UUID().uuidString,
+                    frame: PixelRect(x: 200, y: 80, width: 160, height: 200),
+                    selectedTabId: UUID().uuidString,
+                    tabIds: []
+                ),
+            ],
+            focusedPaneId: nil,
+            timestamp: 0
         )
 
-        #expect(ZoomableSplitRootView.containsPaneTabBar(
-            atWindowPoint: tabBarPoint,
-            in: window
+        #expect(ZoomableSplitRootView.pointTargetsPaneChrome(
+            atDocumentPoint: CGPoint(x: 20, y: WindowChromeMetrics.bonsplitTabBarHeight - 1),
+            in: snapshot
+        ))
+        #expect(!ZoomableSplitRootView.pointTargetsPaneChrome(
+            atDocumentPoint: CGPoint(x: 20, y: WindowChromeMetrics.bonsplitTabBarHeight + 20),
+            in: snapshot
         ))
     }
 

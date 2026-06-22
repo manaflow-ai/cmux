@@ -66,8 +66,19 @@ extension ZoomableSplitRootView {
         return false
     }
 
-    static func containsPaneTabBar(atWindowPoint windowPoint: NSPoint, in window: NSWindow) -> Bool {
-        BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: window)
+    static func pointTargetsPaneChrome(atDocumentPoint point: CGPoint, in snapshot: LayoutSnapshot) -> Bool {
+        let tabBarHeight = WindowChromeMetrics.bonsplitTabBarHeight
+        for pane in snapshot.panes.reversed() {
+            let paneFrame = CGRect(
+                x: pane.frame.x - snapshot.containerFrame.x,
+                y: pane.frame.y - snapshot.containerFrame.y,
+                width: pane.frame.width,
+                height: pane.frame.height
+            )
+            guard paneFrame.contains(point) else { continue }
+            return point.y <= paneFrame.minY + tabBarHeight
+        }
+        return false
     }
 
     private static func splitDividerContains(_ point: NSPoint, in splitView: NSSplitView) -> Bool {
