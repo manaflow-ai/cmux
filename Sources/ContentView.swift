@@ -15701,11 +15701,10 @@ struct SidebarTabDropDelegate: DropDelegate {
             return false
         }
 
-        guard fromIndex != targetIndex else {
+        if fromIndex == targetIndex {
 #if DEBUG
             cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
-            return true
         }
 
 #if DEBUG
@@ -15726,7 +15725,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             preserving: selectionBeforeReorder,
             preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
         )
-        return didReorder
+        return didReorder || fromIndex == targetIndex
     }
 
     /// Move a workspace dragged in from another window into this window at the

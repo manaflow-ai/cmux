@@ -659,8 +659,12 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
                 desiredIds.append(id)
             }
         }
-        model.normalizeWorkspaceGroupContiguity(
-            preservingTopLevelIds: model.topLevelWorkspaceIdsPreservingOrder(desiredIds)
+        let preferredTopLevelIds = model.topLevelWorkspaceIdsPreservingOrder(desiredIds)
+        let pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIds()
+        model.normalizeWorkspaceGroupRunsPreservingOrder(
+            desiredIds,
+            preferredTopLevelIds: preferredTopLevelIds.filter { pinnedTopLevelIds.contains($0) }
+                + preferredTopLevelIds.filter { !pinnedTopLevelIds.contains($0) }
         )
         if model.workspaceGroups.contains(where: { $0.id == groupId }) {
             model.syncWorkspaceGroupsOrderToAnchorOrder()

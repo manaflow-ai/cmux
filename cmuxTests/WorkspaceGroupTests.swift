@@ -315,6 +315,57 @@ struct WorkspaceGroupTests {
         ))
     }
 
+    @Test func droppingNestedGroupToRootEndPromotesWhenPlannedIndexIsUnchanged() throws {
+        let manager = makeTabManager()
+        let originalIds = manager.tabs.map(\.id)
+
+        let parentId = try #require(manager.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [originalIds[0]]))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [originalIds[1]],
+            parentGroupId: parentId
+        ))
+        let childAnchorId = try #require(manager.workspaceGroups.first { $0.id == childId }?.anchorWorkspaceId)
+        let usesTopLevelRows = manager.sidebarReorderUsesTopLevelRows(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil
+        )
+        let reorderIds = manager.sidebarReorderWorkspaceIds(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let pinnedIds = manager.sidebarReorderPinnedWorkspaceIds(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let legalInsertionRange = manager.sidebarReorderLegalInsertionRange(
+            forDraggedWorkspaceId: childAnchorId,
+            targetWorkspaceId: nil,
+            usesTopLevelRows: usesTopLevelRows
+        )
+        let fromIndex = try #require(reorderIds.firstIndex(of: childAnchorId))
+        let targetIndex = try #require(SidebarDropPlanner().targetIndex(
+            draggedTabId: childAnchorId,
+            targetTabId: nil,
+            indicator: SidebarDropIndicator(tabId: nil, edge: .bottom),
+            tabIds: reorderIds,
+            pinnedTabIds: pinnedIds,
+            legalInsertionRange: legalInsertionRange
+        ))
+
+        #expect(usesTopLevelRows)
+        #expect(targetIndex == fromIndex)
+        #expect(manager.reorderSidebarWorkspace(
+            tabId: childAnchorId,
+            toIndex: targetIndex,
+            isDragOperation: true,
+            usesTopLevelRows: usesTopLevelRows
+        ))
+        #expect(manager.workspaceGroups.first { $0.id == childId }?.parentGroupId == nil)
+    }
+
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

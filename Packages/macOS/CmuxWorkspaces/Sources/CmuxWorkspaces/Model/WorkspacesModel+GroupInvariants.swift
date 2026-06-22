@@ -12,33 +12,104 @@ extension WorkspacesModel {
         tab.groupId = groupId
     }
 
-    /// Rebuild `tabs` by walking a desired top-level workspace order and
-    /// emitting each workspace group as one contiguous run at its first
-    /// encountered member.
-    func normalizeWorkspaceGroupRunsPreservingOrder(_ desiredIds: [UUID]) {
-        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+    /// Rebuild `tabs` by walking a desired workspace order and emitting each
+    /// workspace group as one contiguous subtree at its first encountered row.
+    ///
+    /// `desiredIds` can be either a top-level row projection or a full tab order.
+    /// When it carries a full order, mixed nested children (loose workspaces and
+    /// subfolders under the same parent) keep their relative positions.
+    func normalizeWorkspaceGroupRunsPreservingOrder(
+        _ desiredIds: [UUID],
+        preferredTopLevelIds: [UUID]? = nil
+    ) {
+        var groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let knownGroupIds = Set(groupsById.keys)
         for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
 
-        var groupedByGroupId: [UUID: [Tab]] = [:]
-        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        for tab in tabs {
-            if let groupId = tab.groupId {
-                groupedByGroupId[groupId, default: []].append(tab)
+        for index in workspaceGroups.indices {
+            if let parentGroupId = workspaceGroups[index].parentGroupId,
+               (!knownGroupIds.contains(parentGroupId) ||
+                !canSetWorkspaceGroupParent(
+                    groupId: workspaceGroups[index].id,
+                    parentGroupId: parentGroupId,
+                    groupsById: groupsById
+                )) {
+                workspaceGroups[index].parentGroupId = nil
+                groupsById[workspaceGroups[index].id]?.parentGroupId = nil
             }
         }
-        var childGroupsByParentId: [UUID: [WorkspaceGroup]] = [:]
-        for group in workspaceGroups {
-            guard let parentGroupId = group.parentGroupId,
-                  knownGroupIds.contains(parentGroupId),
-                  parentGroupId != group.id else { continue }
-            childGroupsByParentId[parentGroupId, default: []].append(group)
+
+        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($0.element.id, $0.offset) })
+        var anchorGroupByWorkspaceId: [UUID: WorkspaceGroup] = [:]
+        for group in groupsById.values where anchorGroupByWorkspaceId[group.anchorWorkspaceId] == nil {
+            anchorGroupByWorkspaceId[group.anchorWorkspaceId] = group
         }
-        for parentGroupId in Array(childGroupsByParentId.keys) {
-            guard let children = childGroupsByParentId[parentGroupId] else { continue }
-            childGroupsByParentId[parentGroupId] = children.filter(\.isPinned) + children.filter { !$0.isPinned }
+        let desiredRankByWorkspaceId = workspaceRankMap(preferredIds: desiredIds)
+        let topLevelRankByWorkspaceId = preferredTopLevelIds.map {
+            workspaceRankMap(preferredIds: $0)
+        }
+
+        enum ChildRow {
+            case group(WorkspaceGroup)
+            case workspace(Tab)
+
+            var workspaceId: UUID {
+                switch self {
+                case .group(let group):
+                    return group.anchorWorkspaceId
+                case .workspace(let tab):
+                    return tab.id
+                }
+            }
+
+            var isPinned: Bool {
+                switch self {
+                case .group(let group):
+                    return group.isPinned
+                case .workspace(let tab):
+                    return tab.isPinned
+                }
+            }
+        }
+
+        var childRowsByParentId: [UUID?: [ChildRow]] = [:]
+        for tab in tabs {
+            if let anchoredGroup = anchorGroupByWorkspaceId[tab.id] {
+                childRowsByParentId[anchoredGroup.parentGroupId, default: []].append(.group(anchoredGroup))
+            } else if let groupId = tab.groupId,
+                      groupsById[groupId] != nil {
+                childRowsByParentId[Optional(groupId), default: []].append(.workspace(tab))
+            } else {
+                childRowsByParentId[nil, default: []].append(.workspace(tab))
+            }
+        }
+
+        func rowRank(_ row: ChildRow, parentGroupId: UUID?) -> Int {
+            if parentGroupId == nil,
+               let topLevelRankByWorkspaceId,
+               let rank = topLevelRankByWorkspaceId[row.workspaceId] {
+                return rank
+            }
+            return desiredRankByWorkspaceId[row.workspaceId]
+                ?? tabIndexById[row.workspaceId]
+                ?? Int.max
+        }
+
+        for parentId in Array(childRowsByParentId.keys) {
+            childRowsByParentId[parentId]?.sort { lhs, rhs in
+                if lhs.isPinned != rhs.isPinned {
+                    return lhs.isPinned && !rhs.isPinned
+                }
+                let lhsRank = rowRank(lhs, parentGroupId: parentId)
+                let rhsRank = rowRank(rhs, parentGroupId: parentId)
+                if lhsRank != rhsRank {
+                    return lhsRank < rhsRank
+                }
+                return (tabIndexById[lhs.workspaceId] ?? Int.max) < (tabIndexById[rhs.workspaceId] ?? Int.max)
+            }
         }
 
         var emittedWorkspaceIds = Set<UUID>()
@@ -46,39 +117,57 @@ extension WorkspacesModel {
         var reordered: [Tab] = []
         reordered.reserveCapacity(tabs.count)
 
-        func appendGroupSubtree(_ rootGroup: WorkspaceGroup) {
-            var stack: [WorkspaceGroup] = [rootGroup]
-            while let group = stack.popLast() {
-                guard emittedGroupIds.insert(group.id).inserted else { continue }
-                let members = anchorFirst(groupedByGroupId[group.id] ?? [], anchorId: group.anchorWorkspaceId)
-                for member in members where emittedWorkspaceIds.insert(member.id).inserted {
-                    reordered.append(member)
-                }
-                if let childGroups = childGroupsByParentId[group.id], !childGroups.isEmpty {
-                    stack.append(contentsOf: childGroups.reversed())
+        func appendRows(_ rows: [ChildRow]) {
+            var stack: [(rows: [ChildRow], nextIndex: Int)] = [(rows, 0)]
+            while var frame = stack.popLast() {
+                guard frame.nextIndex < frame.rows.count else { continue }
+                let row = frame.rows[frame.nextIndex]
+                frame.nextIndex += 1
+                stack.append(frame)
+
+                switch row {
+                case .group(let group):
+                    guard emittedGroupIds.insert(group.id).inserted else { continue }
+                    if let anchor = tabsById[group.anchorWorkspaceId],
+                       emittedWorkspaceIds.insert(anchor.id).inserted {
+                        reordered.append(anchor)
+                    }
+                    if let children = childRowsByParentId[Optional(group.id)], !children.isEmpty {
+                        stack.append((children, 0))
+                    }
+                case .workspace(let tab):
+                    if emittedWorkspaceIds.insert(tab.id).inserted {
+                        reordered.append(tab)
+                    }
                 }
             }
         }
 
-        func appendWorkspaceOrGroup(for id: UUID) {
-            guard let tab = tabsById[id] else { return }
-            if let groupId = tab.groupId,
-               let rootGroup = rootWorkspaceGroup(containing: groupId, groupsById: groupsById) {
-                appendGroupSubtree(rootGroup)
-            } else if tab.groupId == nil,
-                      emittedWorkspaceIds.insert(tab.id).inserted {
-                reordered.append(tab)
-            }
-        }
-
-        for id in desiredIds {
-            appendWorkspaceOrGroup(for: id)
-        }
+        appendRows(childRowsByParentId[nil] ?? [])
         for tab in tabs where !emittedWorkspaceIds.contains(tab.id) {
-            appendWorkspaceOrGroup(for: tab.id)
+            reordered.append(tab)
+            emittedWorkspaceIds.insert(tab.id)
         }
 
         tabs = reordered
+    }
+
+    private func workspaceRankMap(preferredIds: [UUID]) -> [UUID: Int] {
+        var ranks: [UUID: Int] = [:]
+        ranks.reserveCapacity(tabs.count)
+        var nextRank = 0
+        func record(_ id: UUID) {
+            guard ranks[id] == nil else { return }
+            ranks[id] = nextRank
+            nextRank += 1
+        }
+        for id in preferredIds {
+            record(id)
+        }
+        for tab in tabs {
+            record(tab.id)
+        }
+        return ranks
     }
 
     /// Reorder `tabs` so each group stays contiguous and anchor-first while

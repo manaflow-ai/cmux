@@ -236,6 +236,40 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func createNestedWorkspaceGroupPreservesParentChildInsertionPoint() throws {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let a = CoordinatorStubTab()
+        let b = CoordinatorStubTab()
+        let c = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [a, b, c, outside]
+        let parentId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [
+            a.id,
+            b.id,
+            c.id,
+        ]))
+        let parentAnchorId = try #require(model.workspaceGroups.first { $0.id == parentId }?.anchorWorkspaceId)
+
+        let childId = try #require(groups.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [b.id],
+            parentGroupId: parentId
+        ))
+        let childAnchorId = try #require(model.workspaceGroups.first { $0.id == childId }?.anchorWorkspaceId)
+
+        #expect(model.tabs.map(\.id) == [
+            parentAnchorId,
+            a.id,
+            childAnchorId,
+            b.id,
+            c.id,
+            outside.id,
+        ])
+        #expect(model.workspaceGroups.first { $0.id == childId }?.parentGroupId == parentId)
+    }
+
+    @Test
     func deleteWorkspaceGroupClosesMembersAndClearsLastHoldout() throws {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
