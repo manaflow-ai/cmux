@@ -3065,6 +3065,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
+    private func waitForDetachedDeveloperToolsCloseResolutionDeadline() {
+        RunLoop.current.run(until: Date().addingTimeInterval(2.2))
+    }
+
     private func closeBrowserPanel(_ panel: BrowserPanel) {
         panel.close()
         BrowserWindowPortalRegistry.detach(webView: panel.webView)
@@ -3203,7 +3207,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
 
         inspector.close()
-        waitForDeveloperToolsTransitions()
+        waitForDetachedDeveloperToolsCloseResolutionDeadline()
 
         XCTAssertEqual(inspector.closeCount, 1)
         XCTAssertFalse(panel.isDeveloperToolsVisible())

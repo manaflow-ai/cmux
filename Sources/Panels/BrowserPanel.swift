@@ -6394,16 +6394,6 @@ extension BrowserPanel {
         guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
 
-        let elapsed = Date().timeIntervalSince(startedAt)
-        if isDeveloperToolsTransitionInFlight,
-           elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
-            scheduleDetachedDeveloperToolsWindowCloseResolution(
-                source: "\(source).transition",
-                startedAt: startedAt
-            )
-            return
-        }
-
         let visible = isDeveloperToolsVisible()
         let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
         if visible || hasAttachedLayout {
@@ -6425,6 +6415,18 @@ extension BrowserPanel {
                 "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
             )
 #endif
+            return
+        }
+
+        let elapsed = Date().timeIntervalSince(startedAt)
+        // WebKit's attach path is not reflected in cmux's transition flag, so a
+        // no-window/no-layout state remains ambiguous until the bounded deadline.
+        if preferredDeveloperToolsVisible,
+           elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
+            scheduleDetachedDeveloperToolsWindowCloseResolution(
+                source: "\(source).ambiguous",
+                startedAt: startedAt
+            )
             return
         }
 
