@@ -47,7 +47,7 @@ final class WindowTerminalHostView: NSView {
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
     private var cachedInactiveDividerSplitSources: [DividerSplitSource] = []
-    private(set) var dividerRegionBuildCount = 0
+    var dividerRegionBuildCount = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
