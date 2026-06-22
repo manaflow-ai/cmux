@@ -1552,6 +1552,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// the thin public action entrypoints (which build the opaque
     /// ``WorkspaceCreationActionSelector``) and the NSMenu presentation app-side.
     lazy var workspaceCreationActions = WorkspaceCreationActionCoordinator(host: self)
+    /// Recently-closed-history reopen/clear routing (CmuxWorkspaces);
+    /// composition-root owned. Owns the cross-window reopen interleave and clear
+    /// sequence; inverts every store / registry / window-lifecycle / focus effect
+    /// back through this `AppDelegate`'s ``ClosedItemReopenHosting`` conformance.
+    lazy var closedItemReopen = ClosedItemReopenCoordinator(host: self)
     /// Session snapshot persistence (CmuxSession); composition-root owned.
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
