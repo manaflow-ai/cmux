@@ -57,9 +57,26 @@ import Testing
         let queuedTask = Task {
             try await client.sendRequest(queuedRequest)
         }
-        for _ in 0..<100 {
-            await Task.yield()
+        // Wait until the queued request has actually reached the session's writer
+        // gate (registered in the write queue) before cancelling. The first
+        // request was already drained into the blocked `transport.send`, so the
+        // only outstanding queued entry is this one. Spinning a fixed number of
+        // `Task.yield()`s is a race: under scheduler load the queued task's
+        // await-chain may not have reached the gate yet, so cancellation would
+        // fire before `session.send` registers it and the cancelled-while-queued
+        // invariant would never be exercised (false pass).
+        // Observe the session's writer-queue state directly through @testable
+        // import (no debug/test hook in production source). A request lands in
+        // `queuedRequestIDs` once its `send` reaches the serialization gate.
+        var queuedReachedGate = false
+        for _ in 0..<1000 {
+            if await client.session.queuedRequestIDs.count >= 1 {
+                queuedReachedGate = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
         }
+        #expect(queuedReachedGate)
         queuedTask.cancel()
         do {
             _ = try await queuedTask.value

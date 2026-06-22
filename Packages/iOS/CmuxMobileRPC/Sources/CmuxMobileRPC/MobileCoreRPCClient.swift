@@ -13,7 +13,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
-    private let session: MobileCoreRPCSession
+    // `internal` (not `private`) so `@testable import` can observe session
+    // queue state from tests, instead of exposing a debug hook in production.
+    let session: MobileCoreRPCSession
     private let stackTokenGate: RPCStackTokenGate
     private let stackTokenForceRefreshGate: RPCStackTokenGate
 

@@ -3544,6 +3544,8 @@ struct CMUXCLI {
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
+        if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
+        if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -19539,7 +19541,7 @@ struct CMUXCLI {
         executablePath: String,
         socketPath: String,
         explicitPassword: String?,
-        focusedContext: TmuxCompatFocusedContext?
+        focusedContext: TmuxCompatFocusedContext?, commandArgs: [String]
     ) {
         configureTmuxCompatEnvironment(
             processEnvironment: processEnvironment,
@@ -19551,10 +19553,9 @@ struct CMUXCLI {
             tmuxPathPrefix: "cmux-claude-teams",
             cmuxBinEnvVar: "CMUX_CLAUDE_TEAMS_CMUX_BIN",
             termOverrideEnvVar: "CMUX_CLAUDE_TEAMS_TERM",
-            extraEnvVars: [
-                (key: "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", value: "1"),
-            ]
+            extraEnvVars: claudeTeamsExtraEnvVars(commandArgs: commandArgs)
         )
+        if !claudeTeamsHasDangerousSkipPermissions(commandArgs: commandArgs) { unsetenv("CMUX_CLAUDE_TEAMS_SANDBOXED"); unsetenv("CLAUDE_CODE_SANDBOXED") }  // clear ambient markers inherited from a parent opted-in session so the trust bypass never leaks across invocations (#6447)
         guard let restoreModuleURL = try? createClaudeNodeOptionsRestoreModule() else {
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS_PRESENT")
             unsetenv("CMUX_ORIGINAL_NODE_OPTIONS")
@@ -19662,7 +19663,7 @@ struct CMUXCLI {
             executablePath: executablePath,
             socketPath: socketPath,
             explicitPassword: explicitPassword,
-            focusedContext: focusedContext
+            focusedContext: focusedContext, commandArgs: commandArgs
         )
 
         let launchPath = claudeExecutablePath
@@ -19673,7 +19674,7 @@ struct CMUXCLI {
             arguments: [executablePath, "claude-teams"] + launchArguments,
             workingDirectory: launcherEnvironment["PWD"]
         )
-        var argv = ([launchPath] + launchArguments).map { strdup($0) }
+        var argv = ([launchPath] + claudeTeamsExecArguments(commandArgs: commandArgs)).map { strdup($0) }
         defer {
             for item in argv {
                 free(item)
@@ -22307,7 +22308,7 @@ struct CMUXCLI {
             var params: [String: Any] = [
                 "workspace_id": target.workspaceId,
                 "surface_id": target.surfaceId,
-                "command": commandText,
+                "command": tmuxRespawnStartCommand(commandText, prependEnv: tmuxClaudeTeamsRespawnEnvironment()),
                 "tmux_start_command": commandText
             ]
             if let cwd = parsed.value("-c")?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -23250,7 +23251,7 @@ struct CMUXCLI {
             let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
             var params: [String: Any] = [
-                "command": finalCommand,
+                "command": tmuxShellInvokedStartCommand(finalCommand),
                 "tmux_start_command": finalCommand
             ]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)

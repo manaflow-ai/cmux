@@ -40,6 +40,9 @@ actor MobileCoreRPCSession {
     private var requestTimeoutTasks: [String: Task<Void, Never>] = [:]
     private var queuedWriteIDs: [String: UUID] = [:]
     private var cancelledQueuedWriteIDs: Set<UUID> = []
+    // `internal` so cancellation tests can observe the writer-queue gate via
+    // `@testable import` without adding a production debug hook.
+    var queuedRequestIDs: Set<String> { Set(queuedWriteIDs.keys) }
     private var listeners: [UUID: EventListener] = [:]
     private var isTearingDown: Bool = false
     private var writeQueue: AsyncStream<PendingWrite>.Continuation?

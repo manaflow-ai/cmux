@@ -730,7 +730,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
         try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
 
-        let socketPath = "/tmp/cmux-debug-active-theme.sock"
+        let socketPath = "/tmp/cmux-debug-active-theme-\(UUID().uuidString).sock"
         let staleBundleIdentifier = "com.cmuxterm.app.debug.stale.theme"
         let targetBundleIdentifier = "com.cmuxterm.app.debug.active.theme"
         let reloadExpectation = expectation(description: "cmux themes set targets the resolved socket bundle")
