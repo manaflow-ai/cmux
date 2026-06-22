@@ -3314,6 +3314,10 @@ class TabManager: ObservableObject {
         }
     }
 
+    func pendingPanelTitleUpdateCountForTesting() -> Int {
+        pendingPanelTitleUpdates.count
+    }
+
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
