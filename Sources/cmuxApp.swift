@@ -336,7 +336,7 @@ struct cmuxApp: App {
                     KeyboardShortcutSettings.openSettingsFileInEditor()
                 }
                 Button(String(localized: "menu.app.ghosttySettings", defaultValue: "Ghostty Settings…")) {
-                    GhosttyApp.shared.openConfigurationInTextEdit()
+                    ConfigSourceEnvironment.live().openInTextEditor()
                 }
                 splitCommandButton(title: String(localized: "menu.app.reloadConfiguration", defaultValue: "Reload Configuration"), shortcut: menuShortcut(for: .reloadConfiguration)) {
                     dispatchReloadConfigurationMenuCommand()
