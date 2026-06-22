@@ -3121,6 +3121,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var forceDeveloperToolsRefreshOnNextAttach: Bool = false
     private var developerToolsRestoreRetryWorkItem: DispatchWorkItem?
     private var developerToolsRestoreRetryAttempt: Int = 0
+    private var developerToolsDeferredRevealDidResetRetryAfterAttach: Bool = false
     private let developerToolsRestoreRetryDelay: TimeInterval = 0.05
     private let developerToolsRestoreRetryMaxAttempts: Int = 40
     private var remoteProxyEndpoint: BrowserProxyEndpoint?
@@ -6352,6 +6353,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible = next
         if !next {
             developerToolsRevealDeferredUntilWebViewAttached = false
+            developerToolsDeferredRevealDidResetRetryAfterAttach = false
             developerToolsConsoleSelectionPending = false
         }
         objectWillChange.send()
@@ -6472,6 +6474,7 @@ extension BrowserPanel {
             }
             developerToolsLastKnownVisibleAt = Date()
             developerToolsRevealDeferredUntilWebViewAttached = false
+            developerToolsDeferredRevealDidResetRetryAfterAttach = false
             if let inspector = webView.cmuxInspectorObject() {
                 applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
             }
@@ -6592,6 +6595,7 @@ extension BrowserPanel {
         let isVisibleSelector = NSSelectorFromString("isVisible")
         if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
             developerToolsRevealDeferredUntilWebViewAttached = false
+            developerToolsDeferredRevealDidResetRetryAfterAttach = false
             developerToolsDetachedOpenGraceDeadline = nil
             developerToolsLastKnownVisibleAt = Date()
             applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
@@ -6606,6 +6610,7 @@ extension BrowserPanel {
         let visibleAfterShow = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         if visibleAfterShow {
             developerToolsRevealDeferredUntilWebViewAttached = false
+            developerToolsDeferredRevealDidResetRetryAfterAttach = false
             developerToolsLastKnownVisibleAt = Date()
             applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
         }
@@ -6640,6 +6645,7 @@ extension BrowserPanel {
 
     private func deferDeveloperToolsRevealUntilWebViewAttached(source: String, resetRetryAttempts: Bool = false) {
         developerToolsRevealDeferredUntilWebViewAttached = true
+        developerToolsDeferredRevealDidResetRetryAfterAttach = false
         if resetRetryAttempts {
             developerToolsRestoreRetryAttempt = 0
         }
@@ -6729,6 +6735,7 @@ extension BrowserPanel {
             if !targetVisible {
                 developerToolsDetachedOpenGraceDeadline = nil
                 developerToolsRevealDeferredUntilWebViewAttached = false
+                developerToolsDeferredRevealDidResetRetryAfterAttach = false
                 forceDeveloperToolsRefreshOnNextAttach = false
                 cancelDeveloperToolsRestoreRetry()
             }
@@ -6770,6 +6777,7 @@ extension BrowserPanel {
             } else {
                 developerToolsDetachedOpenGraceDeadline = nil
                 developerToolsRevealDeferredUntilWebViewAttached = false
+                developerToolsDeferredRevealDidResetRetryAfterAttach = false
             }
         } else {
             if visible {
@@ -7030,8 +7038,11 @@ extension BrowserPanel {
             scheduleDeveloperToolsRestoreRetry()
             return
         }
-        if developerToolsRevealDeferredUntilWebViewAttached && isWebViewReadyForDeveloperToolsReveal {
+        if developerToolsRevealDeferredUntilWebViewAttached &&
+            isWebViewReadyForDeveloperToolsReveal &&
+            !developerToolsDeferredRevealDidResetRetryAfterAttach {
             developerToolsRestoreRetryAttempt = 0
+            developerToolsDeferredRevealDidResetRetryAfterAttach = true
         }
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
@@ -7044,6 +7055,7 @@ extension BrowserPanel {
             let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
             developerToolsDetachedOpenGraceDeadline = nil
             developerToolsRevealDeferredUntilWebViewAttached = false
+            developerToolsDeferredRevealDidResetRetryAfterAttach = false
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
             applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)

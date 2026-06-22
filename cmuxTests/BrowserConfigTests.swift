@@ -4070,6 +4070,49 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
     }
 
+    func testDeferredRevealPostAttachFailuresStopAtRetryBudget() {
+        let (panel, inspector) = makePanelWithInspector(
+            requiresAttachmentToShow: true,
+            showFailuresAfterEligibility: 200
+        )
+        defer { closeBrowserPanel(panel) }
+        inspector.setFrontendWebView(panel.webView)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        RunLoop.current.run(until: Date().addingTimeInterval(2.4))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        let showCountAfterBudget = inspector.showCount
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertEqual(
+            inspector.showCount,
+            showCountAfterBudget,
+            "Deferred DevTools reveal must stop retrying after the post-attach retry budget is exhausted"
+        )
+    }
+
     func testDeferredRevealSurvivesManualCloseDetectionGraceBeforeHostIsSized() {
         let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
         inspector.setFrontendWebView(panel.webView)
