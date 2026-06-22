@@ -217,7 +217,7 @@ enum CmuxExtensionWorktreePrototype {
             let headBranch = await runAllowingFailure(["-C", worktree, "symbolic-ref", "--quiet", "--short", "HEAD"])
             if headBranch.status != 0 {
                 let localRefsContainingHead = try await runGitTrimmed(
-                    ["-C", worktree, "for-each-ref", "--contains", "HEAD", "--format=%(refname)", "refs/heads", "refs/tags"],
+                    ["-C", worktree, "for-each-ref", "--count=1", "--contains", "HEAD", "--format=%(refname)", "refs/heads", "refs/tags"],
                     failureDescription: "Could not inspect local refs containing HEAD."
                 )
                 hasUnreferencedDetachedHead = localRefsContainingHead.isEmpty
@@ -228,7 +228,7 @@ enum CmuxExtensionWorktreePrototype {
             // template/global-configured remote with no fetched refs makes
             // `rev-list --not --remotes` count the entire local history.
             let remoteRefs = try await runGitTrimmed(
-                ["-C", worktree, "for-each-ref", "--format=%(refname)", "refs/remotes"],
+                ["-C", worktree, "for-each-ref", "--count=1", "--format=%(refname)", "refs/remotes"],
                 failureDescription: "Could not list git remote refs."
             )
             var unpushedCommitCount = 0
