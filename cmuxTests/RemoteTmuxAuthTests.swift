@@ -199,6 +199,81 @@ import Testing
         #expect(connection.pastePane(paneId: 1, text: "") == false)
     }
 
+    @Test @MainActor func sessionRenamedUpdatesTrackedNameAndEmitsObserverWithoutSessionId() {
+        // A documented `%session-renamed <name>` must still track the new name
+        // (reused for reconnect) and fire the observer the mirror listens on.
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
+        )
+        var observed: (old: String, new: String)?
+        let token = connection.addObserver(onSessionChanged: { old, new in
+            observed = (old, new)
+        })
+        defer { connection.removeObserver(token) }
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: nil, name: "dev", idBearingName: nil))
+
+        #expect(connection.sessionName == "dev")
+        #expect(connection.sessionId == nil)
+        #expect(observed?.old == "old")
+        #expect(observed?.new == "dev")
+    }
+
+    @Test @MainActor func sessionRenamedUpdatesTrackedIdWhenTmuxSuppliesOne() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
+        )
+        connection.handleMessageForTesting(.sessionChanged(sessionId: 7, name: "old"))
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "$7 dev", idBearingName: "dev"))
+
+        #expect(connection.sessionName == "dev")
+        #expect(connection.sessionId == 7)
+    }
+
+    @Test @MainActor func sessionRenamedIgnoresDifferentSessionId() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
+        )
+        connection.handleMessageForTesting(.sessionChanged(sessionId: 7, name: "old"))
+        var observed: (old: String, new: String)?
+        let token = connection.addObserver(onSessionChanged: { old, new in
+            observed = (old, new)
+        })
+        defer { connection.removeObserver(token) }
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 8, name: "$8 other", idBearingName: "other"))
+
+        #expect(connection.sessionName == "old")
+        #expect(connection.sessionId == 7)
+        #expect(observed == nil)
+    }
+
+    @Test @MainActor func sessionRenamedIgnoresIdBearingRenameUntilSessionIdIsKnown() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
+        )
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "$7 dev", idBearingName: "dev"))
+
+        #expect(connection.sessionName == "old")
+        #expect(connection.sessionId == nil)
+    }
+
+    @Test @MainActor func controllerRekeysCachedConnectionWhenSessionIsRenamed() {
+        let controller = RemoteTmuxController()
+        let host = RemoteTmuxHost(destination: "user@host")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "old")
+        controller.cacheConnection(connection)
+
+        #expect(controller.connection(host: host, sessionName: "old") === connection)
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: nil, name: "dev", idBearingName: nil))
+
+        #expect(controller.connection(host: host, sessionName: "old") == nil)
+        #expect(controller.connection(host: host, sessionName: "dev") === connection)
+    }
+
     @Test @MainActor func attachBlockDrainQueuesInitialWindowRequest() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         let pipe = Pipe()
