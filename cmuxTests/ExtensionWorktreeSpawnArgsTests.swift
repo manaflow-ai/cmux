@@ -234,6 +234,35 @@ struct ExtensionWorktreeManagementTests {
         #expect(ids == [atRoot, inSubdir, nonFocusedPane])
     }
 
+    @Test("worktree removal close plans cover every window")
+    func removalClosePlansCoverEveryWindow() {
+        let worktree = "/Users/me/repo/.cmux/worktrees/wt-a"
+        let firstWindowOnlyTab = UUID()
+        let secondWindowWorktreeTab = UUID()
+        let secondWindowOtherTab = UUID()
+
+        let plans = VerticalTabsSidebar.extensionWorktreeRemovalClosePlans(
+            inWorktreePath: worktree,
+            windowWorkspaces: [
+                [
+                    (id: firstWindowOnlyTab, candidateDirectories: [worktree])
+                ],
+                [
+                    (id: secondWindowWorktreeTab, candidateDirectories: [worktree + "/nested"]),
+                    (id: secondWindowOtherTab, candidateDirectories: ["/Users/me/repo"]),
+                ],
+            ]
+        )
+
+        #expect(plans.count == 2)
+        #expect(plans[0].windowIndex == 0)
+        #expect(plans[0].workspaceIds == [firstWindowOnlyTab])
+        #expect(plans[0].needsReplacement)
+        #expect(plans[1].windowIndex == 1)
+        #expect(plans[1].workspaceIds == [secondWindowWorktreeTab])
+        #expect(plans[1].needsReplacement == false)
+    }
+
     // MARK: - On-disk removal (real git)
 
     @Test("removing a clean worktree deletes it from disk and from git")

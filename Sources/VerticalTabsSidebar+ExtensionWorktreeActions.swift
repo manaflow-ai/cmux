@@ -107,24 +107,25 @@ extension VerticalTabsSidebar {
             }
         }
 
-        let idsToClose = Set(CmuxExtensionWorktreePrototype.workspaceIdsRooted(
-            inWorktreePath: worktreePath,
-            workspaces: tabManager.tabs.map {
+        let targetTabManagers = extensionWorktreeRemovalTabManagers()
+        let windowWorkspaces = targetTabManagers.map { manager in
+            manager.tabs.map {
                 (
                     id: $0.id,
                     candidateDirectories: $0.extensionWorktreeRemovalCandidateDirectories()
                 )
             }
-        ))
-        let workspacesToClose = tabManager.tabs.filter { idsToClose.contains($0.id) }
+        }
+        let closePlans = Self.extensionWorktreeRemovalClosePlans(
+            inWorktreePath: worktreePath,
+            windowWorkspaces: windowWorkspaces
+        )
+        let parentRepo = CmuxExtensionWorktreePrototype
+            .managedWorktreeIdentity(gitRootPath: worktreePath)?.parentRepoPath
 
-        if CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
-            totalWorkspaceCount: tabManager.tabs.count,
-            closingCount: workspacesToClose.count
-        ) {
-            let parentRepo = CmuxExtensionWorktreePrototype
-                .managedWorktreeIdentity(gitRootPath: worktreePath)?.parentRepoPath
-            tabManager.addWorkspace(
+        for plan in closePlans where plan.needsReplacement {
+            let manager = targetTabManagers[plan.windowIndex]
+            manager.addWorkspace(
                 workingDirectory: parentRepo,
                 inheritWorkingDirectory: parentRepo == nil,
                 select: true,
@@ -132,10 +133,44 @@ extension VerticalTabsSidebar {
             )
         }
 
-        for workspace in workspacesToClose {
-            tabManager.closeWorkspace(workspace, recordHistory: false)
+        for plan in closePlans {
+            let manager = targetTabManagers[plan.windowIndex]
+            let idsToClose = Set(plan.workspaceIds)
+            let workspacesToClose = manager.tabs.filter { idsToClose.contains($0.id) }
+            for workspace in workspacesToClose {
+                manager.closeWorkspace(workspace, recordHistory: false)
+            }
         }
         refreshExtensionSidebarSnapshot()
+    }
+
+    static func extensionWorktreeRemovalClosePlans(
+        inWorktreePath worktreePath: String,
+        windowWorkspaces: [[(id: UUID, candidateDirectories: [String?])]]
+    ) -> [(windowIndex: Int, workspaceIds: [UUID], needsReplacement: Bool)] {
+        windowWorkspaces.enumerated().compactMap { index, workspaces in
+            let workspaceIds = CmuxExtensionWorktreePrototype.workspaceIdsRooted(
+                inWorktreePath: worktreePath,
+                workspaces: workspaces
+            )
+            guard !workspaceIds.isEmpty else { return nil }
+            return (
+                windowIndex: index,
+                workspaceIds: workspaceIds,
+                needsReplacement: CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
+                    totalWorkspaceCount: workspaces.count,
+                    closingCount: workspaceIds.count
+                )
+            )
+        }
+    }
+
+    private func extensionWorktreeRemovalTabManagers() -> [TabManager] {
+        var managers = AppDelegate.shared?.allMainWindowTabManagersForDebug() ?? []
+        if !managers.contains(where: { $0 === tabManager }) {
+            managers.append(tabManager)
+        }
+        return managers
     }
 }
 
