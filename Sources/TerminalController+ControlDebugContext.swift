@@ -464,7 +464,7 @@ extension TerminalController: ControlDebugContext {
         }
 
         // Socket commands are line-based; allow callers to express control chars with backslash escapes.
-        let text = Self.unescapeSocketText(raw)
+        let text = raw.socketTextEscapesDecoded
 
         var result = "ERROR: No window"
         v2MainSync {
@@ -879,39 +879,6 @@ extension TerminalController: ControlDebugContext {
         return "\(className)@\(pointer){dragTypes=\(renderedTypes)}"
     }
 
-    /// Unescapes the backslash escapes (`\n`, `\r`, `\t`, `\\`) the line
-    /// protocol allows callers to use for control characters in
-    /// `simulate_type`; unknown escapes pass through with the backslash intact.
-    private static func unescapeSocketText(_ input: String) -> String {
-        var out = ""
-        var escaping = false
-        for ch in input {
-            if escaping {
-                switch ch {
-                case "n":
-                    out.append("\n")
-                case "r":
-                    out.append("\r")
-                case "t":
-                    out.append("\t")
-                case "\\":
-                    out.append("\\")
-                default:
-                    out.append("\\")
-                    out.append(ch)
-                }
-                escaping = false
-            } else if ch == "\\" {
-                escaping = true
-            } else {
-                out.append(ch)
-            }
-        }
-        if escaping {
-            out.append("\\")
-        }
-        return out
-    }
 
     func setShortcut(_ args: String) -> String {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
