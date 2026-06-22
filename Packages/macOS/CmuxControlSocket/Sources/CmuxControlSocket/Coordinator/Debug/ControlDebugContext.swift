@@ -343,12 +343,18 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response (`"OK"`).
     func controlDebugClearDragPasteboard() -> String
 
-    /// Runs the v1-only `overlay_hit_gate` body: evaluates the file-drop overlay
-    /// hit-capture policy against the live drag pasteboard types.
+    /// Evaluates the file-drop overlay hit-capture policy against the live drag
+    /// pasteboard types, the irreducible live-state read behind the v1-only
+    /// `overlay_hit_gate` command. The event-type token parsing, the
+    /// usage/unknown `ERROR` strings, and the `"true"`/`"false"` formatting live
+    /// in the coordinator's
+    /// ``ControlCommandCoordinator/debugOverlayHitGateV1(_:)``; this witness
+    /// maps the typed token to an `NSEvent.EventType?` app-side.
     ///
-    /// - Parameter arguments: The raw event-type token.
-    /// - Returns: The raw v1 response (`"true"`/`"false"` or an `ERROR…` line).
-    func controlDebugOverlayHitGate(arguments: String) -> String
+    /// - Parameter eventToken: The recognized event-type token (the parsed
+    ///   `NSEvent.EventType?` input).
+    /// - Returns: Whether the overlay should capture the hit.
+    func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool
 
     /// Evaluates the file-drop destination overlay-capture policy against the
     /// live drag pasteboard types, the irreducible live-state read behind the
@@ -361,12 +367,18 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: Whether the overlay should capture the drop.
     func controlDebugOverlayDropGate(hasLocalDraggingSource: Bool) -> Bool
 
-    /// Runs the v1-only `portal_hit_gate` body: evaluates the terminal-portal
-    /// hit pass-through policy against the live drag pasteboard types.
+    /// Evaluates the terminal-portal hit-pass-through policy against the live
+    /// drag pasteboard types, the irreducible live-state read behind the v1-only
+    /// `portal_hit_gate` command. The event-type token parsing, the
+    /// usage/unknown `ERROR` strings, and the `"true"`/`"false"` formatting live
+    /// in the coordinator's
+    /// ``ControlCommandCoordinator/debugPortalHitGateV1(_:)``; this witness maps
+    /// the typed token to an `NSEvent.EventType?` app-side.
     ///
-    /// - Parameter arguments: The raw event-type token.
-    /// - Returns: The raw v1 response.
-    func controlDebugPortalHitGate(arguments: String) -> String
+    /// - Parameter eventToken: The recognized event-type token (the parsed
+    ///   `NSEvent.EventType?` input).
+    /// - Returns: Whether the portal hit-testing should pass through.
+    func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool
 
     /// Evaluates the sidebar external-overlay capture policy against the live
     /// drag pasteboard types, the irreducible live-state read behind the

@@ -579,18 +579,8 @@ extension TerminalController: ControlDebugContext {
         return "OK"
     }
 
-    func controlDebugOverlayHitGate(arguments: String) -> String {
-        let token = arguments.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !token.isEmpty else {
-            return "ERROR: Usage: overlay_hit_gate <leftMouseDragged|rightMouseDragged|otherMouseDragged|mouseMoved|mouseEntered|mouseExited|flagsChanged|cursorUpdate|appKitDefined|systemDefined|applicationDefined|periodic|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
-        }
-
-        let parsedEvent = Self.parseOverlayEventType(token)
-        guard parsedEvent.isKnown else {
-            return "ERROR: Unknown event type '\(arguments.trimmingCharacters(in: .whitespacesAndNewlines))'"
-        }
-        let eventType = parsedEvent.eventType
-
+    func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
+        let eventType = Self.eventType(for: eventToken)
         var shouldCapture = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
@@ -599,8 +589,7 @@ extension TerminalController: ControlDebugContext {
                 eventType: eventType
             )
         }
-
-        return shouldCapture ? "true" : "false"
+        return shouldCapture
     }
 
     func controlDebugOverlayDropGate(hasLocalDraggingSource: Bool) -> Bool {
@@ -615,17 +604,8 @@ extension TerminalController: ControlDebugContext {
         return shouldCapture
     }
 
-    func controlDebugPortalHitGate(arguments: String) -> String {
-        let token = arguments.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !token.isEmpty else {
-            return "ERROR: Usage: portal_hit_gate <leftMouseDragged|rightMouseDragged|otherMouseDragged|mouseMoved|mouseEntered|mouseExited|flagsChanged|cursorUpdate|appKitDefined|systemDefined|applicationDefined|periodic|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
-        }
-        let parsedEvent = Self.parseOverlayEventType(token)
-        guard parsedEvent.isKnown else {
-            return "ERROR: Unknown event type '\(arguments.trimmingCharacters(in: .whitespacesAndNewlines))'"
-        }
-        let eventType = parsedEvent.eventType
-
+    func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
+        let eventType = Self.eventType(for: eventToken)
         var shouldPassThrough = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
@@ -634,7 +614,7 @@ extension TerminalController: ControlDebugContext {
                 eventType: eventType
             )
         }
-        return shouldPassThrough ? "true" : "false"
+        return shouldPassThrough
     }
 
     func controlDebugSidebarOverlayGate(hasSidebarDragState: Bool) -> Bool {
@@ -760,53 +740,32 @@ extension TerminalController: ControlDebugContext {
 
     // MARK: - v1-only probe helpers (relocated with their sole callers)
 
-    /// Maps a lowercased overlay-gate event token to an `NSEvent.EventType`
-    /// (with `none` resolving to a known `nil`), reporting whether the token was
-    /// recognized.
-    private static func parseOverlayEventType(_ token: String) -> (isKnown: Bool, eventType: NSEvent.EventType?) {
+    /// Maps a recognized overlay-gate event token (the token recognition + the
+    /// usage/unknown `ERROR` strings now live in the `CmuxControlSocket`
+    /// coordinator) to its `NSEvent.EventType`, with `.none` resolving to `nil`.
+    /// This is the irreducible AppKit half the control-plane package cannot host.
+    private static func eventType(for token: ControlDebugOverlayEventToken) -> NSEvent.EventType? {
         switch token {
-        case "leftmousedragged":
-            return (true, .leftMouseDragged)
-        case "rightmousedragged":
-            return (true, .rightMouseDragged)
-        case "othermousedragged":
-            return (true, .otherMouseDragged)
-        case "mousemove", "mousemoved":
-            return (true, .mouseMoved)
-        case "mouseentered":
-            return (true, .mouseEntered)
-        case "mouseexited":
-            return (true, .mouseExited)
-        case "flagschanged":
-            return (true, .flagsChanged)
-        case "cursorupdate":
-            return (true, .cursorUpdate)
-        case "appkitdefined":
-            return (true, .appKitDefined)
-        case "systemdefined":
-            return (true, .systemDefined)
-        case "applicationdefined":
-            return (true, .applicationDefined)
-        case "periodic":
-            return (true, .periodic)
-        case "leftmousedown":
-            return (true, .leftMouseDown)
-        case "leftmouseup":
-            return (true, .leftMouseUp)
-        case "rightmousedown":
-            return (true, .rightMouseDown)
-        case "rightmouseup":
-            return (true, .rightMouseUp)
-        case "othermousedown":
-            return (true, .otherMouseDown)
-        case "othermouseup":
-            return (true, .otherMouseUp)
-        case "scrollwheel":
-            return (true, .scrollWheel)
-        case "none":
-            return (true, nil)
-        default:
-            return (false, nil)
+        case .leftMouseDragged: return .leftMouseDragged
+        case .rightMouseDragged: return .rightMouseDragged
+        case .otherMouseDragged: return .otherMouseDragged
+        case .mouseMoved: return .mouseMoved
+        case .mouseEntered: return .mouseEntered
+        case .mouseExited: return .mouseExited
+        case .flagsChanged: return .flagsChanged
+        case .cursorUpdate: return .cursorUpdate
+        case .appKitDefined: return .appKitDefined
+        case .systemDefined: return .systemDefined
+        case .applicationDefined: return .applicationDefined
+        case .periodic: return .periodic
+        case .leftMouseDown: return .leftMouseDown
+        case .leftMouseUp: return .leftMouseUp
+        case .rightMouseDown: return .rightMouseDown
+        case .rightMouseUp: return .rightMouseUp
+        case .otherMouseDown: return .otherMouseDown
+        case .otherMouseUp: return .otherMouseUp
+        case .scrollWheel: return .scrollWheel
+        case .none: return nil
         }
     }
 

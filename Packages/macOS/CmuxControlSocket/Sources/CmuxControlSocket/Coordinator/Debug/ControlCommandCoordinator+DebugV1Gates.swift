@@ -2,22 +2,106 @@
 internal import Foundation
 
 /// The pure decision/payload halves of the v1-only drag-overlay gate and probe
-/// commands (`overlay_drop_gate`, `sidebar_overlay_gate`,
-/// `terminal_drop_overlay_probe`, `drop_hit_test`, `drag_hit_chain`).
+/// commands (`overlay_drop_gate`, `sidebar_overlay_gate`, `overlay_hit_gate`,
+/// `portal_hit_gate`, `terminal_drop_overlay_probe`, `drop_hit_test`,
+/// `drag_hit_chain`).
 ///
 /// Each method owns the token/coordinate parsing, the verbatim usage-error
 /// strings, and the response formatting that the legacy
 /// `TerminalController` v1 bodies built. The irreducible live-state reads stay
 /// app-side behind the narrowed ``ControlDebugContext`` witnesses (which now
 /// take already-parsed, typed inputs): `overlay_drop_gate`/
-/// `sidebar_overlay_gate` evaluate `DragOverlayRoutingPolicy` against the live
-/// `NSPasteboard(name: .drag)` types, `terminal_drop_overlay_probe` drives the
-/// selected terminal panel's overlay animation, and `drop_hit_test`/
-/// `drag_hit_chain` hit-test the live AppKit window. The
-/// `overlay_hit_gate`/`portal_hit_gate` siblings keep their whole body in the
-/// app target because their parse step maps to an AppKit `NSEvent.EventType`,
-/// which `CmuxControlSocket` (an AppKit-free control-plane package) cannot host.
+/// `sidebar_overlay_gate`/`overlay_hit_gate`/`portal_hit_gate` evaluate
+/// `DragOverlayRoutingPolicy` against the live `NSPasteboard(name: .drag)`
+/// types, `terminal_drop_overlay_probe` drives the selected terminal panel's
+/// overlay animation, and `drop_hit_test`/`drag_hit_chain` hit-test the live
+/// AppKit window. The `overlay_hit_gate`/`portal_hit_gate` event-type token
+/// reaches the seam as an AppKit-free ``ControlDebugOverlayEventToken``; only
+/// the `NSEvent.EventType` mapping stays app-side, because `CmuxControlSocket`
+/// (an AppKit-free control-plane package) cannot host the AppKit event type.
 extension ControlCommandCoordinator {
+    /// The shared usage `ERROR` line for the two event-type gate commands,
+    /// parameterized by command name so each reproduces its legacy verbatim
+    /// `"ERROR: Usage: <name> <…event types…>"` string exactly.
+    ///
+    /// - Parameter command: The command name (`overlay_hit_gate` /
+    ///   `portal_hit_gate`).
+    /// - Returns: The verbatim usage `ERROR` line.
+    private static func overlayEventGateUsage(_ command: String) -> String {
+        "ERROR: Usage: \(command) <leftMouseDragged|rightMouseDragged|otherMouseDragged|mouseMoved|mouseEntered|mouseExited|flagsChanged|cursorUpdate|appKitDefined|systemDefined|applicationDefined|periodic|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
+    }
+
+    /// The outcome of parsing the shared event-type token argument: either a
+    /// recognized token, or the verbatim `ERROR` line the command must return.
+    private enum OverlayEventGateParse {
+        case token(ControlDebugOverlayEventToken)
+        case error(String)
+    }
+
+    /// Parses the shared event-type token argument for the two gate commands:
+    /// trims/lowercases the raw argument, rejects an empty token with the
+    /// command's usage `ERROR` line, and rejects an unrecognized token with the
+    /// legacy `"ERROR: Unknown event type '…'"` line (echoing the trimmed,
+    /// original-case argument).
+    ///
+    /// - Parameters:
+    ///   - args: The raw event-type argument.
+    ///   - command: The command name, for the usage `ERROR` line.
+    /// - Returns: The recognized token on success, or the verbatim `ERROR` line
+    ///   to return on a parse failure.
+    private static func parseOverlayEventGateToken(
+        _ args: String,
+        command: String
+    ) -> OverlayEventGateParse {
+        let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = trimmed.lowercased()
+        guard !token.isEmpty else {
+            return .error(overlayEventGateUsage(command))
+        }
+        guard let parsed = ControlDebugOverlayEventToken(lowercasedToken: token) else {
+            return .error("ERROR: Unknown event type '\(trimmed)'")
+        }
+        return .token(parsed)
+    }
+
+    /// The v1 `overlay_hit_gate` body: parses the event-type token (owning the
+    /// usage/unknown `ERROR` strings), evaluates the live file-drop overlay
+    /// hit-capture policy through the seam, and returns `"true"`/`"false"`.
+    ///
+    /// - Parameter args: The raw event-type token argument.
+    /// - Returns: `"true"`/`"false"`, or a verbatim `ERROR` line on a parse
+    ///   failure.
+    func debugOverlayHitGateV1(_ args: String) -> String {
+        switch Self.parseOverlayEventGateToken(args, command: "overlay_hit_gate") {
+        case .error(let errorLine):
+            return errorLine
+        case .token(let token):
+            let shouldCapture = debugContext?.controlDebugOverlayHitGate(
+                eventToken: token
+            ) ?? false
+            return shouldCapture ? "true" : "false"
+        }
+    }
+
+    /// The v1 `portal_hit_gate` body: parses the event-type token (owning the
+    /// usage/unknown `ERROR` strings), evaluates the live terminal-portal
+    /// hit-pass-through policy through the seam, and returns `"true"`/`"false"`.
+    ///
+    /// - Parameter args: The raw event-type token argument.
+    /// - Returns: `"true"`/`"false"`, or a verbatim `ERROR` line on a parse
+    ///   failure.
+    func debugPortalHitGateV1(_ args: String) -> String {
+        switch Self.parseOverlayEventGateToken(args, command: "portal_hit_gate") {
+        case .error(let errorLine):
+            return errorLine
+        case .token(let token):
+            let shouldPassThrough = debugContext?.controlDebugPortalHitGate(
+                eventToken: token
+            ) ?? false
+            return shouldPassThrough ? "true" : "false"
+        }
+    }
+
     /// The v1 `overlay_drop_gate` body: parses `[external|local]` into the
     /// policy's `hasLocalDraggingSource` input (empty/`external` → `false`,
     /// `local` → `true`), reads the live policy through the seam, and returns

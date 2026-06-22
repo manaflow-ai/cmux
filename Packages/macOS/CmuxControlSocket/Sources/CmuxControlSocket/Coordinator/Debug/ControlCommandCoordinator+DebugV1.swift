@@ -116,13 +116,11 @@ extension ControlCommandCoordinator {
         case "drag_hit_chain":
             return debugDragHitChainV1(args)
         case "overlay_hit_gate":
-            return debugContext?.controlDebugOverlayHitGate(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugOverlayHitGateV1(args)
         case "overlay_drop_gate":
             return debugOverlayDropGateV1(args)
         case "portal_hit_gate":
-            return debugContext?.controlDebugPortalHitGate(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugPortalHitGateV1(args)
         case "sidebar_overlay_gate":
             return debugSidebarOverlayGateV1(args)
         case "terminal_drop_overlay_probe":

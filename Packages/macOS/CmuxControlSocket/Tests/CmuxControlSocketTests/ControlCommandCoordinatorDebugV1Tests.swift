@@ -34,6 +34,22 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var dragHitChainPoint: (nx: Double, ny: Double)?
     var dragHitChainResult = "none"
 
+    var overlayHitGateEventToken: ControlDebugOverlayEventToken?
+    var overlayHitGateResult = false
+
+    var portalHitGateEventToken: ControlDebugOverlayEventToken?
+    var portalHitGateResult = false
+
+    func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
+        overlayHitGateEventToken = eventToken
+        return overlayHitGateResult
+    }
+
+    func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
+        portalHitGateEventToken = eventToken
+        return portalHitGateResult
+    }
+
     func controlDebugSetShortcut(arguments: String) -> String {
         setShortcutArguments = arguments
         return setShortcutResponse
@@ -295,6 +311,62 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let (coordinator, context) = makeCoordinator()
         #expect(coordinator.handleDebugV1(command: "drag_hit_chain", args: "0.5 0.5 0.5") == "ERROR: Usage: drag_hit_chain <x 0-1> <y 0-1>")
         #expect(context.dragHitChainPoint == nil)
+    }
+
+    // MARK: - overlay_hit_gate / portal_hit_gate (shared event-token parse)
+
+    private static let eventGateUsage = "<leftMouseDragged|rightMouseDragged|otherMouseDragged|mouseMoved|mouseEntered|mouseExited|flagsChanged|cursorUpdate|appKitDefined|systemDefined|applicationDefined|periodic|leftMouseDown|leftMouseUp|rightMouseDown|rightMouseUp|otherMouseDown|otherMouseUp|scrollWheel|none>"
+
+    @Test func overlayHitGateParsesTokenAndFormatsBool() {
+        let (coordinator, context) = makeCoordinator()
+        context.overlayHitGateResult = true
+        // Case-insensitive parse + the `mousemove` alias resolve to the typed token.
+        #expect(coordinator.handleDebugV1(command: "overlay_hit_gate", args: "LeftMouseDragged") == "true")
+        #expect(context.overlayHitGateEventToken == .leftMouseDragged)
+        #expect(coordinator.handleDebugV1(command: "overlay_hit_gate", args: "mousemove") == "true")
+        #expect(context.overlayHitGateEventToken == .mouseMoved)
+        context.overlayHitGateResult = false
+        #expect(coordinator.handleDebugV1(command: "overlay_hit_gate", args: "none") == "false")
+        #expect(context.overlayHitGateEventToken == ControlDebugOverlayEventToken.none)
+    }
+
+    @Test func overlayHitGateEmptyTokenReturnsUsage() {
+        let (coordinator, context) = makeCoordinator()
+        let reply = coordinator.handleDebugV1(command: "overlay_hit_gate", args: "")
+        #expect(reply == "ERROR: Usage: overlay_hit_gate \(Self.eventGateUsage)")
+        #expect(context.overlayHitGateEventToken == nil)
+    }
+
+    @Test func overlayHitGateUnknownTokenEchoesTrimmedArgument() {
+        let (coordinator, context) = makeCoordinator()
+        // The unknown-token error echoes the trimmed, original-case argument.
+        let reply = coordinator.handleDebugV1(command: "overlay_hit_gate", args: "  Bogus  ")
+        #expect(reply == "ERROR: Unknown event type 'Bogus'")
+        #expect(context.overlayHitGateEventToken == nil)
+    }
+
+    @Test func portalHitGateParsesTokenAndFormatsBool() {
+        let (coordinator, context) = makeCoordinator()
+        context.portalHitGateResult = true
+        #expect(coordinator.handleDebugV1(command: "portal_hit_gate", args: "scrollWheel") == "true")
+        #expect(context.portalHitGateEventToken == .scrollWheel)
+        context.portalHitGateResult = false
+        #expect(coordinator.handleDebugV1(command: "portal_hit_gate", args: "flagsChanged") == "false")
+        #expect(context.portalHitGateEventToken == .flagsChanged)
+    }
+
+    @Test func portalHitGateEmptyTokenReturnsUsage() {
+        let (coordinator, context) = makeCoordinator()
+        let reply = coordinator.handleDebugV1(command: "portal_hit_gate", args: "  ")
+        #expect(reply == "ERROR: Usage: portal_hit_gate \(Self.eventGateUsage)")
+        #expect(context.portalHitGateEventToken == nil)
+    }
+
+    @Test func portalHitGateUnknownTokenEchoesTrimmedArgument() {
+        let (coordinator, context) = makeCoordinator()
+        let reply = coordinator.handleDebugV1(command: "portal_hit_gate", args: "wat")
+        #expect(reply == "ERROR: Unknown event type 'wat'")
+        #expect(context.portalHitGateEventToken == nil)
     }
 }
 #endif

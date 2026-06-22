@@ -68,9 +68,9 @@ extension ControlDebugContext {
     func controlDebugSimulateFileDrop(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugSeedDragPasteboardTypes(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugClearDragPasteboard() -> String { "ERROR: not implemented" }
-    func controlDebugOverlayHitGate(arguments: String) -> String { "ERROR: not implemented" }
+    func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool { false }
     func controlDebugOverlayDropGate(hasLocalDraggingSource: Bool) -> Bool { false }
-    func controlDebugPortalHitGate(arguments: String) -> String { "ERROR: not implemented" }
+    func controlDebugPortalHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool { false }
     func controlDebugSidebarOverlayGate(hasSidebarDragState: Bool) -> Bool { false }
     func controlDebugTerminalDropOverlayProbe(
         useDeferredPath: Bool
