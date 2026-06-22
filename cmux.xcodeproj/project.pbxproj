@@ -550,6 +550,11 @@
 		C0DE70520000000000000002 /* MenuBarProfilingLauncherTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70520000000000000001 /* MenuBarProfilingLauncherTests.swift */; };
 		C0DE70550000000000000002 /* MenuBarProfilingMenuItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70550000000000000001 /* MenuBarProfilingMenuItem.swift */; };
 		C0DE70540000000000000002 /* MenuBarProfilingMenuItemTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70540000000000000001 /* MenuBarProfilingMenuItemTarget.swift */; };
+		C0DE705A0000000000000002 /* MenuBarProfilingProcessLogs.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE705A0000000000000001 /* MenuBarProfilingProcessLogs.swift */; };
+		C0DE70570000000000000002 /* MenuBarProfilingProfilePreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70570000000000000001 /* MenuBarProfilingProfilePreview.swift */; };
+		C0DE70560000000000000002 /* MenuBarProfilingProgressWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70560000000000000001 /* MenuBarProfilingProgressWindowController.swift */; };
+		C0DE70580000000000000002 /* MenuBarProfilingProgressWindowLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */; };
+		C0DE70590000000000000002 /* MenuBarProfilingSubmissionActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */; };
 		3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0033865B0033865B003 /* MenubarSearchPopover.swift */; };
 		E1000000A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */; };
 		C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */; };
@@ -1598,6 +1603,11 @@
 		C0DE70520000000000000001 /* MenuBarProfilingLauncherTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarProfilingLauncherTests.swift; sourceTree = "<group>"; };
 		C0DE70550000000000000001 /* MenuBarProfilingMenuItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingMenuItem.swift; sourceTree = "<group>"; };
 		C0DE70540000000000000001 /* MenuBarProfilingMenuItemTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingMenuItemTarget.swift; sourceTree = "<group>"; };
+		C0DE705A0000000000000001 /* MenuBarProfilingProcessLogs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingProcessLogs.swift; sourceTree = "<group>"; };
+		C0DE70570000000000000001 /* MenuBarProfilingProfilePreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingProfilePreview.swift; sourceTree = "<group>"; };
+		C0DE70560000000000000001 /* MenuBarProfilingProgressWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingProgressWindowController.swift; sourceTree = "<group>"; };
+		C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingProgressWindowLayout.swift; sourceTree = "<group>"; };
+		C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MenuBarProfilingSubmissionActions.swift; sourceTree = "<group>"; };
 		3865B0033865B0033865B003 /* MenubarSearchPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/MenubarSearchPopover.swift; sourceTree = "<group>"; };
 		E1000001A1B2C3D4E5F60718 /* MenuKeyEquivalentRoutingUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuKeyEquivalentRoutingUITests.swift; sourceTree = "<group>"; };
 		C0DE3150A00000000000002 /* MinimalModeSidebarControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Update/MinimalModeSidebarControls.swift; sourceTree = "<group>"; };
@@ -2441,6 +2451,11 @@
 					C0DE70510000000000000001 /* MenuBarProfilingLauncher.swift */,
 					C0DE70550000000000000001 /* MenuBarProfilingMenuItem.swift */,
 					C0DE70540000000000000001 /* MenuBarProfilingMenuItemTarget.swift */,
+					C0DE70560000000000000001 /* MenuBarProfilingProgressWindowController.swift */,
+					C0DE70570000000000000001 /* MenuBarProfilingProfilePreview.swift */,
+					C0DE705A0000000000000001 /* MenuBarProfilingProcessLogs.swift */,
+					C0DE70580000000000000001 /* MenuBarProfilingProgressWindowLayout.swift */,
+					C0DE70590000000000000001 /* MenuBarProfilingSubmissionActions.swift */,
 					2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				AA5269A0C0DE0001FACE0001 /* ForeignFirstResponderPolicy.swift */,
 				A6D1F0200000000000000001 /* WindowCloseObserver.swift */,
@@ -3944,6 +3959,11 @@
 					C0DE70510000000000000002 /* MenuBarProfilingLauncher.swift in Sources */,
 					C0DE70550000000000000002 /* MenuBarProfilingMenuItem.swift in Sources */,
 					C0DE70540000000000000002 /* MenuBarProfilingMenuItemTarget.swift in Sources */,
+					C0DE705A0000000000000002 /* MenuBarProfilingProcessLogs.swift in Sources */,
+					C0DE70570000000000000002 /* MenuBarProfilingProfilePreview.swift in Sources */,
+					C0DE70560000000000000002 /* MenuBarProfilingProgressWindowController.swift in Sources */,
+					C0DE70580000000000000002 /* MenuBarProfilingProgressWindowLayout.swift in Sources */,
+					C0DE70590000000000000002 /* MenuBarProfilingSubmissionActions.swift in Sources */,
 					3865A0033865A0033865A003 /* MenubarSearchPopover.swift in Sources */,
 				C0DE3150A00000000000001 /* MinimalModeSidebarControls.swift in Sources */,
 				284FD21ACF8BD1ED6AEBD7A0 /* MobileAttachTicketStore.swift in Sources */,
