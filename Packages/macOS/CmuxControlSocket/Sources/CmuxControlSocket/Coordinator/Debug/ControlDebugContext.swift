@@ -311,25 +311,33 @@ public protocol ControlDebugContext: AnyObject {
 
     // MARK: - v1-only synthetic-input / drag-overlay probes (raw v1 responses)
 
-    /// Runs the v1-only `simulate_type` body: inserts the (backslash-unescaped)
-    /// text at the active window's first responder.
+    /// Inserts already-decoded text at the active window's first responder, the
+    /// irreducible live-state half of the v1-only `simulate_type` command
+    /// (`NSApp`/`NSWindow` responder-chain insert).
     ///
-    /// These probes exist only on the v1 line protocol (no v2 method), so the
-    /// witness carries the full app-coupled body (`NSApp`/`NSWindow`/
-    /// `NSPasteboard`/`NSView` hit-testing/ghostty surfaces) and returns the raw
-    /// v1 response string the legacy dispatch produced.
+    /// These probes exist only on the v1 line protocol (no v2 method). The
+    /// raw-argument trim, the empty-text usage `ERROR`, the backslash-escape
+    /// decoding, and the `"OK"`/`ERROR…` response formatting live in the
+    /// coordinator's ``ControlCommandCoordinator/debugSimulateTypeV1(_:)``.
     ///
-    /// - Parameter arguments: The raw `simulate_type` argument line.
-    /// - Returns: The raw v1 response (`"OK"` or an `ERROR…` line).
-    func controlDebugSimulateType(arguments: String) -> String
+    /// - Parameter text: The already-decoded text to insert.
+    /// - Returns: The insertion outcome.
+    func controlDebugSimulateType(decodedText text: String) -> ControlDebugTypeResolution
 
-    /// Runs the v1-only `simulate_file_drop` body: synthesizes a file drop onto
-    /// the resolved terminal surface's hosted view.
+    /// Synthesizes a file drop onto the resolved terminal surface's hosted view,
+    /// the irreducible live-state half of the v1-only `simulate_file_drop`
+    /// command. The `<id|idx> <path[|path…]>` argument split, the usage `ERROR`
+    /// strings, and the `"OK"`/failure response formatting live in the
+    /// coordinator's ``ControlCommandCoordinator/debugSimulateFileDropV1(_:)``.
     ///
-    /// - Parameter arguments: The raw `simulate_file_drop` argument line
-    ///   (`"<id|idx> <path[|path…]>"`).
-    /// - Returns: The raw v1 response.
-    func controlDebugSimulateFileDrop(arguments: String) -> String
+    /// - Parameters:
+    ///   - target: The parsed surface id/index argument.
+    ///   - paths: The parsed, trimmed, non-empty file paths to drop.
+    /// - Returns: The drop outcome.
+    func controlDebugSimulateFileDrop(
+        target: String,
+        paths: [String]
+    ) -> ControlDebugSimulateFileDropResolution
 
     /// Runs the v1-only `seed_drag_pasteboard_types` body: declares the named
     /// pasteboard types on the system drag pasteboard.

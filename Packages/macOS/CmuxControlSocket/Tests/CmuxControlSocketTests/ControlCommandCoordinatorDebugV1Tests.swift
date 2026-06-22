@@ -40,6 +40,31 @@ private final class FakeDebugV1ControlCommandContext: ControlCommandContext {
     var portalHitGateEventToken: ControlDebugOverlayEventToken?
     var portalHitGateResult = false
 
+    var simulateTypeDecodedText: String?
+    var simulateTypeResolution: ControlDebugTypeResolution = .inserted
+
+    var simulateFileDropTarget: String?
+    var simulateFileDropPaths: [String]?
+    var simulateFileDropResolution: ControlDebugSimulateFileDropResolution = .dropped
+
+    var tabManagerAvailable = true
+
+    func controlDebugTabManagerAvailable() -> Bool { tabManagerAvailable }
+
+    func controlDebugSimulateType(decodedText text: String) -> ControlDebugTypeResolution {
+        simulateTypeDecodedText = text
+        return simulateTypeResolution
+    }
+
+    func controlDebugSimulateFileDrop(
+        target: String,
+        paths: [String]
+    ) -> ControlDebugSimulateFileDropResolution {
+        simulateFileDropTarget = target
+        simulateFileDropPaths = paths
+        return simulateFileDropResolution
+    }
+
     func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool {
         overlayHitGateEventToken = eventToken
         return overlayHitGateResult
@@ -367,6 +392,74 @@ struct ControlCommandCoordinatorDebugV1Tests {
         let reply = coordinator.handleDebugV1(command: "portal_hit_gate", args: "wat")
         #expect(reply == "ERROR: Unknown event type 'wat'")
         #expect(context.portalHitGateEventToken == nil)
+    }
+
+    // MARK: - simulate_type
+
+    @Test func simulateTypeTrimsDecodesAndFormatsResolutions() {
+        let (coordinator, context) = makeCoordinator()
+        // The raw argument is trimmed, then backslash escapes are decoded before
+        // reaching the live witness.
+        let reply = coordinator.handleDebugV1(command: "simulate_type", args: "  a\\tb  ")
+        #expect(reply == "OK")
+        #expect(context.simulateTypeDecodedText == "a\tb")
+
+        context.simulateTypeResolution = .noWindow
+        #expect(coordinator.handleDebugV1(command: "simulate_type", args: "x") == "ERROR: No window")
+        context.simulateTypeResolution = .noFirstResponder
+        #expect(coordinator.handleDebugV1(command: "simulate_type", args: "x") == "ERROR: No first responder")
+    }
+
+    @Test func simulateTypeEmptyArgumentReturnsUsageWithoutLiveRead() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handleDebugV1(command: "simulate_type", args: "   ") == "ERROR: Usage: simulate_type <text>")
+        // The live read is never invoked on a parse failure.
+        #expect(context.simulateTypeDecodedText == nil)
+    }
+
+    // MARK: - simulate_file_drop
+
+    @Test func simulateFileDropParsesTargetAndPathsAndFormatsResolutions() {
+        let (coordinator, context) = makeCoordinator()
+        let reply = coordinator.handleDebugV1(
+            command: "simulate_file_drop",
+            args: "surface:2 /a/one.txt | /b/two.txt"
+        )
+        #expect(reply == "OK")
+        #expect(context.simulateFileDropTarget == "surface:2")
+        // Paths split on `|`, trimmed, with empties filtered.
+        #expect(context.simulateFileDropPaths == ["/a/one.txt", "/b/two.txt"])
+
+        context.simulateFileDropResolution = .tabManagerUnavailable
+        #expect(coordinator.handleDebugV1(command: "simulate_file_drop", args: "x /p") == "ERROR: TabManager not available")
+        context.simulateFileDropResolution = .surfaceNotFound
+        #expect(coordinator.handleDebugV1(command: "simulate_file_drop", args: "x /p") == "ERROR: Surface not found")
+        context.simulateFileDropResolution = .dropFailed
+        #expect(coordinator.handleDebugV1(command: "simulate_file_drop", args: "x /p") == "ERROR: Failed to simulate drop")
+    }
+
+    @Test func simulateFileDropRejectsMissingPathListWithUsage() {
+        let (coordinator, context) = makeCoordinator()
+        let usage = "ERROR: Usage: simulate_file_drop <id|idx> <path[|path...]>"
+        // No path field at all.
+        #expect(coordinator.handleDebugV1(command: "simulate_file_drop", args: "surface:1") == usage)
+        // A path field that is only separators/whitespace filters to empty.
+        #expect(coordinator.handleDebugV1(command: "simulate_file_drop", args: "surface:1  | ") == usage)
+        // The live read is never invoked on a parse failure.
+        #expect(context.simulateFileDropTarget == nil)
+        #expect(context.simulateFileDropPaths == nil)
+    }
+
+    @Test func simulateFileDropChecksTabManagerBeforeParsing() {
+        let (coordinator, context) = makeCoordinator()
+        context.tabManagerAvailable = false
+        // The legacy body's `guard let tabManager` ran BEFORE parsing, so a
+        // malformed argument while TabManager is unavailable still returns the
+        // unavailable line, not the usage line.
+        #expect(coordinator.handleDebugV1(command: "simulate_file_drop", args: "bogus") == "ERROR: TabManager not available")
+        #expect(coordinator.handleDebugV1(command: "simulate_file_drop", args: "") == "ERROR: TabManager not available")
+        // The drop witness is never reached.
+        #expect(context.simulateFileDropTarget == nil)
     }
 }
 #endif

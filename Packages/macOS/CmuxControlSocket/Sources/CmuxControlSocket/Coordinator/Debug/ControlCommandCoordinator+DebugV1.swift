@@ -91,11 +91,9 @@ extension ControlCommandCoordinator {
             return debugContext?.controlDebugCaptureScreenshot(label: args)
                 ?? Self.debugContextUnavailableResponse
         case "simulate_type":
-            return debugContext?.controlDebugSimulateType(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugSimulateTypeV1(args)
         case "simulate_file_drop":
-            return debugContext?.controlDebugSimulateFileDrop(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugSimulateFileDropV1(args)
         case "seed_drag_pasteboard_fileurl":
             return debugContext?.controlDebugSeedDragPasteboardTypes(arguments: "fileurl")
                 ?? Self.debugContextUnavailableResponse

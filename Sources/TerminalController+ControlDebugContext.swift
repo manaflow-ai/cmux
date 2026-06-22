@@ -464,27 +464,34 @@ extension TerminalController: ControlDebugContext {
     // siblings), so `controlDebugOverlayDropGate`/`controlDebugSidebarOverlayGate`
     // /`controlDebugTerminalDropOverlayProbe`/`controlDebugDropHitTest`/
     // `controlDebugDragHitChain` now take already-parsed typed inputs and do
-    // only the live read. The remaining witnesses (`simulateType`,
-    // `simulateFileDrop`, the `seed_drag_pasteboard_*` family,
-    // `clear_drag_pasteboard`, `overlay_hit_gate`, `portal_hit_gate`) keep their
-    // whole body: the gate pair parses to an AppKit `NSEvent.EventType`, which
-    // the AppKit-free control-plane package cannot host, and the rest are
-    // string-shaped with no separable decision step. They return the raw v1
-    // response string the legacy `processCommand` cases produced.
+    // only the live read. `simulate_type` and `simulate_file_drop` are split
+    // the same way: their argument trim/empty-check/escape-decode and
+    // `<id|idx> <path…>` split (plus the usage `ERROR` strings and the
+    // `OK`/failure formatting) drained into
+    // ``ControlCommandCoordinator/debugSimulateTypeV1(_:)`` /
+    // ``ControlCommandCoordinator/debugSimulateFileDropV1(_:)``, so
+    // `controlDebugSimulateType` now takes already-decoded text and returns a
+    // typed ``ControlDebugTypeResolution``, and `controlDebugSimulateFileDrop`
+    // takes the parsed `target`/`paths` and returns a typed
+    // ``ControlDebugSimulateFileDropResolution``. The remaining witnesses (the
+    // `seed_drag_pasteboard_*` family, `clear_drag_pasteboard`,
+    // `overlay_hit_gate`, `portal_hit_gate`) keep their whole body: the gate
+    // pair parses to an AppKit `NSEvent.EventType`, which the AppKit-free
+    // control-plane package cannot host, the seed family maps to AppKit
+    // `NSPasteboard.PasteboardType`, and `clear_drag_pasteboard` has no decision
+    // step. They return the raw v1 response string the legacy `processCommand`
+    // cases produced.
     // `simulateShortcut` (a v1-shared body that stays in
     // `TerminalController.swift`) shares `prepareWindowForSyntheticInput`, which
     // is therefore `internal`.
 
-    func controlDebugSimulateType(arguments: String) -> String {
-        let raw = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !raw.isEmpty else {
-            return "ERROR: Usage: simulate_type <text>"
-        }
-
-        // Socket commands are line-based; allow callers to express control chars with backslash escapes.
-        let text = raw.socketTextEscapesDecoded
-
-        var result = "ERROR: No window"
+    func controlDebugSimulateType(decodedText text: String) -> ControlDebugTypeResolution {
+        // The raw-argument trim, the empty-text usage `ERROR`, and the
+        // backslash-escape decoding live in the coordinator's
+        // `debugSimulateTypeV1(_:)`; this witness does only the live AppKit
+        // first-responder insert. `prepareWindowForSyntheticInput` is shared
+        // with `simulate_shortcut`, so it stays in `TerminalController.swift`.
+        var resolution = ControlDebugTypeResolution.noWindow
         v2MainSync {
             // Like simulate_shortcut, prefer a visible window so debug automation doesn't
             // fail during key window transitions.
@@ -494,13 +501,13 @@ extension TerminalController: ControlDebugContext {
                 ?? NSApp.windows.first else { return }
             prepareWindowForSyntheticInput(window)
             guard let fr = window.firstResponder else {
-                result = "ERROR: No first responder"
+                resolution = .noFirstResponder
                 return
             }
 
             if let client = fr as? NSTextInputClient {
                 client.insertText(text, replacementRange: NSRange(location: NSNotFound, length: 0))
-                result = "OK"
+                resolution = .inserted
                 return
             }
 
@@ -509,37 +516,30 @@ extension TerminalController: ControlDebugContext {
             // `as? NSResponder` cast was redundant; dropping it is byte-faithful
             // and clears an always-succeeds warning in this now-tracked file.
             fr.insertText(text)
-            result = "OK"
+            resolution = .inserted
         }
-        return result
+        return resolution
     }
 
-    func controlDebugSimulateFileDrop(arguments: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    func controlDebugSimulateFileDrop(
+        target: String,
+        paths: [String]
+    ) -> ControlDebugSimulateFileDropResolution {
+        // The `<id|idx> <path[|path...]>` argument split, the usage `ERROR`
+        // strings, and the `OK`/failure response formatting live in the
+        // coordinator's `debugSimulateFileDropV1(_:)`; this witness does only
+        // the live `TabManager` availability guard, surface resolution, and the
+        // hosted-view drop synthesis.
+        guard let tabManager = tabManager else { return .tabManagerUnavailable }
 
-        let parts = arguments.split(separator: " ", maxSplits: 1).map(String.init)
-        guard parts.count == 2 else {
-            return "ERROR: Usage: simulate_file_drop <id|idx> <path[|path...]>"
-        }
-
-        let target = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-        let rawPaths = parts[1]
-        let paths = rawPaths
-            .split(separator: "|")
-            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !paths.isEmpty else {
-            return "ERROR: Usage: simulate_file_drop <id|idx> <path[|path...]>"
-        }
-
-        var result = "ERROR: Surface not found"
+        var resolution = ControlDebugSimulateFileDropResolution.surfaceNotFound
         v2MainSync {
             guard let panel = resolveTerminalPanel(from: target, tabManager: tabManager) else { return }
-            result = panel.hostedView.debugSimulateFileDrop(paths: paths)
-                ? "OK"
-                : "ERROR: Failed to simulate drop"
+            resolution = panel.hostedView.debugSimulateFileDrop(paths: paths)
+                ? .dropped
+                : .dropFailed
         }
-        return result
+        return resolution
     }
 
     func controlDebugSeedDragPasteboardTypes(arguments: String) -> String {
