@@ -1146,14 +1146,18 @@ final class RemoteTmuxControlConnection {
             // An attached-session SWITCH: the window set changes with it, so
             // re-fetch the topology.
             applySessionNameChange(sessionId: id, name: name, event: "session-changed", refetchWindows: true)
-        case let .sessionRenamed(id, name):
+        case let .sessionRenamed(id, name, idBearingName):
             // tmux's `rename-session` notification. Same name handling as
             // `%session-changed` (track the new name for attach/reconnect and emit
             // the name-change observers that re-key controller state and re-title
             // the mirror workspace), but a rename does NOT change the window set,
             // so skip the topology re-fetch.
-            guard shouldApplySessionRenamed(sessionId: id) else { return }
-            applySessionNameChange(sessionId: id, name: name, event: "session-renamed", refetchWindows: false)
+            guard let renameName = sessionRenamedName(
+                sessionId: id,
+                documentedName: name,
+                idBearingName: idBearingName
+            ) else { return }
+            applySessionNameChange(sessionId: id, name: renameName, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
         case let .windowAdd(id):
@@ -1250,13 +1254,15 @@ final class RemoteTmuxControlConnection {
         if refetchWindows { requestWindows() }
     }
 
-    private func shouldApplySessionRenamed(sessionId renamedSessionId: Int?) -> Bool {
-        guard let renamedSessionId else { return true }
+    private func sessionRenamedName(sessionId renamedSessionId: Int?, documentedName: String, idBearingName: String?) -> String? {
+        guard let renamedSessionId else { return documentedName }
+        // Real tmux id-bearing renames are broadcast for every session; only this
+        // connection's id may use the id-bearing interpretation.
         guard let currentSessionId = sessionId, currentSessionId == renamedSessionId else {
             record("session-renamed-ignored $\(renamedSessionId)")
-            return false
+            return nil
         }
-        return true
+        return idBearingName ?? documentedName
     }
 
     private func handleCommandResult(lines: [String], isError: Bool) {

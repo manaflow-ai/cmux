@@ -211,7 +211,7 @@ import Testing
         })
         defer { connection.removeObserver(token) }
 
-        connection.handleMessageForTesting(.sessionRenamed(sessionId: nil, name: "dev"))
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: nil, name: "dev", idBearingName: nil))
 
         #expect(connection.sessionName == "dev")
         #expect(connection.sessionId == nil)
@@ -225,7 +225,7 @@ import Testing
         )
         connection.handleMessageForTesting(.sessionChanged(sessionId: 7, name: "old"))
 
-        connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "dev"))
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "$7 dev", idBearingName: "dev"))
 
         #expect(connection.sessionName == "dev")
         #expect(connection.sessionId == 7)
@@ -242,7 +242,7 @@ import Testing
         })
         defer { connection.removeObserver(token) }
 
-        connection.handleMessageForTesting(.sessionRenamed(sessionId: 8, name: "other"))
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 8, name: "$8 other", idBearingName: "other"))
 
         #expect(connection.sessionName == "old")
         #expect(connection.sessionId == 7)
@@ -254,7 +254,7 @@ import Testing
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
         )
 
-        connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "dev"))
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "$7 dev", idBearingName: "dev"))
 
         #expect(connection.sessionName == "old")
         #expect(connection.sessionId == nil)

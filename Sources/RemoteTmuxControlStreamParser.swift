@@ -195,9 +195,15 @@ struct RemoteTmuxControlStreamParser {
             // name, while tmux 3.6a emits "$<id> <name>"; accept both forms.
             if let id = Self.fieldId(line, 1, sigil: "$") {
                 let name = Self.fieldsFrom(line, 2)
-                if !name.isEmpty { return .sessionRenamed(sessionId: id, name: name) }
+                if !name.isEmpty {
+                    return .sessionRenamed(
+                        sessionId: id,
+                        name: Self.fieldsFrom(line, 1),
+                        idBearingName: name
+                    )
+                }
             }
-            return .sessionRenamed(sessionId: nil, name: Self.fieldsFrom(line, 1))
+            return .sessionRenamed(sessionId: nil, name: Self.fieldsFrom(line, 1), idBearingName: nil)
         }
         if line == "%sessions-changed" { return .sessionsChanged }
         if line.hasPrefix("%window-add ") {
