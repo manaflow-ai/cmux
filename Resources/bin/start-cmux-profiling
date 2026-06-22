@@ -178,6 +178,15 @@ sanitize_path() {
   printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
 }
 
+redact_path() {
+  local raw="$1"
+  if [ -n "${HOME:-}" ] && [[ "$raw" == "$HOME"* ]]; then
+    printf '~%s' "${raw#"$HOME"}"
+  else
+    printf '%s' "$raw"
+  fi
+}
+
 plist_value() {
   local plist="$1"
   local key="$2"
@@ -340,7 +349,7 @@ write_system_info() {
     echo "- PID: $pid"
     echo "- Channel: $channel"
     echo "- Bundle ID: ${bundle_id:-unknown}"
-    echo "- App: ${app_path:-unknown}"
+    echo "- App: $(redact_path "${app_path:-unknown}")"
     if [ -n "$app_path" ] && [ -f "$app_path/Contents/Info.plist" ]; then
       echo "- Version: $(plist_value "$app_path/Contents/Info.plist" CFBundleShortVersionString || true)"
       echo "- Build: $(plist_value "$app_path/Contents/Info.plist" CFBundleVersion || true)"
@@ -571,7 +580,7 @@ Target:
 - Channel: $channel
 - Bundle ID: ${bundle_id:-unknown}
 - Name: $display_name
-- App: ${app_path:-unknown}
+- App: $(redact_path "${app_path:-unknown}")
 
 Capture:
 - Duration per template: ${duration}s

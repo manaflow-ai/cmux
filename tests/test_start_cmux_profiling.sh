@@ -191,7 +191,7 @@ EOF
 chmod +x "$fake_bin/xcrun"
 
 timeout_out="$TMP_DIR/timeout-out"
-PATH="$fake_bin:$PATH" CMUX_PROFILE_TOC_TIMEOUT_SECONDS=1 "$SCRIPT" \
+HOME="$TMP_DIR" PATH="$fake_bin:$PATH" CMUX_PROFILE_TOC_TIMEOUT_SECONDS=1 "$SCRIPT" \
   --test-ps-file "$ps_file" \
   --channel dev \
   --tag dog \
@@ -223,10 +223,18 @@ if [ ! -f "$timeout_out/system-info.txt" ] ||
   exit 1
 fi
 if ! grep -Fq "System:" "$timeout_out/summary.md" ||
+   ! grep -Fq "App: ~/cmux DEV dog.app" "$timeout_out/summary.md" ||
    ! grep -Fq "Keyboard/input source: U.S." "$timeout_out/summary.md" ||
    ! grep -Fq "More details: system-info.txt" "$timeout_out/summary.md"; then
   echo "FAIL: summary did not preview system info" >&2
   cat "$timeout_out/summary.md" >&2
+  exit 1
+fi
+if grep -Fq "$TMP_DIR/cmux DEV dog.app" "$timeout_out/summary.md" ||
+   grep -Fq "$TMP_DIR/cmux DEV dog.app" "$timeout_out/system-info.txt"; then
+  echo "FAIL: system info leaked an unredacted home path" >&2
+  cat "$timeout_out/summary.md" >&2
+  cat "$timeout_out/system-info.txt" >&2
   exit 1
 fi
 
@@ -352,6 +360,54 @@ CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFILE_
   --channel dev \
   --bundle-id com.cmuxterm.app.debug.dog
 
+sleep_osascript="$TMP_DIR/sleep-osascript"
+sleep_osascript_pid="$TMP_DIR/sleep-osascript.pid"
+sleep_osascript_term="$TMP_DIR/sleep-osascript.term"
+cat > "$sleep_osascript" <<EOF
+#!/usr/bin/env bash
+echo "\$\$" > "$sleep_osascript_pid"
+trap 'echo term > "$sleep_osascript_term"; exit 143' TERM
+while true; do sleep 1; done
+EOF
+chmod +x "$sleep_osascript"
+CMUX_PROFILE_OSASCRIPT="$sleep_osascript" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+  --profile "$timeout_out" \
+  --target-name "cmux DEV dog" \
+  --target-pid 303 \
+  --channel dev \
+  --bundle-id com.cmuxterm.app.debug.dog \
+  --send &
+sleep_helper_pid="$!"
+for _ in $(seq 1 50); do
+  [ -s "$sleep_osascript_pid" ] && break
+  sleep 0.1
+done
+if [ ! -s "$sleep_osascript_pid" ]; then
+  echo "FAIL: fake osascript did not start" >&2
+  kill "$sleep_helper_pid" >/dev/null 2>&1 || true
+  wait "$sleep_helper_pid" >/dev/null 2>&1 || true
+  exit 1
+fi
+sleep_child_pid="$(cat "$sleep_osascript_pid")"
+kill "$sleep_helper_pid"
+set +e
+wait "$sleep_helper_pid"
+sleep_helper_status="$?"
+set -e
+for _ in $(seq 1 50); do
+  if ! kill -0 "$sleep_child_pid" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+if [ "$sleep_helper_status" -eq 0 ] ||
+   [ ! -f "$sleep_osascript_term" ] ||
+   kill -0 "$sleep_child_pid" >/dev/null 2>&1; then
+  echo "FAIL: terminating submit helper did not stop osascript child" >&2
+  kill "$sleep_child_pid" >/dev/null 2>&1 || true
+  exit 1
+fi
+
 if CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
   --profile "$timeout_out" \
   --target-name "cmux DEV dog" \
@@ -387,7 +443,7 @@ note_file="$TMP_DIR/note.txt"
 printf '%s' "user@example.com" > "$reply_to_file"
 printf '%s' "profile note" > "$note_file"
 
-CMUX_PROFILE_FEEDBACK_EMAIL=wrong@example.com CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+HOME="$TMP_DIR" CMUX_PROFILE_FEEDBACK_EMAIL=wrong@example.com CMUX_PROFILE_LOCALE=ja_JP CMUX_PROFILE_OSASCRIPT="$capture_osascript" CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
   --profile "$timeout_out" \
   --target-name "cmux DEV dog" \
   --target-pid 303 \
@@ -404,7 +460,9 @@ if ! grep -Fq "cmuxプロファイルを送信" "$captured_args" ||
    grep -Fq "wrong@example.com" "$captured_args" ||
    ! grep -Fq "user@example.com" "$captured_args" ||
    ! grep -Fq "profile note" "$captured_args" ||
-   ! grep -Fq "true" "$captured_args"; then
+   ! grep -Fq "true" "$captured_args" ||
+   grep -Fq "$TMP_DIR/timeout-out" "$captured_args" ||
+   ! grep -Fq "~/timeout-out" "$captured_args"; then
   echo "FAIL: submit helper did not pass localized Japanese send strings" >&2
   cat "$captured_args" >&2
   exit 1

@@ -32,6 +32,30 @@ recipient="${CMUX_PROFILE_FEEDBACK_EMAIL:-founders@manaflow.com}"
 osascript_bin="${CMUX_PROFILE_OSASCRIPT:-/usr/bin/osascript}"
 open_bin="${CMUX_PROFILE_OPEN:-/usr/bin/open}"
 ditto_bin="${CMUX_PROFILE_DITTO:-/usr/bin/ditto}"
+child_pids=()
+
+terminate_children() {
+  local child
+  trap - TERM INT
+  for child in "${child_pids[@]}"; do
+    kill "$child" >/dev/null 2>&1 || true
+  done
+  for child in "${child_pids[@]}"; do
+    wait "$child" >/dev/null 2>&1 || true
+  done
+  exit 143
+}
+
+trap terminate_children TERM INT
+
+redact_path() {
+  local raw="$1"
+  if [ -n "${HOME:-}" ] && [[ "$raw" == "$HOME"* ]]; then
+    printf '~%s' "${raw#"$HOME"}"
+  else
+    printf '%s' "$raw"
+  fi
+}
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -198,8 +222,8 @@ ${body_pid_label}: ${target_pid:-unknown}
 ${body_channel_label}: ${channel}
 ${body_bundle_label}: ${bundle_id}
 ${body_contact_label}: ${reply_to:-unknown}
-${body_profile_label}: ${profile_dir}
-${body_archive_label}: ${archive_path}
+${body_profile_label}: $(redact_path "$profile_dir")
+${body_archive_label}: $(redact_path "$archive_path")
 
 ${body_notes_label}:
 EOF
@@ -253,7 +277,16 @@ on run argv
 end run
 OSA
 
-if "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body_file" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text_file" "$skip_dialog" "$send_message" 2>"$apple_error"; then
+set +e
+"$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body_file" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text_file" "$skip_dialog" "$send_message" 2>"$apple_error" &
+osascript_pid="$!"
+child_pids=("$osascript_pid")
+wait "$osascript_pid"
+osascript_status="$?"
+child_pids=()
+set -e
+
+if [ "$osascript_status" -eq 0 ]; then
   exit 0
 fi
 
