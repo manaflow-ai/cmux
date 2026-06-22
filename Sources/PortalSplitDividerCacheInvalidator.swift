@@ -4,7 +4,6 @@ import AppKit
 final class PortalSplitDividerCacheInvalidator {
     private var observations: [NSKeyValueObservation] = []
     private var notificationObservers: [NSObjectProtocol] = []
-    private var notificationPostingRestorers: [@MainActor () -> Void] = []
 
     deinit {
         invalidate()
@@ -12,18 +11,12 @@ final class PortalSplitDividerCacheInvalidator {
 
     func observe(_ views: [NSView], onChange: @escaping @MainActor () -> Void) {
         invalidate()
-        var restorers: [@MainActor () -> Void] = []
         for view in views {
-            let postsFrameChangedNotifications = view.postsFrameChangedNotifications
-            let postsBoundsChangedNotifications = view.postsBoundsChangedNotifications
+            // These NSView flags are shared; do not restore them per observer or
+            // one portal cache can disable notifications another cache still needs.
             view.postsFrameChangedNotifications = true
             view.postsBoundsChangedNotifications = true
-            restorers.append { [weak view] in
-                view?.postsFrameChangedNotifications = postsFrameChangedNotifications
-                view?.postsBoundsChangedNotifications = postsBoundsChangedNotifications
-            }
         }
-        notificationPostingRestorers = restorers
         notificationObservers = views.flatMap { view in
             return [
                 NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: view, queue: nil) { _ in
@@ -50,7 +43,5 @@ final class PortalSplitDividerCacheInvalidator {
         observations.removeAll()
         notificationObservers.forEach(NotificationCenter.default.removeObserver)
         notificationObservers.removeAll()
-        notificationPostingRestorers.forEach { $0() }
-        notificationPostingRestorers.removeAll()
     }
 }
