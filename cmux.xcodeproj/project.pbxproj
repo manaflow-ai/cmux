@@ -4689,6 +4689,7 @@
 		442A6A86CAC6E8AD27FDD8F2 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = cmuxUITests/cmuxUITests.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 96;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -4894,6 +4895,7 @@
 		C117776A77E71D1432F570D7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = cmuxUITests/cmuxUITests.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 96;
 				GENERATE_INFOPLIST_FILE = YES;

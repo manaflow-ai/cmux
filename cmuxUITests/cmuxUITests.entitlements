@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      TEST-HARNESS ONLY. This entitlements file is wired exclusively to the
+      cmuxUITests target (the XCUITest runner), never to the cmux app target.
+
+      Xcode auto-synthesizes `com.apple.security.app-sandbox = true` for a
+      target that has CODE_SIGN_STYLE = Automatic and no explicit entitlements.
+      A sandboxed runner cannot AF_UNIX connect() to the app's per-launch
+      /tmp/cmux-debug-<uuid>.sock, so socket-driven UI tests (e.g.
+      GTVHotPathPerfUITests) fail at the socket-readiness ping before any
+      assertions run. Disabling the sandbox on the runner is standard for UI
+      tests that talk to a host process over a Unix-domain socket; it does not
+      affect the app target's sandbox/entitlements or any runtime behavior.
+    -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+</dict>
+</plist>
