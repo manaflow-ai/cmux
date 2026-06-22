@@ -23,6 +23,7 @@ jobs:
       macos: ${{ steps.detect.outputs.macos }}
       web: ${{ steps.detect.outputs.web }}
       go: ${{ steps.detect.outputs.go }}
+      agent_session_web: ${{ steps.detect.outputs.agent_session_web }}
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -42,6 +43,7 @@ jobs:
               echo "macos=true"
               echo "web=true"
               echo "go=true"
+              echo "agent_session_web=true"
             } >> "$GITHUB_OUTPUT"
           }
 
@@ -127,6 +129,9 @@ jobs:
 
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
+
+      - name: Validate TestFlight notes generator
+        run: python3 tests/test_ios_testflight_notes.py
 
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
@@ -334,7 +339,7 @@ jobs:
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior
 
-  tests:
+  app-host-unit-tests:
     needs: changes
     if: ${{ needs.changes.outputs.macos == 'true' }}
     name: app-host unit tests (${{ matrix.shard }}/4)
@@ -349,6 +354,9 @@ jobs:
         shard: [1, 2, 3, 4]
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
+      # Keep one-off focused gates on the lightest measured shard so shard 1 no
+      # longer carries the full shard plus every extra regression guard.
+      CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD: "4"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
       # backtracer until the job timeout. Keep crash handling non-interactive
       # and cheap so xcodebuild can restart/finish the suite.
@@ -412,20 +420,9 @@ jobs:
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Install zig
-        run: |
-          ./scripts/install-zig-ci.sh
-
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
-
-      - name: Cache Zig packages
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.cache/zig
-          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
-          restore-keys: zig-packages-
 
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -475,7 +472,7 @@ jobs:
           done
 
       - name: Run Ghostty split-theme appearance regression
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           DERIVED_DATA_PATH="${RUNNER_TEMP:-/tmp}/cmux-terminal-core-split-theme"
@@ -504,7 +501,7 @@ jobs:
           fi
 
       - name: Run browser system proxy mirror regression
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           # Focused gate for https://github.com/manaflow-ai/cmux/issues/5888.
           # The full "Run unit tests" step tolerates app-host crashes by
@@ -526,7 +523,7 @@ jobs:
             test
 
       - name: Run Option/Alt sided-modifier regression
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
@@ -626,14 +623,14 @@ jobs:
           fi
 
       - name: Run bundled Ghostty theme picker helper regression
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Run CLI no-socket regressions
-        if: ${{ matrix.shard == 1 }}
+        if: ${{ matrix.shard == fromJSON(env.CMUX_APP_HOST_FOCUSED_REGRESSION_SHARD) }}
         run: |
           set -euo pipefail
 
@@ -658,6 +655,8 @@ jobs:
           python3 tests/test_claude_wrapper_hooks.py
           python3 tests/test_claude_wrapper_user_binary_resolution.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_fallback_path.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_env.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_claude_teams_trust_optin.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omx_fallback_path.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omc_fallback_path.py
@@ -668,6 +667,64 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_omp_extension_install.py
+
+  tests:
+    name: tests
+    # Aggregate gate for the test/build suites in this workflow. Required by
+    # branch protection under the stable name "tests", and references each suite
+    # by its job KEY via needs:, so renaming/sharding a job's display name never
+    # desyncs the required-checks list (the failure mode from the #6464 sharding
+    # that stranded the old "tests" check). Add new ci.yml test/build jobs here.
+    needs:
+      - changes
+      - app-host-unit-tests
+      - swift-package-tests
+      - agent-session-web-resources
+    if: ${{ always() }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    timeout-minutes: 5
+    steps:
+      - name: Check app-host unit test routing
+        env:
+          TESTS_NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["TESTS_NEEDS"])
+          changes = needs["changes"]
+          tests = needs["app-host-unit-tests"]
+          macos = changes.get("outputs", {}).get("macos")
+
+          if changes["result"] != "success":
+              print(f"changes: {changes['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          if macos == "true" and tests["result"] != "success":
+              print(f"app-host unit tests were required but did not pass: {tests['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          if macos != "true" and tests["result"] not in {"success", "skipped"}:
+              print(f"app-host unit tests had unexpected result for macos={macos}: {tests['result']}", file=sys.stderr)
+              sys.exit(1)
+
+          # The remaining test/build suites in this workflow gate too. A job that
+          # opts out via its own path filter reports "skipped", which is fine; a
+          # job that actually ran and failed must block the merge.
+          allowed = {"success", "skipped"}
+          for name in ("swift-package-tests", "agent-session-web-resources"):
+              result = needs[name]["result"]
+              if result not in allowed:
+                  print(f"{name} did not pass: {result}", file=sys.stderr)
+                  sys.exit(1)
+
+          print(f"changes.macos={macos}")
+          print(f"app-host unit tests={tests['result']}")
+          for name in ("swift-package-tests", "agent-session-web-resources"):
+              print(f"{name}={needs[name]['result']}")
+          PY
 
   swift-package-tests:
     needs: changes
@@ -727,8 +784,20 @@ jobs:
           path: GhosttyKit.xcframework
           key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
+      - name: Validate cached GhosttyKit.xcframework
+        id: validate-ghosttykit-package-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f GhosttyKit.xcframework/Info.plist ]; then
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            rm -rf GhosttyKit.xcframework
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download pre-built GhosttyKit.xcframework
-        if: steps.cache-ghosttykit-package-tests.outputs.cache-hit != 'true'
+        if: steps.validate-ghosttykit-package-tests.outputs.valid != 'true'
         run: |
           ./scripts/download-prebuilt-ghosttykit.sh
 
@@ -758,6 +827,7 @@ jobs:
           # symbol instead of the GhosttyKit archive.
           PACKAGES=(
             CMUXAuthCore
+            CmuxCanvasUI
             CmuxCore
             CmuxRemoteDaemon
             CmuxRemoteWorkspace
@@ -794,17 +864,33 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
+            CmuxAuthRuntime)
+              suite_list="$(
+                find "$pkgdir/Tests" -name '*.swift' -print0 \
+                  | xargs -0 perl -ne 'print "$1\n" if /^\s*@Suite(?:\([^)]*\))?\s+struct\s+([A-Za-z0-9_]+)/' \
+                  | sort -u
+              )"
+              if [ -z "$suite_list" ]; then
+                echo "::error::no Swift Testing suites found for $pkg"
+                exit 1
+              fi
+              while IFS= read -r suite; do
+                [ -n "$suite" ] || continue
+                echo "swift test $pkgdir --filter $suite"
+                swift test --package-path "$pkgdir" --filter "$suite"
+              done <<< "$suite_list"
+              ;;
             CmuxTerminal|CmuxTerminalCore)
-              status=0
-              output="$(swift test --package-path "$pkgdir" 2>&1)" || status=$?
+              test_status=0
+              output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
               printf '%s\n' "$output"
-              if [ "$status" -ne 0 ]; then
+              if [ "$test_status" -ne 0 ]; then
                 if printf '%s\n' "$output" | grep -Eq 'Test run with [0-9]+ tests( in [0-9]+ suites)? passed' \
                   && ! printf '%s\n' "$output" | grep -Eq 'with [1-9][0-9]* failures?' \
                   && ! printf '%s\n' "$output" | grep -v 'unexpected binary' | grep -Eq '(^|[^a-zA-Z])error:'; then
                   echo "Tolerated cosmetic GhosttyKit binaryTarget diagnostic; all tests passed."
                 else
-                  exit "$status"
+                  exit "$test_status"
                 fi
               fi
               ;;
@@ -817,7 +903,7 @@ jobs:
 
   agent-session-web-resources:
     needs: changes
-    if: ${{ needs.changes.outputs.macos == 'true' }}
+    if: ${{ needs.changes.outputs.agent_session_web == 'true' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
     timeout-minutes: 10
     steps:
@@ -1861,6 +1947,7 @@ jobs:
       - web-typecheck
       - react-apps-check
       - web-db-migrations
+      - app-host-unit-tests
       - tests
       - swift-package-tests
       - agent-session-web-resources
