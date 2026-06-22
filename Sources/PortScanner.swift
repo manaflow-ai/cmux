@@ -340,10 +340,7 @@ final class PortScanner: @unchecked Sendable {
         let inactiveWorkspaceIds = workspaceIds.subtracting(normalizedPIDsByWorkspace.keys)
         if !inactiveWorkspaceIds.isEmpty {
             trackedAgentWorkspaces.subtract(inactiveWorkspaceIds)
-            for workspaceId in inactiveWorkspaceIds {
-                lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
-                forceAgentResultWorkspaces.remove(workspaceId)
-            }
+            forceAgentResultWorkspaces.formUnion(inactiveWorkspaceIds)
             updateAgentScanTimerLocked()
         }
 
@@ -450,7 +447,11 @@ final class PortScanner: @unchecked Sendable {
                         guard previousPorts != ports else { continue }
                         guard previousPorts != nil || !ports.isEmpty else { continue }
                     }
-                    lastAgentPortsByWorkspace[workspaceId] = ports
+                    if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
+                        lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                    } else {
+                        lastAgentPortsByWorkspace[workspaceId] = ports
+                    }
                     results.append((workspaceId, ports))
                 }
                 continuation.resume(returning: results)
