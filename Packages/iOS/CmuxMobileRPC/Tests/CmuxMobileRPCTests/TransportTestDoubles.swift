@@ -22,6 +22,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
         stackAccessToken: String? = "test-stack-token",
         stackAccessTokenForStatus: String? = nil,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
+        stackAccessTokenForStatusProvider: (@Sendable () async -> String?)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         pairingRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000,
         now: @escaping @Sendable () -> Date = Date.init,
@@ -33,7 +34,9 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken
         }
-        self.stackAccessTokenForStatusProvider = { stackAccessTokenForStatus }
+        self.stackAccessTokenForStatusProvider = stackAccessTokenForStatusProvider ?? {
+            stackAccessTokenForStatus
+        }
         self.stackAccessTokenForceRefresher = {
             guard let stackAccessToken else { throw MissingTestStackAccessToken() }
             return stackAccessToken

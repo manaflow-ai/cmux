@@ -260,13 +260,28 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
            isHostStatusRequest(request),
            allowsStackAuthFallback,
            MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
-           let stackAccessToken = await runtime.stackAccessTokenForStatusProvider() {
+           let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
             auth["stack_access_token"] = stackAccessToken
         }
         if !auth.isEmpty {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
+        let task = Task<String?, any Error> { [runtime] in
+            await runtime.stackAccessTokenForStatusProvider()
+        }
+        do {
+            return try await RPCTaskTimeout().value(
+                task,
+                timeoutNanoseconds: try deadline.remainingNanoseconds()
+            )
+        } catch {
+            task.cancel()
+            throw error
+        }
     }
 
     private func stackAccessToken(deadline: RPCRequestDeadline) async throws -> String {

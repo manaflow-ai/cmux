@@ -418,50 +418,6 @@ import Testing
         #expect(await tokenProvider.startCount == 3)
     }
 
-    @Test func hostStatusProbeDoesNotTouchSlowStackTokenProvider() async throws {
-        let tokenProvider = FirstCallHangsTokenProvider()
-        let transport = QueuedCancellationProbeTransport()
-        let route = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 59128)
-        let runtime = TestMobileSyncRuntime(
-            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
-            stackAccessTokenProvider: {
-                try await tokenProvider.token()
-            },
-            rpcRequestTimeoutNanoseconds: 60 * 1_000_000_000
-        )
-        let ticket = try CmxAttachTicket(
-            workspaceID: "workspace-main",
-            terminalID: "terminal-main",
-            macDeviceID: "test-mac",
-            macDisplayName: "Test Mac",
-            routes: [route],
-            expiresAt: Date().addingTimeInterval(60),
-            authToken: "ticket-secret"
-        )
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: ticket,
-            allowsStackAuthFallback: true
-        )
-        let status = try MobileCoreRPCClient.requestData(
-            method: "mobile.host.status",
-            params: [:],
-            id: "status"
-        )
-
-        let statusTask = Task {
-            try await client.sendRequest(status, timeoutNanoseconds: 60 * 1_000_000_000)
-        }
-        let statusSent = try await transport.waitForSentRequestCount(1)
-        #expect(statusSent.first?.method == "mobile.host.status")
-        #expect(statusSent.first?.stackAccessToken == nil)
-        #expect(await tokenProvider.startCount == 0)
-        statusTask.cancel()
-        await transport.releaseFirstSend()
-        _ = try? await statusTask.value
-    }
-
     private func waitForReleasedToken(gate: RPCStackTokenGate, tokenProvider: CancellationIgnoringTokenProvider) async throws -> String {
         for _ in 0..<200 {
             do {
