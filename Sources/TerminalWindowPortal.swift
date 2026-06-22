@@ -35,6 +35,9 @@ final class WindowTerminalHostView: NSView {
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
 #if DEBUG
+    private(set) var debugDividerRegionBuildCountForTesting = 0
+#endif
+#if DEBUG
     private var lastDragRouteSignature: String?
 #endif
 
@@ -350,6 +353,9 @@ final class WindowTerminalHostView: NSView {
         guard let window else { return nil }
         let windowPoint = convert(point, to: nil)
         guard let rootView = window.contentView else { return nil }
+#if DEBUG
+        debugDividerRegionBuildCountForTesting += 1
+#endif
         return Self.dividerCursorKind(at: windowPoint, in: rootView)
     }
 

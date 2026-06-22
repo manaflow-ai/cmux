@@ -326,6 +326,9 @@ final class WindowBrowserHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
+#if DEBUG
+    private(set) var debugDividerRegionBuildCountForTesting = 0
+#endif
 
     deinit {
         if let trackingArea {
@@ -873,6 +876,9 @@ final class WindowBrowserHostView: NSView {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
         guard let rootView = dividerSearchRootView() else { return nil }
+#if DEBUG
+        debugDividerRegionBuildCountForTesting += 1
+#endif
         return Self.dividerHit(at: windowPoint, in: rootView, hostView: self)
     }
 
