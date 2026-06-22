@@ -77,8 +77,9 @@ extension RemoteSessionCoordinator {
             process.standardError = stderrPipe
 
             process.terminationHandler = { [weak self] terminated in
-                self?.queue.async {
-                    self?.handleReverseRelayTerminationLocked(process: terminated)
+                guard let self else { return }
+                self.queue.async {
+                    self.handleReverseRelayTerminationLocked(process: terminated)
                 }
             }
 
@@ -148,8 +149,8 @@ extension RemoteSessionCoordinator {
         stderrPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
-                self?.queue.async {
-                    guard let self else { return }
+                guard let self else { return }
+                self.queue.async {
                     if let chunk = String(data: data, encoding: .utf8), !chunk.isEmpty {
                         self.reverseRelayStderrBuffer.append(chunk)
                         if self.reverseRelayStderrBuffer.count > 8192 {

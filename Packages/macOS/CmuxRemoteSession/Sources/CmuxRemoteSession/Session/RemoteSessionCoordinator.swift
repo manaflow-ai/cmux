@@ -396,8 +396,9 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             configuration: configuration,
             remotePath: remotePath
         ) { [weak self] update in
-            self?.queue.async {
-                self?.handleProxyBrokerUpdateLocked(update)
+            guard let self else { return }
+            self.queue.async {
+                self.handleProxyBrokerUpdateLocked(update)
             }
         }
         proxyLease = lease

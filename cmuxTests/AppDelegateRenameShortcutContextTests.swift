@@ -35,11 +35,23 @@ private final class ShortcutContextGhosttyCommandEquivalentProbeView: GhosttyNSV
     }
 }
 
-private final class ShortcutNotificationFlag {
-    var wasPosted = false
+/// Lock-guarded flag so it is `Sendable` and can be flipped from the
+/// `@Sendable` NotificationCenter observer block and read back on the main
+/// actor without tripping Swift 6.3 concurrency diagnostics.
+private final class ShortcutNotificationFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _wasPosted = false
+
+    var wasPosted: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _wasPosted
+    }
 
     func markPosted() {
-        wasPosted = true
+        lock.lock()
+        defer { lock.unlock() }
+        _wasPosted = true
     }
 }
 
