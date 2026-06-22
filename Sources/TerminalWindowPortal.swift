@@ -18,6 +18,28 @@ final class WindowTerminalHostView: NSView {
         let dividerIndex: Int
     }
 
+    private struct DividerSubviewSnapshot {
+        weak var view: NSView?
+        private let subviewIDs: [ObjectIdentifier]
+
+        init(view: NSView, subviews: [NSView]) {
+            self.view = view
+            self.subviewIDs = subviews.map { ObjectIdentifier($0) }
+        }
+
+        func matchesCurrentSubviews() -> Bool {
+            guard let view else { return false }
+            let currentSubviews = view.subviews
+            guard currentSubviews.count == subviewIDs.count else { return false }
+            for index in currentSubviews.indices {
+                guard ObjectIdentifier(currentSubviews[index]) == subviewIDs[index] else {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
     private enum DividerCursorKind: Equatable {
         case vertical
         case horizontal
@@ -45,6 +67,7 @@ final class WindowTerminalHostView: NSView {
     private var cachedDividerRegions: [DividerRegion] = []
     private var cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
     private var cachedDividerSplitSourceCounts: [ObjectIdentifier: UInt64] = [:]
+    private var cachedDividerSubviewSnapshots: [DividerSubviewSnapshot] = []
     var dividerRegionBuildCount = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
@@ -140,6 +163,7 @@ final class WindowTerminalHostView: NSView {
         cachedDividerRegions.removeAll(keepingCapacity: true)
         cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
         cachedDividerSplitSourceCounts.removeAll(keepingCapacity: true)
+        cachedDividerSubviewSnapshots.removeAll(keepingCapacity: true)
         window?.invalidateCursorRects(for: self)
     }
 
@@ -453,15 +477,18 @@ final class WindowTerminalHostView: NSView {
         var regions: [DividerRegion] = []
         let splitSourceViews = NSPointerArray.weakObjects()
         var splitSourceCounts: [ObjectIdentifier: UInt64] = [:]
+        var subviewSnapshots: [DividerSubviewSnapshot] = []
         Self.collectSplitDividerRegions(
             in: rootView,
             into: &regions,
             splitSourceViews: splitSourceViews,
-            splitSourceCounts: &splitSourceCounts
+            splitSourceCounts: &splitSourceCounts,
+            subviewSnapshots: &subviewSnapshots
         )
         cachedDividerRegions = regions
         cachedDividerSplitSourceViews = splitSourceViews
         cachedDividerSplitSourceCounts = splitSourceCounts
+        cachedDividerSubviewSnapshots = subviewSnapshots
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
@@ -477,6 +504,9 @@ final class WindowTerminalHostView: NSView {
               rootView.window === window,
               !Self.isHiddenOrAncestorHidden(rootView) else {
             return nil
+        }
+        for snapshot in cachedDividerSubviewSnapshots {
+            guard snapshot.matchesCurrentSubviews() else { return nil }
         }
 
         for index in cachedDividerRegions.indices {
@@ -528,8 +558,12 @@ final class WindowTerminalHostView: NSView {
         in view: NSView,
         into result: inout [DividerRegion],
         splitSourceViews: NSPointerArray,
-        splitSourceCounts: inout [ObjectIdentifier: UInt64]
+        splitSourceCounts: inout [ObjectIdentifier: UInt64],
+        subviewSnapshots: inout [DividerSubviewSnapshot]
     ) {
+        let subviews = view.subviews
+        subviewSnapshots.append(DividerSubviewSnapshot(view: view, subviews: subviews))
+
         if let splitView = view as? NSSplitView {
             let dividerCount = dividerCount(in: splitView)
             var validRegionCount = 0
@@ -547,12 +581,13 @@ final class WindowTerminalHostView: NSView {
             )
         }
 
-        for subview in view.subviews.reversed() {
+        for subview in subviews.reversed() {
             collectSplitDividerRegions(
                 in: subview,
                 into: &result,
                 splitSourceViews: splitSourceViews,
-                splitSourceCounts: &splitSourceCounts
+                splitSourceCounts: &splitSourceCounts,
+                subviewSnapshots: &subviewSnapshots
             )
         }
     }
