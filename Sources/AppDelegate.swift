@@ -2070,6 +2070,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// leaking pane can OOM-suspend the whole app (issue #6313).
     private func startPaneMemoryGuardrailIfNeeded(notificationStore: TerminalNotificationStore) {
         let guardrail = PaneMemoryGuardrail.shared
+        guardrail.shouldPoll = {
+            NSApplication.shared.isActive
+        }
         guardrail.paneProvider = { [weak self] in
             self?.paneMemoryGuardrailDescriptors() ?? []
         }

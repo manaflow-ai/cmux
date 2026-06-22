@@ -27,6 +27,9 @@ final class PaneMemoryGuardrail {
     /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
     @ObservationIgnored
     var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
+    /// Returns whether the periodic poll should run on this tick.
+    @ObservationIgnored
+    var shouldPoll: (@MainActor () -> Bool)?
     /// Pushes the set of workspaces that should show a warning badge.
     @ObservationIgnored
     var onWarnedWorkspacesChanged: (@MainActor (Set<UUID>) -> Void)?
@@ -87,6 +90,7 @@ final class PaneMemoryGuardrail {
     // MARK: Tick
 
     private func tick() {
+        guard shouldPoll?() ?? true else { return }
         guard isEnabled else {
             clearAll()
             return
