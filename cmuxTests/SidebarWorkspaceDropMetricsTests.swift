@@ -122,9 +122,21 @@ import Testing
             hasMemoryWarning: true,
             canCloseWorkspace: true
         ))
+        let groupedNarrowHeight = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+            snapshot: snapshot,
+            settings: settings(wrapsWorkspaceTitles: true),
+            effectiveSubtitle: "Recent update",
+            metadataEntryIsExpanded: false,
+            metadataBlocksAreExpanded: false,
+            sidebarWidth: 216 - SidebarWorkspaceGroupingMetrics.memberIndent,
+            unreadCount: 12,
+            hasMemoryWarning: true,
+            canCloseWorkspace: true
+        ))
 
         #expect(wideHeight > workspaceRowHeight())
         #expect(narrowHeight > wideHeight)
+        #expect(groupedNarrowHeight >= narrowHeight)
     }
 
     private func workspaceRowHeight(

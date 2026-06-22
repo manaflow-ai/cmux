@@ -12122,6 +12122,7 @@ struct VerticalTabsSidebar: View {
             )
         }
 
+        let rowSidebarWidth = renderContext.sidebarWidth - (tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12153,7 +12154,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: contextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            settings: renderContext.tabItemSettings, sidebarWidth: renderContext.sidebarWidth,
+            settings: renderContext.tabItemSettings, sidebarWidth: rowSidebarWidth,
             onContextMenuAppear: onContextMenuAppear,
             onContextMenuDisappear: onContextMenuDisappear
         )
