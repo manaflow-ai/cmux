@@ -3637,8 +3637,30 @@ struct CMUXCLI {
                     let id = (vm["id"] as? String) ?? "?"
                     let provider = (vm["provider"] as? String) ?? "?"
                     let image = (vm["image"] as? String) ?? "?"
-                    print("\(id)  [\(provider)] \(image)")
+                    let status = (vm["status"] as? String) ?? "unknown"
+                    print("\(id)  [\(provider)] \(status)  \(image)")
                 }
+
+            case "status", "info":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm status <id>
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                let response = try client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let id = (response["id"] as? String) ?? vmId
+                let provider = (response["provider"] as? String) ?? "?"
+                let image = (response["image"] as? String) ?? "?"
+                let status = (response["status"] as? String) ?? "unknown"
+                print("\(id)  [\(provider)] \(status)")
+                print("image: \(image)")
 
             case "new", "create":
                 let (imageOpt, rem0) = parseOption(rest, name: "--image")
@@ -3738,6 +3760,117 @@ struct CMUXCLI {
                     idFormat: idFormat
                 )
                 Self.clearVMCreateIdempotency(idempotency)
+
+            case "snapshot", "checkpoint":
+                let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
+                guard let vmId = snapshotArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm snapshot <id> [--name <name>]
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                var params: [String: Any] = ["id": vmId]
+                if let nameOpt { params["name"] = nameOpt }
+                let response = try client.sendV2(method: "vm.snapshot", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let snapshotId = (response["snapshot_id"] as? String) ?? (response["id"] as? String) ?? "?"
+                print("OK snapshot=\(snapshotId)")
+
+            case "fork":
+                let (nameOpt, rem0) = parseOption(rest, name: "--name")
+                let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+                let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
+                let vmArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                guard let vmId = vmArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d]
+
+                        Find an id:
+                          cmux vm ls
+                        """)
+                }
+                let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                var params: [String: Any] = [
+                    "id": vmId,
+                    "idempotency_key": UUID().uuidString.lowercased(),
+                ]
+                if let nameOpt { params["name"] = nameOpt }
+                let response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let id = (response["id"] as? String) ?? "?"
+                let snapshotId = (response["snapshot_id"] as? String) ?? "?"
+                let provider = (response["provider"] as? String) ?? "?"
+                let image = (response["image"] as? String) ?? "?"
+                if detach {
+                    print("OK \(id)")
+                    print("  provider: \(provider)")
+                    print("  image:    \(image)")
+                    print("  snapshot: \(snapshotId)")
+                    break
+                }
+                print("Forked Cloud VM \(id)")
+                print("  snapshot: \(snapshotId)")
+                try vmOpenShell(
+                    id: id,
+                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    windowRaw: targetWindow,
+                    forceSSH: provider == "freestyle",
+                    shouldPinWorkspaceToTop: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
+
+            case "restore":
+                let (providerOpt, rem0) = parseOption(rest, name: "--provider")
+                let (windowOpt, rem1) = parseOption(rem0, name: "--window")
+                let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
+                let restoreArgs = rem1.filter { $0 != "--detach" && $0 != "-d" }
+                guard let snapshotId = restoreArgs.first else {
+                    throw CLIError(message: """
+                        Usage: cmux vm restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+                    """)
+                }
+                let normalizedProvider = try Self.normalizedVMProvider(providerOpt)
+                let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
+                var params: [String: Any] = [
+                    "snapshot_id": snapshotId,
+                    "idempotency_key": UUID().uuidString.lowercased(),
+                ]
+                if let normalizedProvider { params["provider"] = normalizedProvider }
+                let response = try client.sendV2(method: "vm.restore", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let id = (response["id"] as? String) ?? "?"
+                let provider = (response["provider"] as? String) ?? normalizedProvider ?? "?"
+                let image = (response["image"] as? String) ?? snapshotId
+                if detach {
+                    print("OK \(id)")
+                    print("  provider: \(provider)")
+                    print("  image:    \(image)")
+                    break
+                }
+                print("Restored Cloud VM \(id)")
+                try vmOpenShell(
+                    id: id,
+                    workspaceName: "vm:\(String(id.prefix(8)))",
+                    windowRaw: targetWindow,
+                    forceSSH: provider == "freestyle",
+                    shouldPinWorkspaceToTop: false,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat
+                )
 
             case "shell", "attach":
                 let (windowOpt, vmArgs) = parseOption(rest, name: "--window")
@@ -3867,13 +4000,76 @@ struct CMUXCLI {
                     throw CLIError(message: "exit \(exitCode)")
                 }
 
+            case "tools", "tool-inspector":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm tools <id>")
+                }
+                let command = [
+                    "printf 'shell: '; printf '%s\\n' \"$SHELL\"",
+                    "for tool in zsh git gh htop btop node bun python3; do if command -v \"$tool\" >/dev/null 2>&1; then printf '%-8s %s\\n' \"$tool\" \"$(command -v \"$tool\")\"; else printf '%-8s missing\\n' \"$tool\"; fi; done",
+                    "zsh --version 2>/dev/null || true",
+                    "gh --version 2>/dev/null | head -n 1 || true",
+                ].joined(separator: "; ")
+                let response = try client.sendV2(method: "vm.exec", params: ["id": vmId, "command": command, "timeout_ms": 30_000], responseTimeout: 35)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print((response["stdout"] as? String) ?? "")
+
+            case "ports":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm ports <id>")
+                }
+                let command = "if command -v ss >/dev/null 2>&1; then ss -ltnp; elif command -v netstat >/dev/null 2>&1; then netstat -ltnp; else echo 'No port inspector found'; fi"
+                let response = try client.sendV2(method: "vm.exec", params: ["id": vmId, "command": command, "timeout_ms": 30_000], responseTimeout: 35)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                print((response["stdout"] as? String) ?? "")
+
+            case "handoff":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm handoff <id>")
+                }
+                let response = try client.sendV2(method: "vm.status", params: ["id": vmId], responseTimeout: 60)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let provider = (response["provider"] as? String) ?? "?"
+                let status = (response["status"] as? String) ?? "unknown"
+                print("cmux Cloud VM handoff")
+                print("id:       \(vmId)")
+                print("provider: \(provider)")
+                print("status:   \(status)")
+                print("attach:   cmux vm ssh \(vmId)")
+                print("inspect:  cmux vm tools \(vmId)")
+
+            case "promote-template":
+                guard let vmId = rest.first else {
+                    throw CLIError(message: "Usage: cmux vm promote-template <id>")
+                }
+                let name = "template-\(String(vmId.prefix(12)))-\(Int(Date().timeIntervalSince1970))"
+                let response = try client.sendV2(method: "vm.snapshot", params: ["id": vmId, "name": name], responseTimeout: Self.vmCreateResponseTimeoutSeconds)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let snapshotId = (response["snapshot_id"] as? String) ?? (response["id"] as? String) ?? "?"
+                print("OK template=\(snapshotId)")
+
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|shell|rm|exec|ssh> [args...]
+                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|rm|exec|ssh> [args...]
 
                     Common commands:
                       cmux vm ls
                       cmux vm new
+                      cmux vm status <id>
+                      cmux vm snapshot <id>
+                      cmux vm fork <id>
                       cmux vm ssh <id>
                       cmux vm rm <id>
                     """)
@@ -14424,16 +14620,25 @@ struct CMUXCLI {
             """
         case "vm", "cloud":
             return """
-            Usage: cmux \(command) <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <new|ls|status|snapshot|fork|restore|rm|exec|shell|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
 
             Subcommands:
               ls                        List your cloud VMs.
+              status <id>                Print provider, status, and image.
               new [--image <template>] [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new VM. By default drops you into a shell on
                                         the VM (like `docker run -it`). Pass --detach/-d to
                                         just print the id and exit (scripting primitive).
+              snapshot <id> [--name <name>]
+                                        Create a provider snapshot/checkpoint and print its id.
+                                        Alias: `checkpoint`.
+              fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d]
+                                        Snapshot a VM, restore it as a tracked Cloud VM, and
+                                        open it unless --detach is passed.
+              restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
+                                        Restore a snapshot as a tracked Cloud VM.
               shell <id> [--window <id|ref|index>]
                                         Drop into an interactive shell on an existing VM.
                                         Alias: `attach <id>`.
@@ -14444,6 +14649,10 @@ struct CMUXCLI {
                                         exposes SSH.
               rm <id>                   Destroy a VM.
               exec <id> -- <command...> Run a shell command inside the VM and print stdout.
+              tools <id>                Inspect installed tools inside the VM.
+              ports <id>                Show listening TCP ports inside the VM.
+              handoff <id>              Print a short attach handoff block.
+              promote-template <id>     Snapshot a VM with a template-oriented name.
 
             Env:
               CMUX_VM_API_BASE_URL       Override the backend origin (default: the cmux website).
@@ -14453,6 +14662,7 @@ struct CMUXCLI {
             Example:
               cmux vm new
               cmux vm ls
+              cmux vm fork <id>
               cmux cloud exec <id> -- echo hello
               cmux vm rm <id>
             """

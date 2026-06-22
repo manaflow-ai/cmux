@@ -215,6 +215,7 @@ struct VMSummary {
     let id: String
     let provider: String
     let image: String
+    let status: String?
     let createdAt: Int64
 }
 
@@ -222,6 +223,12 @@ struct VMExecResult {
     let exitCode: Int
     let stdout: String
     let stderr: String
+}
+
+struct VMSnapshotResult {
+    let id: String
+    let name: String?
+    let createdAt: Int64
 }
 
 struct VMSSHEndpoint {
@@ -308,7 +315,8 @@ actor VMClient {
             }
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
-            return VMSummary(id: id, provider: provider, image: image, createdAt: createdAt)
+            let status = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
         }
     }
 
@@ -342,13 +350,111 @@ actor VMClient {
         let serverCreatedAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let createdAt = serverCreatedAt > 0 ? serverCreatedAt : Int64(Date().timeIntervalSince1970 * 1000)
-        return VMSummary(id: id, provider: providerValue, image: imageValue, createdAt: createdAt)
+        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VMSummary(id: id, provider: providerValue, image: imageValue, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
+    }
+
+    func status(id: String) async throws -> VMSummary {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)")
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let id = obj["id"] as? String,
+              let provider = obj["provider"] as? String,
+              let image = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM status response was missing required fields.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VMSummary(id: id, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
     }
 
     func destroy(id: String) async throws {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request("DELETE", path: "/api/vm/\(encodedID)")
         try ensureOK(http, data: data)
+    }
+
+    func snapshot(id: String, name: String? = nil) async throws -> VMSnapshotResult {
+        var body: [String: Any] = [:]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["name"] = name
+        }
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/snapshot",
+            jsonBody: body,
+            timeoutSeconds: Self.createTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let snapshotID = (obj["snapshotId"] as? String) ?? (obj["id"] as? String),
+              !snapshotID.isEmpty
+        else {
+            throw VMClientError.malformedResponse("Cloud VM snapshot response was missing `snapshotId`.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let nameValue = obj["name"] as? String
+        return VMSnapshotResult(id: snapshotID, name: nameValue, createdAt: createdAt)
+    }
+
+    func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult, vm: VMSummary) {
+        var body: [String: Any] = [:]
+        if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["name"] = name
+        }
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/fork",
+            jsonBody: body,
+            extraHeaders: ["Idempotency-Key": idempotencyKey],
+            timeoutSeconds: Self.createTimeoutSeconds * 2
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let snapshotID = obj["snapshotId"] as? String,
+              let vmID = obj["id"] as? String,
+              let provider = obj["provider"] as? String,
+              let image = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM fork response was missing required fields.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (
+            snapshot: VMSnapshotResult(id: snapshotID, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)),
+            vm: VMSummary(id: vmID, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
+        )
+    }
+
+    func restore(snapshotID: String, provider: String? = nil, idempotencyKey: String) async throws -> VMSummary {
+        var body: [String: Any] = ["snapshotId": snapshotID]
+        if let provider { body["provider"] = provider }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/restore",
+            jsonBody: body,
+            extraHeaders: ["Idempotency-Key": idempotencyKey],
+            timeoutSeconds: Self.createTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let id = obj["id"] as? String,
+              let providerValue = obj["provider"] as? String,
+              let image = obj["image"] as? String
+        else {
+            throw VMClientError.malformedResponse("Cloud VM restore response was missing required fields.")
+        }
+        let createdAt = (obj["createdAt"] as? Int64)
+            ?? Int64((obj["createdAt"] as? Double) ?? 0)
+        let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VMSummary(id: id, provider: providerValue, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {

@@ -21,6 +21,7 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  VmProviderOperationError,
   isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
@@ -44,6 +45,7 @@ export type VmEntry = {
   readonly provider: ProviderId;
   readonly image: string;
   readonly imageVersion: string | null;
+  readonly status: CloudVmStatus;
   readonly createdAt: number;
 };
 
@@ -64,6 +66,35 @@ export function listUserVms(userId: string, billingTeamId?: string | null) {
     const repo = yield* VmRepository;
     const rows = yield* repo.listUserVms(userId, billingTeamId);
     return rows.filter((row) => row.providerVmId).map(vmEntryFromRow);
+  });
+}
+
+export function getVm(input: { readonly userId: string; readonly providerVmId: string }) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const providerVmId = vm.providerVmId ?? input.providerVmId;
+    const getStatus = providers.getStatus;
+    if (!getStatus) return vmEntryFromRow(vm);
+
+    const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
+      Effect.catchAll((err) =>
+        isProviderNotFoundError(err)
+          ? Effect.succeed("destroyed" as const)
+          : Effect.fail(err),
+      ),
+    );
+    if (providerStatus !== "creating" && providerStatus !== vm.status) {
+      const dbStatus = dbStatusFromProviderStatus(providerStatus);
+      const didUpdate = yield* repo.markProviderObservedStatus({
+        id: vm.id,
+        providerVmId,
+        status: dbStatus,
+      });
+      if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
+    }
+    return vmEntryFromRow(vm);
   });
 }
 
@@ -167,6 +198,110 @@ export function createVm(input: {
     yield* recordCreateSuccessEvents(repo, input, running);
 
     return vmEntryFromRow(running);
+  });
+}
+
+export function snapshotVm(input: {
+  readonly userId: string;
+  readonly providerVmId: string;
+  readonly name?: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    const snapshot = yield* (providers.snapshot
+      ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
+      : Effect.fail(new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "snapshot",
+        cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
+      })));
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.snapshot.created",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return snapshot;
+  });
+}
+
+export function restoreVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly provider: ProviderId;
+  readonly snapshotId: string;
+  readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+}) {
+  return createVm({
+    userId: input.userId,
+    billingCustomerType: input.billingCustomerType,
+    billingTeamId: input.billingTeamId,
+    billingPlanId: input.billingPlanId,
+    maxActiveVms: input.maxActiveVms,
+    provider: input.provider,
+    image: input.snapshotId,
+    imageVersion: null,
+    idempotencyKey: input.idempotencyKey,
+    timing: input.timing,
+  });
+}
+
+export function forkVm(input: {
+  readonly userId: string;
+  readonly billingCustomerType: BillingCustomerType;
+  readonly billingTeamId: string;
+  readonly billingPlanId: string;
+  readonly maxActiveVms: number;
+  readonly providerVmId: string;
+  readonly name?: string;
+  readonly idempotencyKey?: string;
+  readonly timing?: VmTimingSink;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const source = yield* requireUserVm(input.userId, input.providerVmId);
+    const snapshot = yield* snapshotVm({
+      userId: input.userId,
+      providerVmId: input.providerVmId,
+      name: input.name,
+    });
+    const fork = yield* createVm({
+      userId: input.userId,
+      billingCustomerType: input.billingCustomerType,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId,
+      maxActiveVms: input.maxActiveVms,
+      provider: source.provider,
+      image: snapshot.id,
+      imageVersion: null,
+      idempotencyKey: input.idempotencyKey,
+      timing: input.timing,
+    });
+    yield* repo.recordUsageEvent({
+      userId: source.userId,
+      billingTeamId: source.billingTeamId,
+      billingPlanId: source.billingPlanId,
+      vmId: source.id,
+      eventType: "vm.forked",
+      provider: source.provider,
+      imageId: source.imageId,
+      metadata: {
+        snapshotId: snapshot.id,
+        forkProviderVmId: fork.providerVmId,
+        idempotencyKeySet: !!input.idempotencyKey,
+      },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return { snapshot, fork };
   });
 }
 
@@ -812,6 +947,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     provider: row.provider,
     image: row.imageId,
     imageVersion: row.imageVersion,
+    status: row.status,
     createdAt: row.createdAt.getTime(),
   };
 }

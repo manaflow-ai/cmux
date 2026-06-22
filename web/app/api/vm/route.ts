@@ -83,6 +83,7 @@ export async function GET(request: Request): Promise<Response> {
         provider: entry.provider,
         image: entry.image,
         imageVersion: entry.imageVersion,
+        status: entry.status,
         createdAt: entry.createdAt,
       }));
       return jsonResponse({ vms });

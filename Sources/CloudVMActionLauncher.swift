@@ -33,6 +33,9 @@ final class CloudVMActionLauncher {
     func start(
         socketPath: String,
         preferredWindow: NSWindow?,
+        arguments: [String] = ["vm", "new"],
+        successTitle: String? = nil,
+        presentOutputOnSuccess: Bool = false,
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
         let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux")
@@ -55,7 +58,7 @@ final class CloudVMActionLauncher {
 
         let process = Process()
         process.executableURL = cliURL
-        process.arguments = ["--socket", socketPath, "--id-format", "uuids", "vm", "new"]
+        process.arguments = ["--socket", socketPath, "--id-format", "uuids"] + arguments
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
@@ -82,10 +85,17 @@ final class CloudVMActionLauncher {
                         workspaceId: Self.createdWorkspaceId(from: output)
                     )
                 )
+                if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown {
+                    Self.shared.presentCommandResult(
+                        title: successTitle ?? String(localized: "command.cloudVM.result.title", defaultValue: "Cloud VM"),
+                        output: output,
+                        preferredWindow: launchWindow
+                    )
+                }
                 guard terminationStatus != 0, !Self.shared.isShuttingDown else { return }
                 let format = String(
                     localized: "command.cloudVM.failed.exit",
-                    defaultValue: "cmux vm new exited with status %d."
+                    defaultValue: "Cloud VM command exited with status %d."
                 )
                 Self.shared.presentStartFailure(
                     summary: String(format: format, Int(terminationStatus)),
@@ -121,6 +131,23 @@ final class CloudVMActionLauncher {
                 preferredWindow: preferredWindow
             )
             return false
+        }
+    }
+
+    private func presentCommandResult(title: String, output: String, preferredWindow: NSWindow?) {
+        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = title
+        alert.informativeText = String(trimmedOutput.prefix(4000))
+        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+
+        if let preferredWindow {
+            alert.beginSheetModal(for: preferredWindow, completionHandler: nil)
+        } else if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+            alert.beginSheetModal(for: window, completionHandler: nil)
+        } else {
+            _ = alert.runModal()
         }
     }
 

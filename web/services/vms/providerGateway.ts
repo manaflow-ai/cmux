@@ -8,6 +8,7 @@ import {
   type CreateOptions,
   type ExecResult,
   type ProviderId,
+  type SnapshotRef,
   type SSHEndpoint,
   type VMHandle,
   type VMStatus,
@@ -19,6 +20,12 @@ export type VmProviderGatewayShape = {
   readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  readonly snapshot?: (
+    provider: ProviderId,
+    vmId: string,
+    name?: string,
+  ) => Effect.Effect<SnapshotRef, VmProviderOperationError>;
+  readonly restore?: (provider: ProviderId, snapshotId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -66,6 +73,10 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   resume: (provider, vmId) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
+  snapshot: (provider, vmId, name) =>
+    providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
+  restore: (provider, snapshotId) =>
+    providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId)),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   openAttach: (provider, vmId, options) =>
