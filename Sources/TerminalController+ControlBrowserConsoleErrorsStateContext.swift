@@ -39,16 +39,7 @@ extension TerminalController {
             return .failed(failure)
         case .success(let resolved):
             v2BrowserEnsureTelemetryHooks(surfaceId: resolved.surfaceId, browserPanel: resolved.browserPanel)
-            let clearLiteral = clear ? "true" : "false"
-            let script = """
-            (() => {
-              const items = Array.isArray(window.__cmuxConsoleLog) ? window.__cmuxConsoleLog.slice() : [];
-              if (\(clearLiteral)) {
-                window.__cmuxConsoleLog = [];
-              }
-              return { ok: true, items };
-            })()
-            """
+            let script = v2BrowserControl.consoleLogReadScript(clear: clear)
             switch v2RunJavaScript(resolved.browserPanel.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .jsError(message: message)
@@ -81,16 +72,7 @@ extension TerminalController {
             return .failed(failure)
         case .success(let resolved):
             v2BrowserEnsureTelemetryHooks(surfaceId: resolved.surfaceId, browserPanel: resolved.browserPanel)
-            let clearLiteral = clear ? "true" : "false"
-            let script = """
-            (() => {
-              const items = Array.isArray(window.__cmuxErrorLog) ? window.__cmuxErrorLog.slice() : [];
-              if (\(clearLiteral)) {
-                window.__cmuxErrorLog = [];
-              }
-              return { ok: true, items };
-            })()
-            """
+            let script = v2BrowserControl.errorLogReadScript(clear: clear)
             switch v2RunJavaScript(resolved.browserPanel.webView, script: script, timeout: 5.0, world: .page) {
             case .failure(let message):
                 return .jsError(message: message)
@@ -124,23 +106,7 @@ extension TerminalController {
         case .success(let resolved):
             let surfaceId = resolved.surfaceId
             let browserPanel = resolved.browserPanel
-            let storageScript = """
-            (() => {
-              const readStorage = (st) => {
-                const out = {};
-                if (!st) return out;
-                for (let i = 0; i < st.length; i++) {
-                  const k = st.key(i);
-                  out[k] = st.getItem(k);
-                }
-                return out;
-              };
-              return {
-                local: readStorage(window.localStorage),
-                session: readStorage(window.sessionStorage)
-              };
-            })()
-            """
+            let storageScript = v2BrowserControl.storageSnapshotScript()
 
             let storageValue: Any
             switch v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: storageScript, timeout: 10.0) {
@@ -225,21 +191,7 @@ extension TerminalController {
 
             if let storage = raw["storage"] as? [String: Any] {
                 let storageLiteral = v2JSONLiteral(storage)
-                let script = """
-                (() => {
-                  const payload = \(storageLiteral);
-                  const apply = (st, data) => {
-                    if (!st || !data || typeof data !== 'object') return;
-                    st.clear();
-                    for (const [k, v] of Object.entries(data)) {
-                      st.setItem(String(k), v == null ? '' : String(v));
-                    }
-                  };
-                  apply(window.localStorage, payload.local);
-                  apply(window.sessionStorage, payload.session);
-                  return true;
-                })()
-                """
+                let script = v2BrowserControl.storageRestoreScript(storageLiteral: storageLiteral)
                 _ = v2RunBrowserJavaScript(v2MainSync { browserPanel.webView }, surfaceId: surfaceId, script: script, timeout: 10.0)
             }
 
