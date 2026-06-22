@@ -6,16 +6,17 @@ import Foundation
 /// Preference order: the hook store's recorded `transcriptPath`, then the
 /// agent-specific conventional location (claude: encoded-cwd project dir;
 /// codex: rollout filename containing the session id).
-struct AgentChatTranscriptResolver {
+struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
-    private let fileManager: FileManager
+    private static let claudeTranscriptTitleReadLimit = 1_048_576
+    private static let claudeTranscriptTitleChunkSize = 64 * 1024
+    private static let claudeTranscriptTitleMaxLineBytes = 256 * 1024
 
     /// Creates a resolver.
     ///
     /// - Parameter homeDirectory: Injectable home directory for tests.
     init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.homeDirectory = homeDirectory
-        self.fileManager = FileManager.default
     }
 
     /// Resolves the transcript path for a session.
@@ -24,6 +25,7 @@ struct AgentChatTranscriptResolver {
     ///   - record: The session's registry record.
     /// - Returns: An existing transcript path, or `nil` when none is found.
     func transcriptPath(for record: AgentChatSessionRecord) -> String? {
+        let fileManager = FileManager.default
         if let recorded = record.transcriptPath {
             let expanded = (recorded as NSString).expandingTildeInPath
             if fileManager.fileExists(atPath: expanded) {
@@ -61,6 +63,8 @@ struct AgentChatTranscriptResolver {
         excludingSessionIDs: Set<String> = [],
         titleHint: String? = nil
     ) -> (sessionID: String, path: String)? {
+        guard !Task.isCancelled else { return nil }
+        let fileManager = FileManager.default
         // The home project dir is a junk drawer of every home-rooted claude
         // conversation, so newest-by-mtime there is almost never *this*
         // terminal's session. Refuse title-detected adoption from $HOME; a
@@ -75,6 +79,7 @@ struct AgentChatTranscriptResolver {
             .filter { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path != home }
         let normalizedTitleHint = Self.normalizedClaudeTitle(titleHint)
         for cwd in candidates {
+            guard !Task.isCancelled else { return nil }
             let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
             let dir = homeDirectory
                 .appendingPathComponent(".claude", isDirectory: true)
@@ -85,24 +90,30 @@ struct AgentChatTranscriptResolver {
                 includingPropertiesForKeys: [.contentModificationDateKey],
                 options: [.skipsHiddenFiles]
             ) else { continue }
-            let transcriptCandidates = entries
-                .filter {
-                    $0.pathExtension == "jsonl"
-                        && !excludingSessionIDs.contains($0.deletingPathExtension().lastPathComponent)
-                }
-                .map { url in
-                    (
-                        url: url,
-                        date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
-                        title: Self.claudeTranscriptTitle(at: url)
-                    )
-                }
+            var transcriptCandidates: [(url: URL, date: Date, title: String?)] = []
+            for url in entries where url.pathExtension == "jsonl" {
+                guard !Task.isCancelled else { return nil }
+                let sessionID = url.deletingPathExtension().lastPathComponent
+                guard !excludingSessionIDs.contains(sessionID) else { continue }
+                transcriptCandidates.append((
+                    url: url,
+                    date: (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast,
+                    title: Self.claudeTranscriptTitle(at: url)
+                ))
+            }
             let newest: URL?
             if let normalizedTitleHint {
-                newest = transcriptCandidates
-                    .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint || $0.title == nil }
-                    .max { $0.date < $1.date }?
-                    .url
+                let exactTitleCandidates = transcriptCandidates
+                    .filter { Self.normalizedClaudeTitle($0.title) == normalizedTitleHint }
+                let untitledCandidates = transcriptCandidates.filter { $0.title == nil }
+                let newestExact = exactTitleCandidates.max { $0.date < $1.date }
+                let newestUntitled = untitledCandidates.max { $0.date < $1.date }
+                if let newestExact,
+                   let newestUntitled,
+                   newestUntitled.date > newestExact.date {
+                    return nil
+                }
+                newest = (newestExact ?? newestUntitled)?.url
             } else {
                 // A generic "Claude Code" title cannot identify one of several
                 // same-cwd sessions. Avoid stealing a transcript that already
@@ -148,6 +159,7 @@ struct AgentChatTranscriptResolver {
     }
 
     private func claudeFallbackPath(record: AgentChatSessionRecord) -> String? {
+        let fileManager = FileManager.default
         guard let cwd = record.workingDirectory else { return nil }
         let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
         let path = homeDirectory
@@ -163,6 +175,7 @@ struct AgentChatTranscriptResolver {
     /// under `~/.codex/sessions/YYYY/MM/DD/`; scan recent day directories for
     /// the session id.
     private func codexFallbackPath(sessionID: String) -> String? {
+        let fileManager = FileManager.default
         let root = homeDirectory
             .appendingPathComponent(".codex", isDirectory: true)
             .appendingPathComponent("sessions", isDirectory: true)
@@ -200,17 +213,53 @@ struct AgentChatTranscriptResolver {
     }
 
     private static func claudeTranscriptTitle(at url: URL) -> String? {
-        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
             return nil
         }
-        for line in contents.split(separator: "\n") where line.contains(#""ai-title""#) {
-            guard let data = line.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object["type"] as? String == "ai-title" else {
-                continue
+        defer { try? handle.close() }
+
+        var buffered = Data()
+        var bytesRead = 0
+        var droppingOversizedLine = false
+        while bytesRead < claudeTranscriptTitleReadLimit {
+            guard !Task.isCancelled else { return nil }
+            let readSize = min(claudeTranscriptTitleChunkSize, claudeTranscriptTitleReadLimit - bytesRead)
+            guard let chunk = try? handle.read(upToCount: readSize),
+                  !chunk.isEmpty else {
+                break
             }
-            return object["aiTitle"] as? String
+            bytesRead += chunk.count
+            buffered.append(chunk)
+
+            while let newlineIndex = buffered.firstIndex(of: 0x0A) {
+                let lineData = Data(buffered[..<newlineIndex])
+                buffered.removeSubrange(...newlineIndex)
+                if droppingOversizedLine {
+                    droppingOversizedLine = false
+                    continue
+                }
+                if let title = claudeTranscriptTitle(in: lineData) {
+                    return title
+                }
+            }
+
+            if buffered.count > claudeTranscriptTitleMaxLineBytes {
+                buffered.removeAll(keepingCapacity: true)
+                droppingOversizedLine = true
+            }
         }
-        return nil
+        guard !droppingOversizedLine else {
+            return nil
+        }
+        return claudeTranscriptTitle(in: buffered)
+    }
+
+    private static func claudeTranscriptTitle(in lineData: Data) -> String? {
+        guard lineData.range(of: Data(#""ai-title""#.utf8)) != nil,
+              let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
+              object["type"] as? String == "ai-title" else {
+            return nil
+        }
+        return object["aiTitle"] as? String
     }
 }

@@ -64,10 +64,11 @@ public final class AuthCoordinator {
     private let config: AuthConfig
     let launch: AuthLaunchOptions
     let timeouts: AuthTimeouts
-    private let clock: any Clock<Duration>
+    let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
-    private let log = AuthDebugLog()
+    let log = AuthDebugLog()
+    let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
 
     private var pendingNonce: String?
     var debugCredentials: CMUXAuthAutoLoginCredentials?
@@ -93,9 +94,9 @@ public final class AuthCoordinator {
     /// local clear, so a flow completing inside sign-out's await window
     /// would read the stale published flag and skip the rollback that keeps
     /// its raced store write from surviving the sign-out.
-    @ObservationIgnored private var signOutEpoch: UInt64 = 0
+    @ObservationIgnored var signOutEpoch: UInt64 = 0
     /// Monotonic sign-in attempt count, allocating each flow's attempt id.
-    @ObservationIgnored private var signInAttemptCounter: UInt64 = 0
+    @ObservationIgnored var signInAttemptCounter: UInt64 = 0
     /// The highest attempt id whose credential exchange has written the token
     /// store (recorded when the flow reaches its completion step, immediately
     /// after the exchange's write). The last writer owns the store: a stale
@@ -105,59 +106,26 @@ public final class AuthCoordinator {
     /// publishes, while a newer attempt that failed before writing does not
     /// block the cleanup.
     @ObservationIgnored var tokenStoreWriteHighWater: UInt64 = 0
-    /// In-flight credential-exchange tasks by attempt id, registered by
-    /// ``runExchange(_:flow:timeout:_:)`` so ``signOut(onSignedOut:teardownTimeout:)``
-    /// can cancel them. The vendored SDK's token-write chokepoint
-    /// (`publishSessionTokens`) refuses to persist tokens once its flow task
-    /// is cancelled, so a cancelled exchange can never re-store credentials
-    /// behind sign-out's local clear, no matter when its network call resumes.
-    @ObservationIgnored private var activeSignInExchanges: [UInt64: Task<Void, any Error>] = [:]
-
-    /// The staleness context a sign-in flow captures before its first await:
-    /// the session generation (does a later sign-out invalidate this flow?)
-    /// and the attempt number (is this flow still the token store's owner?).
-    private struct SignInFlowContext {
-        let generation: UInt64
-        let attempt: UInt64
-        let signOutEpoch: UInt64
-    }
+    @ObservationIgnored var latestSignInRefreshToken: String?
+    @ObservationIgnored var activeSignInExchanges: [UInt64: AuthTrackedSignInExchange] = [:]
+    @ObservationIgnored var activeSessionValidations: [UUID: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var activePostSignInHooks: [UUID: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var activeTokenTouchingPhases: [UUID: AuthTrackedTokenWork] = [:]
+    @ObservationIgnored var timedOutTokenTouchingPhaseStates: [AuthPhase: AuthPhaseTimedOutState] = [:]
+    @ObservationIgnored var tokenTouchingTimedOutResetNanoseconds: UInt64 = 30_000_000_000
+    @ObservationIgnored var isCapturingSignOutCredentials = false
+    @ObservationIgnored var signOutCredentialCaptureWaiters: [CheckedContinuation<Void, Never>] = []
 
     /// Begin a sign-in flow: register it as the newest attempt and capture
     /// the staleness context. Call before the flow's first await.
-    private func beginSignInFlow() -> SignInFlowContext {
+    private func beginSignInFlow() async throws -> SignInFlowContext {
         signInAttemptCounter &+= 1
-        return SignInFlowContext(
-            generation: sessionGeneration,
-            attempt: signInAttemptCounter,
-            signOutEpoch: signOutEpoch
-        )
-    }
-
-    /// Run a sign-in flow's credential exchange as a coordinator-owned child
-    /// task registered under the flow's attempt id, racing the phase deadline
-    /// like ``runPhase(_:timeout:_:)``.
-    ///
-    /// The registration is what makes sign-out able to win against a parked
-    /// exchange: ``signOut(onSignedOut:teardownTimeout:)`` cancels every
-    /// registered exchange before clearing local state, and the SDK's write
-    /// chokepoint drops the token store write of a cancelled flow, so the
-    /// stale exchange can neither resurrect the signed-out session nor
-    /// clobber a newer sign-in's freshly written tokens. Caller cancellation
-    /// is forwarded to the child task.
-    private func runExchange(
-        _ phase: AuthPhase,
-        flow: SignInFlowContext,
-        timeout: Duration,
-        _ operation: @escaping @Sendable () async throws -> Void
-    ) async throws {
-        let exchange = Task { try await self.runPhase(phase, timeout: timeout, operation) }
-        activeSignInExchanges[flow.attempt] = exchange
-        defer { activeSignInExchanges[flow.attempt] = nil }
-        try await withTaskCancellationHandler {
-            try await exchange.value
-        } onCancel: {
-            exchange.cancel()
+        let flow = SignInFlowContext(generation: sessionGeneration, attempt: signInAttemptCounter, signOutEpoch: signOutEpoch)
+        try await waitForSessionTokenWorkToQuiesceBeforeSignIn()
+        guard flow.generation == sessionGeneration, flow.signOutEpoch == signOutEpoch else {
+            throw CancellationError()
         }
+        return flow
     }
 
     /// Creates an auth coordinator.
@@ -277,7 +245,7 @@ public final class AuthCoordinator {
         }
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
-        let flow = beginSignInFlow()
+        let flow = try await beginSignInFlow()
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
@@ -299,7 +267,7 @@ public final class AuthCoordinator {
     public func signInWithPassword(email: String, password: String, setLoading: Bool = true) async throws {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, exchange, user fetch) wins.
-        let flow = beginSignInFlow()
+        let flow = try await beginSignInFlow()
         try await requireOnline()
         if setLoading { isLoading = true }
         defer { if setLoading { isLoading = false } }
@@ -328,7 +296,7 @@ public final class AuthCoordinator {
     private func signInWithOAuth(provider: String) async throws {
         // Captured before the first await so a sign-out landing anywhere in
         // this flow (connectivity probe, OAuth exchange, user fetch) wins.
-        let flow = beginSignInFlow()
+        let flow = try await beginSignInFlow()
         try await requireOnline()
         isLoading = true
         defer { isLoading = false }
@@ -356,6 +324,9 @@ public final class AuthCoordinator {
     private func completeSignIn(flow: SignInFlowContext) async throws {
         // This flow's credential exchange (or external seeding) just wrote
         // the token store; record it as the store's latest known writer.
+        if tokenStoreWriteHighWater < flow.attempt {
+            latestSignInRefreshToken = await client.refreshToken()
+        }
         tokenStoreWriteHighWater = max(tokenStoreWriteHighWater, flow.attempt)
         // A sign-out landed during the credential exchange that ran before
         // this completion. The resuming exchange re-stored fresh tokens that
@@ -376,15 +347,10 @@ public final class AuthCoordinator {
         // rollback covers a write that already raced past the chokepoint
         // when the cancellation landed.
         //
-        // Residual, accepted: the high-water mark advances when a flow
-        // resumes on this actor, not atomically with the SDK's internal
-        // store write, so two interactive sign-in exchanges racing within
-        // one scheduler hop (no sign-out involved) can still mis-order
-        // ownership. Interactive sign-ins are serialized by the UI (one
-        // sign-in screen, one attempt); making this airtight needs
-        // coordinator-serialized attempts (cancel-previous, like
-        // HostBrowserSignInFlow's cancelActiveAttempt) or a compare-and-swap
-        // token store, both follow-up territory.
+        // `runExchange` advances the high-water mark as soon as the SDK
+        // exchange returns, before this completion fetches the user. Keeping
+        // the assignment here is harmless for external seed paths and makes
+        // this method's ownership requirement explicit.
         guard flow.generation == sessionGeneration else {
             // `!isAuthenticated` covers publish-driven bumps (a newer session
             // published over this flow's store write must not have its store
@@ -430,7 +396,7 @@ public final class AuthCoordinator {
         // The credentials were seeded before this call, so the capture here
         // covers the validation round trip; the seeding flow keeps its own
         // sign-out race guard for the seeded tokens.
-        let flow = beginSignInFlow()
+        let flow = try await beginSignInFlow()
         isLoading = true
         defer { isLoading = false }
         do {
@@ -475,16 +441,19 @@ public final class AuthCoordinator {
         onSignedOut: @escaping @Sendable (_ accessToken: String?, _ refreshToken: String?) async -> Void = { _, _ in },
         teardownTimeout: Duration = .seconds(5)
     ) async {
+        isCapturingSignOutCredentials = true
+        defer { finishSignOutCredentialCapture() }
         // Cancel in-flight sign-in exchanges FIRST: the SDK's token-write
         // chokepoint refuses to store after cancellation, so a parked
         // exchange can never re-store credentials behind this sign-out's
-        // local clear, no matter when its network call resumes. Cancel and
-        // go, deliberately not awaiting the cancelled exchanges: joining
-        // them here would block local-first sign-out on their unwinding
-        // (the rollback in `completeSignIn` stays as belt-and-braces for a
-        // write that already raced past the chokepoint).
-        for exchange in activeSignInExchanges.values { exchange.cancel() }
-
+        // local clear, no matter when its network call resumes. Keep the
+        // exchange registered until its completion cleanup runs so a later
+        // sign-in preflight still sees and waits on cancellation-ignoring SDK
+        // work instead of racing a stale token write.
+        for exchange in activeSignInExchanges.values { exchange.task.cancel() }
+        for validation in activeSessionValidations.values { validation.cancel() }
+        cancelPostSignInHooksForSignOut()
+        for phase in activeTokenTouchingPhases.values { phase.cancel() }
         // Mark the sign-out epoch synchronously, before the first await
         // below, so a sign-in completion whose exchange write already raced
         // past the cancellation chokepoint and which interleaves with the
@@ -497,17 +466,20 @@ public final class AuthCoordinator {
         // the local clear below).
         sessionGeneration &+= 1
         signOutEpoch &+= 1
+        await phaseTimeoutRegistry.clear([.sendCode, .verifyCode, .passwordSignIn, .oauth, .validateSession])
 
         // Capture the teardown credentials with raw stored reads (no refresh,
         // no network) before they are destroyed.
         let accessToken = await client.storedAccessToken()
         let refreshToken = await client.refreshToken()
-
         // LOCAL-FIRST: clear everything local before any network I/O. From
         // here the device is signed out no matter what the network does.
+        latestSignInRefreshToken = nil
         await client.clearLocalSession()
+        finishSignOutCredentialCapture()
         if launch.includesDevAuth { debugCredentials = nil }
         clearAuthState()
+        await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
 
         // Best-effort bounded server-side teardown with the captured tokens:
         // the hook first (the push-token DELETE needs the session to still be
@@ -596,7 +568,7 @@ public final class AuthCoordinator {
         // sign-in spinner after the session is already published. Failure and
         // timeout are tolerated; the hook is a side effect, not a gate.
         let onSignedIn = self.onSignedIn
-        _ = try? await runPhase(.postSignIn, timeout: timeouts.network) {
+        await runPostSignInHook(timeout: timeouts.network) {
             await onSignedIn()
         }
     }
@@ -632,6 +604,7 @@ public final class AuthCoordinator {
 
     func clearAuthState(preservePendingCode: Bool = false) {
         sessionGeneration &+= 1
+        latestSignInRefreshToken = nil
         if !preservePendingCode { pendingNonce = nil }
         userCache.clear()
         sessionCache.clear()
@@ -673,18 +646,27 @@ public final class AuthCoordinator {
         }
     }
 
-    /// Race `operation` against the phase deadline on the injected clock.
-    /// See ``withAuthPhaseTimeout(_:duration:clock:log:operation:)``.
+    /// Race `operation` against the phase deadline on the injected clock,
+    /// dispatching token-touching and side-effect phases to coordinator-owned
+    /// helpers so sign-out can still cancel late work after a timeout.
     func runPhase<T: Sendable>(
         _ phase: AuthPhase,
         timeout: Duration,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withAuthPhaseTimeout(
+        if phase == .validateSession {
+            return try await runValidationPhase(timeout: timeout, operation)
+        }
+        if phase == .fetchUser || phase == .listTeams {
+            return try await runTokenTouchingPhase(phase, timeout: timeout, operation)
+        }
+        return try await withAuthPhaseTimeout(
             phase,
             duration: timeout,
             clock: clock,
             log: log,
+            registry: phaseTimeoutRegistry,
+            blocksRetriesWhileTimedOutOperationActive: phase == .sendCode,
             operation: operation
         )
     }
