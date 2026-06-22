@@ -117,6 +117,16 @@ struct FeedEventClassifier {
             }
             return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
         case .toolStartMaybeApproval:
+            if source == "copilot" {
+                // Copilot's PreToolUse fires for every tool. Gate only tools
+                // that need a decision, but keep Copilot on PermissionRequest
+                // so renderAgentDecision emits top-level permissionDecision.
+                if toolName == "ExitPlanMode" || toolName == "AskUserQuestion" ||
+                    Self.isSideEffectingTool(toolName, source: source) {
+                    return ("PermissionRequest", true)
+                }
+                return ("PreToolUse", false)
+            }
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
                 return dedicated
             }
@@ -223,9 +233,10 @@ struct FeedEventClassifier {
             "stop": .response,
         ],
         "copilot": [
-            // Copilot's PreToolUse hook is the permission gate itself:
-            // the hook output directly controls whether the tool runs.
-            "PreToolUse": .approvalRequest,
+            // Copilot's PreToolUse hook is the permission gate itself, but it
+            // also fires before read-only tools. Resolve against the tool name
+            // so read-only tools fall through immediately with `{}`.
+            "PreToolUse": .toolStartMaybeApproval,
         ],
     ]
 

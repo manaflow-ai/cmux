@@ -93,14 +93,17 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
-    /// Copilot's `PreToolUse` hook is the approval gate itself. It must
-    /// produce a blocking `PermissionRequest` even for tools that generic
-    /// telemetry-only agents would keep non-actionable.
+    /// Copilot's `PreToolUse` hook is the approval gate itself, but it also
+    /// fires before read-only tools. Mutating tools must block with Copilot's
+    /// top-level permission-decision path; read-only tools must fall through.
     @Test func copilotPreToolUseIsApprovalRequest() {
         #expect(classify("copilot", "PreToolUse", tool: "Bash").name == "PermissionRequest")
         #expect(classify("copilot", "PreToolUse", tool: "Bash").actionable == true)
-        #expect(classify("copilot", "PreToolUse", tool: "Read").name == "PermissionRequest")
-        #expect(classify("copilot", "PreToolUse", tool: "Read").actionable == true)
+        #expect(classify("copilot", "PreToolUse", tool: "Read").name == "PreToolUse")
+        #expect(classify("copilot", "PreToolUse", tool: "Read").actionable == false)
+        #expect(classify("copilot", "PreToolUse", tool: "Grep").actionable == false)
+        #expect(classify("copilot", "PreToolUse", tool: "Glob").actionable == false)
+        #expect(classify("copilot", "PreToolUse", tool: "WebFetch").actionable == false)
         #expect(classify("copilot", "PreToolUse", tool: "AskUserQuestion").name == "PermissionRequest")
         #expect(classify("copilot", "PreToolUse", tool: "AskUserQuestion").actionable == true)
         #expect(classify("copilot", "PreToolUse", tool: "ExitPlanMode").name == "PermissionRequest")
