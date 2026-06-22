@@ -225,7 +225,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         )
 
         XCTAssertNotNil(railColor)
-        XCTAssertEqual(railColor?.hexString(), "#C0392B")
+        XCTAssertEqual(railColor?.hexString(), "#D13929")
     }
 
     @MainActor
