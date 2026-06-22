@@ -140,22 +140,38 @@ struct CLICopilotHookFeedTests {
         )
         let permissionRequest = try #require(hooks["permissionRequest"] as? [[String: Any]])
         #expect(
-            (permissionRequest.first?["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true,
-            "Expected cmux permissionRequest hook to run before preserved policy hooks, saw \(permissionRequest)"
+            (permissionRequest.first?["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true
+                && (permissionRequest.first?["bash"] as? String)?.contains("--copilot-deny-guard") == false,
+            "Expected cmux permissionRequest Feed hook to run before preserved policy hooks, saw \(permissionRequest)"
         )
         #expect(
-            (permissionRequest.last?["bash"] as? String)?.contains("\"behavior\":\"deny\"") == true,
-            "Expected existing permissionRequest policy hook to stay after cmux so Copilot can merge it later, saw \(permissionRequest)"
+            permissionRequest.contains { ($0["bash"] as? String)?.contains("\"behavior\":\"deny\"") == true },
+            "Expected existing permissionRequest policy hook to be preserved between cmux hooks, saw \(permissionRequest)"
+        )
+        #expect(
+            (permissionRequest.last?["bash"] as? String)?.contains("--copilot-deny-guard") == true,
+            "Expected cmux permissionRequest denial guard to run after preserved policy hooks, saw \(permissionRequest)"
         )
         #expect(
             permissionRequest.contains {
                 ($0["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true
+                    && ($0["bash"] as? String)?.contains("--copilot-deny-guard") == false
                     && ($0["type"] as? String) == "command"
                     && ($0["timeoutSec"] as? Int) == 125
                     && $0["command"] == nil
                     && $0["hooks"] == nil
             },
             "Expected direct permissionRequest bash hook with timeout slack, saw \(permissionRequest)"
+        )
+        #expect(
+            permissionRequest.contains {
+                ($0["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest --copilot-deny-guard") == true
+                    && ($0["type"] as? String) == "command"
+                    && ($0["timeoutSec"] as? Int) == 5
+                    && $0["command"] == nil
+                    && $0["hooks"] == nil
+            },
+            "Expected direct permissionRequest denial guard hook with short timeout, saw \(permissionRequest)"
         )
     }
 
@@ -206,6 +222,7 @@ struct CLICopilotHookFeedTests {
                     "CMUX_WORKSPACE_ID": workspaceId,
                     "CMUX_SURFACE_ID": surfaceId,
                     "CMUX_COPILOT_PID": "525252",
+                    "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                     "CMUX_CLI_SENTRY_DISABLED": "1",
                 ],
                 standardInput: #"{"sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"bash","toolArgs":{"command":"touch \#(root.appendingPathComponent("README.md").path)"}}"#,
@@ -224,6 +241,83 @@ struct CLICopilotHookFeedTests {
             }
             #expect(feedEvents.count == 1, "Expected one Copilot Feed event, saw \(state.snapshot())")
             return (result, try #require(feedEvents.first))
+        }
+
+        func runCopilotPermissionRequestWithGuard(mode: String) throws -> (ProcessRunResult, ProcessRunResult, [String: Any]) {
+            let cliPath = try Self.bundledCLIPath()
+            let socketPath = Self.makeSocketPath("copilot-feed-guard")
+            let listenerFD = try Self.bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-copilot-feed-guard-\(UUID().uuidString)", isDirectory: true)
+            let workspaceId = "33333333-3333-3333-3333-333333333333"
+            let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+                try? FileManager.default.removeItem(at: root)
+            }
+
+            let server = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = Self.jsonObject(line) else {
+                    return Self.malformedRequestResponse(raw: line)
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return Self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                #expect(method == "feed.push")
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "status": "resolved",
+                        "decision": ["kind": "permission", "mode": mode],
+                    ]
+                )
+            }
+
+            let input = #"{"sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"bash","toolArgs":{"command":"touch \#(root.appendingPathComponent("README.md").path)"}}"#
+            let environment = [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_COPILOT_PID": "525252",
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ]
+            let first = Self.runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "copilot", "--event", "permissionRequest"],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            #expect(server.wait(timeout: 5), "socket server did not observe feed.push")
+
+            let feedEvents = state.snapshot().compactMap { command -> [String: Any]? in
+                guard let payload = Self.jsonObject(command),
+                      payload["method"] as? String == "feed.push",
+                      let params = payload["params"] as? [String: Any],
+                      let event = params["event"] as? [String: Any] else {
+                    return nil
+                }
+                return event
+            }
+            let firstEvent = try #require(feedEvents.first)
+
+            let guardResult = Self.runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "copilot", "--event", "permissionRequest", "--copilot-deny-guard"],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            return (first, guardResult, firstEvent)
         }
 
         // Fresh installs answer Copilot's permission service through
@@ -255,7 +349,7 @@ struct CLICopilotHookFeedTests {
         #expect(unsupportedOutput["permissionDecisionReason"] as? String == "User denied permission via cmux Feed.")
         #expect(unsupportedOutput["hookSpecificOutput"] == nil)
 
-        let (permissionAllow, permissionAllowEvent) = try runCopilotDecision(mode: "once", event: "permissionRequest")
+        let (permissionAllow, permissionAllowGuard, permissionAllowEvent) = try runCopilotPermissionRequestWithGuard(mode: "once")
         #expect(!permissionAllow.timedOut, Comment(rawValue: permissionAllow.stderr))
         #expect(permissionAllow.status == 0, Comment(rawValue: permissionAllow.stderr))
         #expect(permissionAllowEvent["hook_event_name"] as? String == "PermissionRequest")
@@ -263,8 +357,12 @@ struct CLICopilotHookFeedTests {
         #expect(permissionAllowOutput["behavior"] as? String == "allow")
         #expect(permissionAllowOutput["permissionDecision"] == nil)
         #expect(permissionAllowOutput["hookSpecificOutput"] == nil)
+        #expect(!permissionAllowGuard.timedOut, Comment(rawValue: permissionAllowGuard.stderr))
+        #expect(permissionAllowGuard.status == 0, Comment(rawValue: permissionAllowGuard.stderr))
+        let permissionAllowGuardOutput = try #require(Self.jsonObject(permissionAllowGuard.stdout))
+        #expect(permissionAllowGuardOutput.isEmpty)
 
-        let (permissionDeny, _) = try runCopilotDecision(mode: "deny", event: "permissionRequest")
+        let (permissionDeny, permissionDenyGuard, _) = try runCopilotPermissionRequestWithGuard(mode: "deny")
         #expect(!permissionDeny.timedOut, Comment(rawValue: permissionDeny.stderr))
         #expect(permissionDeny.status == 0, Comment(rawValue: permissionDeny.stderr))
         let permissionDenyOutput = try #require(Self.jsonObject(permissionDeny.stdout))
@@ -272,8 +370,13 @@ struct CLICopilotHookFeedTests {
         #expect(permissionDenyOutput["message"] as? String == "User denied permission via cmux Feed.")
         #expect(permissionDenyOutput["permissionDecision"] == nil)
         #expect(permissionDenyOutput["hookSpecificOutput"] == nil)
+        #expect(!permissionDenyGuard.timedOut, Comment(rawValue: permissionDenyGuard.stderr))
+        #expect(permissionDenyGuard.status == 0, Comment(rawValue: permissionDenyGuard.stderr))
+        let permissionDenyGuardOutput = try #require(Self.jsonObject(permissionDenyGuard.stdout))
+        #expect(permissionDenyGuardOutput["behavior"] as? String == "deny")
+        #expect(permissionDenyGuardOutput["message"] as? String == "User denied permission via cmux Feed.")
 
-        let (permissionUnsupported, _) = try runCopilotDecision(mode: "always", event: "permissionRequest")
+        let (permissionUnsupported, permissionUnsupportedGuard, _) = try runCopilotPermissionRequestWithGuard(mode: "always")
         #expect(!permissionUnsupported.timedOut, Comment(rawValue: permissionUnsupported.stderr))
         #expect(permissionUnsupported.status == 0, Comment(rawValue: permissionUnsupported.stderr))
         let permissionUnsupportedOutput = try #require(Self.jsonObject(permissionUnsupported.stdout))
@@ -281,6 +384,11 @@ struct CLICopilotHookFeedTests {
         #expect(permissionUnsupportedOutput["message"] as? String == "User denied permission via cmux Feed.")
         #expect(permissionUnsupportedOutput["permissionDecision"] == nil)
         #expect(permissionUnsupportedOutput["hookSpecificOutput"] == nil)
+        #expect(!permissionUnsupportedGuard.timedOut, Comment(rawValue: permissionUnsupportedGuard.stderr))
+        #expect(permissionUnsupportedGuard.status == 0, Comment(rawValue: permissionUnsupportedGuard.stderr))
+        let permissionUnsupportedGuardOutput = try #require(Self.jsonObject(permissionUnsupportedGuard.stdout))
+        #expect(permissionUnsupportedGuardOutput["behavior"] as? String == "deny")
+        #expect(permissionUnsupportedGuardOutput["message"] as? String == "User denied permission via cmux Feed.")
     }
 
     @Test func copilotErrorNotificationUsesStructuredErrorPayload() throws {
