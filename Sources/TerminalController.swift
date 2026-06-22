@@ -318,13 +318,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// Read from the nonisolated socket-worker lane, so stored `nonisolated`.
     nonisolated(unsafe) var controlFeedWorker: ControlFeedWorker?
 
-    private final class V2BrowserUndefinedSentinel: Sendable {}
-
-    private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
-    private nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
-    private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
-
     /// The per-browser-surface automation state (element refs, frame selector,
     /// init scripts/styles, dialog queue, download events, not-supported network
     /// log), extracted to `CmuxBrowser` as a `@MainActor @Observable` store.
@@ -333,18 +326,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// only through the main-actor hop (`v2MainSync`). All keyed dictionaries,
     /// bounds, and FIFO rules are preserved exactly.
     let v2BrowserSurfaceState = BrowserAutomationSurfaceState()
-    private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     /// Stateless browser-control logic (JS builders, value normalization,
-    /// diagnostics, failure classification) extracted to `CmuxBrowser`.
-    /// The per-surface mutable state and WebKit evaluation seam stay here.
-    nonisolated let v2BrowserControl = BrowserControlService(
-        evalEnvelope: BrowserEvalEnvelope(
-            typeKey: TerminalController.v2BrowserEvalEnvelopeTypeKey,
-            valueKey: TerminalController.v2BrowserEvalEnvelopeValueKey,
-            typeUndefined: TerminalController.v2BrowserEvalEnvelopeTypeUndefined,
-            typeValue: TerminalController.v2BrowserEvalEnvelopeTypeValue
-        )
-    )
+    /// eval-envelope unwrapping, diagnostics, failure classification) extracted to
+    /// `CmuxBrowser`. The per-surface mutable state and WebKit evaluation seam stay
+    /// here. The default ``BrowserEvalEnvelope`` carries the exact wire constants
+    /// (`__cmux_t`/`__cmux_v`/`undefined`/`value`) the v2 browser RPC has always
+    /// used, and it vends the shared `undefined` sentinel the eval lane returns, so
+    /// the controller no longer defines its own sentinel or envelope-key statics.
+    nonisolated let v2BrowserControl = BrowserControlService()
     /// The bounded blocking-await primitive (CmuxControlSocket) every worker-lane
     /// browser JS-eval path blocks on. Stateless and `Sendable`, so a single
     /// shared instance serves every call; read from the nonisolated socket-worker
@@ -2988,7 +2977,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 
     nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
-        v2BrowserControl.normalizeJSValue(value) { $0 is V2BrowserUndefinedSentinel }
+        v2BrowserControl.normalizeJSValue(value)
     }
 
     enum V2JavaScriptResult {
@@ -3307,19 +3296,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case .failure(let message):
             return .failure(message)
         case .success(let value):
-            guard let dict = value as? [String: Any],
-                  let type = dict[Self.v2BrowserEvalEnvelopeTypeKey] as? String else {
-                return .success(value)
-            }
-
-            switch type {
-            case Self.v2BrowserEvalEnvelopeTypeUndefined:
-                return .success(v2BrowserUndefinedSentinel)
-            case Self.v2BrowserEvalEnvelopeTypeValue:
-                return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
-            default:
-                return .success(value)
-            }
+            // Envelope unwrap (undefined sentinel vs carried value vs raw
+            // passthrough) is a stateless transform in `BrowserControlService`
+            // (CmuxBrowser); the WebKit evaluation above stays here on the worker
+            // lane.
+            return .success(v2BrowserControl.unwrapEvalEnvelope(value))
         }
     }
 

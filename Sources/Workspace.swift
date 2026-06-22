@@ -3276,13 +3276,16 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     private var sharedLiveAgentIndexCancellable: AnyCancellable?
 
-    // `isolated deinit` keeps teardown on the MainActor. As a plain
-    // `@MainActor ObservableObject` the deinit was implicitly MainActor-isolated;
-    // the `@Observable` macro rewrites the stored properties into accessors whose
-    // isolation would otherwise force a `nonisolated` deinit, which cannot touch
-    // this MainActor state or call the `@MainActor` `RemoteSessionCoordinator.stop()`.
-    // Isolating the deinit preserves the exact prior teardown semantics.
-    isolated deinit {
+    // Plain `nonisolated deinit` for Swift 6.1 compatibility: CI's toolchain
+    // does not enable the `IsolatedDeinit` experimental feature, so an
+    // `isolated deinit` fails to compile there. A deinit may read this
+    // instance's own MainActor-isolated stored properties (it holds exclusive
+    // access during deallocation); only the `@MainActor`
+    // `RemoteSessionCoordinator.stop()` call needs to hop, so we capture the
+    // controller reference (never `self`) and stop it on the MainActor. The
+    // `activeRemoteSessionControllerID = nil` reset the prior isolated deinit
+    // performed was a no-op during deallocation and is dropped.
+    deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -3290,8 +3293,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
                 }
             }
         }
-        activeRemoteSessionControllerID = nil
-        remoteSessionController?.stop()
+        let controller = remoteSessionController
+        Task { @MainActor in controller?.stop() }
     }
 
     func refreshSplitButtonTooltips() {
@@ -5798,7 +5801,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     }
 
     static func requestSSHControlMasterCleanupIfNeeded(configuration: WorkspaceRemoteConfiguration) {
-        guard let arguments = sshControlMasterCleanupArguments(configuration: configuration) else { return }
+        guard let arguments = RemoteControlMasterCleanup().cleanupArguments(configuration: configuration) else { return }
         if let override = runSSHControlMasterCommandOverrideForTesting {
             override(arguments)
             return
@@ -5831,45 +5834,6 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         }
     }
 
-    private static func sshControlMasterCleanupArguments(configuration: WorkspaceRemoteConfiguration) -> [String]? {
-        let sshOptions = normalizedSSHControlCleanupOptions(configuration.sshOptions)
-        var arguments: [String] = [
-            "-o", "BatchMode=yes",
-            "-o", "ControlMaster=no",
-        ]
-        if let port = configuration.port {
-            arguments += ["-p", String(port)]
-        }
-        if let identityFile = configuration.identityFile?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !identityFile.isEmpty {
-            arguments += ["-i", identityFile]
-        }
-        for option in sshOptions {
-            arguments += ["-o", option]
-        }
-        arguments += ["-O", "exit", configuration.destination]
-        return arguments
-    }
-
-    private static func normalizedSSHControlCleanupOptions(_ options: [String]) -> [String] {
-        let disallowedKeys: Set<String> = ["controlmaster", "controlpersist"]
-        return options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            guard let key = sshOptionKeyForControlCleanup(trimmed) else { return nil }
-            return disallowedKeys.contains(key) ? nil : trimmed
-        }
-    }
-
-    private static func sshOptionKeyForControlCleanup(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
 
     func applyRemoteConnectionStateUpdate(
         _ state: WorkspaceRemoteConnectionState,

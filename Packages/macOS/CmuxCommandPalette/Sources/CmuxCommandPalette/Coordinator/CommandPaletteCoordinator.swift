@@ -65,8 +65,76 @@ public final class CommandPaletteCoordinator {
     @ObservationIgnored var searchIndexBuildTask: Task<Void, Never>?
     @ObservationIgnored var searchIndexBuildGeneration: UInt64 = 0
 
+    // MARK: - Results pipeline state
+
+    /// The latest fully-resolved (non-preview) search results for the active
+    /// query, materialized from the resolved matches.
+    ///
+    /// The coordinator is the single writer of the imperative results-pipeline
+    /// state below: the host drives `scheduleResultsRefresh` (in
+    /// ``CommandPaletteSearchCorpusHost``), which reads/writes these fields
+    /// rather than holding its own `@State`. They are `@ObservationIgnored`
+    /// because they feed the imperative search pipeline and the published
+    /// ``commandList`` snapshot, not SwiftUI body reads; observing them would
+    /// re-render the palette on every background search apply.
+    @ObservationIgnored public var cachedResults: [CommandPaletteSearchResult] = []
+
+    /// The results currently shown in the list, which may be a preview slice
+    /// applied ahead of the fully-resolved set.
+    @ObservationIgnored public var visibleResults: [CommandPaletteSearchResult] = []
+
+    /// Monotonic version bumped whenever ``visibleResults`` is reassigned, used
+    /// to coalesce stale render-state publications.
+    @ObservationIgnored public var visibleResultsVersion: UInt64 = 0
+
+    /// Scope the current ``visibleResults`` were computed for, or `nil` when the
+    /// visible list has been cleared.
+    @ObservationIgnored public var visibleResultsScope: CommandPaletteListScope?
+
+    /// Corpus fingerprint the current ``visibleResults`` were computed for.
+    @ObservationIgnored public var visibleResultsFingerprint: Int?
+
+    /// The in-flight detached search task, or `nil` when no search is running.
+    @ObservationIgnored public var searchTask: Task<Void, Never>?
+
+    /// Monotonic id stamped on each refresh request, so a completing search can
+    /// detect that a newer request superseded it.
+    @ObservationIgnored public var searchRequestID: UInt64 = 0
+
+    /// The request id of the most recently fully-resolved (non-preview) search.
+    @ObservationIgnored public var resolvedSearchRequestID: UInt64 = 0
+
+    /// Scope of the most recently fully-resolved search.
+    @ObservationIgnored public var resolvedSearchScope: CommandPaletteListScope?
+
+    /// Corpus fingerprint of the most recently fully-resolved search.
+    @ObservationIgnored public var resolvedSearchFingerprint: Int?
+
+    /// Matching query of the most recently fully-resolved search.
+    @ObservationIgnored public var resolvedMatchingQuery: String = ""
+
+    /// Whether a search is in flight whose resolved results have not yet applied.
+    @ObservationIgnored public var isSearchPending: Bool = false
+
     /// Creates a coordinator with an empty command list.
     public init() {}
+
+    /// Cancels the in-flight search task and clears the handle.
+    public func cancelSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+    }
+
+    /// Clears every results-pipeline field back to its empty state, for palette
+    /// reset/dismissal. Bumps ``visibleResultsVersion`` so a stale publication
+    /// cannot re-show cleared results.
+    public func resetResultsPipeline() {
+        cachedResults = []
+        visibleResults = []
+        visibleResultsScope = nil
+        visibleResultsFingerprint = nil
+        visibleResultsVersion &+= 1
+    }
 
     /// Schedules `state` to become the published ``commandList``.
     ///
