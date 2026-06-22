@@ -6348,6 +6348,9 @@ extension BrowserPanel {
     private func setPreferredDeveloperToolsVisible(_ next: Bool) {
         guard preferredDeveloperToolsVisible != next else { return }
         preferredDeveloperToolsVisible = next
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
     }
 
     private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {
@@ -6584,6 +6587,38 @@ extension BrowserPanel {
         return visibleAfterShow
     }
 
+    private var hasInspectableBrowserContentIntent: Bool {
+        shouldRenderWebView ||
+            currentURL != nil ||
+            navigationDelegate?.lastAttemptedURL != nil ||
+            webView.url != nil ||
+            restoredHistoryCurrentURL != nil
+    }
+
+    private var isWebViewReadyForDeveloperToolsReveal: Bool {
+        webView.superview != nil &&
+            webView.window != nil &&
+            webView.bounds.width > 1 &&
+            webView.bounds.height > 1
+    }
+
+    private func shouldDeferDeveloperToolsRevealUntilWebViewAttached() -> Bool {
+        hasInspectableBrowserContentIntent && !isWebViewReadyForDeveloperToolsReveal
+    }
+
+    private func deferDeveloperToolsRevealUntilWebViewAttached(source: String, resetRetryAttempts: Bool = false) {
+        if resetRetryAttempts {
+            developerToolsRestoreRetryAttempt = 0
+        }
+        scheduleDeveloperToolsRestoreRetry()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools reveal.defer panel=\(id.uuidString.prefix(5)) " +
+            "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
+    }
+
     @discardableResult
     private func concealDeveloperTools(_ inspector: NSObject) -> Bool {
         let isVisibleSelector = NSSelectorFromString("isVisible")
@@ -6614,6 +6649,9 @@ extension BrowserPanel {
         }
         if let developerToolsTransitionTargetVisible {
             return developerToolsTransitionTargetVisible
+        }
+        if preferredDeveloperToolsVisible {
+            return true
         }
         return isDeveloperToolsVisible()
     }
@@ -6679,6 +6717,11 @@ extension BrowserPanel {
         }
 
         if targetVisible {
+            if shouldDeferDeveloperToolsRevealUntilWebViewAttached() {
+                developerToolsTransitionTargetVisible = nil
+                deferDeveloperToolsRevealUntilWebViewAttached(source: source, resetRetryAttempts: true)
+                return true
+            }
             if !visible {
                 _ = revealDeveloperTools(inspector)
             } else {
@@ -6966,6 +7009,11 @@ extension BrowserPanel {
         }
 
         if consumeAttachedDeveloperToolsManualCloseIfNeeded(inspector: inspector) {
+            return
+        }
+
+        if shouldDeferDeveloperToolsRevealUntilWebViewAttached() {
+            deferDeveloperToolsRevealUntilWebViewAttached(source: "restore")
             return
         }
 

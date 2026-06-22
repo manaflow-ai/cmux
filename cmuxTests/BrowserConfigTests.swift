@@ -3881,6 +3881,55 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
+    func testDetachedRenderedWebViewDefersDeveloperToolsRevealUntilHostReattaches() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        defer { closeBrowserPanel(panel) }
+        inspector.setFrontendWebView(panel.webView)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+        XCTAssertNil(panel.webView.window)
+
+        var publishCount = 0
+        let cancellable = panel.objectWillChange.sink {
+            publishCount += 1
+        }
+        defer { _ = cancellable }
+
+        XCTAssertTrue(panel.toggleDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(
+            inspector.showCount,
+            0,
+            "Opening DevTools while the inspected WKWebView is detached must not create a detached about:blank inspector"
+        )
+
+        spinRunLoopOneTick()
+        XCTAssertGreaterThan(
+            publishCount,
+            0,
+            "DevTools visibility intent must invalidate BrowserPanelView so it can rehost the WKWebView before reveal"
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+    }
+
     func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
