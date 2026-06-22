@@ -12598,7 +12598,7 @@ private struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? {
-            guard acceptsCurrentDragPasteboard() else { return nil }
+            guard shouldCaptureHitTest() else { return nil }
             return super.hitTest(point)
         }
 
@@ -12648,6 +12648,14 @@ private struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
 
         private func acceptsCurrentDragPasteboard() -> Bool {
             NSPasteboard(name: .drag).types?.contains(SidebarWorkspaceReorderDropOverlay.pasteboardType) == true
+        }
+
+        private func shouldCaptureHitTest() -> Bool {
+            let eventType = NSApp.currentEvent?.type
+            guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
+                return false
+            }
+            return acceptsCurrentDragPasteboard()
         }
     }
 }
