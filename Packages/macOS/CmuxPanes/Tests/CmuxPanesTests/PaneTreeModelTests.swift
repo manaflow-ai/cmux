@@ -101,4 +101,20 @@ struct PaneTreeModelTests {
         #expect(model.panelId(forSurfaceId: TabID()) == nil)
         #expect(model.surfaceId(forPanelId: UUID()) == nil)
     }
+
+    /// Rebinding one live panel to a new bonsplit surface must not leave the
+    /// old surface id resolving to the same panel.
+    @Test func rebindingPanelToNewSurfaceInvalidatesOldSurfaceMapping() {
+        let model = PaneTreeModel<String>()
+        let oldTabId = TabID()
+        let newTabId = TabID()
+        let panelId = UUID()
+
+        model.surfaceIdToPanelId[oldTabId] = panelId
+        model.surfaceIdToPanelId[newTabId] = panelId
+
+        #expect(model.panelId(forSurfaceId: oldTabId) == nil)
+        #expect(model.panelId(forSurfaceId: newTabId) == panelId)
+        #expect(model.surfaceId(forPanelId: panelId) == newTabId)
+    }
 }
