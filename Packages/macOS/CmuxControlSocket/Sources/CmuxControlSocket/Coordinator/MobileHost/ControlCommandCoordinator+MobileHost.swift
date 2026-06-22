@@ -37,6 +37,8 @@ extension ControlCommandCoordinator {
             return context?.controlMobileHostStatus(params: request.params)
         case "mobile.workspace.list":
             return context?.controlMobileWorkspaceList(params: request.params)
+        case "mobile.notifications.list", "notifications.list":
+            return context?.controlMobileNotificationsList(params: request.params)
         case "mobile.terminal.create", "terminal.create":
             return context?.controlMobileTerminalCreate(params: request.params)
         case "mobile.terminal.input", "terminal.input":

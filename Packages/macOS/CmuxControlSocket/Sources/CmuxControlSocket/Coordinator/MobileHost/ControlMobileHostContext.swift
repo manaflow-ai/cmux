@@ -66,6 +66,13 @@ public protocol ControlMobileHostContext: AnyObject {
     /// - Returns: The fully-built command result.
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult
 
+    /// `mobile.notifications.list` / `notifications.list` — the iOS-facing
+    /// recent notification feed.
+    ///
+    /// - Parameter params: The decoded request params.
+    /// - Returns: The fully-built command result.
+    func controlMobileNotificationsList(params: [String: JSONValue]) -> ControlCallResult
+
     /// `mobile.terminal.create` / `terminal.create` — create a terminal surface
     /// in the resolved workspace, then echo the mobile workspace list with the
     /// new terminal id.
