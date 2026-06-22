@@ -649,7 +649,7 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
-    private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
+    @MainActor private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
         GhosttyDefaultBackgroundNotificationDispatcher(delay: 0, logEvent: { [weak self] message in
