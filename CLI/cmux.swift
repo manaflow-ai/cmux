@@ -33106,12 +33106,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func emitKiroDecisionIfHandled(decision: [String: Any]) -> Bool {
         guard (decision["kind"] as? String) == "permission" else { return false }
         let mode = (decision["mode"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        // Feed permission decisions carry a WorkstreamPermissionMode raw value:
-        // `once` / `always` / `all` / `bypass` all allow the tool; `deny`
-        // blocks. Fail closed on anything else — missing, empty, or an
-        // unrecognized/typo mode — so a malformed decision blocks the tool
-        // (exit 2 is Kiro's preToolUse deny signal) rather than silently
-        // allowing work the user never approved.
+        // Fail closed on unknown Feed permission modes so malformed Kiro decisions never allow unapproved work.
         let allowModes: Set<String> = ["once", "always", "all", "bypass"]
         if let mode, allowModes.contains(mode) {
             print("{}")
@@ -33126,9 +33121,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
-
-    /// Encodes the user's decision in the agent's expected hook stdout
-    /// shape so the agent honors it.
+    /// Encodes the user's decision in the agent's expected hook stdout shape.
     private static func renderAgentDecision(
         source: String,
         hookEventName: String,
@@ -33172,9 +33165,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ]
         }
 
-        // PreToolUse output for non-Claude agents that still use a
-        // PreToolUse-compatible permission bridge. Claude Code does not
-        // use this path.
+        // PreToolUse-compatible permission bridge output for non-Claude agents.
         func nonClaudePreToolDecision(
             permission: String,
             reason: String?,
@@ -33242,7 +33233,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return encode(permissionRequestHookDecision(behavior: "allow"))
             }
-            if source == "copilot" { return encode(mode == "deny" ? ["permissionDecision": "deny", "permissionDecisionReason": String(localized: "cli.hooks.feed.permissionDeniedReason", defaultValue: "User denied permission via cmux Feed.")] : ["permissionDecision": "allow"]) }
+            if source == "copilot" {
+                if mode == "deny" {
+                    let reason = String(
+                        localized: "cli.hooks.feed.permissionDeniedReason",
+                        defaultValue: "User denied permission via cmux Feed."
+                    )
+                    return encode(["permissionDecision": "deny", "permissionDecisionReason": reason])
+                }
+                return encode(["permissionDecision": "allow"])
+            }
             if source == "hermes-agent" {
                 if mode == "deny" {
                     return hermesAgentBlock("User denied permission via cmux Feed.")
