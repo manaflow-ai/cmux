@@ -25728,10 +25728,11 @@ struct CMUXCLI {
             String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
             def.displayName
         )
-        if def.name == "copilot", let error = object["error"] as? [String: Any] {
+        let rawObject = parsedInput.rawObject ?? object
+        if def.name == "copilot", let error = rawObject["error"] as? [String: Any] {
             let label = firstString(in: error, keys: ["name", "code", "status", "type"])
             let details = firstString(in: error, keys: ["message", "description"])
-                ?? firstString(in: object, keys: ["message", "description"])
+                ?? firstString(in: rawObject, keys: ["message", "description"])
             let body: String
             switch (label.map(normalizedSingleLine), details.map(normalizedSingleLine)) {
             case let (label?, details?) where !label.isEmpty && !details.isEmpty && details != label:
@@ -27047,9 +27048,6 @@ struct CMUXCLI {
         if def.name == "codex" {
             return 5_000
         }
-        if def.name == "copilot", agentEvent == "preToolUse" {
-            return 5_000
-        }
         return 120_000
     }
 
@@ -28059,6 +28057,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return false
     }
 
+    private static func shouldPrependCmuxHookEntries(def: AgentHookDef, event: String) -> Bool {
+        // Copilot merges permissionRequest outputs with later hooks overriding
+        // earlier hooks. Keep existing policy hooks after cmux so their deny
+        // output cannot be overwritten by a Feed approval.
+        def.name == "copilot" && event == "permissionRequest"
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -28206,7 +28211,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case .flat, .kiroAgentJSON, .copilotJSON:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
-                    if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
+                    if Self.shouldPrependCmuxHookEntries(def: def, event: event) {
+                        entries.insert(contentsOf: newEntries, at: 0)
+                    } else if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
                         Self.insertCmuxHookValues(newEntries, into: &entries, atOriginalIndexes: insertionIndexes)
                     } else {
                         entries.append(contentsOf: newEntries)

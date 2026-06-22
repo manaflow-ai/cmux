@@ -45,6 +45,37 @@ struct CLICopilotHookFeedTests {
             .appendingPathComponent("cmux-copilot-hook-install-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
+        let hookDirectory = root
+            .appendingPathComponent(".copilot", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+        try FileManager.default.createDirectory(at: hookDirectory, withIntermediateDirectories: true)
+        let hookURL = hookDirectory.appendingPathComponent("cmux.json", isDirectory: false)
+        let stalePayload: [String: Any] = [
+            "version": 1,
+            "hooks": [
+                "permissionRequest": [
+                    [
+                        "type": "command",
+                        "bash": "echo '{\"behavior\":\"deny\",\"message\":\"policy deny\"}'",
+                        "timeoutSec": 1,
+                    ],
+                ],
+                "preToolUse": [
+                    [
+                        "type": "command",
+                        "bash": "cmux hooks feed --source copilot --event preToolUse --telemetry-only",
+                        "timeoutSec": 5,
+                    ],
+                    [
+                        "type": "command",
+                        "bash": "echo user-pre-tool-hook",
+                        "timeoutSec": 1,
+                    ],
+                ],
+            ],
+        ]
+        let staleData = try JSONSerialization.data(withJSONObject: stalePayload, options: [.prettyPrinted, .sortedKeys])
+        try staleData.write(to: hookURL)
 
         let result = Self.runProcess(
             executablePath: cliPath,
@@ -60,10 +91,6 @@ struct CLICopilotHookFeedTests {
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
 
-        let hookURL = root
-            .appendingPathComponent(".copilot", isDirectory: true)
-            .appendingPathComponent("hooks", isDirectory: true)
-            .appendingPathComponent("cmux.json", isDirectory: false)
         let json = try #require(
             JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any],
             "Expected hook file at ~/.copilot/hooks/cmux.json"
@@ -76,13 +103,23 @@ struct CLICopilotHookFeedTests {
         #expect(hooks["userPromptSubmitted"] != nil, "Missing userPromptSubmitted hook")
         #expect(hooks["agentStop"] != nil, "Missing agentStop hook")
         #expect(hooks["errorOccurred"] != nil, "Missing errorOccurred hook")
+        #expect(hooks["notification"] != nil, "Missing notification hook")
         #expect(hooks["Notification"] == nil, "Copilot notifications must not be installed as stop hooks")
         #expect(hooks["sessionEnd"] != nil, "Missing sessionEnd hook")
         #expect(hooks["SessionStart"] == nil, "Copilot must use canonical camelCase hook names")
         #expect(hooks["Stop"] == nil, "Copilot must use canonical agentStop/errorOccurred hook names")
         #expect(hooks["SessionEnd"] == nil, "Copilot must use canonical camelCase hook names")
-        #expect(hooks["PreToolUse"] == nil, "Copilot must install canonical preToolUse hooks")
-        #expect(hooks["PermissionRequest"] == nil, "Copilot must install canonical permissionRequest hooks")
+        #expect(hooks["PreToolUse"] == nil, "Copilot must not install PascalCase PreToolUse hooks")
+        #expect(hooks["PermissionRequest"] == nil, "Copilot must not install PascalCase PermissionRequest hooks")
+        let preservedPreToolUse = try #require(hooks["preToolUse"] as? [[String: Any]])
+        #expect(
+            preservedPreToolUse.contains { ($0["bash"] as? String) == "echo user-pre-tool-hook" },
+            "Expected user preToolUse hook to be preserved, saw \(preservedPreToolUse)"
+        )
+        #expect(
+            !preservedPreToolUse.contains { ($0["bash"] as? String)?.contains("cmux hooks feed --source copilot --event preToolUse") == true },
+            "Copilot command preToolUse hooks fail closed, so cmux must remove stale telemetry hooks, saw \(preservedPreToolUse)"
+        )
         let errorOccurred = try #require(hooks["errorOccurred"] as? [[String: Any]])
         #expect(
             errorOccurred.contains {
@@ -92,19 +129,26 @@ struct CLICopilotHookFeedTests {
             },
             "Expected errorOccurred to route through notification handling, saw \(errorOccurred)"
         )
-        let preToolUse = try #require(hooks["preToolUse"] as? [[String: Any]])
+        let notification = try #require(hooks["notification"] as? [[String: Any]])
         #expect(
-            preToolUse.contains {
-                ($0["bash"] as? String)?.contains("hooks feed --source copilot --event preToolUse") == true
-                    && ($0["bash"] as? String)?.contains("--telemetry-only") == true
+            notification.contains {
+                ($0["bash"] as? String)?.contains("hooks copilot notification") == true
                     && ($0["type"] as? String) == "command"
-                    && ($0["timeoutSec"] as? Int) == 5
                     && $0["command"] == nil
-                    && $0["hooks"] == nil
             },
-            "Expected telemetry preToolUse bash hook with short timeout, saw \(preToolUse)"
+            "Expected notification to route through notification handling, saw \(notification)"
         )
         let permissionRequest = try #require(hooks["permissionRequest"] as? [[String: Any]])
+        #expect(
+            (permissionRequest.first?["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true,
+            "Expected cmux permissionRequest hook to run before existing policy hooks, saw \(permissionRequest)"
+        )
+        #expect(
+            permissionRequest.dropFirst().contains {
+                ($0["bash"] as? String)?.contains("\"behavior\":\"deny\"") == true
+            },
+            "Expected existing permissionRequest policy hook to be preserved after cmux, saw \(permissionRequest)"
+        )
         #expect(
             permissionRequest.contains {
                 ($0["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true
@@ -232,8 +276,134 @@ struct CLICopilotHookFeedTests {
         #expect(permissionDenyOutput["hookSpecificOutput"] == nil)
     }
 
+    @Test func copilotErrorNotificationUsesStructuredErrorPayload() throws {
+        let run = try Self.runCopilotNotificationHook(
+            socketName: "copilot-error",
+            payloadFields: [
+                "hookEventName": "errorOccurred",
+                "error": [
+                    "name": "RateLimitError",
+                    "status": 429,
+                    "message": "Too many requests",
+                ],
+            ],
+        )
+        #expect(!run.result.timedOut, Comment(rawValue: run.result.stderr))
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout == "{}\n")
+
+        #expect(
+            run.commands.contains {
+                $0.contains("notify_target_async \(run.workspaceId) \(run.surfaceId) Copilot|Error|RateLimitError: Too many requests")
+            },
+            "Expected Copilot error notification to include structured error details, saw \(run.commands)"
+        )
+        #expect(
+            run.commands.contains { $0.contains("set_status copilot Copilot error") },
+            "Expected Copilot error notification to mark the agent status as error, saw \(run.commands)"
+        )
+    }
+
+    @Test func copilotSystemNotificationUsesNotificationPayload() throws {
+        let run = try Self.runCopilotNotificationHook(
+            socketName: "copilot-note",
+            payloadFields: [
+                "hook_event_name": "Notification",
+                "notification_type": "permission_prompt",
+                "title": "Permission needed",
+                "message": "Approve shell command?",
+            ]
+        )
+        #expect(!run.result.timedOut, Comment(rawValue: run.result.stderr))
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        #expect(run.result.stdout == "{}\n")
+
+        #expect(
+            run.commands.contains {
+                $0.contains("notify_target_async \(run.workspaceId) \(run.surfaceId) Copilot|Permission|Approve shell command?")
+            },
+            "Expected Copilot notification event to surface the system notification, saw \(run.commands)"
+        )
+        #expect(
+            run.commands.contains { $0.contains("set_status copilot Copilot needs input") },
+            "Expected Copilot permission notification to mark the agent as needing input, saw \(run.commands)"
+        )
+    }
+
     private static func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundleProbe.self)
+    }
+
+    private static func runCopilotNotificationHook(
+        socketName: String,
+        payloadFields: [String: Any]
+    ) throws -> (result: ProcessRunResult, commands: [String], workspaceId: String, surfaceId: String) {
+        let cliPath = try Self.bundledCLIPath()
+        let socketPath = Self.makeSocketPath(socketName)
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-\(socketName)-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let surfaceId = "66666666-6666-6666-6666-666666666666"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let server = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return Self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            ["id": surfaceId, "ref": "surface:1", "focused": true],
+                        ],
+                    ]
+                )
+            case "feed.push":
+                return Self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return Self.v2Response(id: id, ok: true, result: [:])
+            }
+        }
+
+        var inputPayload = payloadFields
+        inputPayload["sessionId"] = inputPayload["sessionId"] ?? "copilot-notification-session"
+        inputPayload["cwd"] = inputPayload["cwd"] ?? root.path
+        let inputData = try JSONSerialization.data(withJSONObject: inputPayload, options: [.sortedKeys])
+        let input = try #require(String(data: inputData, encoding: .utf8))
+
+        let result = Self.runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "notification"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: input,
+            timeout: 5
+        )
+        #expect(server.wait(timeout: 5), "socket server did not observe notification commands")
+
+        return (result, state.snapshot(), workspaceId, surfaceId)
     }
 
     private static func makeSocketPath(_ name: String) -> String {

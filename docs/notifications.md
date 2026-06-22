@@ -144,6 +144,13 @@ Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/copilot-
         "timeoutSec": 5
       }
     ],
+    "notification": [
+      {
+        "type": "command",
+        "bash": "if command -v cmux &>/dev/null; then cmux hooks copilot notification; fi",
+        "timeoutSec": 5
+      }
+    ],
     "sessionEnd": [
       {
         "type": "command",

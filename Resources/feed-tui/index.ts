@@ -1123,7 +1123,7 @@ function sourceSupportsOncePermissionMode(source: string, toolInputCapabilities?
 }
 
 function sourceSupportsAlwaysPermissionMode(source: string, toolInputCapabilities?: string): boolean {
-  if (source === "hermes-agent") {
+  if (!sourceSupportsPersistentPermissionModes(source)) {
     return false;
   }
   if (source !== "codex") {
@@ -1133,7 +1133,7 @@ function sourceSupportsAlwaysPermissionMode(source: string, toolInputCapabilitie
 }
 
 function sourceSupportsAllPermissionMode(source: string, toolInputCapabilities?: string): boolean {
-  if (source === "hermes-agent") {
+  if (!sourceSupportsPersistentPermissionModes(source)) {
     return false;
   }
   if (source !== "codex") {
@@ -1223,8 +1223,12 @@ function codexDecisionAvailableOrUnspecified(decision: string, decisions: Set<st
   return decisions?.has(decision) ?? true;
 }
 
+function sourceSupportsPersistentPermissionModes(source: string): boolean {
+  return source !== "copilot" && source !== "hermes-agent";
+}
+
 function sourceSupportsBypassPermissions(source: string): boolean {
-  return source !== "codex" && source !== "claude" && source !== "hermes-agent";
+  return source !== "codex" && source !== "claude" && source !== "copilot" && source !== "hermes-agent";
 }
 
 function actionForKey(key: KeyEvent): string | undefined {
