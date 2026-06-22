@@ -33,6 +33,8 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     var submitOutputLogHandle: FileHandle?
     var submitErrorLogHandle: FileHandle?
     var submitPrivateInputURLs: [URL] = []
+    var submitTimeoutTimer: Timer?
+    var submitTimedOut = false
     private var countdownTimer: Timer?
     private var startedAt: Date?
     private var scriptOutput = ""
@@ -456,6 +458,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     }
 
     func clearCompletedCaptureState() {
+        cancelSubmitIfNeeded()
         guard process == nil, submitProcess == nil, captureComplete else { return }
         scriptOutput = ""
         submitOutput = ""
@@ -465,6 +468,20 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         captureComplete = false
         emailSent = false
         clearScriptLogs()
+    }
+
+    func cancelSubmitIfNeeded() {
+        submitTimeoutTimer?.invalidate()
+        submitTimeoutTimer = nil
+        guard let submitProcess else {
+            clearPrivateSubmitInputs()
+            return
+        }
+        submitTimedOut = false
+        if submitProcess.isRunning {
+            submitProcess.terminate()
+        }
+        clearPrivateSubmitInputs()
     }
 }
 

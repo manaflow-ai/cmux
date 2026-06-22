@@ -1,5 +1,8 @@
 import AppKit
+import Darwin
 import Foundation
+
+private let submitTimeoutSeconds: TimeInterval = 180
 
 extension MenuBarProfilingProgressWindowController {
     @objc func previewAttachment() {
@@ -94,16 +97,27 @@ extension MenuBarProfilingProgressWindowController {
     private func prepareSubmit() {
         submitOutput = ""
         submitErrorOutput = ""
+        submitTimedOut = false
         clearPrivateSubmitInputs()
         submitButton.isEnabled = false
         openFolderButton.isEnabled = false
     }
 
     private func makePrivateSubmitInputs(email: String, note: String) throws -> (replyToFile: URL, noteFile: URL) {
-        let replyToFile = try writePrivateSubmitInput(prefix: "cmux-profile-reply-to", text: email)
-        let noteFile = try writePrivateSubmitInput(prefix: "cmux-profile-note", text: note)
-        submitPrivateInputURLs = [replyToFile, noteFile]
-        return (replyToFile, noteFile)
+        var createdURLs: [URL] = []
+        do {
+            let replyToFile = try writePrivateSubmitInput(prefix: "cmux-profile-reply-to", text: email)
+            createdURLs.append(replyToFile)
+            let noteFile = try writePrivateSubmitInput(prefix: "cmux-profile-note", text: note)
+            createdURLs.append(noteFile)
+            submitPrivateInputURLs = createdURLs
+            return (replyToFile, noteFile)
+        } catch {
+            for url in createdURLs {
+                removeLogFile(url)
+            }
+            throw error
+        }
     }
 
     private func writePrivateSubmitInput(prefix: String, text: String) throws -> URL {
@@ -112,8 +126,21 @@ extension MenuBarProfilingProgressWindowController {
         guard let data = text.data(using: .utf8) else {
             throw CocoaError(.fileWriteInapplicableStringEncoding)
         }
-        try data.write(to: url, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        guard FileManager.default.createFile(
+            atPath: url.path,
+            contents: Data(),
+            attributes: [.posixPermissions: 0o600]
+        ) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        do {
+            let file = try FileHandle(forWritingTo: url)
+            defer { try? file.close() }
+            try file.write(contentsOf: data)
+        } catch {
+            removeLogFile(url)
+            throw error
+        }
         return url
     }
 
@@ -129,8 +156,11 @@ extension MenuBarProfilingProgressWindowController {
             process.standardError = errorLog.1
             submitProcess = process
             try process.run()
+            startSubmitTimeoutTimer(for: process)
         } catch {
             submitProcess = nil
+            submitTimeoutTimer?.invalidate()
+            submitTimeoutTimer = nil
             clearSubmitLogs()
             submitButton.title = String(localized: "statusMenu.profiling.sendEmail", defaultValue: "Send Email")
             openFolderButton.title = String(localized: "statusMenu.profiling.previewAttachment", defaultValue: "Preview Attachment")
@@ -143,7 +173,28 @@ extension MenuBarProfilingProgressWindowController {
         }
     }
 
+    private func startSubmitTimeoutTimer(for process: Process) {
+        submitTimeoutTimer?.invalidate()
+        submitTimeoutTimer = Timer.scheduledTimer(withTimeInterval: submitTimeoutSeconds, repeats: false) { [weak self, weak process] _ in
+            Task { @MainActor [weak self, weak process] in
+                guard let self, let process, process.isRunning, self.submitProcess === process else { return }
+                self.submitTimedOut = true
+                self.statusLabel.stringValue = String(
+                    localized: "statusMenu.profiling.submitTimedOut",
+                    defaultValue: "Mail did not finish in time. Stopping the send helper so you can retry."
+                )
+                process.terminate()
+                let pid = process.processIdentifier
+                _ = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak process] _ in
+                    guard let process, process.isRunning else { return }
+                    _ = kill(pid, SIGKILL)
+                }
+            }
+        }
+    }
+
     private func finishPackage(terminationStatus: Int32) {
+        let didTimeOut = submitTimedOut
         drainSubmitLogs()
         clearSubmitProcess()
         openFolderButton.title = String(localized: "statusMenu.profiling.previewAttachment", defaultValue: "Preview Attachment")
@@ -162,15 +213,17 @@ extension MenuBarProfilingProgressWindowController {
                 localized: "statusMenu.profiling.packageFailed",
                 defaultValue: "Could not package the attachment."
             )
-            statusLabel.stringValue = submitFailureMessage(base: base)
+            statusLabel.stringValue = submitFailureMessage(base: base, timedOut: didTimeOut)
             NSSound.beep()
         }
+        submitTimedOut = false
         openPreviewAfterPackaging = false
         updateAttachmentState()
         updateSubmitState()
     }
 
     private func finishSubmit(terminationStatus: Int32) {
+        let didTimeOut = submitTimedOut
         drainSubmitLogs()
         clearSubmitProcess()
         submitButton.title = String(localized: "statusMenu.profiling.sendEmail", defaultValue: "Send Email")
@@ -180,13 +233,16 @@ extension MenuBarProfilingProgressWindowController {
             statusLabel.stringValue = String(localized: "statusMenu.profiling.emailSent", defaultValue: "Email sent.")
         } else {
             let base = String(localized: "statusMenu.profiling.emailFailed", defaultValue: "The email could not be sent.")
-            statusLabel.stringValue = submitFailureMessage(base: base)
+            statusLabel.stringValue = submitFailureMessage(base: base, timedOut: didTimeOut)
             NSSound.beep()
         }
+        submitTimedOut = false
         updateSubmitState()
     }
 
     private func clearSubmitProcess() {
+        submitTimeoutTimer?.invalidate()
+        submitTimeoutTimer = nil
         clearSubmitLogs()
         submitProcess = nil
     }
@@ -212,7 +268,7 @@ extension MenuBarProfilingProgressWindowController {
         clearPrivateSubmitInputs()
     }
 
-    private func clearPrivateSubmitInputs() {
+    func clearPrivateSubmitInputs() {
         for url in submitPrivateInputURLs {
             removeLogFile(url)
         }
@@ -241,7 +297,13 @@ extension MenuBarProfilingProgressWindowController {
         }
     }
 
-    private func submitFailureMessage(base: String) -> String {
+    private func submitFailureMessage(base: String, timedOut: Bool) -> String {
+        if timedOut {
+            return base + "\n" + String(
+                localized: "statusMenu.profiling.submitTimedOutRetry",
+                defaultValue: "The Mail helper timed out and was stopped. You can try again."
+            )
+        }
         let tail = submitErrorOutput
             .split(separator: "\n")
             .suffix(2)
