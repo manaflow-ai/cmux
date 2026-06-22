@@ -136,12 +136,12 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
     }
 
     private func markedTextEditor() -> NSTextView {
-        let editor = NSTextView()
-        editor.setMarkedText(
-            "marked",
-            selectedRange: NSRange(location: 6, length: 0),
-            replacementRange: NSRange(location: NSNotFound, length: 0)
-        )
-        return editor
+        SidebarInlineRenameMarkedTextEditor()
+    }
+}
+
+private final class SidebarInlineRenameMarkedTextEditor: NSTextView {
+    override func hasMarkedText() -> Bool {
+        true
     }
 }
