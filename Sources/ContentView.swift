@@ -9249,27 +9249,6 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    private var remoteWorkspaceSection: some View {
-        let workspaceSnapshot = self.workspaceSnapshot
-        if !settings.hidesAllDetails, sidebarShowSSH, let remoteWorkspaceSidebarText = workspaceSnapshot.remoteWorkspaceSidebarText {
-            SidebarWorkspaceRemoteRow(
-                hostText: remoteWorkspaceSidebarText,
-                connectionStatusText: workspaceSnapshot.remoteConnectionStatusText,
-                showsReconnectAffordance: workspaceSnapshot.showsRemoteReconnectAffordance,
-                stateHelpText: workspaceSnapshot.remoteStateHelpText,
-                hostColor: activeSecondaryColor(0.8),
-                statusColor: activeSecondaryColor(0.58),
-                reconnectColor: activeSecondaryColor(0.9),
-                fontScale: fontScale,
-                topPadding: latestNotificationText == nil ? 1 : 2,
-                onReconnect: {
-                    tab.reconnectRemoteConnection()
-                }
-            )
-        }
-    }
-
     private func copyWorkspaceIdsToPasteboard(_ ids: [UUID], includeRefs: Bool = false) {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds(ids, includeRefs: includeRefs)
     }
@@ -9325,157 +9304,74 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        VStack(alignment: .leading, spacing: 4) {
-            SidebarWorkspaceHeaderRow(
-                unreadCount: unreadCount,
-                unreadBadgeFillColor: activeUnreadBadgeFillColor,
-                unreadBadgeTextColor: activeUnreadBadgeTextColor,
-                unreadBadgeDiameter: scaledUnreadBadgeSize,
-                hasMemoryWarning: hasMemoryWarning,
-                memoryWarningTooltip: String(
-                    localized: "sidebar.memoryWarning.tooltip",
-                    defaultValue: "A pane in this workspace is using a lot of memory"
-                ),
-                memoryWarningAccessibilityLabel: String(
-                    localized: "sidebar.memoryWarning.accessibilityLabel",
-                    defaultValue: "High memory warning"
-                ),
-                isPinned: workspaceSnapshot.isPinned,
-                pinnedTooltip: protectedWorkspaceTooltip,
-                title: displayedTitle,
-                titleColor: activePrimaryTextColor,
-                titleFontWeight: titleFontWeight,
-                titleLineLimit: titleLineLimit,
-                pinIconColor: activeSecondaryColor(0.8),
-                closeButtonColor: activeSecondaryColor(0.7),
-                fontScale: fontScale,
-                showsCloseButton: canCloseWorkspace,
-                closeButtonVisible: showCloseButton,
-                closeButtonWidth: scaledCloseButtonWidth,
-                closeButtonHitSize: scaledCloseButtonHitSize,
-                closeButtonTooltip: closeButtonTooltip,
-                onClose: {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                    #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
-                }
-            )
-
-            if let description = workspaceSnapshot.customDescription {
-                SidebarWorkspaceDescriptionText(
-                    markdown: description,
-                    isActive: usesInvertedActiveForeground,
-                    activeForegroundColor: activeSecondaryColor(0.84),
-                    fontScale: fontScale,
-                    debugLog: Self.sidebarDescriptionDebugLog
-                )
-            }
-
-            if let subtitle = effectiveSubtitle {
-                SidebarWorkspaceSubtitleText(
-                    text: subtitle,
-                    color: activeSecondaryColor(0.8),
-                    fontScale: fontScale
-                )
-            }
-
-            remoteWorkspaceSection
-
-            if detailVisibility.showsMetadata {
-                let metadataEntries = workspaceSnapshot.metadataEntries
-                let metadataBlocks = workspaceSnapshot.metadataBlocks
-                if !metadataEntries.isEmpty {
-                    SidebarMetadataRows(
-                        entries: metadataEntries,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.95),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity)
-                }
-                if !metadataBlocks.isEmpty {
-                    SidebarMetadataMarkdownBlocks(
-                        blocks: metadataBlocks,
-                        isActive: usesInvertedActiveForeground,
-                        activeForegroundColor: activeSecondaryColor(0.8),
-                        activeSecondaryForegroundColor: activeSecondaryColor(0.65),
-                        fontScale: fontScale,
-                        onFocus: { updateSelection() }
-                    )
-                    .transition(.opacity)
-                }
-            }
-
-            if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
-                SidebarWorkspaceLogRow(
-                    entry: latestLog,
-                    isActive: usesInvertedActiveForeground,
-                    activeSecondaryColor: { activeSecondaryColor($0) },
-                    messageColor: activeSecondaryColor(0.8),
-                    fontScale: fontScale
-                )
-                .transition(.opacity)
-            }
-
-            if detailVisibility.showsProgress, let progress = workspaceSnapshot.progress {
-                SidebarWorkspaceProgressRow(
-                    value: progress.value,
-                    label: progress.label,
-                    trackColor: activeProgressTrackColor,
-                    fillColor: activeProgressFillColor,
-                    labelColor: activeSecondaryColor(0.6),
-                    fontScale: fontScale
-                )
-                .transition(.opacity)
-            }
-
-            // Branch + directory row
-            if detailVisibility.showsBranchDirectory {
-                SidebarWorkspaceBranchDirectoryRow(
-                    branchDirectoryLines: workspaceSnapshot.branchDirectoryLines,
-                    branchLinesContainBranch: workspaceSnapshot.branchLinesContainBranch,
-                    compactGitBranchSummaryText: workspaceSnapshot.compactGitBranchSummaryText,
-                    compactDirectoryCandidates: workspaceSnapshot.compactDirectoryCandidates,
-                    compactBranchDirectoryCandidates: workspaceSnapshot.compactBranchDirectoryCandidates,
-                    usesVerticalBranchLayout: sidebarBranchVerticalLayout,
-                    stacksBranchAndDirectory: sidebarStacksBranchAndDirectory,
-                    showsGitBranchIcon: sidebarShowGitBranchIcon,
-                    secondaryColor: activeSecondaryColor(0.75),
-                    iconColor: activeSecondaryColor(0.6),
-                    fontScale: fontScale
-                )
-            }
-
-            // Pull request rows
-            if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
-                SidebarWorkspacePullRequestRows(
-                    pullRequests: workspaceSnapshot.pullRequestRows,
-                    foregroundColor: pullRequestForegroundColor,
-                    fontScale: fontScale,
-                    makesClickable: settings.makesPullRequestsClickable,
-                    statusLabel: { pullRequestStatusLabel($0) },
-                    openTooltip: { title in
-                        String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(title)")
-                    },
-                    onOpen: { openPullRequestLink($0) }
-                )
-            }
-
-            // Ports row
-            if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
-                SidebarWorkspacePortsRow(
-                    ports: workspaceSnapshot.listeningPorts,
-                    color: activeSecondaryColor(0.75),
-                    fontScale: fontScale,
-                    portLabel: { SidebarPortDisplayText.label(for: $0) },
-                    portTooltip: { SidebarPortDisplayText.openTooltip(for: $0) },
-                    onOpen: { openPortLink($0) }
-                )
-            }
-        }
+        SidebarWorkspaceRowContent(
+            snapshot: workspaceSnapshot,
+            detailVisibility: detailVisibility,
+            isActive: usesInvertedActiveForeground,
+            unreadCount: unreadCount,
+            unreadBadgeFillColor: activeUnreadBadgeFillColor,
+            unreadBadgeTextColor: activeUnreadBadgeTextColor,
+            unreadBadgeDiameter: scaledUnreadBadgeSize,
+            hasMemoryWarning: hasMemoryWarning,
+            memoryWarningTooltip: String(
+                localized: "sidebar.memoryWarning.tooltip",
+                defaultValue: "A pane in this workspace is using a lot of memory"
+            ),
+            memoryWarningAccessibilityLabel: String(
+                localized: "sidebar.memoryWarning.accessibilityLabel",
+                defaultValue: "High memory warning"
+            ),
+            pinnedTooltip: protectedWorkspaceTooltip,
+            displayedTitle: displayedTitle,
+            titleColor: activePrimaryTextColor,
+            titleFontWeight: titleFontWeight,
+            titleLineLimit: titleLineLimit,
+            pinIconColor: activeSecondaryColor(0.8),
+            closeButtonColor: activeSecondaryColor(0.7),
+            showsCloseButton: canCloseWorkspace,
+            closeButtonVisible: showCloseButton,
+            closeButtonWidth: scaledCloseButtonWidth,
+            closeButtonHitSize: scaledCloseButtonHitSize,
+            closeButtonTooltip: closeButtonTooltip,
+            onClose: {
+                #if DEBUG
+                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                #endif
+                tabManager.closeWorkspaceWithConfirmation(tab)
+            },
+            descriptionActiveForegroundColor: activeSecondaryColor(0.84),
+            descriptionDebugLog: Self.sidebarDescriptionDebugLog,
+            subtitle: effectiveSubtitle,
+            subtitleColor: activeSecondaryColor(0.8),
+            showsRemoteSection: !settings.hidesAllDetails && sidebarShowSSH,
+            remoteHostColor: activeSecondaryColor(0.8),
+            remoteStatusColor: activeSecondaryColor(0.58),
+            remoteReconnectColor: activeSecondaryColor(0.9),
+            remoteTopPadding: latestNotificationText == nil ? 1 : 2,
+            onReconnect: {
+                tab.reconnectRemoteConnection()
+            },
+            activeSecondaryColor: { activeSecondaryColor($0) },
+            progressTrackColor: activeProgressTrackColor,
+            progressFillColor: activeProgressFillColor,
+            branchSecondaryColor: activeSecondaryColor(0.75),
+            branchIconColor: activeSecondaryColor(0.6),
+            usesVerticalBranchLayout: sidebarBranchVerticalLayout,
+            stacksBranchAndDirectory: sidebarStacksBranchAndDirectory,
+            showsGitBranchIcon: sidebarShowGitBranchIcon,
+            pullRequestForegroundColor: pullRequestForegroundColor,
+            makesPullRequestsClickable: settings.makesPullRequestsClickable,
+            fontScale: fontScale,
+            onFocus: { updateSelection() },
+            pullRequestStatusLabel: { pullRequestStatusLabel($0) },
+            pullRequestOpenTooltip: { title in
+                String(localized: "sidebar.pullRequest.openTooltip", defaultValue: "Open \(title)")
+            },
+            onOpenPullRequest: { openPullRequestLink($0) },
+            portLabel: { SidebarPortDisplayText.label(for: $0) },
+            portTooltip: { SidebarPortDisplayText.openTooltip(for: $0) },
+            onOpenPort: { openPortLink($0) }
+        )
         // No implicit .animation(value:) on agent-mutable fields: animating a
         // row-height change interpolates the LazyVStack's measured height over
         // every frame of the 0.2s curve, and with dozens of agent sessions some
