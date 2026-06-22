@@ -50,9 +50,9 @@ extension Workspace {
             $customColor
         )
         let conversationFields = Publishers.CombineLatest3(
-            $latestConversationMessage,
-            $latestSubmittedMessage,
-            $latestSubmittedAt
+            latestConversationMessagePublisher,
+            latestSubmittedMessagePublisher,
+            latestSubmittedAtPublisher
         )
 
         return workspaceFields
@@ -105,7 +105,7 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts)
+            .combineLatest(listeningPortsPublisher)
             .map { groupedFields, listeningPorts in
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1

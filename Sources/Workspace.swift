@@ -2006,6 +2006,26 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         surfaceRegistry.panelCustomTitlesPublisher
     }
 
+    /// Internal forwarders to the surface-directory sub-model's conversation /
+    /// submitted-message / fused-listening-port publishers, read by the sidebar
+    /// observation extension in a sibling file in place of the former
+    /// `$latestConversationMessage` / `$latestSubmittedMessage` /
+    /// `$latestSubmittedAt` / `$listeningPorts` projections.
+    /// `surfaceDirectoryMetadata` cannot itself be `internal` (its generic param
+    /// is `private`), so the publishers are re-exposed here.
+    var latestConversationMessagePublisher: AnyPublisher<String?, Never> {
+        surfaceDirectoryMetadata.latestConversationMessagePublisher
+    }
+    var latestSubmittedMessagePublisher: AnyPublisher<String?, Never> {
+        surfaceDirectoryMetadata.latestSubmittedMessagePublisher
+    }
+    var latestSubmittedAtPublisher: AnyPublisher<Date?, Never> {
+        surfaceDirectoryMetadata.latestSubmittedAtPublisher
+    }
+    var listeningPortsPublisher: AnyPublisher<[Int], Never> {
+        surfaceDirectoryMetadata.listeningPortsPublisher
+    }
+
     /// The split-layout sub-model (CmuxPanes): owns the split/detach
     /// choreography bookkeeping (programmatic-split flag, detaching surface
     /// ids, captured transfer payloads, detach-close transaction count). The
@@ -2237,9 +2257,31 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         get { sidebarMetadata.metadataBlocks }
         set { sidebarMetadata.metadataBlocks = newValue }
     }
-    @Published private(set) var latestConversationMessage: String?
-    @Published private(set) var latestSubmittedMessage: String?
-    @Published private(set) var latestSubmittedAt: Date?
+    /// The latest assistant/conversation message preview; stored in the
+    /// surface-directory sub-model. The former `$latestConversationMessage`
+    /// Combine subscriber reads
+    /// `surfaceDirectoryMetadata.latestConversationMessagePublisher` instead.
+    /// `private(set)` is preserved: only the model's record paths (driven via
+    /// the workspace forwards) mutate it.
+    private(set) var latestConversationMessage: String? {
+        get { surfaceDirectoryMetadata.latestConversationMessage }
+        set { surfaceDirectoryMetadata.latestConversationMessage = newValue }
+    }
+    /// The latest submitted-prompt preview; stored in the surface-directory
+    /// sub-model. The former `$latestSubmittedMessage` Combine subscriber reads
+    /// `surfaceDirectoryMetadata.latestSubmittedMessagePublisher` instead.
+    private(set) var latestSubmittedMessage: String? {
+        get { surfaceDirectoryMetadata.latestSubmittedMessage }
+        set { surfaceDirectoryMetadata.latestSubmittedMessage = newValue }
+    }
+    /// The timestamp of the latest submitted prompt; stored in the
+    /// surface-directory sub-model. The former `$latestSubmittedAt` Combine
+    /// subscriber reads `surfaceDirectoryMetadata.latestSubmittedAtPublisher`
+    /// instead.
+    private(set) var latestSubmittedAt: Date? {
+        get { surfaceDirectoryMetadata.latestSubmittedAt }
+        set { surfaceDirectoryMetadata.latestSubmittedAt = newValue }
+    }
     var logEntries: [SidebarLogEntry] {
         get { sidebarMetadata.logEntries }
         set { sidebarMetadata.logEntries = newValue }
@@ -2282,7 +2324,14 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     @Published var remoteProxyEndpoint: BrowserProxyEndpoint?
     @Published var remoteHeartbeatCount: Int = 0
     @Published var remoteLastHeartbeatAt: Date?
-    @Published var listeningPorts: [Int] = []
+    /// The fused, sorted, deduplicated workspace listening-port projection;
+    /// stored in the surface-directory sub-model. The former `$listeningPorts`
+    /// Combine subscriber reads
+    /// `surfaceDirectoryMetadata.listeningPortsPublisher` instead.
+    var listeningPorts: [Int] {
+        get { surfaceDirectoryMetadata.listeningPorts }
+        set { surfaceDirectoryMetadata.listeningPorts = newValue }
+    }
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
     /// The controlling-terminal device name per panel id; stored in the
     /// surface-registry sub-model.
@@ -4106,26 +4155,6 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     var surfaceMetadataRemoteForwardedPorts: [Int] {
         remoteForwardedPorts
-    }
-
-    var surfaceMetadataListeningPorts: [Int] {
-        get { listeningPorts }
-        set { listeningPorts = newValue }
-    }
-
-    var surfaceMetadataLatestConversationMessage: String? {
-        get { latestConversationMessage }
-        set { latestConversationMessage = newValue }
-    }
-
-    var surfaceMetadataLatestSubmittedMessage: String? {
-        get { latestSubmittedMessage }
-        set { latestSubmittedMessage = newValue }
-    }
-
-    var surfaceMetadataLatestSubmittedAt: Date? {
-        get { latestSubmittedAt }
-        set { latestSubmittedAt = newValue }
     }
 
     func surfaceMetadataLogIgnoredRestoredCwdReport(

@@ -1,10 +1,16 @@
+public import Combine
 public import Foundation
+public import Observation
 
 /// The per-workspace surface-directory sub-model: owns the directory-report
 /// and listening-port-fusion logic the legacy `Workspace` god object kept
 /// inline (`updatePanelDirectory`, `configTrackingDirectory`,
 /// `shouldIgnoreRestoredGuardedDirectoryReport`, `unmountedVolumeRoot`,
-/// `resolvedWorkingDirectory`, `recomputeListeningPorts`).
+/// `resolvedWorkingDirectory`, `recomputeListeningPorts`), plus the
+/// conversation/submitted-message previews and the fused listening-port
+/// projection the legacy god object kept as loose `@Published` stored
+/// properties (`latestConversationMessage`, `latestSubmittedMessage`,
+/// `latestSubmittedAt`, `listeningPorts`).
 ///
 /// The per-surface directory map (`panelDirectories`) and per-surface
 /// listening-port map (`surfaceListeningPorts`) live in the shared
@@ -12,22 +18,94 @@ public import Foundation
 /// and writes them directly. Everything else the bodies touched (the focused
 /// panel, the `@Published` `currentDirectory` / `surfaceTabBarDirectory`, the
 /// remote-tmux-mirror flag, a terminal panel's requested working directory,
-/// the restored-guarded-directory guard map, the agent/remote port sets, and
-/// the fused `listeningPorts` projection) is reached through
-/// ``SurfaceMetadataHosting``, conformed by `Workspace` and injected via
-/// ``attach(host:)``.
+/// the restored-guarded-directory guard map, and the agent/remote port sets)
+/// is reached through ``SurfaceMetadataHosting``, conformed by `Workspace` and
+/// injected via ``attach(host:)``.
 ///
-/// `Workspace` owns one instance and forwards each former method through a
-/// one-line call, so every call site stays byte-identical. There is no
-/// observer-parity bridge here: `panelDirectories` already mirrors its own
-/// Combine subject inside ``SurfaceRegistryModel``, and the `@Published`
-/// `currentDirectory` / `surfaceTabBarDirectory` / `listeningPorts` writes go
-/// through the host's own properties, preserving their emission moments.
+/// `Workspace` owns one instance and forwards each former method and stored
+/// property through a one-line call/computed pair, so every call site stays
+/// byte-identical.
+///
+/// Byte-identical observer parity: `latestConversationMessage`,
+/// `latestSubmittedMessage`, `latestSubmittedAt`, and `listeningPorts` were
+/// `@Published` on the legacy `ObservableObject` `Workspace` and their
+/// `$projection`s fed `WorkspaceSidebarObservation`'s fused `CombineLatest` +
+/// `removeDuplicates()` sidebar publishers. To preserve that exactly, each
+/// mirrors its value into a `CurrentValueSubject` in `didSet` and exposes a
+/// matching `…Publisher` accessor replacing the former `$property`:
+/// replay-on-subscribe + send-on-every-assignment reproduces the `@Published`
+/// contract those `.map { _ in () }` subscribers relied on, so the debounced
+/// sidebar refresh fires at the same moments. This matches the convention the
+/// sibling ``SurfaceRegistryModel`` uses for `panelDirectories` / `panelTitles`
+/// / `panelCustomTitles`. `panelDirectories` already mirrors its own Combine
+/// subject inside ``SurfaceRegistryModel``, and the `currentDirectory` /
+/// `surfaceTabBarDirectory` writes go through the host's own `@Published`
+/// properties, preserving their emission moments.
 @MainActor
+@Observable
 public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
+    @ObservationIgnored
     private let registry: SurfaceRegistryModel<TabSelectionRequest>
 
+    @ObservationIgnored
     private weak var host: (any SurfaceMetadataHosting)?
+
+    /// The latest assistant/conversation message preview (legacy
+    /// `Workspace.latestConversationMessage`, a `@Published private(set)`).
+    public var latestConversationMessage: String? {
+        didSet { latestConversationMessageSubject.send(latestConversationMessage) }
+    }
+
+    /// The latest submitted-prompt preview (legacy
+    /// `Workspace.latestSubmittedMessage`, a `@Published private(set)`).
+    public var latestSubmittedMessage: String? {
+        didSet { latestSubmittedMessageSubject.send(latestSubmittedMessage) }
+    }
+
+    /// The timestamp of the latest submitted prompt (legacy
+    /// `Workspace.latestSubmittedAt`, a `@Published private(set)`).
+    public var latestSubmittedAt: Date? {
+        didSet { latestSubmittedAtSubject.send(latestSubmittedAt) }
+    }
+
+    /// The fused, sorted, deduplicated workspace listening-port projection
+    /// (legacy `Workspace.listeningPorts`, a `@Published var`).
+    public var listeningPorts: [Int] = [] {
+        didSet { listeningPortsSubject.send(listeningPorts) }
+    }
+
+    @ObservationIgnored
+    private lazy var latestConversationMessageSubject = CurrentValueSubject<String?, Never>(latestConversationMessage)
+    @ObservationIgnored
+    private lazy var latestSubmittedMessageSubject = CurrentValueSubject<String?, Never>(latestSubmittedMessage)
+    @ObservationIgnored
+    private lazy var latestSubmittedAtSubject = CurrentValueSubject<Date?, Never>(latestSubmittedAt)
+    @ObservationIgnored
+    private lazy var listeningPortsSubject = CurrentValueSubject<[Int], Never>(listeningPorts)
+
+    /// Emits the current conversation-message preview on subscription, then on
+    /// every change (replaces the legacy `Workspace.$latestConversationMessage`).
+    public var latestConversationMessagePublisher: AnyPublisher<String?, Never> {
+        latestConversationMessageSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current submitted-message preview on subscription, then on
+    /// every change (replaces the legacy `Workspace.$latestSubmittedMessage`).
+    public var latestSubmittedMessagePublisher: AnyPublisher<String?, Never> {
+        latestSubmittedMessageSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current submitted-at timestamp on subscription, then on every
+    /// change (replaces the legacy `Workspace.$latestSubmittedAt`).
+    public var latestSubmittedAtPublisher: AnyPublisher<Date?, Never> {
+        latestSubmittedAtSubject.eraseToAnyPublisher()
+    }
+
+    /// Emits the current fused listening ports on subscription, then on every
+    /// change (replaces the legacy `Workspace.$listeningPorts`).
+    public var listeningPortsPublisher: AnyPublisher<[Int], Never> {
+        listeningPortsSubject.eraseToAnyPublisher()
+    }
 
     /// Creates the model over the workspace's shared surface registry. Call
     /// ``attach(host:)`` at the composition point before any directory report
@@ -238,44 +316,43 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
         return "\(collapsed.prefix(maxLength))..."
     }
 
-    /// Records the latest assistant/conversation `message` preview on the host,
-    /// returning `true` exactly when a new, non-empty preview was stored.
+    /// Records the latest assistant/conversation `message` preview, returning
+    /// `true` exactly when a new, non-empty preview was stored.
     ///
     /// Owns the legacy `Workspace.recordConversationMessage(_:)` decision: derive
     /// the preview, ignore a `nil`/whitespace-only message, ignore an unchanged
-    /// preview, then write `latestConversationMessage` through the host seam. The
-    /// `@Published` storage stays on `Workspace` (its `$latestConversationMessage`
-    /// projection feeds the sidebar observation publisher), so the write goes
-    /// through ``SurfaceMetadataHosting/surfaceMetadataLatestConversationMessage``;
-    /// its emission moment is the host property's, preserving observer parity.
+    /// preview, then write ``latestConversationMessage``. The storage now lives
+    /// on this model (its ``latestConversationMessagePublisher`` feeds the
+    /// sidebar observation publisher in place of the former
+    /// `$latestConversationMessage`), so the conditional write is byte-identical
+    /// to the legacy guard.
     @discardableResult
     public func recordConversationMessage(_ message: String?) -> Bool {
         guard let preview = Self.conversationMessagePreview(from: message) else { return false }
-        guard host?.surfaceMetadataLatestConversationMessage != preview else { return false }
-        host?.surfaceMetadataLatestConversationMessage = preview
+        guard latestConversationMessage != preview else { return false }
+        latestConversationMessage = preview
         return true
     }
 
     /// Records a submitted-prompt `message`: stores its preview as both the
     /// latest conversation message and the latest submitted message, and stamps
-    /// `latestSubmittedAt` with the current time. Returns `true` when a non-empty
-    /// preview was recorded. Faithful lift of
-    /// `Workspace.recordSubmittedMessage(_:)`; the submitted writes go through the
-    /// host seam so the `@Published` storage and its emission moments stay on
-    /// `Workspace`.
+    /// ``latestSubmittedAt`` with the current time. Returns `true` when a
+    /// non-empty preview was recorded. Faithful lift of
+    /// `Workspace.recordSubmittedMessage(_:)`; the storage now lives on this
+    /// model so the writes and their emission moments are byte-identical.
     @discardableResult
     public func recordSubmittedMessage(_ message: String?) -> Bool {
         guard let preview = Self.conversationMessagePreview(from: message) else { return false }
         _ = recordConversationMessage(preview)
-        host?.surfaceMetadataLatestSubmittedMessage = preview
-        host?.surfaceMetadataLatestSubmittedAt = Date()
+        latestSubmittedMessage = preview
+        latestSubmittedAt = Date()
         return true
     }
 
     /// Recomputes the fused, sorted, deduplicated workspace listening-port
     /// projection from the per-surface registry ports plus the agent and remote
-    /// port sets, writing the host's `listeningPorts` only when it changes.
-    /// Faithful lift of `Workspace.recomputeListeningPorts()`.
+    /// port sets, writing ``listeningPorts`` only when it changes. Faithful lift
+    /// of `Workspace.recomputeListeningPorts()`.
     public func recomputeListeningPorts() {
         guard let host else { return }
         let unique = Set(registry.surfaceListeningPorts.values.flatMap { $0 })
@@ -283,8 +360,8 @@ public final class WorkspaceSurfaceMetadataModel<TabSelectionRequest> {
             .union(host.surfaceMetadataRemoteDetectedPorts)
             .union(host.surfaceMetadataRemoteForwardedPorts)
         let next = unique.sorted()
-        if host.surfaceMetadataListeningPorts != next {
-            host.surfaceMetadataListeningPorts = next
+        if listeningPorts != next {
+            listeningPorts = next
         }
     }
 }
