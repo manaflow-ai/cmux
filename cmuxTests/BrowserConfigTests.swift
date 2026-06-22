@@ -2955,6 +2955,33 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private final class WKInspectorProbeWebView: WKWebView {
+        private(set) var viewDidUnhideCount = 0
+        private(set) var enterInWindowCount = 0
+        private(set) var endDeferringViewInWindowChangesCount = 0
+        private(set) var evaluatedJavaScript: [String] = []
+
+        override func viewDidUnhide() {
+            super.viewDidUnhide()
+            viewDidUnhideCount += 1
+        }
+
+        @objc(_enterInWindow)
+        func cmuxTestEnterInWindow() {
+            enterInWindowCount += 1
+        }
+
+        @objc(_endDeferringViewInWindowChangesSync)
+        func cmuxTestEndDeferringViewInWindowChangesSync() {
+            endDeferringViewInWindowChangesCount += 1
+        }
+
+        @MainActor override func evaluateJavaScript(
+            _ javaScriptString: String,
+            completionHandler: (@MainActor @Sendable (Any?, (any Error)?) -> Void)? = nil
+        ) {
+            evaluatedJavaScript.append(javaScriptString)
+            completionHandler?(true, nil)
+        }
     }
 
     private final class FakeInspector: NSObject {
@@ -3295,6 +3322,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
 
         inspectorWindow.close()
+        frontendWebView.removeFromSuperview()
+        frontendWebView.frame = NSRect(x: 260, y: 0, width: 260, height: attachedHost.bounds.height)
+        attachedHost.addSubview(frontendWebView)
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3308,6 +3338,15 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertGreaterThan(frontendWebView.viewDidUnhideCount, 0)
+        XCTAssertGreaterThan(frontendWebView.enterInWindowCount, 0)
+        XCTAssertGreaterThan(frontendWebView.endDeferringViewInWindowChangesCount, 0)
+        XCTAssertTrue(
+            frontendWebView.evaluatedJavaScript.contains {
+                $0.contains("window.dispatchEvent(new Event(\"resize\"))")
+            },
+            "Successful redock should force the preserved inspector frontend to resize/repaint instead of leaving a white panel"
+        )
     }
 
     func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {
