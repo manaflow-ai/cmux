@@ -7,7 +7,7 @@ import Testing
 /// Behavior tests for the hosted-browser sign-in flow: callback completion,
 /// the sign-out-vs-callback race guards, deadlines, and attempt cancellation.
 @MainActor
-@Suite struct HostBrowserSignInFlowTests {
+@Suite(.serialized) struct HostBrowserSignInFlowTests {
     @Test func browserCallbackSignsInAndSeedsTokens() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
@@ -418,12 +418,14 @@ import Testing
         // session revocation) silently loses its credentials even though the
         // device is online. The coordinator owns the local clear AFTER the
         // capture; the flow must not clear the shared store underneath it.
+        let clock = ManualTestClock()
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
-        let harness = HostBrowserSignInFlowHarness(user: user)
+        let harness = HostBrowserSignInFlowHarness(user: user, clock: clock)
         await harness.client.closeUserGate()
 
         let attempt = Task { await harness.flow.signIn(timeout: 60) }
         await harness.waitForSession()
+        await clock.waitUntilSleepers(count: 3)
         harness.factory.sessions[0].deliver(harness.callbackURL(state: harness.callbackState(harness.factory.sessions[0])))
         await harness.waitForPendingUserRequest()
 
@@ -436,6 +438,7 @@ import Testing
         // The parked validation resumes and fails as cancelled while
         // sign-out is still inside the capture window.
         await harness.client.openUserGate()
+        clock.advance(by: .seconds(60))
         #expect(await attempt.value == false)
 
         // Sign-out proceeds: capture, local-first clear, bounded revocation.
