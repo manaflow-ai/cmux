@@ -273,7 +273,7 @@ write_system_info() {
   arch="$(uname -m 2>/dev/null || true)"
   translated="$(sysctl_value sysctl.proc_translated)"
   keyboard_text="$(keyboard_summary)"
-  display_text="$(display_summary)"
+  display_text="$(display_summary || true)"
 
   {
     echo "# cmux Profile System Info"

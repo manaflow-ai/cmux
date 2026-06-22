@@ -230,6 +230,28 @@ if ! grep -Fq "System:" "$timeout_out/summary.md" ||
   exit 1
 fi
 
+failing_system_profiler="$TMP_DIR/failing-system-profiler"
+cat > "$failing_system_profiler" <<'EOF'
+#!/usr/bin/env bash
+exit 9
+EOF
+chmod +x "$failing_system_profiler"
+display_failed_out="$TMP_DIR/display-failed-out"
+PATH="$fake_bin:$PATH" CMUX_PROFILE_SYSTEM_PROFILER="$failing_system_profiler" "$SCRIPT" \
+  --test-ps-file "$ps_file" \
+  --channel dev \
+  --tag dog \
+  --duration 1 \
+  --template "Time Profiler" \
+  --no-submit \
+  --out "$display_failed_out" >/dev/null
+if ! grep -Fq "Completed:" "$display_failed_out/summary.md" ||
+   ! grep -Fq "Displays: unknown" "$display_failed_out/summary.md"; then
+  echo "FAIL: optional display probing failure should not abort profiling" >&2
+  cat "$display_failed_out/summary.md" >&2
+  exit 1
+fi
+
 fail_bin="$TMP_DIR/fail-bin"
 mkdir -p "$fail_bin"
 cat > "$fail_bin/xcrun" <<'EOF'
