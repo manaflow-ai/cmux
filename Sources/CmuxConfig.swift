@@ -2093,7 +2093,7 @@ final class CmuxConfigStore: ObservableObject {
         // the merged stream, so a switch to a workspace whose current directory
         // equals the previous workspace's last directory was suppressed. Carrying
         // `lastTrackedDirectory` reproduces that cross-switch dedup.
-        trackedDirectoryCancellable = workspace.$surfaceTabBarDirectory
+        trackedDirectoryCancellable = workspace.surfaceTabBarDirectoryPublisher
             .sink { [weak self] directory in
                 guard let self else { return }
                 // Reproduce the inner `.removeDuplicates()`.

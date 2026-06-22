@@ -201,18 +201,18 @@ final class MobileWorkspaceListObserver {
                 // Renaming a terminal sets `panelCustomTitles` (not `panelTitles`),
                 // so without this a terminal rename never re-emits to the phone.
                 workspace.panelCustomTitlesPublisher.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$title.map { _ in () }.eraseToAnyPublisher(),
+                workspace.titlePublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pin/unpin is iOS-facing (the phone shows a Pinned section), and
                 // a pure pin toggle need not change the panel set or title, so
                 // without this the phone never learns the workspace was pinned.
-                workspace.$isPinned.map { _ in () }.eraseToAnyPublisher(),
+                workspace.isPinnedPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Group membership is iOS-facing (the phone nests members under
                 // their group header). Moving a workspace into or out of a group
                 // mutates only this workspace's `groupId`; it need not change the
                 // tab set, `workspaceGroups`, the panel set, or the title, so
                 // without this the phone never learns the membership changed.
-                workspace.$groupId.map { _ in () }.eraseToAnyPublisher(),
-                workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
+                workspace.groupIdPublisher.map { _ in () }.eraseToAnyPublisher(),
+                workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
                 workspace.panelDirectoriesPublisher.map { _ in () }.eraseToAnyPublisher(),
                 // Pure drag-reorders change spatial order without changing the panel
                 // set; bonsplit selection state is not `@Published`, so this counter

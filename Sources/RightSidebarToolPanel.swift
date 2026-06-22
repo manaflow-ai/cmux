@@ -168,11 +168,11 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
-            workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
-            workspace.$remoteDaemonStatus.map { _ in () }.eraseToAnyPublisher()
+            workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConfigurationPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionStatePublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionDetailPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteDaemonStatusPublisher.map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in

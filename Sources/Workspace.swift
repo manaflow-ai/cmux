@@ -1765,8 +1765,28 @@ final class SharedLiveAgentIndex: ObservableObject {
 
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
+///
+/// Observation: `Workspace` is `@MainActor @Observable`. SwiftUI views read it
+/// directly (plain `var workspace: Workspace`, no `@ObservedObject`) and the
+/// Observation runtime tracks the exact stored properties each `body` reads,
+/// including the nested `@Observable` sub-models (`paneTree`, `surfaceRegistry`,
+/// `unreadModel`). The legacy `objectWillChange.send()` forwards those sub-models
+/// drove are no longer needed: a mutation to a tracked stored property (or to a
+/// nested `@Observable`'s property a `body` read) invalidates the view by itself.
+///
+/// A handful of properties still feed Combine consumers that have not yet moved
+/// to Observation (the sidebar fan-in `makeSidebarObservationPublisher`, the
+/// mobile workspace-list observer, the per-workspace directory/remote readers).
+/// Those consumers subscribed to the `@Published` `$projection`. Each such
+/// property keeps a named `CurrentValueSubject` bridge (`titlePublisher`,
+/// `currentDirectoryPublisher`, …) seeded at the end of `init` and fed from the
+/// property's `didSet`, reproducing `Published.Publisher` semantics
+/// (replay-on-subscribe, emit-on-every-set including equal values). The bridges
+/// retire when those consumers migrate to `withObservationTracking`; this slice
+/// only flips the class and keeps the Combine seam.
 @MainActor
-final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting, WorkspaceAppearanceHosting, SurfaceRegistryHosting {
+@Observable
+final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHosting, WorkspaceTitleHosting, WorkspaceAppearanceHosting, SurfaceRegistryHosting {
     /// The browser-panel creation policy now lives in `CmuxBrowser` as a
     /// top-level `Sendable` value. This nested typealias keeps the existing
     /// unqualified `BrowserPanelCreationPolicy` and `Workspace.BrowserPanelCreationPolicy`
@@ -1793,20 +1813,30 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// fallback: a workspace that never fired a notification still carries a
     /// real timestamp instead of nothing.
     let createdAt = Date()
-    @Published var title: String
-    @Published var customTitle: String?
+    var title: String {
+        didSet { titlePublisher.send(title) }
+    }
+    var customTitle: String?
     /// Provenance of `customTitle`: `.user` for manual renames (sidebar,
     /// CLI, command palette), `.auto` for AI auto-naming. `nil` when no
     /// custom title is set. A present title with absent provenance is
     /// treated as `.user` so auto-naming never overwrites a title it
     /// cannot prove it owns.
-    @Published var customTitleSource: CustomTitleSource?
-    @Published var customDescription: String?
-    @Published var isPinned: Bool = false
+    var customTitleSource: CustomTitleSource?
+    var customDescription: String? {
+        didSet { customDescriptionPublisher.send(customDescription) }
+    }
+    var isPinned: Bool = false {
+        didSet { isPinnedPublisher.send(isPinned) }
+    }
     /// Identifier of the WorkspaceGroup this workspace belongs to, or nil if ungrouped.
     /// The group entity itself lives in `TabManager.workspaceGroups`.
-    @Published var groupId: UUID?
-    @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    var groupId: UUID? {
+        didSet { groupIdPublisher.send(groupId) }
+    }
+    var customColor: String? {  // hex string, e.g. "#C0392B"
+        didSet { customColorPublisher.send(customColor) }
+    }
     /// User-defined environment variables applied to every shell spawned in this
     /// workspace: the initial terminal, every later pane/surface/split, and every
     /// surface recreated on session restore. Managed `CMUX_*` and terminal-identity
@@ -1816,12 +1846,16 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// `mergedStartupEnvironment(...)`, so a workspace env entry can never clobber
     /// the variables the daemon relies on (CMUX_WORKSPACE_ID, CMUX_SOCKET_PATH, …).
     /// Persisted in the session manifest and restored before surfaces are rebuilt.
-    @Published var workspaceEnvironment: [String: String] = [:]
+    var workspaceEnvironment: [String: String] = [:]
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
-    @Published private(set) var terminalScrollBarHidden: Bool = false
-    @Published var currentDirectory: String {
+    private(set) var terminalScrollBarHidden: Bool = false
+    var currentDirectory: String {
         didSet {
+            // Combine bridge for the remaining `$currentDirectory` subscribers
+            // (sidebar fan-in, mobile list observer, directory readers). Fires
+            // on every set including equal values, matching `@Published`.
+            currentDirectoryPublisher.send(currentDirectory)
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
@@ -1838,9 +1872,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             )
         }
     }
-    @Published private(set) var extensionSidebarProjectRootPath: String?
+    private(set) var extensionSidebarProjectRootPath: String? {
+        didSet { extensionSidebarProjectRootPathPublisher.send(extensionSidebarProjectRootPath) }
+    }
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
-    @Published private(set) var surfaceTabBarDirectory: String?
+    private(set) var surfaceTabBarDirectory: String? {
+        didSet { surfaceTabBarDirectoryPublisher.send(surfaceTabBarDirectory) }
+    }
     // `internal(set)` (was `private(set)`): the sole writer is the
     // `SurfaceLifecycleHosting` conformance in `Workspace+SurfaceLifecycleHosting.swift`,
     // which drives `SurfaceLifecycleCoordinator.setPreferredBrowserProfileID`. Still
@@ -1856,7 +1894,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// How this workspace lays out its panels. Mutate through
     /// `setLayoutMode(_:)` (Workspace+CanvasLayout.swift) so canvas frames
     /// are seeded from the split layout on first entry.
-    @Published var layoutMode: WorkspaceLayoutMode = .splits
+    var layoutMode: WorkspaceLayoutMode = .splits
 
     /// Durable canvas-layout state (pane frames, z-order). Lives on the
     /// workspace so it survives canvas view remounts and workspace switches.
@@ -1891,6 +1929,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// ``WorkspaceContextMenuHosting`` host (conformed in
     /// `Workspace+WorkspaceContextMenuHosting.swift`); the `splitTabBar`
     /// context-action dispatch and the move-destinations provider forward here.
+    @ObservationIgnored
     private lazy var contextMenuCoordinator = WorkspaceContextMenuCoordinator(surfaceList: surfaceList)
 
     /// The per-workspace title sub-model (CmuxWorkspaces): owns the custom-title
@@ -2079,6 +2118,34 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     /// subscribers; same contract as `panelsPublisher`.
     let paneLayoutVersionPublisher = CurrentValueSubject<Int, Never>(0)
 
+    // MARK: - Combine bridges for the not-yet-migrated `$property` subscribers
+    //
+    // `Workspace` is `@Observable`, so `@Published`'s `$projection` no longer
+    // exists. The consumers that still read those projections — the sidebar
+    // fan-in (`makeSidebarObservationPublisher` / `makeSidebarImmediateObservationPublisher`),
+    // `MobileWorkspaceListObserver`, `AppSelectedWorkspaceDirectoryReadingAdapter`,
+    // `RightSidebarToolPanel`, and `CmuxConfig`'s tracked-directory watcher —
+    // read these named `CurrentValueSubject` bridges instead. Each bridge is
+    // seeded at the end of `init` with the property's post-init value and fed
+    // from the property's `didSet`, so it reproduces `Published.Publisher`
+    // exactly: replay-on-subscribe plus an emission on every assignment,
+    // including assignments of an equal value (`@Published` never compared).
+    // Delete a bridge once its last `$`-style subscriber moves to
+    // `withObservationTracking`.
+    let titlePublisher = CurrentValueSubject<String, Never>("")
+    let customDescriptionPublisher = CurrentValueSubject<String?, Never>(nil)
+    let isPinnedPublisher = CurrentValueSubject<Bool, Never>(false)
+    let customColorPublisher = CurrentValueSubject<String?, Never>(nil)
+    let groupIdPublisher = CurrentValueSubject<UUID?, Never>(nil)
+    let currentDirectoryPublisher = CurrentValueSubject<String, Never>("")
+    let surfaceTabBarDirectoryPublisher = CurrentValueSubject<String?, Never>(nil)
+    let extensionSidebarProjectRootPathPublisher = CurrentValueSubject<String?, Never>(nil)
+    let remoteConfigurationPublisher = CurrentValueSubject<WorkspaceRemoteConfiguration?, Never>(nil)
+    let remoteConnectionStatePublisher = CurrentValueSubject<WorkspaceRemoteConnectionState, Never>(.disconnected)
+    let remoteConnectionDetailPublisher = CurrentValueSubject<String?, Never>(nil)
+    let remoteDaemonStatusPublisher = CurrentValueSubject<WorkspaceRemoteDaemonStatus, Never>(WorkspaceRemoteDaemonStatus())
+    let activeRemoteTerminalSessionCountPublisher = CurrentValueSubject<Int, Never>(0)
+
     /// Mapping from bonsplit TabID to our Panel instances
     var panels: [UUID: any Panel] {
         get { paneTree.panels }
@@ -2225,7 +2292,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     var restoredUnreadPanelIds: Set<UUID> {
         unreadModel.restoredUnreadPanelIds
     }
-    @Published private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
+    private(set) var tmuxLayoutSnapshot: LayoutSnapshot?
     /// The tmux workspace-pane overlay flash mirrors now live on
     /// ``unreadModel``; these forward its `@Observable` reads so the existing
     /// `ContentView` accessors stay byte-identical. The model fires `willChange`
@@ -2314,16 +2381,24 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         set { surfaceRegistry.surfaceListeningPorts = newValue }
     }
     var agentListeningPorts: [Int] = []
-    @Published var remoteConfiguration: WorkspaceRemoteConfiguration?
-    @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
-    @Published var remoteConnectionDetail: String?
-    @Published var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus()
-    @Published var remoteDetectedPorts: [Int] = []
-    @Published var remoteForwardedPorts: [Int] = []
-    @Published var remotePortConflicts: [Int] = []
-    @Published var remoteProxyEndpoint: BrowserProxyEndpoint?
-    @Published var remoteHeartbeatCount: Int = 0
-    @Published var remoteLastHeartbeatAt: Date?
+    var remoteConfiguration: WorkspaceRemoteConfiguration? {
+        didSet { remoteConfigurationPublisher.send(remoteConfiguration) }
+    }
+    var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected {
+        didSet { remoteConnectionStatePublisher.send(remoteConnectionState) }
+    }
+    var remoteConnectionDetail: String? {
+        didSet { remoteConnectionDetailPublisher.send(remoteConnectionDetail) }
+    }
+    var remoteDaemonStatus: WorkspaceRemoteDaemonStatus = WorkspaceRemoteDaemonStatus() {
+        didSet { remoteDaemonStatusPublisher.send(remoteDaemonStatus) }
+    }
+    var remoteDetectedPorts: [Int] = []
+    var remoteForwardedPorts: [Int] = []
+    var remotePortConflicts: [Int] = []
+    var remoteProxyEndpoint: BrowserProxyEndpoint?
+    var remoteHeartbeatCount: Int = 0
+    var remoteLastHeartbeatAt: Date?
     /// The fused, sorted, deduplicated workspace listening-port projection;
     /// stored in the surface-directory sub-model. The former `$listeningPorts`
     /// Combine subscriber reads
@@ -2332,7 +2407,9 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         get { surfaceDirectoryMetadata.listeningPorts }
         set { surfaceDirectoryMetadata.listeningPorts = newValue }
     }
-    @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
+    private(set) var activeRemoteTerminalSessionCount: Int = 0 {
+        didSet { activeRemoteTerminalSessionCountPublisher.send(activeRemoteTerminalSessionCount) }
+    }
     /// The controlling-terminal device name per panel id; stored in the
     /// surface-registry sub-model.
     var surfaceTTYNames: [UUID: String] {
@@ -2484,9 +2561,12 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     typealias SurfaceResumeStartupLaunch = WorkspaceSurfaceResumeStartupLaunch
 
     // Sidebar rows cache snapshots, so observation must begin with the current
-    // workspace state. Build state publishers from @Published current values
-    // instead of dropping the first value and repairing timing with a Void event.
+    // workspace state. Build state publishers from the current values of the
+    // `$property` Combine bridges instead of dropping the first value and
+    // repairing timing with a Void event.
+    @ObservationIgnored
     lazy var sidebarImmediateObservationPublisher: AnyPublisher<Void, Never> = makeSidebarImmediateObservationPublisher()
+    @ObservationIgnored
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = makeSidebarObservationPublisher()
 
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
@@ -2998,9 +3078,13 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         closedBrowserRestoreStaging.attach(host: self)
         sessionRestoreCoordinator.attach(host: self)
         unreadModel.attach(host: self)
-        unreadModel.willChange = { [weak self] in self?.objectWillChange.send() }
+        // `unreadModel`/`surfaceRegistry` are themselves `@Observable`. With
+        // `Workspace` now `@Observable`, a SwiftUI `body` that reads
+        // `workspace.unreadModel.x` registers Observation on that property
+        // directly, so the legacy `willChange -> objectWillChange.send()`
+        // forwards (which existed only to invalidate `@ObservedObject`
+        // observers of the `ObservableObject` owner) are no longer needed.
         surfaceRegistry.attach(host: self)
-        surfaceRegistry.willChange = { [weak self] in self?.objectWillChange.send() }
         surfaceDirectoryMetadata.attach(host: self)
         titleModel.attach(host: self)
         appearanceModel.attach(host: self)
@@ -3151,17 +3235,54 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
-        // Forward shared agent-index refreshes as our own objectWillChange so the bonsplit
-        // tab-bar re-evaluates the Fork Conversation availability the moment a background
-        // refresh lands.
+        // Forward shared agent-index refreshes by bumping an Observation-tracked
+        // revision so the bonsplit tab-bar re-evaluates Fork Conversation
+        // availability the moment a background refresh lands. `WorkspaceContentView`
+        // reads `liveAgentIndexRevision` in its `body`, so Observation re-renders
+        // it on each bump — the `@Observable` equivalent of the former
+        // `SharedLiveAgentIndex -> self.objectWillChange` forward. (Migrating off
+        // this Combine seam entirely is deferred until `SharedLiveAgentIndex`
+        // itself moves from `ObservableObject` to `@Observable`.)
         sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
+            self?.liveAgentIndexRevision &+= 1
         }
+
+        // Seed the `$property` Combine bridges with their post-init values.
+        // `didSet` does not fire for assignments inside `init`, so a subscriber
+        // attaching later (every bridge consumer attaches after construction)
+        // must still replay the workspace's real current value, exactly as
+        // `@Published`'s publisher replayed its current value on subscribe.
+        titlePublisher.send(title)
+        customDescriptionPublisher.send(customDescription)
+        isPinnedPublisher.send(isPinned)
+        customColorPublisher.send(customColor)
+        groupIdPublisher.send(groupId)
+        currentDirectoryPublisher.send(currentDirectory)
+        surfaceTabBarDirectoryPublisher.send(surfaceTabBarDirectory)
+        extensionSidebarProjectRootPathPublisher.send(extensionSidebarProjectRootPath)
+        remoteConfigurationPublisher.send(remoteConfiguration)
+        remoteConnectionStatePublisher.send(remoteConnectionState)
+        remoteConnectionDetailPublisher.send(remoteConnectionDetail)
+        remoteDaemonStatusPublisher.send(remoteDaemonStatus)
+        activeRemoteTerminalSessionCountPublisher.send(activeRemoteTerminalSessionCount)
     }
+
+    /// Bumped whenever `SharedLiveAgentIndex` reports a background refresh.
+    /// `WorkspaceContentView` reads this in its `body` so Observation re-renders
+    /// the bonsplit tab-bar (which re-evaluates Fork Conversation availability)
+    /// the moment the shared index reloads. Replaces the former
+    /// `objectWillChange.send()` forward.
+    private(set) var liveAgentIndexRevision: Int = 0
 
     private var sharedLiveAgentIndexCancellable: AnyCancellable?
 
-    deinit {
+    // `isolated deinit` keeps teardown on the MainActor. As a plain
+    // `@MainActor ObservableObject` the deinit was implicitly MainActor-isolated;
+    // the `@Observable` macro rewrites the stored properties into accessors whose
+    // isolation would otherwise force a `nonisolated` deinit, which cannot touch
+    // this MainActor state or call the `@MainActor` `RemoteSessionCoordinator.stop()`.
+    // Isolating the deinit preserves the exact prior teardown semantics.
+    isolated deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -4853,7 +4974,10 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
 
     /// Registers (or replaces) a window's multi-pane renderer.
     func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
-        objectWillChange.send()
+        // `remoteTmuxWindowMirrors` is an `@Observable` stored property; mutating
+        // it invalidates the views that read it (`WorkspaceContentView` calls
+        // `remoteTmuxWindowMirror(forPanelId:)`), so the former manual
+        // `objectWillChange.send()` is no longer needed.
         if let mirror {
             remoteTmuxWindowMirrors[panelId] = mirror
         } else {
@@ -9760,16 +9884,17 @@ extension Workspace: SurfaceCreationHosting {
 }
 
 extension Workspace: PaneTreeHosting {
-    /// Legacy `@Published panels` willSet: re-emits objectWillChange and the
-    /// Combine bridge at the exact timing `@Published` used.
+    /// Drives the `panelsPublisher` Combine bridge at the exact `willSet`
+    /// timing the legacy `@Published panels` used. SwiftUI re-render no longer
+    /// needs a manual signal here: `panels` forwards to the `@Observable`
+    /// `paneTree.panels`, so a view reading `workspace.panels` is invalidated by
+    /// `paneTree`'s own Observation when the underlying store mutates.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
-        objectWillChange.send()
         panelsPublisher.send(newValue)
     }
 
-    /// Legacy `@Published paneLayoutVersion` willSet; same contract.
+    /// Drives the `paneLayoutVersionPublisher` Combine bridge; same contract.
     func paneLayoutVersionWillChange(to newValue: Int) {
-        objectWillChange.send()
         paneLayoutVersionPublisher.send(newValue)
     }
 }
