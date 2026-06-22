@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Top-of-content dismissible banner shown when a pane's process tree crosses
@@ -44,7 +45,7 @@ struct PaneMemoryGuardrailBanner: View {
         let memoryText = Self.byteFormatter.string(fromByteCount: warning.memoryBytes)
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 15, weight: .semibold))
+                .cmuxFont(size: 15, weight: .semibold)
                 .foregroundStyle(.orange)
                 .padding(.top, 1)
 
@@ -53,10 +54,10 @@ struct PaneMemoryGuardrailBanner: View {
                     localized: "paneMemoryGuardrail.banner.title",
                     defaultValue: "A pane is using a lot of memory"
                 ))
-                .font(.system(size: 12.5, weight: .semibold))
+                .cmuxFont(size: 12.5, weight: .semibold)
 
                 Text(detailText(for: warning, memoryText: memoryText))
-                    .font(.system(size: 11.5))
+                    .cmuxFont(size: 11.5)
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +112,7 @@ struct PaneMemoryGuardrailBanner: View {
                     guardrail.dismissActiveBanner()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 11, weight: .semibold))
+                        .cmuxFont(size: 11, weight: .semibold)
                         .foregroundStyle(.secondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())

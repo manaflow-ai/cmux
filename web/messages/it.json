@@ -793,7 +793,8 @@
           "warnBeforeQuit": "Fallback booleano legacy per la conferma di uscita. Usa app.confirmQuit per le nuove configurazioni.",
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
-          "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni."
+          "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni.",
+          "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
         },
         "terminal": {
           "copyOnSelect": "Copia il testo selezionato nel terminale negli appunti di sistema quando la selezione viene confermata, incluse le selezioni di parole e righe con doppio e triplo clic.",

@@ -793,7 +793,8 @@
           "warnBeforeQuit": "Ældre boolesk fallback til afslutningsbekræftelse. Brug app.confirmQuit til nye konfigurationer.",
           "warnBeforeClosingTabXButton": "Vis en bekræftelse, før en fane lukkes med fanens luk-knap.",
           "hideTabCloseButton": "Skjul fanernes luk-knapper i rudens fanelinje.",
-          "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer."
+          "forkConversationDefaultDestination": "Standarddestinationen for fanens primære Fork Conversation-handling i genvejsmenuen. Undermenuen viser stadig alle destinationer.",
+          "globalFontMagnification": "Skalerer cmux-ejede terminaler, fanetitler, sidepaneler, indstillinger, overlejringer og app-chrome med denne procent. Renderet browserindhold er ikke inkluderet."
         },
         "terminal": {
           "copyOnSelect": "Kopierer markeret terminaltekst til systemets udklipsholder, når markeringen bekræftes, inklusive ord- og linjemarkeringer fra dobbelt- og tredobbeltklik.",
