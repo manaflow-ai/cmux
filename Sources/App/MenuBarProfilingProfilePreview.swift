@@ -8,7 +8,7 @@ enum MenuBarProfilingProfilePreview {
             String(format: String(localized: "statusMenu.profiling.previewRecipient", defaultValue: "Recipient: %@"), recipient),
             String(format: String(localized: "statusMenu.profiling.previewEmailFormat", defaultValue: "Your email: %@"), email),
             String(format: String(localized: "statusMenu.profiling.previewAttachmentFormat", defaultValue: "Attachment: %@"), outputURL.lastPathComponent + ".zip"),
-            String(localized: "statusMenu.profiling.previewArchiveNote", defaultValue: "The email includes a zip with traces, logs, and summary.md."),
+            String(localized: "statusMenu.profiling.previewArchiveNote", defaultValue: "The email includes a zip with traces, logs, summary.md, and system-info.txt."),
             "",
             fileListText(for: outputURL),
             "",

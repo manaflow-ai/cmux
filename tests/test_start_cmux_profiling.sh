@@ -56,6 +56,49 @@ EOF
 chmod +x "$plist_buddy"
 export CMUX_PROFILE_PLIST_BUDDY="$plist_buddy"
 
+defaults_bin="$TMP_DIR/defaults"
+cat > "$defaults_bin" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "read" ] && [ "${2:-}" = "com.apple.HIToolbox" ] && [ "${3:-}" = "AppleSelectedInputSources" ]; then
+  cat <<'PLIST'
+(
+    {
+        "InputSourceKind" = "Keyboard Layout";
+        "KeyboardLayout ID" = 0;
+        "KeyboardLayout Name" = "U.S.";
+    }
+)
+PLIST
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$defaults_bin"
+export CMUX_PROFILE_DEFAULTS="$defaults_bin"
+
+system_profiler_bin="$TMP_DIR/system_profiler"
+cat > "$system_profiler_bin" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cat <<'PROFILE'
+Graphics/Displays:
+
+    Apple M3 Max:
+
+      Chipset Model: Apple M3 Max
+      Metal Support: Metal 3
+
+        Color LCD:
+
+          Resolution: 3456 x 2234 Retina
+          Main Display: Yes
+          Online: Yes
+PROFILE
+EOF
+chmod +x "$system_profiler_bin"
+export CMUX_PROFILE_SYSTEM_PROFILER="$system_profiler_bin"
+
 ps_file="$TMP_DIR/ps.txt"
 cat > "$ps_file" <<EOF
 101 $stable_app/Contents/MacOS/cmux
@@ -168,6 +211,21 @@ if ! grep -Fq "Completed:" "$timeout_out/summary.md"; then
 fi
 if ! grep -Fq "Successful traces: 1" "$timeout_out/summary.md"; then
   echo "FAIL: script did not count the successful trace" >&2
+  cat "$timeout_out/summary.md" >&2
+  exit 1
+fi
+if [ ! -f "$timeout_out/system-info.txt" ] ||
+   ! grep -Fq "KeyboardLayout Name" "$timeout_out/system-info.txt" ||
+   ! grep -Fq "Apple M3 Max" "$timeout_out/system-info.txt" ||
+   ! grep -Fq "Excludes serial numbers" "$timeout_out/system-info.txt"; then
+  echo "FAIL: script did not write non-sensitive system info" >&2
+  cat "$timeout_out/system-info.txt" >&2
+  exit 1
+fi
+if ! grep -Fq "System:" "$timeout_out/summary.md" ||
+   ! grep -Fq "Keyboard/input source: U.S." "$timeout_out/summary.md" ||
+   ! grep -Fq "More details: system-info.txt" "$timeout_out/summary.md"; then
+  echo "FAIL: summary did not preview system info" >&2
   cat "$timeout_out/summary.md" >&2
   exit 1
 fi
