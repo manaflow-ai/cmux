@@ -296,6 +296,26 @@ struct CrashDiagnosticSessionPolicyTests {
         #expect(pending?.modifiedAt == xdgCrashDate)
     }
 
+    @Test
+    func crashOnlyPrimarySnapshotRemovalMarkerPersistsUntilCleared() throws {
+        let defaultsSuiteName = "CrashDiagnosticSessionPolicyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer {
+            UserDefaults.standard.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        #expect(!AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
+
+        AppDelegate.markCrashOnlyPrimarySnapshotRemoval(defaults: defaults)
+
+        #expect(AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
+        #expect(AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
+
+        AppDelegate.clearCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults)
+
+        #expect(!AppDelegate.hasCrashOnlyPrimarySnapshotRemovalMarker(defaults: defaults))
+    }
+
     private func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {
         SessionWorkspaceSnapshot(
             processTitle: "Terminal",

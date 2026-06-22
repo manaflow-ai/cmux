@@ -3174,26 +3174,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startupSessionSnapshot = sanitizedStartupSnapshot
     }
 
-    private func syncManualRestoreSnapshotCachePruningCrashDiagnostics() {
-        guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL(),
-              let backupURL = sessionSnapshotStore.manualRestoreSnapshotFileURL() else {
-            return
-        }
-        switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
-        case .loaded(let snapshot):
-            guard let prunedSnapshot = SessionPersistencePolicy
-                .pruningCmuxCrashDiagnosticWindows(from: snapshot)
-                .snapshot else {
-                return
-            }
-            _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
-        case .missing:
-            sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
-        case .unusable:
-            break
-        }
-    }
-
     private func loadStartupSessionSnapshotPruningCrashDiagnostics() -> AppSessionSnapshot? {
         guard let primaryURL = sessionSnapshotStore.defaultSnapshotFileURL() else { return nil }
         switch sessionSnapshotStore.loadOutcome(fileURL: primaryURL) {
@@ -4059,7 +4039,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 nil,
                 removeWhenEmpty: removeWhenEmpty || snapshotBuildResult.removedCrashDiagnosticState,
                 persistedGeometryData: nil,
-                synchronously: writeSynchronously
+                synchronously: writeSynchronously,
+                preserveManualRestoreBackupOnMissingPrimary: snapshotBuildResult.removedCrashDiagnosticState
             )
             return false
         }
@@ -4388,7 +4369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
         persistedGeometryData: Data?,
-        synchronously: Bool
+        synchronously: Bool,
+        preserveManualRestoreBackupOnMissingPrimary: Bool = false
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
@@ -4401,8 +4383,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if let snapshot {
+                Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
                 _ = self.sessionSnapshotStore.save(snapshot, fileURL: nil)
             } else if removeWhenEmpty {
+                if preserveManualRestoreBackupOnMissingPrimary {
+                    Self.markCrashOnlyPrimarySnapshotRemoval()
+                } else {
+                    Self.clearCrashOnlyPrimarySnapshotRemovalMarker()
+                }
                 self.sessionSnapshotStore.removeSnapshot(fileURL: nil)
             }
         }
