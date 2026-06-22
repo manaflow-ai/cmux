@@ -344,7 +344,7 @@ final class AgentChatSessionRegistry {
         switch event.hookEventName {
         case .sessionStart:
             return .idle
-        case .userPromptSubmit, .preToolUse, .postToolUse, .todoWrite:
+        case .userPromptSubmit, .preToolUse, .postToolUse, .preCompact, .postCompact, .todoWrite:
             if case .working = previous { return previous }
             return .working(since: event.receivedAt)
         case .permissionRequest, .askUserQuestion, .exitPlanMode, .notification:
@@ -352,8 +352,8 @@ final class AgentChatSessionRegistry {
             return .needsInput(since: event.receivedAt)
         case .stop:
             return .idle
-        case .subagentStop:
-            // A Task subagent finishing says nothing about the parent
+        case .subagentStart, .subagentStop:
+            // Task subagent lifecycle says nothing about the parent
             // session's activity; keep the current state.
             return previous
         case .sessionEnd:
