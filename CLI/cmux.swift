@@ -23620,14 +23620,22 @@ struct CMUXCLI {
                let sessionId = parsedInput.sessionId {
                 // Save the question / plan summary in the session so the Notification
                 // handler (when it does fire) reuses it instead of the generic
-                // "Claude Code needs your attention".
+                // "Claude Code needs your attention". The question / plan text is
+                // dynamic agent output; only the fallbacks are fixed strings, and
+                // those reuse the shared localized waiting keys.
+                let waitingSubtitle = String(
+                    localized: "agent.generic.notification.subtitle.waiting",
+                    defaultValue: "Waiting"
+                )
+                let waitingBody = String(
+                    localized: "agent.generic.notification.body.waitingForInput",
+                    defaultValue: "Waiting for input"
+                )
                 let needsInputBody: String
                 if toolName == "AskUserQuestion" {
-                    needsInputBody = describeAskUserQuestion(parsedInput.object)
-                        ?? "Claude is waiting for your input"
+                    needsInputBody = describeAskUserQuestion(parsedInput.object) ?? waitingBody
                 } else {
-                    needsInputBody = describeExitPlanMode(parsedInput.object)
-                        ?? "Claude is waiting for your input"
+                    needsInputBody = describeExitPlanMode(parsedInput.object) ?? waitingBody
                 }
                 // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
@@ -23639,7 +23647,7 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
-                    lastSubtitle: "Waiting",
+                    lastSubtitle: waitingSubtitle,
                     lastBody: needsInputBody
                 )
                 setAgentLifecycle(
@@ -23656,11 +23664,14 @@ struct CMUXCLI {
                 // the same needs-input state, so we only set the lifecycle here —
                 // doing both would double-ring the notification.
                 if (parsedInput.object?["permission_mode"] as? String) == "bypassPermissions" {
+                    // Reuse the same localized "Needs input" value the in-app feed
+                    // overlay sets (FeedCoordinator.needsInputStatusValue) so the two
+                    // needs-input paths stay locale-consistent.
                     _ = try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
                         surfaceId: existingSurfaceId,
-                        value: "Needs input",
+                        value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
                         icon: "bell.fill",
                         color: "#4C8DFF",
                         pid: claudePid
@@ -23669,7 +23680,7 @@ struct CMUXCLI {
                         localized: "cli.claude-hook.notification.title",
                         defaultValue: "Claude Code"
                     )
-                    let payload = notificationPayload(title: title, subtitle: "Waiting", body: needsInputBody)
+                    let payload = notificationPayload(title: title, subtitle: waitingSubtitle, body: needsInputBody)
                     _ = try? sendV1Command(
                         "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
                         client: client
