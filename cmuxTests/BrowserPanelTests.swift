@@ -1414,7 +1414,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return
         }
 
-        let splitView = NSSplitView(frame: contentView.bounds)
+        let splitView = NSSplitView(frame: contentView.bounds.insetBy(dx: 0, dy: 20))
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin
@@ -1526,6 +1526,19 @@ final class WindowBrowserHostViewTests: XCTestCase {
             host.dividerRegionBuildCount,
             buildCountAfterWarmHit,
             "Steady-state browser divider hit-testing should reuse indexed divider regions instead of rebuilding them for every pointer event"
+        )
+
+        let outsideDividerPointInSplit = NSPoint(x: dividerPointInSplit.x, y: -3)
+        let outsideDividerPointInWindow = splitView.convert(outsideDividerPointInSplit, to: nil)
+        let outsideDividerPointInHost = host.convert(outsideDividerPointInWindow, from: nil)
+        XCTAssertTrue(
+            host.hitTest(outsideDividerPointInHost) === child,
+            "Expanded cached browser divider hits must not leak outside their owning split view"
+        )
+        XCTAssertEqual(
+            host.dividerRegionBuildCount,
+            buildCountAfterWarmHit,
+            "Out-of-bounds browser divider probes should reuse the cache without treating the expanded rect as a hit"
         )
 
         splitView.setPosition(180, ofDividerAt: 0)
