@@ -264,7 +264,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
     private func showWindow() {
         window?.center()
         window?.makeKeyAndOrderFront(nil)
-        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
     }
 
     private func startCountdownTimer() {

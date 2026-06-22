@@ -48,29 +48,6 @@ extension MenuBarProfilingProgressWindowController {
         return scrollView
     }
 
-    func permissionBox() -> NSBox {
-        let box = NSBox()
-        box.boxType = .custom
-        box.borderType = .lineBorder
-        box.contentViewMargins = NSSize(width: 12, height: 10)
-        let title = NSTextField(labelWithString: String(localized: "statusMenu.profiling.permissionTitle", defaultValue: "Why macOS may ask for permission"))
-        title.font = .systemFont(ofSize: 12, weight: .semibold)
-        let stack = NSStackView(views: [title, permissionLabel])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        box.contentView?.addSubview(stack)
-        if let contentView = box.contentView {
-            NSLayoutConstraint.activate([
-                stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-                stack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
-                stack.topAnchor.constraint(equalTo: contentView.topAnchor),
-                stack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
-            ])
-        }
-        return box
-    }
 }
 
 extension MenuBarProfilingProgressWindowController: NSTextFieldDelegate {
