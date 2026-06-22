@@ -52,30 +52,7 @@ extension WorkspacesModel {
             workspaceRankMap(preferredIds: $0)
         }
 
-        enum ChildRow {
-            case group(WorkspaceGroup)
-            case workspace(Tab)
-
-            var workspaceId: UUID {
-                switch self {
-                case .group(let group):
-                    return group.anchorWorkspaceId
-                case .workspace(let tab):
-                    return tab.id
-                }
-            }
-
-            var isPinned: Bool {
-                switch self {
-                case .group(let group):
-                    return group.isPinned
-                case .workspace(let tab):
-                    return tab.isPinned
-                }
-            }
-        }
-
-        var childRowsByParentId: [UUID?: [ChildRow]] = [:]
+        var childRowsByParentId: [UUID?: [WorkspaceGroupRunChildRow]] = [:]
         for tab in tabs {
             if let anchoredGroup = anchorGroupByWorkspaceId[tab.id] {
                 childRowsByParentId[anchoredGroup.parentGroupId, default: []].append(.group(anchoredGroup))
@@ -87,7 +64,7 @@ extension WorkspacesModel {
             }
         }
 
-        func rowRank(_ row: ChildRow, parentGroupId: UUID?) -> Int {
+        func rowRank(_ row: WorkspaceGroupRunChildRow, parentGroupId: UUID?) -> Int {
             if parentGroupId == nil,
                let topLevelRankByWorkspaceId,
                let rank = topLevelRankByWorkspaceId[row.workspaceId] {
@@ -117,8 +94,8 @@ extension WorkspacesModel {
         var reordered: [Tab] = []
         reordered.reserveCapacity(tabs.count)
 
-        func appendRows(_ rows: [ChildRow]) {
-            var stack: [(rows: [ChildRow], nextIndex: Int)] = [(rows, 0)]
+        func appendRows(_ rows: [WorkspaceGroupRunChildRow]) {
+            var stack: [(rows: [WorkspaceGroupRunChildRow], nextIndex: Int)] = [(rows, 0)]
             while var frame = stack.popLast() {
                 guard frame.nextIndex < frame.rows.count else { continue }
                 let row = frame.rows[frame.nextIndex]
