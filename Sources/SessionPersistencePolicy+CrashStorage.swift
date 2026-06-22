@@ -293,15 +293,26 @@ extension SessionPersistencePolicy {
             return copy
         }
         let survivingIds = Set(pruned.map(\.id))
+        func originalParentId(for group: SessionWorkspaceGroupSnapshot) -> UUID? {
+            if let parentGroupIndex = group.parentGroupIndex,
+               groups.indices.contains(parentGroupIndex) {
+                return groups[parentGroupIndex].id
+            }
+            if let parentGroupId = group.parentGroupId,
+               groupsById[parentGroupId] != nil {
+                return parentGroupId
+            }
+            return nil
+        }
         func survivingParentId(for group: SessionWorkspaceGroupSnapshot) -> UUID? {
             var visited: Set<UUID> = [group.id]
-            var cursor = group.parentGroupId
+            var cursor = originalParentId(for: group)
             while let current = cursor {
                 guard visited.insert(current).inserted else { return nil }
                 if survivingIds.contains(current) {
                     return current
                 }
-                cursor = groupsById[current]?.parentGroupId
+                cursor = groupsById[current].flatMap { originalParentId(for: $0) }
             }
             return nil
         }

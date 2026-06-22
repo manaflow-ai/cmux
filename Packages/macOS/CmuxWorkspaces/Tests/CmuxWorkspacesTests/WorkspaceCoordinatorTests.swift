@@ -198,7 +198,7 @@ struct WorkspaceCoordinatorTests {
     // MARK: Groups
 
     @Test
-    func createWorkspaceGroupAdoptsChildrenAndKeepsSectionContiguous() {
+    func createWorkspaceGroupAdoptsChildrenAndKeepsSectionContiguous() throws {
         let (model, host, groups, _) = makeWorld()
         let child1 = CoordinatorStubTab()
         let other = CoordinatorStubTab()
@@ -210,7 +210,7 @@ struct WorkspaceCoordinatorTests {
             childWorkspaceIds: [child1.id, child2.id]
         )
 
-        let group = try! #require(model.workspaceGroups.first(where: { $0.id == groupId }))
+        let group = try #require(model.workspaceGroups.first(where: { $0.id == groupId }))
         #expect(group.name == "Group 1")
         let anchorId = group.anchorWorkspaceId
         #expect(model.tabs.first(where: { $0.id == child1.id })?.groupId == groupId)
@@ -236,12 +236,12 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func deleteWorkspaceGroupClosesMembersAndClearsLastHoldout() {
+    func deleteWorkspaceGroupClosesMembersAndClearsLastHoldout() throws {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
 
         let closed = groups.deleteWorkspaceGroup(groupId: groupId)
 
@@ -255,12 +255,12 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func ungroupKeepsMemberPositionsAndDropsMembership() {
+    func ungroupKeepsMemberPositionsAndDropsMembership() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let a = CoordinatorStubTab()
         model.tabs = [a]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
         let orderBefore = model.tabs.map(\.id)
 
         groups.ungroupWorkspaceGroup(groupId: groupId)
@@ -271,11 +271,11 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func collapseToggleMovesFocusToAnchorAndStripsHiddenSelection() {
+    func collapseToggleMovesFocusToAnchorAndStripsHiddenSelection() throws {
         let (model, host, groups, _) = makeWorld()
         let a = CoordinatorStubTab()
         model.tabs = [a]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id]))
         let anchorId = model.workspaceGroups[0].anchorWorkspaceId
         model.selectedTabId = a.id
         host.sidebarSelectedWorkspaceIds = [a.id]
@@ -308,13 +308,13 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func setWorkspaceGroupAnchorHoistsNewAnchorToSectionFront() {
+    func setWorkspaceGroupAnchorHoistsNewAnchorToSectionFront() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let a = CoordinatorStubTab()
         let b = CoordinatorStubTab()
         model.tabs = [a, b]
-        let groupId = try! #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [a.id, b.id]))
 
         groups.setWorkspaceGroupAnchor(groupId: groupId, workspaceId: b.id)
 
@@ -324,14 +324,14 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func reparentWorkspaceGroupRejectsCycles() {
+    func reparentWorkspaceGroupRejectsCycles() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let hotelsMember = CoordinatorStubTab()
         let marriottMember = CoordinatorStubTab()
         model.tabs = [hotelsMember, marriottMember]
-        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
-        let marriottId = try! #require(groups.createWorkspaceGroup(
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try #require(groups.createWorkspaceGroup(
             name: "Marriott",
             childWorkspaceIds: [marriottMember.id],
             parentGroupId: hotelsId
@@ -347,25 +347,25 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func moveNestedWorkspaceGroupReordersOnlySiblings() {
+    func moveNestedWorkspaceGroupReordersOnlySiblings() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let hotelsMember = CoordinatorStubTab()
         let marriottMember = CoordinatorStubTab()
         let hiltonMember = CoordinatorStubTab()
         model.tabs = [hotelsMember, marriottMember, hiltonMember]
-        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
-        let marriottId = try! #require(groups.createWorkspaceGroup(
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try #require(groups.createWorkspaceGroup(
             name: "Marriott",
             childWorkspaceIds: [marriottMember.id],
             parentGroupId: hotelsId
         ))
-        let hiltonId = try! #require(groups.createWorkspaceGroup(
+        let hiltonId = try #require(groups.createWorkspaceGroup(
             name: "Hilton",
             childWorkspaceIds: [hiltonMember.id],
             parentGroupId: hotelsId
         ))
-        let marriottIndex = try! #require(model.workspaceGroups.firstIndex { $0.id == marriottId })
+        let marriottIndex = try #require(model.workspaceGroups.firstIndex { $0.id == marriottId })
 
         groups.moveWorkspaceGroup(groupId: hiltonId, toIndex: marriottIndex)
 
@@ -375,33 +375,33 @@ struct WorkspaceCoordinatorTests {
         #expect(childOrder == [hiltonId, marriottId])
         #expect(model.workspaceGroups.first?.id == hotelsId)
         #expect(model.tabs.first?.id == model.workspaceGroups.first { $0.id == hotelsId }?.anchorWorkspaceId)
-        let hiltonAnchorId = try! #require(model.workspaceGroups.first { $0.id == hiltonId }?.anchorWorkspaceId)
-        let marriottAnchorId = try! #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+        let hiltonAnchorId = try #require(model.workspaceGroups.first { $0.id == hiltonId }?.anchorWorkspaceId)
+        let marriottAnchorId = try #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
         let tabIds = model.tabs.map(\.id)
-        let hiltonAnchorIndex = try! #require(tabIds.firstIndex(of: hiltonAnchorId))
-        let hiltonMemberIndex = try! #require(tabIds.firstIndex(of: hiltonMember.id))
-        let marriottAnchorIndex = try! #require(tabIds.firstIndex(of: marriottAnchorId))
-        let marriottMemberIndex = try! #require(tabIds.firstIndex(of: marriottMember.id))
+        let hiltonAnchorIndex = try #require(tabIds.firstIndex(of: hiltonAnchorId))
+        let hiltonMemberIndex = try #require(tabIds.firstIndex(of: hiltonMember.id))
+        let marriottAnchorIndex = try #require(tabIds.firstIndex(of: marriottAnchorId))
+        let marriottMemberIndex = try #require(tabIds.firstIndex(of: marriottMember.id))
         #expect(hiltonAnchorIndex < hiltonMemberIndex)
         #expect(hiltonMemberIndex < marriottAnchorIndex)
         #expect(marriottAnchorIndex < marriottMemberIndex)
     }
 
     @Test
-    func reorderingRootGroupPublishesDescendantWorkspaceIds() {
+    func reorderingRootGroupPublishesDescendantWorkspaceIds() throws {
         let (model, host, groups, reorder) = makeWorld()
         let hotelsMember = CoordinatorStubTab()
         let marriottMember = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [hotelsMember, marriottMember, outside]
-        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
-        let marriottId = try! #require(groups.createWorkspaceGroup(
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try #require(groups.createWorkspaceGroup(
             name: "Marriott",
             childWorkspaceIds: [marriottMember.id],
             parentGroupId: hotelsId
         ))
-        let hotelsAnchorId = try! #require(model.workspaceGroups.first { $0.id == hotelsId }?.anchorWorkspaceId)
-        let marriottAnchorId = try! #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+        let hotelsAnchorId = try #require(model.workspaceGroups.first { $0.id == hotelsId }?.anchorWorkspaceId)
+        let marriottAnchorId = try #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
 
         #expect(reorder.reorderSidebarWorkspace(tabId: hotelsAnchorId, toIndex: 1))
 
@@ -414,20 +414,20 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func closingNestedGroupAnchorPromotesMembersToParent() {
+    func closingNestedGroupAnchorPromotesMembersToParent() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let hotelsMember = CoordinatorStubTab()
         let marriottMember = CoordinatorStubTab()
         model.tabs = [hotelsMember, marriottMember]
-        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
-        let marriottId = try! #require(groups.createWorkspaceGroup(
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try #require(groups.createWorkspaceGroup(
             name: "Marriott",
             childWorkspaceIds: [marriottMember.id],
             parentGroupId: hotelsId
         ))
-        let marriottAnchorId = try! #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
-        let anchorIndex = try! #require(model.tabs.firstIndex { $0.id == marriottAnchorId })
+        let marriottAnchorId = try #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+        let anchorIndex = try #require(model.tabs.firstIndex { $0.id == marriottAnchorId })
         model.tabs.remove(at: anchorIndex)
 
         model.dissolveGroupsAnchoredBy(closedWorkspaceId: marriottAnchorId)
@@ -437,20 +437,20 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func pinnedNestedWorkspaceGroupNormalizesBeforeUnpinnedSiblings() {
+    func pinnedNestedWorkspaceGroupNormalizesBeforeUnpinnedSiblings() throws {
         let (model, host, groups, _) = makeWorld()
         _ = host
         let hotelsMember = CoordinatorStubTab()
         let marriottMember = CoordinatorStubTab()
         let hiltonMember = CoordinatorStubTab()
         model.tabs = [hotelsMember, marriottMember, hiltonMember]
-        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
-        let marriottId = try! #require(groups.createWorkspaceGroup(
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try #require(groups.createWorkspaceGroup(
             name: "Marriott",
             childWorkspaceIds: [marriottMember.id],
             parentGroupId: hotelsId
         ))
-        let hiltonId = try! #require(groups.createWorkspaceGroup(
+        let hiltonId = try #require(groups.createWorkspaceGroup(
             name: "Hilton",
             childWorkspaceIds: [hiltonMember.id],
             parentGroupId: hotelsId
@@ -462,22 +462,22 @@ struct WorkspaceCoordinatorTests {
             .filter { $0.parentGroupId == hotelsId }
             .map(\.id)
         #expect(childOrder == [hiltonId, marriottId])
-        let hiltonAnchorId = try! #require(model.workspaceGroups.first { $0.id == hiltonId }?.anchorWorkspaceId)
-        let marriottAnchorId = try! #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+        let hiltonAnchorId = try #require(model.workspaceGroups.first { $0.id == hiltonId }?.anchorWorkspaceId)
+        let marriottAnchorId = try #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
         let tabIds = model.tabs.map(\.id)
-        let hiltonAnchorIndex = try! #require(tabIds.firstIndex(of: hiltonAnchorId))
-        let marriottAnchorIndex = try! #require(tabIds.firstIndex(of: marriottAnchorId))
+        let hiltonAnchorIndex = try #require(tabIds.firstIndex(of: hiltonAnchorId))
+        let marriottAnchorIndex = try #require(tabIds.firstIndex(of: marriottAnchorId))
         #expect(hiltonAnchorIndex < marriottAnchorIndex)
     }
 
     @Test
-    func collapsingParentGroupMovesFocusFromDescendantToParentAnchor() {
+    func collapsingParentGroupMovesFocusFromDescendantToParentAnchor() throws {
         let (model, host, groups, _) = makeWorld()
         let hotelsMember = CoordinatorStubTab()
         let marriottMember = CoordinatorStubTab()
         model.tabs = [hotelsMember, marriottMember]
-        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
-        let hotelsAnchorId = try! #require(model.workspaceGroups.first { $0.id == hotelsId }?.anchorWorkspaceId)
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let hotelsAnchorId = try #require(model.workspaceGroups.first { $0.id == hotelsId }?.anchorWorkspaceId)
         _ = groups.createWorkspaceGroup(
             name: "Marriott",
             childWorkspaceIds: [marriottMember.id],
@@ -494,14 +494,14 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
-    func deletingParentGroupDeletesDescendantGroupsAndMembers() {
+    func deletingParentGroupDeletesDescendantGroupsAndMembers() throws {
         let (model, host, groups, _) = makeWorld()
         let hotelsMember = CoordinatorStubTab()
         let marriottMember = CoordinatorStubTab()
         let outside = CoordinatorStubTab()
         model.tabs = [hotelsMember, marriottMember, outside]
-        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
-        let marriottId = try! #require(groups.createWorkspaceGroup(
+        let hotelsId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try #require(groups.createWorkspaceGroup(
             name: "Marriott",
             childWorkspaceIds: [marriottMember.id],
             parentGroupId: hotelsId

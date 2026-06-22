@@ -46,14 +46,17 @@ extension WorkspacesModel {
         var reordered: [Tab] = []
         reordered.reserveCapacity(tabs.count)
 
-        func appendGroupSubtree(_ group: WorkspaceGroup) {
-            guard emittedGroupIds.insert(group.id).inserted else { return }
-            let members = anchorFirst(groupedByGroupId[group.id] ?? [], anchorId: group.anchorWorkspaceId)
-            for member in members where emittedWorkspaceIds.insert(member.id).inserted {
-                reordered.append(member)
-            }
-            for childGroup in childGroupsByParentId[group.id] ?? [] {
-                appendGroupSubtree(childGroup)
+        func appendGroupSubtree(_ rootGroup: WorkspaceGroup) {
+            var stack: [WorkspaceGroup] = [rootGroup]
+            while let group = stack.popLast() {
+                guard emittedGroupIds.insert(group.id).inserted else { continue }
+                let members = anchorFirst(groupedByGroupId[group.id] ?? [], anchorId: group.anchorWorkspaceId)
+                for member in members where emittedWorkspaceIds.insert(member.id).inserted {
+                    reordered.append(member)
+                }
+                if let childGroups = childGroupsByParentId[group.id], !childGroups.isEmpty {
+                    stack.append(contentsOf: childGroups.reversed())
+                }
             }
         }
 
@@ -127,9 +130,12 @@ extension WorkspacesModel {
         }
         var cursor: UUID? = groupId
         var visited: Set<UUID> = []
+        let groupIndexById = Dictionary(
+            uniqueKeysWithValues: workspaceGroups.indices.map { (workspaceGroups[$0].id, $0) }
+        )
         while let current = cursor,
               visited.insert(current).inserted,
-              let index = workspaceGroups.firstIndex(where: { $0.id == current }) {
+              let index = groupIndexById[current] {
             // The selected group's own anchor is visible as that group's header,
             // so selecting it should not force its children open. Ancestors still
             // expand so the header itself is reachable in a nested tree.

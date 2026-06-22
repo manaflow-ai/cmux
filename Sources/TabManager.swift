@@ -1871,17 +1871,16 @@ class TabManager: ObservableObject {
     }
 
     func commonWorkspaceGroupId(for workspaceIds: [UUID]) -> UUID? {
+        guard !workspaceIds.isEmpty else { return nil }
+        let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         var commonGroupId: UUID?
-        var didReadAnyWorkspace = false
         for workspaceId in workspaceIds {
-            guard let workspace = tabs.first(where: { $0.id == workspaceId }),
-                  let groupId = workspace.groupId else {
+            guard let groupId = workspaceById[workspaceId]?.groupId else {
                 return nil
             }
-            if didReadAnyWorkspace, commonGroupId != groupId {
+            if let currentGroupId = commonGroupId, currentGroupId != groupId {
                 return nil
             }
-            didReadAnyWorkspace = true
             commonGroupId = groupId
         }
         return commonGroupId
@@ -6093,11 +6092,10 @@ extension TabManager {
                 }
                 return nil
             }
+            var parentByGroupId = Dictionary(uniqueKeysWithValues: restored.map { ($0.id, $0.parentGroupId) })
             func wouldCreateParentCycle(groupId: UUID, parentGroupId: UUID?) -> Bool {
                 guard let parentGroupId else { return false }
                 guard parentGroupId != groupId else { return true }
-                var parentByGroupId = Dictionary(uniqueKeysWithValues: restored.map { ($0.id, $0.parentGroupId) })
-                parentByGroupId[groupId] = parentGroupId
                 var visited: Set<UUID> = []
                 var cursor: UUID? = parentGroupId
                 while let current = cursor {
@@ -6111,6 +6109,7 @@ extension TabManager {
                 let parentGroupId = resolvedParentGroupId(for: index)
                 if !wouldCreateParentCycle(groupId: restored[index].id, parentGroupId: parentGroupId) {
                     restored[index].parentGroupId = parentGroupId
+                    parentByGroupId[restored[index].id] = parentGroupId
                 }
             }
             return restored

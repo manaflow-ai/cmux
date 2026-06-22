@@ -48,8 +48,14 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         collapseSidebarSelection: Bool = true
     ) -> UUID? {
         guard let host else { return nil }
-        let resolvedParentGroupId = parentGroupId.flatMap { parentId in
-            model.workspaceGroups.contains(where: { $0.id == parentId }) ? parentId : nil
+        let resolvedParentGroupId: UUID?
+        if let parentGroupId {
+            guard model.workspaceGroups.contains(where: { $0.id == parentGroupId }) else {
+                return nil
+            }
+            resolvedParentGroupId = parentGroupId
+        } else {
+            resolvedParentGroupId = nil
         }
         // Eligible children: not currently an anchor of a different group.
         // Pulling an anchor into a new group would orphan the
