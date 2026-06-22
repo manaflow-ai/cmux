@@ -39,9 +39,24 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             forName: .ghosttyDidSetTitle,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleFocusedCommandTextUpdate()
+        ) { [weak self] notification in
+            let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
+            Task { @MainActor [weak self, changedWorkspaceId] in
+                guard let self,
+                      self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == true else { return }
+                self.scheduleFocusedCommandTextUpdate()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: tabManager,
+            queue: .main
+        ) { [weak self] notification in
+            let changedWorkspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            Task { @MainActor [weak self, changedWorkspaceId] in
+                guard let self, changedWorkspaceId == self.tabManager?.selectedTabId, self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == false else { return }
+                self.scheduleFocusedCommandTextUpdate()
             }
         })
 
