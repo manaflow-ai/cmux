@@ -199,8 +199,8 @@ import Testing
         #expect(connection.pastePane(paneId: 1, text: "") == false)
     }
 
-    @Test @MainActor func sessionRenamedUpdatesTrackedNameAndEmitsObserver() {
-        // A remote `rename-session` arrives as `%session-renamed`. The connection
+    @Test @MainActor func sessionRenamedUpdatesTrackedNameAndEmitsObserverWithoutSessionId() {
+        // A remote `rename-session` arrives as `%session-renamed <name>`. The connection
         // must track the new name (reused for reconnect) and fire the
         // session-changed observer the mirror listens on to re-title its workspace.
         let connection = RemoteTmuxControlConnection(
@@ -212,9 +212,10 @@ import Testing
         })
         defer { connection.removeObserver(token) }
 
-        connection.handleMessageForTesting(.sessionRenamed(sessionId: 3, name: "dev"))
+        connection.handleMessageForTesting(.sessionRenamed(name: "dev"))
 
         #expect(connection.sessionName == "dev")
+        #expect(connection.sessionId == nil)
         #expect(observed?.old == "old")
         #expect(observed?.new == "dev")
     }
