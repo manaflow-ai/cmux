@@ -378,6 +378,36 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// Deterministic self-verification for the active-resize color regression.
+    /// This bypasses the mock-connected shell, streams full-screen RGB bands
+    /// directly into the real Ghostty surface, leaves snapshot fallback enabled,
+    /// and hammers the same zoom path as pinch / accessory buttons. The old
+    /// behavior showed white plain-text fallback frames here.
+    @MainActor
+    func testTerminalColorBandsStayColoredDuringZoomStress() throws {
+        let app = launchZoomStressApp(environment: [
+            "CMUX_ZOOM_STRESS_COLOR_BANDS": "1",
+        ])
+        defer { app.terminate() }
+
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        let lineProbe = app.otherElements["MobileZoomStressLineProbe"]
+        XCTAssertTrue(lineProbe.waitForExistence(timeout: 8))
+        XCTAssertNotNil(
+            waitForStressLine(in: lineProbe, timeout: 8),
+            "Color-band stress surface did not stream terminal output. probe=\(String(describing: lineProbe.value))"
+        )
+
+        assertVisibleColorBandPalette(of: surface, context: "color stress initial")
+        for sample in 1...14 {
+            assertNoWhiteOrBlankColorBandFrames(
+                of: surface,
+                context: "color stress active zoom sample \(sample)"
+            )
+        }
+    }
+
     /// Fast repro for the iOS Ghostty stale/defunct renderer report.
     /// `CMUX_ZOOM_STRESS` drives the root-cause path directly: output bytes keep
     /// streaming, every resize emits a heavy prompt redraw, and the harness
@@ -386,7 +416,9 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testTerminalRenderingSurvivesDiagonalResizeStress() throws {
         let start = Date()
-        let app = launchZoomStressApp()
+        let app = launchZoomStressApp(environment: [
+            "CMUX_DISABLE_SNAPSHOT_FALLBACK": "1",
+        ])
         defer { app.terminate() }
 
         let surface = app.otherElements["MobileTerminalSurface"]
@@ -443,7 +475,9 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     func testTerminalRenderingSurvivesResizeStressBackgroundRoundTrip() throws {
         let start = Date()
-        let app = launchZoomStressApp()
+        let app = launchZoomStressApp(environment: [
+            "CMUX_DISABLE_SNAPSHOT_FALLBACK": "1",
+        ])
         defer { app.terminate() }
 
         let surface = app.otherElements["MobileTerminalSurface"]
@@ -504,11 +538,12 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
-    private func launchZoomStressApp() -> XCUIApplication {
-        let app = launchApp(mockData: false, environment: [
+    private func launchZoomStressApp(environment extraEnvironment: [String: String] = [:]) -> XCUIApplication {
+        var environment = [
             "CMUX_ZOOM_STRESS": "1",
-            "CMUX_DISABLE_SNAPSHOT_FALLBACK": "1",
-        ])
+        ]
+        environment.merge(extraEnvironment) { _, new in new }
+        let app = launchApp(mockData: false, environment: environment)
         XCTAssertFalse(
             app.buttons["Sign in with Apple"].waitForExistence(timeout: 1),
             "CMUX_ZOOM_STRESS should mount the terminal stress harness directly, not the auth screen."

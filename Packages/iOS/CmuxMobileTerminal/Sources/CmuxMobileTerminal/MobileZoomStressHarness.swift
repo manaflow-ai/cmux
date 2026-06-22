@@ -87,6 +87,7 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
         private var zoomTimer: Timer?
         private var byteTimer: Timer?
         private var grow = true
+        private let usesColorBands = ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS_COLOR_BANDS"] == "1"
         fileprivate var lineCounter = 0
 
         func start() {
@@ -96,8 +97,10 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
                 MainActor.assumeIsolated {
                     guard let self, let view = self.surfaceView else { return }
                     self.lineCounter += 1
-                    let line = "stress line \(self.lineCounter) \u{1b}[32mgreen\u{1b}[0m and more text to wrap\r\n"
-                    view.processOutput(Data(line.utf8))
+                    let data = self.usesColorBands
+                        ? Self.colorBandFrame(sequence: self.lineCounter)
+                        : Data("stress line \(self.lineCounter) \u{1b}[32mgreen\u{1b}[0m and more text to wrap\r\n".utf8)
+                    view.processOutput(data)
                 }
             }
 
@@ -138,7 +141,11 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             guard size.columns > 0, size.rows > 0 else { return }
             let cols = max(1, size.columns - 3)
             let rows = max(1, size.rows - 3)
-            surfaceView.processOutput(Self.promptRedrawBurst(cols: size.columns))
+            surfaceView.processOutput(
+                usesColorBands
+                    ? Self.colorBandFrame(sequence: lineCounter)
+                    : Self.promptRedrawBurst(cols: size.columns)
+            )
             Task { @MainActor [weak surfaceView] in
                 surfaceView?.applyViewSize(cols: cols, rows: rows)
             }
@@ -168,6 +175,18 @@ private struct ZoomStressRepresentable: UIViewRepresentable {
             s += "\u{1b}[48;5;31m\u{1b}[38;5;15m lawrence \u{1b}[0m"
             s += "\u{1b}[48;5;236m\u{1b}[38;5;114m feat-ios-swift-mobile-core \u{1b}[0m"
             s += "\r\n\u{1b}[38;5;76m❯\u{1b}[0m \u{1b}[K"
+            return Data(s.utf8)
+        }
+
+        private static func colorBandFrame(sequence: Int) -> Data {
+            let colors: [(r: Int, g: Int, b: Int)] = [(210, 40, 40), (40, 180, 70), (50, 90, 220)]
+            let block = String(repeating: "\u{2588}", count: 220)
+            var s = "\u{1b}[2J\u{1b}[H\u{1b}[?25l"
+            for row in 0..<96 {
+                let c = colors[((row / 2) + sequence) % colors.count]
+                s += "\u{1b}[38;2;\(c.r);\(c.g);\(c.b)m\(block)\r\n"
+            }
+            s += "\u{1b}[0m"
             return Data(s.utf8)
         }
     }
