@@ -102,10 +102,14 @@ struct MobileTabContainer: View {
         }
         #endif
         if store.supportsWorkspaceReadStateActions {
-            store.notificationsStore.markReadLocally(forWorkspace: notification.workspaceID)
-            Task {
-                await store.setWorkspaceUnread(id: workspaceID, false)
-                await store.refreshNotifications()
+            Task { @MainActor in
+                let previousNotifications = store.notificationsStore.notifications
+                store.notificationsStore.markReadLocally(forWorkspace: notification.workspaceID)
+                let didMarkRead = await store.setWorkspaceUnread(id: workspaceID, false)
+                let didRefresh = didMarkRead && await store.refreshNotifications()
+                if !didRefresh {
+                    store.notificationsStore.apply(previousNotifications)
+                }
             }
         }
     }

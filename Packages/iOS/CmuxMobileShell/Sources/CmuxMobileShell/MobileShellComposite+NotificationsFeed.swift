@@ -13,18 +13,20 @@ extension MobileShellComposite {
     public var supportsNotificationsFeed: Bool { supportedHostCapabilities.contains(notificationsFeedCapability) }
 
     /// Refetch the notification feed from the connected Mac.
-    public func refreshNotifications() async {
+    @discardableResult
+    public func refreshNotifications() async -> Bool {
         notificationFeedRefreshGeneration &+= 1
         let generation = notificationFeedRefreshGeneration
         notificationFeedRefreshTask?.cancel()
         notificationFeedRefreshTask = nil
-        await refreshNotifications(generation: generation)
+        return await refreshNotifications(generation: generation)
     }
 
-    private func refreshNotifications(generation: UInt64?) async {
+    @discardableResult
+    private func refreshNotifications(generation: UInt64?) async -> Bool {
         guard supportsNotificationsFeed, connectionState == .connected, let client = remoteClient else {
             notificationsStore.apply([])
-            return
+            return false
         }
         do {
             let request = try MobileCoreRPCClient.requestData(
@@ -33,16 +35,18 @@ extension MobileShellComposite {
             )
             let result = try await client.sendRequest(request)
             let response = try MobileNotificationsListResponse.decode(result)
-            guard remoteClient === client, connectionState == .connected else { return }
-            if let generation, generation != notificationFeedRefreshGeneration { return }
+            guard remoteClient === client, connectionState == .connected else { return false }
+            if let generation, generation != notificationFeedRefreshGeneration { return false }
             notificationsStore.apply(response.previews())
+            return true
         } catch {
             guard !Task.isCancelled,
                   remoteClient === client,
-                  connectionState == .connected else { return }
-            if let generation, generation != notificationFeedRefreshGeneration { return }
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+                  connectionState == .connected else { return false }
+            if let generation, generation != notificationFeedRefreshGeneration { return false }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
             mobileNotificationsFeedLog.error("notification feed refresh failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 
