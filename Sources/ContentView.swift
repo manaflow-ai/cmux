@@ -12105,7 +12105,7 @@ struct VerticalTabsSidebar: View {
             dragState.beginDragging(tabId: tabId)
             return SidebarTabDragPayload.provider(for: tabId)
         }
-        let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate = { [
+        let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate = { [
             tabId = tab.id,
             selectedTabIds = $selectedTabIds,
             lastSidebarSelectionIndex = $lastSidebarSelectionIndex
@@ -12985,7 +12985,7 @@ struct TabItemView: View, Equatable {
     /// Factory invoked from `body` with a stable drop-hit height. Closure
     /// captures the parent's `dragState`, so TabItemView itself never holds an
     /// `@Observable` store reference or layout-driven state (snapshot-boundary rule).
-    let tabDropDelegateFactory: (CGFloat?) -> SidebarTabDropDelegate
+    let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
     let allRemoteContextMenuTargetsConnecting: Bool

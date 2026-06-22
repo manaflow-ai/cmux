@@ -317,7 +317,7 @@ struct SidebarWorkspaceRowDropMetrics {
         unreadCount: Int = 0,
         hasMemoryWarning: Bool = false,
         canCloseWorkspace: Bool = true
-    ) -> CGFloat? {
+    ) -> CGFloat {
         return targetHeight(
             snapshot: snapshot,
             settings: settings,

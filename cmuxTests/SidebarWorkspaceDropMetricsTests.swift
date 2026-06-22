@@ -81,7 +81,7 @@ import Testing
         #expect(tall > short)
     }
 
-    @Test func workspaceRowDropTargetHeightKeepsPointerEdgeMetricsForWrappedAndRichRows() throws {
+    @Test func workspaceRowDropTargetHeightKeepsPointerEdgeMetricsForWrappedAndRichRows() {
         let snapshot = workspaceSnapshot(
             title: String(repeating: "Long workspace title ", count: 12),
             customDescription: "First description line\nSecond description line",
@@ -100,7 +100,7 @@ import Testing
             ]
         )
 
-        let wideHeight = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+        let wideHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
             snapshot: snapshot,
             settings: settings(wrapsWorkspaceTitles: true),
             effectiveSubtitle: "Recent update",
@@ -110,8 +110,8 @@ import Testing
             unreadCount: 0,
             hasMemoryWarning: false,
             canCloseWorkspace: true
-        ))
-        let narrowHeight = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+        )
+        let narrowHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
             snapshot: snapshot,
             settings: settings(wrapsWorkspaceTitles: true),
             effectiveSubtitle: "Recent update",
@@ -121,8 +121,8 @@ import Testing
             unreadCount: 12,
             hasMemoryWarning: true,
             canCloseWorkspace: true
-        ))
-        let groupedNarrowHeight = try #require(SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+        )
+        let groupedNarrowHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
             snapshot: snapshot,
             settings: settings(wrapsWorkspaceTitles: true),
             effectiveSubtitle: "Recent update",
@@ -132,7 +132,7 @@ import Testing
             unreadCount: 12,
             hasMemoryWarning: true,
             canCloseWorkspace: true
-        ))
+        )
 
         #expect(wideHeight > workspaceRowHeight())
         #expect(narrowHeight > wideHeight)
