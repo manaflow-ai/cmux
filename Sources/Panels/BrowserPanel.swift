@@ -8173,6 +8173,8 @@ extension WKWebView {
     func cmuxRefreshWebInspectorFrontendRendering(reason: String) {
         guard window != nil else { return }
 
+        // Redock preserves the inspector frontend; once it is back in a window,
+        // WebKit can miss AppKit's visibility cycle and leave the attached view white.
         #if DEBUG
         var firedSelectors: [String] = []
         #endif
@@ -8193,7 +8195,6 @@ extension WKWebView {
             enclosingScrollView,
             enclosingScrollView?.contentView,
             superview,
-            window?.contentView,
         ]
         for view in ([self] as [NSView]) + relatedViews.compactMap({ $0 }) {
             view.needsLayout = true
@@ -8207,7 +8208,6 @@ extension WKWebView {
         }
         layoutSubtreeIfNeeded()
         displayIfNeeded()
-        window?.displayIfNeeded()
 
         evaluateJavaScript(
             """
