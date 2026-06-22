@@ -4632,7 +4632,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() {
-        let (panel, _) = makePanelWithInspector()
+        let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
