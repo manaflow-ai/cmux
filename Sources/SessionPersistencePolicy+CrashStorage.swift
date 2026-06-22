@@ -161,6 +161,7 @@ extension SessionPersistencePolicy {
         pathCache: inout [String: Bool]
     ) -> Bool {
         guard workspace.remote == nil else { return false }
+        guard !workspaceCarriesRestorableUserState(workspace) else { return false }
         if workspace.panels.isEmpty {
             return isCmuxCrashStoragePath(
                 workspace.currentDirectory,
@@ -194,6 +195,10 @@ extension SessionPersistencePolicy {
               let terminal = panel.terminal else {
             return false
         }
+        guard !panelCarriesRestorableUserState(panel),
+              !terminalCarriesRestorableUserState(terminal) else {
+            return false
+        }
         guard terminal.agent == nil,
               terminal.hibernation == nil,
               terminal.resumeBinding == nil,
@@ -203,6 +208,48 @@ extension SessionPersistencePolicy {
             return false
         }
         return true
+    }
+
+    private static func workspaceCarriesRestorableUserState(_ workspace: SessionWorkspaceSnapshot) -> Bool {
+        if !isNilOrBlank(workspace.customTitle)
+            || !isNilOrBlank(workspace.customDescription)
+            || !isNilOrBlank(workspace.customColor)
+            || workspace.isPinned
+            || workspace.groupId != nil
+            || workspace.isManuallyUnread == true
+            || workspace.hasUnreadIndicator == true
+            || workspace.progress != nil
+            || workspace.gitBranch != nil {
+            return true
+        }
+        if workspace.notifications?.isEmpty == false
+            || workspace.canvasPanes?.isEmpty == false
+            || workspace.environment?.isEmpty == false
+            || !workspace.statusEntries.isEmpty
+            || !workspace.logEntries.isEmpty {
+            return true
+        }
+        return false
+    }
+
+    private static func panelCarriesRestorableUserState(_ panel: SessionPanelSnapshot) -> Bool {
+        if !isNilOrBlank(panel.customTitle)
+            || panel.isPinned
+            || panel.isManuallyUnread
+            || panel.hasUnreadIndicator == true
+            || panel.restoredUnreadContributesToWorkspace == true
+            || panel.gitBranch != nil
+            || !panel.listeningPorts.isEmpty {
+            return true
+        }
+        if panel.notifications?.isEmpty == false {
+            return true
+        }
+        return false
+    }
+
+    private static func terminalCarriesRestorableUserState(_ terminal: SessionTerminalPanelSnapshot) -> Bool {
+        !isNilOrBlank(terminal.scrollback) || terminal.textBoxDraft != nil
     }
 
     private static func adjustedSelectedWorkspaceIndex(

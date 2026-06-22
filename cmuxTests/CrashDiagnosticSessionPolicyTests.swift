@@ -119,6 +119,90 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func sessionSnapshotKeepsCrashWorkspaceWithPersistedScrollback() {
+        let projectDirectory = "/tmp/cmux-project"
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [
+                            terminalWorkspaceSnapshot(
+                                currentDirectory: crashDirectory,
+                                terminal: SessionTerminalPanelSnapshot(
+                                    workingDirectory: crashDirectory,
+                                    scrollback: "ls\ncmux.ghosttycrash\n"
+                                )
+                            ),
+                            emptyWorkspaceSnapshot(currentDirectory: projectDirectory),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+            crashDirectory,
+            projectDirectory,
+        ])
+    }
+
+    @Test
+    func sessionSnapshotKeepsCrashWorkspaceWithTextBoxDraft() {
+        let projectDirectory = "/tmp/cmux-project"
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let draft = SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("inspect crash report")]
+        )
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [
+                            terminalWorkspaceSnapshot(
+                                currentDirectory: crashDirectory,
+                                terminal: SessionTerminalPanelSnapshot(
+                                    workingDirectory: crashDirectory,
+                                    textBoxDraft: draft
+                                )
+                            ),
+                            emptyWorkspaceSnapshot(currentDirectory: projectDirectory),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [
+            crashDirectory,
+            projectDirectory,
+        ])
+    }
+
+    @Test
     func sessionSnapshotPruningDoesNotResolveSymlinkedCrashDirectories() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-crash-storage-symlink-\(UUID().uuidString)", isDirectory: true)
@@ -226,6 +310,56 @@ struct CrashDiagnosticSessionPolicyTests {
             logEntries: [],
             progress: nil,
             gitBranch: nil
+        )
+    }
+
+    private func terminalWorkspaceSnapshot(
+        currentDirectory: String,
+        terminal: SessionTerminalPanelSnapshot = SessionTerminalPanelSnapshot()
+    ) -> SessionWorkspaceSnapshot {
+        let panelId = UUID()
+        return SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: currentDirectory,
+            focusedPanelId: panelId,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panelId], selectedPanelId: panelId)),
+            panels: [
+                terminalPanelSnapshot(
+                    id: panelId,
+                    directory: currentDirectory,
+                    terminal: terminal
+                ),
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+    }
+
+    private func terminalPanelSnapshot(
+        id: UUID,
+        directory: String,
+        terminal: SessionTerminalPanelSnapshot
+    ) -> SessionPanelSnapshot {
+        SessionPanelSnapshot(
+            id: id,
+            type: .terminal,
+            title: "Terminal",
+            customTitle: nil,
+            directory: directory,
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: terminal,
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
         )
     }
 
