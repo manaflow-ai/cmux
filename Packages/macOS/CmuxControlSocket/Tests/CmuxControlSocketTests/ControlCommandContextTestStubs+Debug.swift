@@ -64,8 +64,11 @@ extension ControlDebugContext {
         payloadKind: ControlDebugFileDropPayloadKind
     ) -> ControlDebugFileDropResolution { .panelNotFound }
     func controlDebugPortalStats() -> JSONValue? { nil }
-    func controlDebugSimulateType(arguments: String) -> String { "ERROR: not implemented" }
-    func controlDebugSimulateFileDrop(arguments: String) -> String { "ERROR: not implemented" }
+    func controlDebugSimulateType(decodedText text: String) -> ControlDebugTypeResolution { .noWindow }
+    func controlDebugSimulateFileDrop(
+        target: String,
+        paths: [String]
+    ) -> ControlDebugSimulateFileDropResolution { .tabManagerUnavailable }
     func controlDebugSeedDragPasteboardTypes(arguments: String) -> String { "ERROR: not implemented" }
     func controlDebugClearDragPasteboard() -> String { "ERROR: not implemented" }
     func controlDebugOverlayHitGate(eventToken: ControlDebugOverlayEventToken) -> Bool { false }
