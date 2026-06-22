@@ -28234,7 +28234,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         existing["hooks"] = hooks
-        if case .flat = def.format { existing["version"] = 1 } else if def.name == "copilot" { existing["version"] = 1 }
+        if case .flat = def.format { existing["version"] = 1 }; if def.requiresVersionKey { existing["version"] = 1 }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
@@ -33242,7 +33242,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return encode(permissionRequestHookDecision(behavior: "allow"))
             }
-            if source == "copilot" { return encode(mode == "deny" ? ["permissionDecision": "deny", "permissionDecisionReason": "User denied permission via cmux Feed."] : ["permissionDecision": "allow"]) }
+            if source == "copilot" { return encode(mode == "deny" ? ["permissionDecision": "deny", "permissionDecisionReason": String(localized: "cli.hooks.feed.permissionDeniedReason", defaultValue: "User denied permission via cmux Feed.")] : ["permissionDecision": "allow"]) }
             if source == "hermes-agent" {
                 if mode == "deny" {
                     return hermesAgentBlock("User denied permission via cmux Feed.")

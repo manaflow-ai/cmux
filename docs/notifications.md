@@ -121,6 +121,7 @@ Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copi
 
 ```json
 {
+  "version": 1,
   "hooks": {
     "userPromptSubmitted": [
       {

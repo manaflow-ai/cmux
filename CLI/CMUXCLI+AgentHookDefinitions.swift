@@ -20,7 +20,7 @@ extension CMUXCLI {
         let binaryName: String
         let format: HookFormat
         let events: [HookEvent]
-        let aliases: Set<String>
+        let aliases: Set<String>; let requiresVersionKey: Bool
         let publishesStopNotification: Bool
         /// Whether this agent's `SessionEnd`/`session-end` hook fires once per
         /// conversation turn rather than at a true session teardown.
@@ -106,7 +106,7 @@ extension CMUXCLI {
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
-             aliases: Set<String> = [],
+             aliases: Set<String> = [], requiresVersionKey: Bool = false,
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
              feedHookEvents: [String] = [],
@@ -127,7 +127,7 @@ extension CMUXCLI {
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
             })
-            self.feedHookEvents = feedHookEvents
+            self.feedHookEvents = feedHookEvents; self.requiresVersionKey = requiresVersionKey
             self.postInstallAction = postInstallAction
             self.postInstallNote = postInstallNote
         }
@@ -320,7 +320,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            requiresVersionKey: true, feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",
