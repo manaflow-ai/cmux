@@ -376,6 +376,7 @@
 		D1FFC0DE000000000000C002 /* DiffCommentStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */; };
 		D1FFC0DE000000000000D002 /* DiffCommentSubmissionPool.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */; };
 		B8F266266A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */; };
+		AD11E5700000000000000001 /* DisplayResolutionUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD11E5700000000000000002 /* DisplayResolutionUITestRecorder.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */; };
 		D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */; };
 		D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */; };
@@ -604,6 +605,7 @@
 		D1F0A00100000000000000A5 /* PhonePushPayloadKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00100000000000000A6 /* PhonePushPayloadKind.swift */; };
 		D1F0A00300000000000000C1 /* PhonePushPresenceGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */; };
 		B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */; };
+		AD11E5700000000000000003 /* PortalStatsUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD11E5700000000000000004 /* PortalStatsUITestRecorder.swift */; };
 		D0B10008A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */; };
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
 		F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */; };
@@ -793,6 +795,7 @@
 		A5001226 /* SocketControlMode+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001225 /* SocketControlMode+Display.swift */; };
 		F8000000A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
+		AD11E5700000000000000005 /* SocketSanityUITestRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD11E5700000000000000006 /* SocketSanityUITestRecorder.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */; };
 		F6355600A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */; };
@@ -1420,6 +1423,7 @@
 		D1FFC0DE000000000000C001 /* DiffCommentStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentStoreTests.swift; sourceTree = "<group>"; };
 		D1FFC0DE000000000000D001 /* DiffCommentSubmissionPool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiffCommentSubmissionPool.swift; sourceTree = "<group>"; };
 		B8F266276A1A3D9A45BD840F /* DisplayResolutionRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayResolutionRegressionUITests.swift; sourceTree = "<group>"; };
+		AD11E5700000000000000002 /* DisplayResolutionUITestRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DisplayResolutionUITestRecorder.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D004 /* DockEmptyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockEmptyView.swift; sourceTree = "<group>"; };
 		D0C0D0C0D0C0D0C0D0C0D002 /* DockPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockPanelView.swift; sourceTree = "<group>"; };
 		D0B10015A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DragOverlayRoutingPolicy.swift; sourceTree = "<group>"; };
@@ -1646,6 +1650,7 @@
 		D1F0A00100000000000000A6 /* PhonePushPayloadKind.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhonePushPayloadKind.swift; sourceTree = "<group>"; };
 		D1F0A00300000000000000C2 /* PhonePushPresenceGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhonePushPresenceGateTests.swift; sourceTree = "<group>"; };
 		B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PiVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
+		AD11E5700000000000000004 /* PortalStatsUITestRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PortalStatsUITestRecorder.swift; sourceTree = "<group>"; };
 		D0B10009A1B2C3D4E5F60001 /* PortalTabDragRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalTabDragRoutingTests.swift; sourceTree = "<group>"; };
 		A5001541 /* PortScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScanner.swift; sourceTree = "<group>"; };
 		F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortScannerTests.swift; sourceTree = "<group>"; };
@@ -1828,6 +1833,7 @@
 		A5001225 /* SocketControlMode+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SocketControlMode+Display.swift"; sourceTree = "<group>"; };
 		F8000001A1B2C3D4E5F60718 /* SocketControlPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketControlPasswordStoreTests.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
+		AD11E5700000000000000006 /* SocketSanityUITestRecorder.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SocketSanityUITestRecorder.swift; sourceTree = "<group>"; };
 		E30780000000000000000011 /* SSHPTYAttachStartupCommandBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPTYAttachStartupCommandBuilder.swift; sourceTree = "<group>"; };
 		F6355601A1B2C3D4E5F60718 /* SSHStartupSignalLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHStartupSignalLifecycleTests.swift; sourceTree = "<group>"; };
 		A1577A00DEB60000000000A1 /* StartupAppearanceDebugReloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartupAppearanceDebugReloader.swift; sourceTree = "<group>"; };
@@ -2908,6 +2914,9 @@
 				B0759102AD1742E5B0759102 /* BonsplitTabDragUITestRecorder.swift */,
 				CC9040FA21618BAA115B5323 /* TerminalCmdClickUITestRecorder.swift */,
 				3328D658499CBBE988350D32 /* FeedSidebarUITestRecorder.swift */,
+				AD11E5700000000000000002 /* DisplayResolutionUITestRecorder.swift */,
+				AD11E5700000000000000004 /* PortalStatsUITestRecorder.swift */,
+				AD11E5700000000000000006 /* SocketSanityUITestRecorder.swift */,
 				73C24C8263E71DE03A38B2E3 /* JumpUnreadUITestRecorder.swift */,
 				E8B64DF5DE07D699C51E0F66 /* MultiWindowNotificationUITestScaffold.swift */,
 				0DB0E61D015251F711FC4272 /* GotoSplitUITestRecorder.swift */,
@@ -3851,6 +3860,7 @@
 				D1FFC0DE000000000000B002 /* DiffCommentsBridge.swift in Sources */,
 				D1FFC0DE000000000000A002 /* DiffCommentStore.swift in Sources */,
 				D1FFC0DE000000000000D002 /* DiffCommentSubmissionPool.swift in Sources */,
+				AD11E5700000000000000001 /* DisplayResolutionUITestRecorder.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D003 /* DockEmptyView.swift in Sources */,
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
@@ -3994,6 +4004,7 @@
 				D1F0A00100000000000000A1 /* PhonePushClient.swift in Sources */,
 				D1F0A00100000000000000A3 /* PhonePushPayload.swift in Sources */,
 				D1F0A00100000000000000A5 /* PhonePushPayloadKind.swift in Sources */,
+				AD11E5700000000000000003 /* PortalStatsUITestRecorder.swift in Sources */,
 				A5001540 /* PortScanner.swift in Sources */,
 				A5001521 /* PostHogAnalytics.swift in Sources */,
 				D1F0A00100000000000000B1 /* PresenceHeartbeatClient.swift in Sources */,
@@ -4107,6 +4118,7 @@
 				C9A57201C9A57201C9A57201 /* SidebarWorkspaceRenderItem.swift in Sources */,
 				988C6A036BA56EA5759A95A0 /* SidebarWorkspaceSnapshotRefreshPolicy.swift in Sources */,
 				A5001226 /* SocketControlMode+Display.swift in Sources */,
+				AD11E5700000000000000005 /* SocketSanityUITestRecorder.swift in Sources */,
 				E30780000000000000000012 /* SSHPTYAttachStartupCommandBuilder.swift in Sources */,
 				A1577A00DEB60000000000A0 /* StartupAppearanceDebugReloader.swift in Sources */,
 				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,

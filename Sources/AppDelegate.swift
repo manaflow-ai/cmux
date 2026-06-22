@@ -1230,11 +1230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private lazy var displayDiagnosticsUITestRecorder = DisplayDiagnosticsUITestRecorder(provider: self)
 #endif
     private var multiWindowNotificationUITestScaffold: MultiWindowNotificationUITestScaffold?
-    private var didSetupDisplayResolutionUITestDiagnostics = false
-    private var displayResolutionUITestObservers: [NSObjectProtocol] = []
+    private var displayResolutionUITestRecorder: DisplayResolutionUITestRecorder?
     private var feedSidebarUITestRecorder: FeedSidebarUITestRecorder?
-    private var didSetupPortalStatsUITestDiagnostics = false
-    private var portalStatsUITestObservers: [NSObjectProtocol] = []
+    private var portalStatsUITestRecorder: PortalStatsUITestRecorder?
+    private var socketSanityUITestRecorder: SocketSanityUITestRecorder?
     var debugCloseMainWindowConfirmationHandler: ((NSWindow) -> Bool)?
     /// Test seam: when set, ``openDiffViewerForFocusedWorkspace(for:)`` invokes this
     /// instead of spawning the bundled `cmux diff` CLI, so shortcut-dispatch tests can
@@ -2688,78 +2687,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    /// Schedules the socket-sanity diagnostics check once; the
+    /// ``SocketSanityUITestRecorder`` owns the delayed health probe, ping,
+    /// listener restart, and diagnostics-stage writes.
     private func scheduleUITestSocketSanityCheckIfNeeded() {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_SOCKET_SANITY"] == "1" else { return }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-            guard let self else { return }
-            guard let config = self.socketListenerConfigurationIfEnabled() else {
-                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityDisabled")
-                return
-            }
-
-            let expectedPath = terminalControl.activeSocketPath(preferredPath: config.path)
-            let health = terminalControl.socketListenerHealth(expectedSocketPath: expectedPath)
-            let pingResponse = health.isHealthy
-                ? socketTransport.probeCommand("ping", at: expectedPath, timeout: 1.0)
-                : nil
-            let isReady = health.isHealthy && pingResponse == "PONG"
-            if isReady {
-                self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityReady")
-                return
-            }
-
-            self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityRestart")
-            self.restartSocketListenerIfEnabled(source: "uiTest.socketSanity")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
-                self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
-            }
-        }
+        let recorder = socketSanityUITestRecorder ?? SocketSanityUITestRecorder(appDelegate: self)
+        socketSanityUITestRecorder = recorder
+        recorder.installIfNeeded()
     }
 
+    /// Installs the display-resolution diagnostics observers once; the
+    /// ``DisplayResolutionUITestRecorder`` owns the window/screen/surface
+    /// notification subscriptions and diagnostics-stage writes.
     private func setupDisplayResolutionUITestDiagnosticsIfNeeded() {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_DISPLAY_RENDER_STATS"] == "1" else { return }
-        guard !didSetupDisplayResolutionUITestDiagnostics else { return }
-        didSetupDisplayResolutionUITestDiagnostics = true
-
-        let center = NotificationCenter.default
-        let observe: (Notification.Name, String) -> Void = { [weak self] name, stage in
-            guard let self else { return }
-            let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.writeUITestDiagnosticsIfNeeded(stage: stage)
-                }
-            }
-            self.displayResolutionUITestObservers.append(observer)
-        }
-
-        observe(NSWindow.didResizeNotification, "displayUITest.windowDidResize")
-        observe(NSWindow.didMoveNotification, "displayUITest.windowDidMove")
-        observe(NSWindow.didChangeScreenNotification, "displayUITest.windowDidChangeScreen")
-        observe(NSWindow.didChangeBackingPropertiesNotification, "displayUITest.windowDidChangeBacking")
-        observe(.terminalSurfaceDidBecomeReady, "displayUITest.terminalSurfaceDidBecomeReady")
-        observe(.terminalPortalVisibilityDidChange, "displayUITest.terminalPortalVisibilityDidChange")
-
-        writeUITestDiagnosticsIfNeeded(stage: "displayUITest.setup")
+        let recorder = displayResolutionUITestRecorder ?? DisplayResolutionUITestRecorder(appDelegate: self)
+        displayResolutionUITestRecorder = recorder
+        recorder.installIfNeeded()
     }
 
+    /// Installs the portal-stats diagnostics observer once; the
+    /// ``PortalStatsUITestRecorder`` owns the portal-visibility subscription and
+    /// diagnostics-stage writes.
     private func setupPortalStatsUITestDiagnosticsIfNeeded() {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_PORTAL_STATS"] == "1" else { return }
-        guard !didSetupPortalStatsUITestDiagnostics else { return }
-        didSetupPortalStatsUITestDiagnostics = true
-
-        let observer = NotificationCenter.default.addObserver(
-            forName: .terminalPortalVisibilityDidChange,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.terminalPortalVisibilityDidChange")
-        }
-        portalStatsUITestObservers.append(observer)
-        writeUITestDiagnosticsIfNeeded(stage: "feedSidebarUITest.portalStats.setup")
+        let recorder = portalStatsUITestRecorder ?? PortalStatsUITestRecorder(appDelegate: self)
+        portalStatsUITestRecorder = recorder
+        recorder.installIfNeeded()
     }
 
     /// Installs the ``FeedSidebarUITestRecorder`` once; the recorder owns the
