@@ -3276,13 +3276,16 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
 
     private var sharedLiveAgentIndexCancellable: AnyCancellable?
 
-    // `isolated deinit` keeps teardown on the MainActor. As a plain
-    // `@MainActor ObservableObject` the deinit was implicitly MainActor-isolated;
-    // the `@Observable` macro rewrites the stored properties into accessors whose
-    // isolation would otherwise force a `nonisolated` deinit, which cannot touch
-    // this MainActor state or call the `@MainActor` `RemoteSessionCoordinator.stop()`.
-    // Isolating the deinit preserves the exact prior teardown semantics.
-    isolated deinit {
+    // Plain `nonisolated deinit` for Swift 6.1 compatibility: CI's toolchain
+    // does not enable the `IsolatedDeinit` experimental feature, so an
+    // `isolated deinit` fails to compile there. A deinit may read this
+    // instance's own MainActor-isolated stored properties (it holds exclusive
+    // access during deallocation); only the `@MainActor`
+    // `RemoteSessionCoordinator.stop()` call needs to hop, so we capture the
+    // controller reference (never `self`) and stop it on the MainActor. The
+    // `activeRemoteSessionControllerID = nil` reset the prior isolated deinit
+    // performed was a no-op during deallocation and is dropped.
+    deinit {
         for registrations in pendingTerminalInputObserversByPanelId.values {
             for registration in registrations {
                 if let observer = registration.observer {
@@ -3290,8 +3293,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
                 }
             }
         }
-        activeRemoteSessionControllerID = nil
-        remoteSessionController?.stop()
+        let controller = remoteSessionController
+        Task { @MainActor in controller?.stop() }
     }
 
     func refreshSplitButtonTooltips() {
