@@ -520,14 +520,14 @@ extension TerminalController: ControlBrowserContext {
         params: [String: JSONValue]
     ) {
         let foundationParams = JSONValue.object(params).foundationObject
-        v2BrowserRecordUnsupportedRequest(
+        browserAutomation.recordUnsupportedNetworkRequest(
             surfaceId: surfaceID,
             request: ["action": action, "params": foundationParams]
         )
     }
 
     func controlBrowserUnsupportedNetworkRequests(surfaceID: UUID) -> [JSONValue] {
-        v2BrowserUnsupportedNetworkRequests(surfaceId: surfaceID).compactMap {
+        browserAutomation.unsupportedNetworkRequests(surfaceId: surfaceID).compactMap {
             JSONValue(foundationObject: $0)
         }
     }
