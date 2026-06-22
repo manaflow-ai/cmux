@@ -111,6 +111,27 @@ import Testing
         #expect(coordinator.isAuthenticated == false)
     }
 
+    @Test func canceledValidationDoesNotStartReplacementTokenProbeDuringSignInPreflight() async throws {
+        let clock = ManualTestClock()
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = CancellationAwareValidationAuthClient(user: user)
+        let coordinator = makeCoordinator(
+            client: client,
+            clock: clock,
+            cachedUser: user,
+            hasCachedTokens: true
+        )
+
+        let validation = Task { await coordinator.revalidateSession() }
+        await client.validationDidStart()
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        await validation.value
+
+        #expect(coordinator.isAuthenticated)
+        #expect(await client.oldSessionRefreshProbeCount == 0)
+    }
+
     private func makeCoordinator(
         client: any AuthClient,
         clock: ManualTestClock,

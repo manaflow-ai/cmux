@@ -209,6 +209,10 @@ extension AuthCoordinator {
             // Same staleness rule for the failure paths: a stale clear here
             // could wipe a session established after this flow began.
             guard generation == sessionGeneration else { return }
+            if error is CancellationError || (error as? AuthError) == .cancelled {
+                authLog.info("Cached session validation superseded by a newer session transition; leaving state untouched")
+                return
+            }
             // Drive the clear-vs-preserve decision from LIVE session validity, not
             // the error code alone. The SDK throws the same `UserNotSignedInError`
             // ("USER_NOT_SIGNED_IN") for two opposite situations: a genuine
