@@ -536,8 +536,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var bakedDaemonPreflightRequiredCapabilities: [String] {
         requiredDaemonCapabilities.filter {
             $0 != RemoteDaemonRPCClient.requiredPTYSessionCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYSessionTokenCapability && $0 != RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability &&
-                $0 != RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability
+                $0 != RemoteDaemonRPCClient.requiredPTYSessionTokenCapability &&
+                $0 != RemoteDaemonRPCClient.requiredPTYPersistentDaemonCapability &&
+                $0 != RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability &&
+                $0 != RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability
         }
     }
 
@@ -559,7 +561,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
         if lowered.contains("missing required capability") ||
             lowered.contains(RemoteDaemonRPCClient.requiredPTYSessionCapability) ||
             lowered.contains(RemoteDaemonRPCClient.requiredPTYSessionTokenCapability) ||
-            lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) {
+            lowered.contains(RemoteDaemonRPCClient.requiredPTYWriteNotificationCapability) || lowered.contains(RemoteDaemonRPCClient.requiredPTYResizeNotificationCapability) {
             return strings.missingRequiredCapabilitiesMessage([
                 RemoteDaemonRPCClient.requiredPTYSessionCapability,
             ])

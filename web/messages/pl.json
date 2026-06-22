@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — Terminal stworzony do wielozadaniowości",
-    "description": "Natywny terminal macOS oparty na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, podzielone panele i API gniazd.",
-    "ogDescription": "Natywny terminal macOS dla agentów kodowania AI. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI."
+    "description": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, dzielone panele i socket API.",
+    "ogDescription": "Darmowy i otwartoźródłowy terminal dla macOS dla agentów kodowania AI. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI."
   },
   "common": {
     "downloadForMac": "Pobierz na Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Język",
-    "assets": "Zasoby"
+    "assets": "Zasoby",
+    "openSource": "Otwarte źródło"
   },
   "home": {
     "taglinePrefix": "Terminal stworzony dla ",
     "typingCodingAgents": "agentów kodowania",
     "typingMultitasking": "multitaskingu",
-    "subtitle": "Natywna aplikacja macOS zbudowana na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele i <cliLink>CLI</cliLink> do programowania.",
+    "subtitle": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele oraz <cliLink>CLI</cliLink> do programowania.",
     "features": "Funkcje",
     "faq": "FAQ",
     "communitySection": "Społeczność",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": ": podziel przeglądarkę obok terminala ze skryptowalnym API",
       "splitPanes": "Dzielone panele",
       "splitPanesDesc": ": poziome i pionowe podziały w każdej karcie",
-      "scriptable": "Skryptowalny",
+      "scriptable": "Programowalny",
       "scriptableDesc": ": CLI i socket API do automatyzacji i skryptów",
       "gpuAccelerated": "Akceleracja GPU",
       "gpuAcceleratedDesc": ": napędzany przez libghostty dla płynnego renderowania",
       "lightweight": "Lekki",
       "lightweightDesc": ": natywny Swift + AppKit, bez Electron",
       "keyboardShortcuts": "Skróty klawiszowe",
-      "keyboardShortcutsDesc": ": <link>rozbudowane skróty</link> dla workspace'ów, podziałów, przeglądarki i więcej"
+      "keyboardShortcutsDesc": ": <link>rozbudowane skróty</link> dla workspace'ów, podziałów, przeglądarki i więcej",
+      "openSource": "Otwarte źródło",
+      "openSourceDesc": ": darmowy i na licencji GPL"
     },
     "faqGhosttyQ": "Jaki jest związek cmux z Ghostty?",
     "faqGhosttyA": "cmux nie jest forkiem Ghostty. Używa <link>libghostty</link> jako biblioteki do renderowania terminala, tak samo jak aplikacje używają WebKit do widoków webowych. Ghostty to samodzielny terminal; cmux to inna aplikacja zbudowana na jego silniku renderowania.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "Z jakimi agentami kodowania działa cmux?",
     "faqAgentsA": "Ze wszystkimi. cmux to terminal, więc każdy agent działający w terminalu działa od razu: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i wszystko inne co możesz uruchomić z linii poleceń.",
     "faqNotificationsQ": "Jak działają powiadomienia?",
-    "faqNotificationsA": "Gdy proces potrzebuje uwagi, cmux pokazuje pierścienie powiadomień wokół paneli, odznaki nieprzeczytanych na pasku bocznym, okno powiadomień i powiadomienie na pulpicie macOS. Uruchamiają się automatycznie przez standardowe sekwencje ucieczki terminala (OSC 9/99/777), lub możesz je wywołać za pomocą <cliLink>cmux CLI</cliLink> i <hooksLink>hooków Claude Code</hooksLink>.",
+    "faqNotificationsA": "Gdy proces potrzebuje uwagi, cmux pokazuje pierścienie powiadomień wokół paneli, plakietki nieprzeczytanych na pasku bocznym, popover z powiadomieniami oraz powiadomienie na pulpicie macOS. Wyzwalają się automatycznie przez standardowe sekwencje escape terminala (OSC 9/99/777) albo możesz je wywołać przez <cliLink>cmux CLI</cliLink> i <hooksLink>hooks agentów</hooksLink>. Działa każdy agent obsługujący hooks lub OSC, w tym Claude Code, Codex, OpenCode i pi.",
     "faqShortcutsQ": "Czy mogę dostosować skróty klawiszowe?",
     "faqShortcutsA": "Przypisania klawiszy terminala są odczytywane z pliku konfiguracyjnego Ghostty (<configPath>~/.config/ghostty/config</configPath>). Skróty specyficzne dla cmux (workspace'y, podziały, przeglądarka, powiadomienia) można dostosować w Ustawieniach. Zobacz <link>domyślne skróty</link> po pełną listę.",
     "faqTmuxQ": "Jak wypada w porównaniu z tmux?",
-    "faqTmuxA": "tmux to multiplekser terminala działający w dowolnym terminalu. cmux to natywna aplikacja macOS z GUI: pionowe karty, dzielone panele, wbudowana przeglądarka i socket API są wbudowane. Bez plików konfiguracyjnych i klawiszy prefiksu.",
+    "faqTmuxA": "tmux to multiplekser terminala działający wewnątrz dowolnego terminala. cmux to natywna aplikacja macOS z GUI: pionowe karty, dzielone panele, wbudowana przeglądarka i socket API, wszystko gotowe, bez plików konfiguracyjnych ani klawiszy prefiksu. Mimo to wiele osób z powodzeniem używa cmux razem z SSH i tmux, a cmux potrafi natywnie podłączyć się do Twoich zdalnych sesji tmux (<link>beta</link>).",
     "faqFreeQ": "Czy cmux jest darmowy?",
-    "faqFreeA": "Tak, cmux jest darmowy. Kod źródłowy jest dostępny na <link>GitHub</link>."
+    "faqFreeA": "Tak, cmux jest darmowy. Kod źródłowy jest dostępny na <link>GitHub</link>.",
+    "faqSessionsQ": "Czy moje sesje są zapisywane?",
+    "faqSessionsA": "Tak. cmux przywraca Twoje okna, workspace'y, panele, katalogi robocze i scrollback po ponownym uruchomieniu, a stan przetrwa pełny restart komputera, nie tylko zamknięcie aplikacji. Sesje agentów takie jak Claude Code, Codex i OpenCode też wracają. Zobacz <link>przywracanie sesji</link>.",
+    "faqScriptableQ": "Czy cmux jest programowalny?",
+    "faqScriptableA": "Tak. Każda akcja jest dostępna przez cmux CLI i gniazdo Unix: tworzenie workspace'ów, otwieranie dzielonych paneli, wysyłanie wejścia, odczytywanie zawartości ekranu, robienie zrzutów ekranu i sterowanie przeglądarką w aplikacji. Zobacz <cliLink>dokumentację CLI</cliLink> oraz dokumentację <browserLink>automatyzacji przeglądarki</browserLink>.",
+    "faqRemoteQ": "Czy mogę używać cmux ze zdalnymi maszynami?",
+    "faqRemoteA": "Tak. Otwieraj workspace'y przez SSH i podłączaj się do zdalnych sesji tmux, dzięki czemu agenci mogą działać na zdalnym hoście, a Ty sterujesz nimi z cmux. Zobacz <link>SSH i zdalny dostęp</link>.",
+    "faqOrchestrationQ": "Czy cmux potrafi orkiestrować wielu agentów i podagentów?",
+    "faqOrchestrationA": "Tak. Gdy agent uruchamia podagentów lub współpracowników, cmux zamienia ich w natywne panele i podziały zamiast ukrytych procesów w tle. Obsługuje orkiestrację wielomodelową <teamsLink>Claude Code teams</teamsLink> i <omoLink>oh-my-opencode</omoLink>, dzięki czemu każdy agent w uruchomieniu jest widoczny i kontrolowalny.",
+    "faqCustomizeQ": "Czy mogę dostosować cmux?",
+    "faqCustomizeA": "Tak. Renderowanie terminala korzysta z Twojej konfiguracji Ghostty, więc motywy, czcionki, kolory i kursor przenoszą się bezpośrednio. Własne ustawienia cmux w <path>~/.config/cmux/cmux.json</path> sterują paskiem bocznym, paskiem kart, dzielonymi panelami i zachowaniem, a każdy <shortcutsLink>skrót klawiszowy</shortcutsLink> jest edytowalny. Zobacz <link>konfigurację</link>.",
+    "faqIosQ": "Czy jest aplikacja na iOS?",
+    "faqIosA": "Tak, w wersji beta. Sparuj iPhone'a z Makiem w oknie Mobile Connect i podłączaj się do terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala. Dostępna na TestFlight jako cmux BETA.",
+    "faqSkillsQ": "Czy cmux ma skille?",
+    "faqSkillsA": "Tak. Skille to wielokrotnego użytku przepływy pracy, które możesz dać dowolnemu agentowi działającemu w cmux, do takich rzeczy jak sterowanie CLI, automatyzacja workspace'ów, ustawienia i powierzchnie przeglądarki. Przeglądaj otwartą kolekcję na <skillsLink>cmux-skills</skillsLink> lub przeczytaj <link>dokumentację skilli</link>.",
+    "faqBrowserQ": "Co potrafi wbudowana przeglądarka?",
+    "faqBrowserA": "cmux może podzielić panel z prawdziwą przeglądarką obok terminala i jest w pełni programowalny: nawiguj, rób snapshoty DOM, klikaj, pisz, wykonuj JavaScript oraz czytaj aktywność konsoli i sieci przez to samo socket API. Agenci używają go do weryfikowania własnych zmian w sieci bez opuszczania cmux. Zobacz <link>automatyzację przeglądarki</link>.",
+    "faqSupportQ": "Jak mogę wesprzeć cmux?",
+    "faqSupportA": "cmux jest darmowy i otwartoźródłowy, i zawsze taki będzie. Jeśli chcesz wspomóc rozwój i uzyskać wczesny dostęp do tego, co dalej, w tym cmux AI, aplikacji na iOS i Cloud VMs, sprawdź <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "Mam prośbę o funkcję lub znalazłem błąd",
+    "faqFeatureA": "Chcemy to usłyszeć. Otwórz <issuesLink>zgłoszenie</issuesLink> lub <prLink>pull request</prLink> na GitHub albo <mailLink>napisz do nas</mailLink>."
   },
   "community": {
     "title": "Społeczność",
@@ -770,10 +793,12 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
-          "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe."
+          "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
+          "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
         },
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",
+          "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
@@ -1236,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "Aplikacja iOS"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1385,6 +1411,46 @@
       "configTitle": "cmux.json",
       "configDesc": "Te same ustawienia domyślne ustawisz w ~/.config/cmux/cmux.json w sekcji terminal:",
       "focusNote": "Przywrócone sesje zachowują zapisany stan widoczności i fokusu TextBox. Te ustawienia dotyczą tylko nowo utworzonych powierzchni terminala."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: wieloagentowy OpenCode w cmux",
+      "metaDescription": "oh-my-opencode (cmux omo) uruchamia OpenCode CLI z wtyczką oh-my-openagent wewnątrz cmux. Orkiestruj Claude, GPT, Gemini i Grok jako równoległych agentów, każdego w natywnym podziale cmux."
+    },
+    "ios": {
+      "metaTitle": "Aplikacja iOS",
+      "metaDescription": "Skonfiguruj towarzyszącą aplikację cmux na iOS: dostęp przez TestFlight, własną sieć z Tailscale lub WireGuard, parowanie, powiadomienia i jakie dane przechowuje cmux.",
+      "title": "Aplikacja iOS",
+      "intro": "Aplikacja cmux na iOS jest towarzyszem twojego Maca. Sparuj iPhone'a lub iPada z Makiem, na którym działa cmux, i podłącz się do swoich terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala.",
+      "betaNote": "Aplikacja iOS jest w wersji beta. Jest dystrybuowana przez TestFlight jako cmux BETA.",
+      "accessTitle": "Uzyskiwanie dostępu",
+      "accessDesc": "Aplikacja jest dystrybuowana przez TestFlight. Wczesny dostęp jest wliczony w <foundersLink>cmux Founders Edition</foundersLink>, obok innych wczesnych funkcji.",
+      "prereqTitle": "Wymagania wstępne",
+      "prereqIntro": "Zanim zaczniesz, potrzebujesz:",
+      "prereq1": "Maca z działającym cmux i zalogowanym kontem.",
+      "prereq2": "iPhone'a lub iPada z aplikacją cmux BETA zainstalowaną z TestFlight.",
+      "prereq3": "Ścieżki sieciowej z telefonu do Maca (zobacz Własna sieć poniżej).",
+      "networkingTitle": "Własna sieć",
+      "networkingDesc": "cmux nie zapewnia sieci od razu po instalacji. Strumień terminala płynie bezpośrednio między telefonem a Makiem, więc twój telefon musi być w stanie połączyć się z Makiem w sieci. Najprostszym sposobem jest prywatna sieć nakładkowa.",
+      "tailscaleTitle": "Tailscale (zalecane)",
+      "tailscaleDesc": "Zainstaluj <link>Tailscale</link> zarówno na Macu, jak i na telefonie i zaloguj się do tej samej sieci tailnet. Twój telefon może wtedy połączyć się z Makiem przez jego adres tailnet z dowolnego miejsca, bez przekierowywania portów.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Jeśli już używasz <link>WireGuard</link>, umieść Maca i telefon w tej samej sieci i użyj adresu WireGuard Maca.",
+      "networkingNote": "Niezależnie od wyboru, połączenie należy do ciebie. cmux nie pośredniczy ani nie przekazuje ruchu terminala między twoimi urządzeniami.",
+      "pairTitle": "Parowanie i łączenie",
+      "pairStep1": "Na Macu otwórz okno Mobile Connect w cmux.",
+      "pairStep2": "Na telefonie otwórz aplikację cmux BETA i potwierdź parowanie pokazane w Mobile Connect.",
+      "pairStep3": "Po sparowaniu twoje przestrzenie robocze i terminale pojawią się na telefonie przez twoją sieć.",
+      "pairNote": "Parowanie jest na każde urządzenie. Nowe urządzenie lub ponownie zainstalowana aplikacja paruje się ponownie.",
+      "notificationsTitle": "Powiadomienia",
+      "notificationsDesc": "Możesz wyrazić zgodę na przekazywanie powiadomień terminala na telefon, aby panel wymagający uwagi wysyłał powiadomienie na twoje urządzenie. Gdy przekazywanie jest włączone, tekst powiadomienia (tytuł i treść, pochodzące z wyjścia terminala) jest wysyłany przez serwery cmux do usługi push firmy Apple, aby go dostarczyć. Włącz Hide content w ustawieniach powiadomień, aby zamiast tego wysyłać ogólny komunikat i zachować tekst terminala na swoich urządzeniach. Zobacz <link>powiadomienia</link>, aby dowiedzieć się, jak cmux je generuje.",
+      "dataTitle": "Jakie dane są przechowywane",
+      "dataIntro": "cmux jest zbudowany tak, aby twój terminal pozostawał między twoimi urządzeniami. Na serwerach cmux przechowujemy tylko to, co jest potrzebne, aby cię zalogować i połączyć twoje urządzenia:",
+      "data1": "Twoje konto z logowania (e-mail), aby identyfikować cię na różnych urządzeniach.",
+      "data2": "Token push twojego urządzenia, aby dostarczać przekazywane powiadomienia terminala.",
+      "data3": "Metadane parowania i urządzenia, aby połączyć twój telefon z Makiem.",
+      "dataNot": "Twoja interaktywna sesja terminala, jej zawartość i naciśnięcia klawiszy, płynie bezpośrednio między telefonem a Makiem przez twoją własną sieć i nie jest przekazywana przez serwery cmux ani na nich przechowywana. Jedynym wyjątkiem jest przekazywany tekst powiadomień, który przechodzi przez cmux i usługę push firmy Apple, aby dotrzeć do twojego telefonu, chyba że włączysz Hide content (zobacz Powiadomienia powyżej).",
+      "enterpriseTitle": "Wdrożenia korporacyjne i własne",
+      "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@manaflow.com</link>."
     }
   },
   "legal": {

@@ -9,7 +9,6 @@ import CmuxWorkspaces
 import CmuxTestSupport
 import SwiftUI
 import AppKit
-import CmuxFoundation
 import Metal
 import QuartzCore
 import Combine
@@ -407,7 +406,7 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey, globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
@@ -993,6 +992,7 @@ class GhosttyApp {
                 logLabel: "shell integration override (fallback)"
             )
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
+            loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             loadNoActiveDisplayVsyncFallbackIfNeeded(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
@@ -1253,13 +1253,26 @@ class GhosttyApp {
             logLabel: "shell integration override"
         )
         loadCmuxManagedTerminalSettingsConfig(config)
+        loadGlobalFontMagnificationConfig(config)
         loadCmuxOwnedGhosttyKeybindOverrides(config)
         loadNoActiveDisplayVsyncFallbackIfNeeded(config)
 
         ghostty_config_finalize(config)
         return renderingModeChanged
     }
-
+    func loadGlobalFontMagnificationConfig(_ config: ghostty_config_t) {
+        guard !GlobalFontMagnification.isDefault else { return }
+        var fontSize: Float32 = 0
+        let key = "font-size"
+        guard ghostty_config_get(config, &fontSize, key, UInt(key.lengthOfBytes(using: .utf8))),
+              fontSize.isFinite, fontSize > 0 else { return }
+        let scaledFontSize = max(1, CGFloat(fontSize) * GlobalFontMagnification.scale)
+        loadInlineGhosttyConfig(
+            "font-size = \(Double(scaledFontSize))", into: config,
+            prefix: "cmux-global-font-magnification",
+            logLabel: "global font magnification"
+        )
+    }
     private func loadNoActiveDisplayVsyncFallbackIfNeeded(_ config: ghostty_config_t) {
         var displayCount: UInt32 = 0
         let error = CGGetActiveDisplayList(0, nil, &displayCount)
@@ -2111,7 +2124,7 @@ class GhosttyApp {
             )
             return
         }
-        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
+        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false, globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
         let fallbackForUnspecified = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
             ? defaultBackgroundValues(from: nil)
             : baseline
@@ -3562,6 +3575,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
+    private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
@@ -3907,6 +3921,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateSurfaceSize(bypassLiveResizeCoalescing: true)
+        invalidateTextInputCoordinates()
+    }
+
     override var isOpaque: Bool { false }
 
     private func resolvedSurfaceSize(preferred size: CGSize?) -> CGSize {
@@ -3955,8 +3975,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
-        if inLiveResize || window?.inLiveResize == true { return nil }
+        if isWindowLiveResizeActive { return nil }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+    }
+
+    private var isWindowLiveResizeActive: Bool {
+        inLiveResize || window?.inLiveResize == true
     }
 
     @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
@@ -3969,7 +3993,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; deferredSurfaceSizeNonMetalRetryCount = 0; _ = updateSurfaceSize() }
 
     @discardableResult
-    private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
+    private func updateSurfaceSize(
+        size: CGSize? = nil,
+        bypassLiveResizeCoalescing: Bool = false
+    ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
         guard size.width > 0 && size.height > 0 else {
@@ -4092,7 +4119,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             xScale: xScale,
             yScale: yScale,
             layerScale: layerScale,
-            backingSize: backingSize
+            backingSize: backingSize,
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
         )
         return didChange || surfaceSizeChanged
     }
@@ -7003,12 +7031,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             x *= 2
             y *= 2
         }
-
+        scrollSpeedAccumulator.apply(x: &x, y: &y, precision: precision)
         var mods: Int32 = 0
         if precision {
             mods |= 0b0000_0001
         }
-
         let momentum: Int32
         switch event.momentumPhase {
         case .began:
@@ -7925,11 +7952,6 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         keyboardCopyModeBadgeView.alphaValue = 0.97
         keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeIconView.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: 13,
-            weight: .regular,
-            scale: .medium
-        )
         keyboardCopyModeBadgeIconView.image = NSImage(
             systemSymbolName: "keyboard.badge.ellipsis",
             accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
@@ -7937,7 +7959,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
-        keyboardCopyModeBadgeLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        applyKeyboardCopyModeBadgeFonts()
         keyboardCopyModeBadgeLabel.lineBreakMode = .byTruncatingTail
         keyboardCopyModeBadgeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         keyboardCopyModeBadgeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -7961,6 +7983,15 @@ final class GhosttySurfaceScrollView: NSView {
         ])
         keyboardCopyModeBadgeContainerView.isHidden = true
         addSubview(keyboardCopyModeBadgeContainerView)
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: GlobalFontMagnification.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyKeyboardCopyModeBadgeFonts()
+            }
+        )
         NSLayoutConstraint.activate([
             keyboardCopyModeBadgeContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             keyboardCopyModeBadgeContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
@@ -8144,6 +8175,15 @@ final class GhosttySurfaceScrollView: NSView {
             self?.handleTerminalScrollBarPreferenceChange()
         })
 
+    }
+
+    private func applyKeyboardCopyModeBadgeFonts() {
+        keyboardCopyModeBadgeIconView.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: GlobalFontMagnification.scaledSize(13),
+            weight: .regular,
+            scale: .medium
+        )
+        keyboardCopyModeBadgeLabel.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
     }
 
     required init?(coder: NSCoder) {
