@@ -6071,6 +6071,17 @@ extension SidebarDragState {
 /// the underlying row's shortcut badges (which would be visible around the
 /// open context menu). All other rows transition live.
 struct VerticalTabsSidebar: View {
+    // DEBUG-only sidebar drag-failsafe trace sink injected into the lifted
+    // `CmuxSidebar.SidebarDragFailsafeMonitor` so the app keeps emitting the
+    // `sidebar.dragFailsafe.schedule`/`.fire` events. `nil` in release, matching
+    // the original `#if DEBUG` log blocks inside the monitor.
+#if DEBUG
+    fileprivate static let sidebarDragFailsafeDebugLog: ((_ message: String) -> Void)? = { message in
+        cmuxDebugLog(message)
+    }
+#else
+    fileprivate static let sidebarDragFailsafeDebugLog: ((_ message: String) -> Void)? = nil
+#endif
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
@@ -6092,7 +6103,9 @@ struct VerticalTabsSidebar: View {
     @Binding var sidebarRenderWorkerClient: RenderWorkerClient?
     @State var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject var dragAutoScrollController = SidebarDragAutoScrollController()
-    @StateObject private var dragFailsafeMonitor = SidebarDragFailsafeMonitor()
+    @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor(
+        debugLog: VerticalTabsSidebar.sidebarDragFailsafeDebugLog
+    )
     @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
@@ -7906,102 +7919,6 @@ struct VerticalTabsSidebar: View {
     }
 }
 
-@MainActor
-private final class SidebarDragFailsafeMonitor: ObservableObject {
-    private static let escapeKeyCode: UInt16 = 53
-    private var pendingClearWorkItem: DispatchWorkItem?
-    private var appResignObserver: NSObjectProtocol?
-    private var keyDownMonitor: Any?
-    private var localMouseMonitor: Any?
-    private var globalMouseMonitor: Any?
-    private var onRequestClear: ((String) -> Void)?
-
-    func start(onRequestClear: @escaping (String) -> Void) {
-        self.onRequestClear = onRequestClear
-        if SidebarDragFailsafePolicy().shouldRequestClearWhenMonitoringStarts(
-            isLeftMouseButtonDown: CGEventSource.buttonState(
-                .combinedSessionState,
-                button: .left
-            )
-        ) {
-            requestClearSoon(reason: "mouse_up_failsafe")
-        }
-        if appResignObserver == nil {
-            appResignObserver = NotificationCenter.default.addObserver(
-                forName: NSApplication.didResignActiveNotification,
-                object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.requestClearSoon(reason: "app_resign_active")
-                }
-            }
-        }
-        if keyDownMonitor == nil {
-            keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                if event.keyCode == Self.escapeKeyCode {
-                    self?.requestClearSoon(reason: "escape_cancel")
-                }
-                return event
-            }
-        }
-        if localMouseMonitor == nil {
-            localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-                if SidebarDragFailsafePolicy().shouldRequestClear(forMouseEventType: event.type) {
-                    self?.requestClearSoon(reason: "mouse_up_failsafe")
-                }
-                return event
-            }
-        }
-        if globalMouseMonitor == nil {
-            globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-                guard SidebarDragFailsafePolicy().shouldRequestClear(forMouseEventType: event.type) else { return }
-                Task { @MainActor [weak self] in
-                    self?.requestClearSoon(reason: "mouse_up_failsafe")
-                }
-            }
-        }
-    }
-
-    func stop() {
-        pendingClearWorkItem?.cancel()
-        pendingClearWorkItem = nil
-        if let appResignObserver {
-            NotificationCenter.default.removeObserver(appResignObserver)
-            self.appResignObserver = nil
-        }
-        if let keyDownMonitor {
-            NSEvent.removeMonitor(keyDownMonitor)
-            self.keyDownMonitor = nil
-        }
-        if let localMouseMonitor {
-            NSEvent.removeMonitor(localMouseMonitor)
-            self.localMouseMonitor = nil
-        }
-        if let globalMouseMonitor {
-            NSEvent.removeMonitor(globalMouseMonitor)
-            self.globalMouseMonitor = nil
-        }
-        onRequestClear = nil
-    }
-
-    private func requestClearSoon(reason: String) {
-        guard pendingClearWorkItem == nil else { return }
-#if DEBUG
-        cmuxDebugLog("sidebar.dragFailsafe.schedule reason=\(reason)")
-#endif
-        let workItem = DispatchWorkItem { [weak self] in
-#if DEBUG
-            cmuxDebugLog("sidebar.dragFailsafe.fire reason=\(reason)")
-#endif
-            self?.pendingClearWorkItem = nil
-            self?.onRequestClear?(reason)
-        }
-        pendingClearWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarDragFailsafePolicy.clearDelay, execute: workItem)
-    }
-}
-
 private struct SidebarFooter: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
@@ -8298,11 +8215,6 @@ private struct SidebarEmptyArea: View {
 /// `.PullRequestDisplay` access) resolving for app-target consumers.
 typealias SidebarWorkspaceSnapshotBuilder = CmuxSidebar.SidebarWorkspaceSnapshotBuilder
 
-private final class SidebarTabItemContextMenuState: ObservableObject {
-    var hasDeferredWorkspaceObservationInvalidation = false
-    var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
-}
-
 struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
@@ -8406,7 +8318,7 @@ struct TabItemView: View, Equatable {
     let onContextMenuAppear: () -> Void
     let onContextMenuDisappear: () -> Void
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
-    @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
+    @State private var contextMenuState = SidebarTabItemContextMenuModel()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
