@@ -327,28 +327,12 @@ final class AgentHibernationController {
     }
 
     private func hibernationFingerprint(for record: AgentHibernationRecord) -> String? {
-        if let tail = tailFingerprint(for: record.terminalPanel) {
-            return Self.scrollbackFingerprint(tail: tail, processIDs: record.processIDs)
-        }
-        guard record.hasLiveProcess,
-              !record.terminalPanel.surface.hasLiveSurface else { return nil }
-        return Self.processFallbackFingerprint(
-            kind: record.agent.kind,
-            sessionId: record.agent.sessionId,
-            processIDs: record.processIDs
-        )
+        guard let tail = tailFingerprint(for: record.terminalPanel) else { return nil }
+        return Self.scrollbackFingerprint(tail: tail, processIDs: record.processIDs)
     }
 
     nonisolated static func scrollbackFingerprint(tail: String, processIDs: Set<Int>) -> String {
         "scrollback:\(processIdentityFingerprint(processIDs)):\(tail)"
-    }
-
-    nonisolated static func processFallbackFingerprint(
-        kind: RestorableAgentKind,
-        sessionId: String,
-        processIDs: Set<Int>
-    ) -> String {
-        "process:\(kind.rawValue):\(sessionId):\(processIdentityFingerprint(processIDs))"
     }
 
     nonisolated static func tailFingerprintStableSince(

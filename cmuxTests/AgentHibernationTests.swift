@@ -181,27 +181,6 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertTrue(selected.isEmpty)
     }
 
-    func testProcessFallbackFingerprintIncludesProcessIDs() {
-        let first = AgentHibernationController.processFallbackFingerprint(
-            kind: .opencode,
-            sessionId: "same-session",
-            processIDs: [7, 3]
-        )
-        let sameIDsDifferentOrder = AgentHibernationController.processFallbackFingerprint(
-            kind: .opencode,
-            sessionId: "same-session",
-            processIDs: [3, 7]
-        )
-        let restarted = AgentHibernationController.processFallbackFingerprint(
-            kind: .opencode,
-            sessionId: "same-session",
-            processIDs: [8]
-        )
-
-        XCTAssertEqual(first, sameIDsDifferentOrder)
-        XCTAssertNotEqual(first, restarted)
-    }
-
     func testScrollbackFingerprintIncludesProcessIDs() {
         let first = AgentHibernationController.scrollbackFingerprint(
             tail: "stable tail",
