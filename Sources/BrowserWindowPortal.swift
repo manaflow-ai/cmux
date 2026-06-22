@@ -340,6 +340,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedDividerSplitSourceCounts: [ObjectIdentifier: UInt64] = [:]
     private var cachedDividerSubviewSnapshotViews = NSPointerArray.weakObjects()
     private var cachedDividerSubviewSnapshotIDs: [[ObjectIdentifier]] = []
+    private var cachedDividerSubviewSnapshotHiddenStates: [Bool] = []
     var dividerRegionBuildCount = 0
 
     deinit {
@@ -497,6 +498,7 @@ final class WindowBrowserHostView: NSView {
         cachedDividerSplitSourceCounts.removeAll(keepingCapacity: true)
         cachedDividerSubviewSnapshotViews = NSPointerArray.weakObjects()
         cachedDividerSubviewSnapshotIDs.removeAll(keepingCapacity: true)
+        cachedDividerSubviewSnapshotHiddenStates.removeAll(keepingCapacity: true)
         window?.invalidateCursorRects(for: self)
     }
 
@@ -970,6 +972,7 @@ final class WindowBrowserHostView: NSView {
         var splitSourceCounts: [ObjectIdentifier: UInt64] = [:]
         let subviewSnapshotViews = NSPointerArray.weakObjects()
         var subviewSnapshotIDs: [[ObjectIdentifier]] = []
+        var subviewSnapshotHiddenStates: [Bool] = []
         Self.collectSplitDividerRegions(
             in: rootView,
             hostView: self,
@@ -977,13 +980,15 @@ final class WindowBrowserHostView: NSView {
             splitSourceViews: splitSourceViews,
             splitSourceCounts: &splitSourceCounts,
             subviewSnapshotViews: subviewSnapshotViews,
-            subviewSnapshotIDs: &subviewSnapshotIDs
+            subviewSnapshotIDs: &subviewSnapshotIDs,
+            subviewSnapshotHiddenStates: &subviewSnapshotHiddenStates
         )
         cachedDividerRegions = regions
         cachedDividerSplitSourceViews = splitSourceViews
         cachedDividerSplitSourceCounts = splitSourceCounts
         cachedDividerSubviewSnapshotViews = subviewSnapshotViews
         cachedDividerSubviewSnapshotIDs = subviewSnapshotIDs
+        cachedDividerSubviewSnapshotHiddenStates = subviewSnapshotHiddenStates
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
@@ -1002,7 +1007,8 @@ final class WindowBrowserHostView: NSView {
         }
         guard Self.subviewSnapshotsAreCurrent(
             views: cachedDividerSubviewSnapshotViews,
-            subviewIDs: cachedDividerSubviewSnapshotIDs
+            subviewIDs: cachedDividerSubviewSnapshotIDs,
+            hiddenStates: cachedDividerSubviewSnapshotHiddenStates
         ) else {
             return nil
         }
@@ -1356,11 +1362,14 @@ final class WindowBrowserHostView: NSView {
         splitSourceViews: NSPointerArray,
         splitSourceCounts: inout [ObjectIdentifier: UInt64],
         subviewSnapshotViews: NSPointerArray,
-        subviewSnapshotIDs: inout [[ObjectIdentifier]]
+        subviewSnapshotIDs: inout [[ObjectIdentifier]],
+        subviewSnapshotHiddenStates: inout [Bool]
     ) {
         let subviews = view.subviews
+        let isHidden = view.isHidden
         subviewSnapshotViews.addPointer(Unmanaged.passUnretained(view).toOpaque())
-        subviewSnapshotIDs.append(subviews.map { ObjectIdentifier($0) })
+        subviewSnapshotIDs.append(isHidden ? [] : subviews.map { ObjectIdentifier($0) })
+        subviewSnapshotHiddenStates.append(isHidden)
 
         if let splitView = view as? NSSplitView {
             let dividerCount = dividerCount(in: splitView)
@@ -1382,6 +1391,7 @@ final class WindowBrowserHostView: NSView {
                 validRegionCount: validRegionCount
             )
         }
+        guard !isHidden else { return }
 
         for subview in subviews.reversed() {
             collectSplitDividerRegions(
@@ -1391,19 +1401,23 @@ final class WindowBrowserHostView: NSView {
                 splitSourceViews: splitSourceViews,
                 splitSourceCounts: &splitSourceCounts,
                 subviewSnapshotViews: subviewSnapshotViews,
-                subviewSnapshotIDs: &subviewSnapshotIDs
+                subviewSnapshotIDs: &subviewSnapshotIDs,
+                subviewSnapshotHiddenStates: &subviewSnapshotHiddenStates
             )
         }
     }
 
     private static func subviewSnapshotsAreCurrent(
         views: NSPointerArray,
-        subviewIDs: [[ObjectIdentifier]]
+        subviewIDs: [[ObjectIdentifier]],
+        hiddenStates: [Bool]
     ) -> Bool {
-        guard views.count == subviewIDs.count else { return false }
+        guard views.count == subviewIDs.count, views.count == hiddenStates.count else { return false }
         for index in 0..<views.count {
             guard let pointer = views.pointer(at: index) else { return false }
             let view = Unmanaged<NSView>.fromOpaque(pointer).takeUnretainedValue()
+            guard view.isHidden == hiddenStates[index] else { return false }
+            guard !hiddenStates[index] else { continue }
             guard currentSubviews(in: view, match: subviewIDs[index]) else { return false }
         }
         return true
