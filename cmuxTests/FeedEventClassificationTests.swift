@@ -93,6 +93,16 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
+    /// Copilot's `PreToolUse` hook is the approval gate itself. It must
+    /// produce a blocking `PermissionRequest` even for tools that generic
+    /// telemetry-only agents would keep non-actionable.
+    @Test func copilotPreToolUseIsApprovalRequest() {
+        #expect(classify("copilot", "PreToolUse", tool: "Bash").name == "PermissionRequest")
+        #expect(classify("copilot", "PreToolUse", tool: "Bash").actionable == true)
+        #expect(classify("copilot", "PreToolUse", tool: "Read").name == "PermissionRequest")
+        #expect(classify("copilot", "PreToolUse", tool: "Read").actionable == true)
+    }
+
     /// Even on the maybe-approval (generic pre-tool) path, the two dedicated
     /// approval tool names route to their own wire kinds — they are never
     /// collapsed into a generic `PermissionRequest`. Guards the shared
