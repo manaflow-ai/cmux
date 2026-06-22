@@ -2081,6 +2081,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guardrail.onRequestClosePane = { [weak self] workspaceId, panelId in
             _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
         }
+        guardrail.onSystemMemoryPressure = { [weak self] in
+            self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
+        }
         guardrail.start()
     }
 
