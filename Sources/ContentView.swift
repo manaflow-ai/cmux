@@ -9332,18 +9332,6 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
-    }
-
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -9597,11 +9585,22 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, 6)
-        .background { rowHeightProbe }
+        .background { SidebarRowHeightProbe { rowHeight = $0 } }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+            SidebarWorkspaceRowHoverTracker(
+                onPointerHoverChanged: { hovering in
+                    rowInteractionState.setPointerHovering(hovering)
+                },
+                onMenuTrackingChanged: { tracking in
+                    if tracking {
+                        rowInteractionState.contextMenuTrackingDidBegin()
+                    } else {
+                        rowInteractionState.contextMenuTrackingDidEnd()
+                    }
+                }
+            )
         }
         .overlay {
             MiddleClickCapture {

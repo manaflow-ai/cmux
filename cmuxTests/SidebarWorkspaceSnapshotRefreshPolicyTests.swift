@@ -1,5 +1,6 @@
 import AppKit
 import CmuxSidebar
+import CmuxSidebarUI
 import CmuxWorkspaces
 import SwiftUI
 import Testing
@@ -311,20 +312,16 @@ import Testing
         )
     }
 
-    @Test func coordinatorPreservesHoverExitWhileMenuTrackingSuppressesCloseButton() {
+    @Test func hoverTrackerCallbacksPreserveHoverExitWhileMenuTrackingSuppressesCloseButton() {
+        // Mirrors the closure mapping the row installs on
+        // SidebarWorkspaceRowHoverTracker: menu-tracking begin/end and pointer
+        // hover enter/exit are applied directly to the row's interaction state.
         var state = SidebarWorkspaceRowInteractionState()
-        let binding = Binding<SidebarWorkspaceRowInteractionState>(
-            get: { state },
-            set: { state = $0 }
-        )
-        let coordinator = SidebarWorkspaceRowHoverTracker.Coordinator(
-            rowInteractionState: binding
-        )
 
-        coordinator.menuTrackingChanged(true)
-        coordinator.pointerHoverChanged(true)
-        coordinator.pointerHoverChanged(false)
-        coordinator.menuTrackingChanged(false)
+        state.contextMenuTrackingDidBegin()
+        state.setPointerHovering(true)
+        state.setPointerHovering(false)
+        state.contextMenuTrackingDidEnd()
 
         #expect(
             !state.shouldShowCloseButton(
@@ -336,30 +333,30 @@ import Testing
     }
 
     @Test func menuTrackingSuppressionOnlyAppliesToPointerMenusInsideRow() {
-        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+        #expect(SidebarRowMenuTrackingContext(
             pointerInsideRow: true,
             eventType: .rightMouseDown,
             modifierFlags: []
-        ))
-        #expect(SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+        ).suppressesCloseButton)
+        #expect(SidebarRowMenuTrackingContext(
             pointerInsideRow: true,
             eventType: .leftMouseDown,
             modifierFlags: .control
-        ))
+        ).suppressesCloseButton)
         #expect(
-            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+            !SidebarRowMenuTrackingContext(
                 pointerInsideRow: false,
                 eventType: .rightMouseDown,
                 modifierFlags: []
-            ),
+            ).suppressesCloseButton,
             "A menu opened outside this row must not suppress this row's hover state."
         )
         #expect(
-            !SidebarWorkspaceRowMenuTrackingScope.shouldSuppressCloseButton(
+            !SidebarRowMenuTrackingContext(
                 pointerInsideRow: true,
                 eventType: .keyDown,
                 modifierFlags: []
-            ),
+            ).suppressesCloseButton,
             "Keyboard-driven or app-level menu tracking must not be treated like this row's pointer context menu."
         )
     }
