@@ -3150,7 +3150,10 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
-    private var detachedDeveloperToolsWindowCloseResolutionWorkItem: DispatchWorkItem?
+    // One-shot DispatchSourceTimer bridges WebKit's synchronous window-close
+    // callback to a bounded redock deadline.
+    private var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
+    private var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
     private var browserThemeMode: BrowserThemeMode
@@ -5826,8 +5829,9 @@ final class BrowserPanel: Panel, ObservableObject {
         developerToolsTransitionSettleWorkItem = nil
         developerToolsVisibilityLossCheckWorkItem?.cancel()
         developerToolsVisibilityLossCheckWorkItem = nil
-        detachedDeveloperToolsWindowCloseResolutionWorkItem?.cancel()
-        detachedDeveloperToolsWindowCloseResolutionWorkItem = nil
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionTimer = nil
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
@@ -6318,7 +6322,7 @@ extension BrowserPanel {
     }
 
     private var hasPendingDetachedDeveloperToolsWindowCloseResolution: Bool {
-        detachedDeveloperToolsWindowCloseResolutionWorkItem != nil
+        detachedDeveloperToolsWindowCloseResolutionTimer != nil
     }
 
     private func hasAttachedDeveloperToolsLayout() -> Bool {
@@ -6416,22 +6420,24 @@ extension BrowserPanel {
         source: String,
         startedAt: Date = Date()
     ) {
-        detachedDeveloperToolsWindowCloseResolutionWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            self?.detachedDeveloperToolsWindowCloseResolutionWorkItem = nil
-            self?.resolveDetachedDeveloperToolsWindowClose(source: source, startedAt: startedAt)
-        }
-        detachedDeveloperToolsWindowCloseResolutionWorkItem = workItem
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
+        let generation = detachedDeveloperToolsWindowCloseResolutionGeneration
+        let delayNanoseconds = Int(developerToolsAttachedManualCloseDetectionDelay * 1_000_000_000)
         // WebKit exposes no completion callback for re-dock. It closes the
         // detached window before the attached frontend/layout is observable.
-        let timer = Timer(
-            timeInterval: developerToolsAttachedManualCloseDetectionDelay,
-            repeats: false
-        ) { _ in
-            guard !workItem.isCancelled else { return }
-            workItem.perform()
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .nanoseconds(delayNanoseconds))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.detachedDeveloperToolsWindowCloseResolutionTimer != nil else { return }
+            guard self.detachedDeveloperToolsWindowCloseResolutionGeneration == generation else { return }
+            self.detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+            self.detachedDeveloperToolsWindowCloseResolutionTimer = nil
+            self.resolveDetachedDeveloperToolsWindowClose(source: source, startedAt: startedAt)
         }
-        RunLoop.main.add(timer, forMode: .common)
+        detachedDeveloperToolsWindowCloseResolutionTimer = timer
+        timer.resume()
     }
 
     private func resolveDetachedDeveloperToolsWindowClose(source: String, startedAt: Date) {
@@ -6757,8 +6763,9 @@ extension BrowserPanel {
         developerToolsTransitionSettleWorkItem = nil
         pendingDeveloperToolsTransitionTargetVisible = nil
         developerToolsTransitionTargetVisible = nil
-        detachedDeveloperToolsWindowCloseResolutionWorkItem?.cancel()
-        detachedDeveloperToolsWindowCloseResolutionWorkItem = nil
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionTimer = nil
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
