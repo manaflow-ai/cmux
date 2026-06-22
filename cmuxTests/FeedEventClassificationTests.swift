@@ -101,6 +101,8 @@ struct FeedEventClassificationTests {
         #expect(classify("copilot", "PreToolUse", tool: "Bash").actionable == true)
         #expect(classify("copilot", "PreToolUse", tool: "Read").name == "PermissionRequest")
         #expect(classify("copilot", "PreToolUse", tool: "Read").actionable == true)
+        #expect(classify("copilot", "PreToolUse", tool: "AskUserQuestion").name == "PermissionRequest")
+        #expect(classify("copilot", "PreToolUse", tool: "ExitPlanMode").name == "PermissionRequest")
     }
 
     /// Even on the maybe-approval (generic pre-tool) path, the two dedicated

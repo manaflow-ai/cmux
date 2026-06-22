@@ -47,8 +47,8 @@ struct FeedEventClassifier {
     private enum FeedEventSemantic {
         /// A real approval is pending; the user must approve/deny. Drives
         /// the blocking Feed wait and the "needs approval" notification.
-        /// Resolved against the tool name so Claude's `ExitPlanMode` /
-        /// `AskUserQuestion` approvals route to their dedicated kinds.
+        /// Resolved against the tool name for agents whose response schema
+        /// supports dedicated `ExitPlanMode` / `AskUserQuestion` decisions.
         case approvalRequest
         /// A tool is about to run but no approval is pending. Telemetry
         /// only. Used by agents that expose a *separate* approval event
@@ -109,6 +109,9 @@ struct FeedEventClassifier {
     ) -> (String, Bool) {
         switch semantic {
         case .approvalRequest:
+            if source == "copilot" {
+                return ("PermissionRequest", true)
+            }
             return dedicatedApprovalEvent(for: toolName) ?? ("PermissionRequest", true)
         case .toolStartMaybeApproval:
             if let dedicated = dedicatedApprovalEvent(for: toolName) {
