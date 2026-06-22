@@ -6272,6 +6272,10 @@ extension BrowserPanel {
         }
     }
 
+    private func detachedDeveloperToolsWindowsForPanel() -> [NSWindow] {
+        detachedDeveloperToolsWindows().filter(detachedDeveloperToolsWindowBelongsToPanel)
+    }
+
     private func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
         return Self.visibleDescendants(in: container)
@@ -6374,7 +6378,7 @@ extension BrowserPanel {
     }
 
     private func resolveDetachedDeveloperToolsWindowClose(source: String) {
-        guard detachedDeveloperToolsWindows().isEmpty else { return }
+        guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
 
         if isDeveloperToolsTransitionInFlight {
@@ -6391,7 +6395,7 @@ extension BrowserPanel {
                 setPreferredDeveloperToolsPresentation(.attached)
             } else {
                 syncDeveloperToolsPresentationPreferenceFromUI()
-                if detachedDeveloperToolsWindows().isEmpty {
+                if detachedDeveloperToolsWindowsForPanel().isEmpty {
                     setPreferredDeveloperToolsPresentation(.attached)
                 }
             }
