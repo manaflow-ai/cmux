@@ -235,11 +235,11 @@ final class MobileWorkspaceListObserver {
     /// preview (notification id + timestamp). Folding it in means a new notification
     /// (or a cleared one) re-emits to the phone, which renders the preview + relative
     /// time. Workspaces with no notification are simply absent from the map.
-    private static func summaryHash(
+    static func summaryHash(
         for tabs: [Workspace],
-        groups: [WorkspaceGroup],
+        groups: [WorkspaceGroup] = [],
         selectedTabID: UUID?,
-        previewSignatures: [UUID: Int]
+        previewSignatures: [UUID: Int] = [:]
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(tabs.count)
@@ -290,20 +290,4 @@ final class MobileWorkspaceListObserver {
         }
         return hasher.finalize()
     }
-
-    #if DEBUG
-    static func summaryHashForTesting(
-        tabs: [Workspace],
-        groups: [WorkspaceGroup] = [],
-        selectedTabID: UUID?,
-        previewSignatures: [UUID: Int] = [:]
-    ) -> Int {
-        summaryHash(
-            for: tabs,
-            groups: groups,
-            selectedTabID: selectedTabID,
-            previewSignatures: previewSignatures
-        )
-    }
-    #endif
 }

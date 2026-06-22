@@ -344,8 +344,9 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             return deletedGroupIds.contains(tabGroupId)
         }
         var closed = 0
+        var liveTabIds = Set(model.tabs.map(\.id))
         for tab in members {
-            guard model.tabs.contains(where: { $0.id == tab.id }) else { continue }
+            guard liveTabIds.contains(tab.id) else { continue }
             // closeWorkspace short-circuits when tabs.count <= 1, so the last
             // remaining workspace would be left alive with a stale groupId.
             // Convert the holdout into a regular workspace (clear groupId)
@@ -358,7 +359,10 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
             }
             let countBefore = model.tabs.count
             host.closeWorkspaceForGroupDeletion(tab, recordHistory: recordHistory)
-            if model.tabs.count < countBefore { closed += 1 }
+            if model.tabs.count < countBefore {
+                closed += 1
+                liveTabIds.remove(tab.id)
+            }
         }
         // closeWorkspace's dissolveGroupsAnchoredBy already removes the group
         // when the anchor is among the closed members, but if every member
