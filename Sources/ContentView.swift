@@ -2268,13 +2268,32 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     case .commands:
                         commandPaletteCommandListView
                     case .renameInput(let target):
-                        commandPaletteRenameInputView(target: target)
-                    case let .renameConfirm(target, proposedName):
-                        commandPaletteRenameConfirmView(target: target, proposedName: proposedName)
-                    case .workspaceDescriptionInput(let target):
-                        commandPaletteWorkspaceDescriptionInputView(
+                        CommandPaletteRenameInputView(
                             target: target,
-                            maxEditorHeight: workspaceDescriptionMaxEditorHeight
+                            presentation: commandPalettePresentation,
+                            renameFocus: $isCommandPaletteRenameFocused,
+                            onDeleteBackward: handleCommandPaletteRenameDeleteBackward(modifiers:),
+                            onContinueRename: continueRenameFlow(target:),
+                            onDismiss: { dismissCommandPalette() },
+                            onInteraction: handleCommandPaletteRenameInputInteraction,
+                            onAppearResetFocus: resetCommandPaletteRenameFocus
+                        )
+                    case let .renameConfirm(target, proposedName):
+                        CommandPaletteRenameConfirmView(
+                            target: target,
+                            proposedName: proposedName,
+                            onApplyRename: applyRenameFlow(target:proposedName:)
+                        )
+                    case .workspaceDescriptionInput(let target):
+                        CommandPaletteWorkspaceDescriptionInputView(
+                            target: target,
+                            maxEditorHeight: workspaceDescriptionMaxEditorHeight,
+                            presentation: commandPalettePresentation,
+                            shouldFocusEditor: $commandPaletteShouldFocusWorkspaceDescriptionEditor,
+                            observedWindow: observedWindow,
+                            onApplyWorkspaceDescription: applyWorkspaceDescriptionFlow(target:proposedDescription:),
+                            onDismiss: { dismissCommandPalette() },
+                            onAppearResetFocus: resetCommandPaletteWorkspaceDescriptionFocus
                         )
                     }
                 }
@@ -2401,221 +2420,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: true)
             syncCommandPaletteOverlayCommandListState()
             syncCommandPaletteDebugStateForObservedWindow()
-        }
-    }
-
-    private enum CommandPaletteEditorFieldStyle {
-        case singleLine(
-            accessibilityIdentifier: String,
-            focus: FocusState<Bool>.Binding,
-            onDeleteBackward: ((EventModifiers) -> BackportKeyPressResult)?
-        )
-        case multiline(
-            accessibilityIdentifier: String,
-            accessibilityLabel: String,
-            focus: Binding<Bool>,
-            measuredHeight: Binding<CGFloat>,
-            maxHeight: CGFloat
-        )
-    }
-
-    @ViewBuilder
-    private func commandPaletteEditorField(
-        style: CommandPaletteEditorFieldStyle,
-        placeholder: String,
-        text: Binding<String>,
-        onSubmit: @escaping (String) -> Void,
-        onEscape: @escaping () -> Void,
-        onInteraction: (() -> Void)? = nil
-    ) -> some View {
-        switch style {
-        case .singleLine(let accessibilityIdentifier, let focus, let onDeleteBackward):
-            TextField(placeholder, text: text)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .regular))
-                .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
-                .focused(focus)
-                .accessibilityIdentifier(accessibilityIdentifier)
-                .backport.onKeyPress(.delete) { modifiers in
-                    onDeleteBackward?(modifiers) ?? .ignored
-                }
-                .onSubmit {
-                    onSubmit(text.wrappedValue)
-                }
-                .onTapGesture {
-                    onInteraction?()
-                }
-        case .multiline(let accessibilityIdentifier, let accessibilityLabel, let focus, let measuredHeight, let maxHeight):
-            CommandPaletteMultilineTextEditorRepresentable(
-                placeholder: placeholder,
-                accessibilityLabel: accessibilityLabel,
-                accessibilityIdentifier: accessibilityIdentifier,
-                text: text,
-                isFocused: focus,
-                measuredHeight: measuredHeight,
-                maxHeight: maxHeight,
-                onSubmit: onSubmit,
-                onEscape: onEscape
-            )
-            .frame(height: measuredHeight.wrappedValue)
-        }
-    }
-
-    private func commandPaletteRenameInputView(target: CommandPaletteRenameTarget) -> some View {
-        VStack(spacing: 0) {
-            commandPaletteEditorField(
-                style: .singleLine(
-                    accessibilityIdentifier: "CommandPaletteRenameField",
-                    focus: $isCommandPaletteRenameFocused,
-                    onDeleteBackward: handleCommandPaletteRenameDeleteBackward(modifiers:)
-                ),
-                placeholder: target.placeholder,
-                text: $commandPalettePresentation.renameDraft,
-                onSubmit: { _ in continueRenameFlow(target: target) },
-                onEscape: { dismissCommandPalette() },
-                onInteraction: handleCommandPaletteRenameInputInteraction
-            )
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-
-            Divider()
-
-            Text(renameInputHintText(target: target))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-
-            Button(action: {
-                continueRenameFlow(target: target)
-            }) {
-                EmptyView()
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
-        }
-        .onAppear {
-            resetCommandPaletteRenameFocus()
-        }
-    }
-
-    private func commandPaletteRenameConfirmView(
-        target: CommandPaletteRenameTarget,
-        proposedName: String
-    ) -> some View {
-        let trimmedName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let nextName = trimmedName.isEmpty ? String(localized: "commandPalette.rename.clearCustomName", defaultValue: "(clear custom name)") : trimmedName
-
-        return VStack(spacing: 0) {
-            Text(nextName)
-                .font(.system(size: 13, weight: .regular))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 7)
-
-            Divider()
-
-            Text(renameConfirmHintText(target: target))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-
-            Button(action: {
-                applyRenameFlow(target: target, proposedName: proposedName)
-            }) {
-                EmptyView()
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
-        }
-    }
-
-    private func commandPaletteWorkspaceDescriptionInputView(
-        target: CommandPaletteWorkspaceDescriptionTarget,
-        maxEditorHeight: CGFloat
-    ) -> some View {
-        VStack(spacing: 0) {
-            commandPaletteEditorField(
-                style: .multiline(
-                    accessibilityIdentifier: "CommandPaletteWorkspaceDescriptionEditor",
-                    accessibilityLabel: String(
-                        localized: "command.editWorkspaceDescription.title",
-                        defaultValue: "Edit Workspace Description…"
-                    ),
-                    focus: $commandPaletteShouldFocusWorkspaceDescriptionEditor,
-                    measuredHeight: $commandPalettePresentation.workspaceDescriptionHeight,
-                    maxHeight: maxEditorHeight
-                ),
-                placeholder: target.placeholder,
-                text: $commandPalettePresentation.workspaceDescriptionDraft,
-                onSubmit: { proposedDescription in
-                    applyWorkspaceDescriptionFlow(target: target, proposedDescription: proposedDescription)
-                },
-                onEscape: { dismissCommandPalette() }
-            )
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-
-            Divider()
-
-            Text(target.inputHint)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
-        }
-        .onAppear {
-#if DEBUG
-            cmuxDebugLog(
-                "palette.wsDescription.view.appear workspace=\(target.workspaceId.uuidString.prefix(8)) " +
-                "draftLen=\((commandPalettePresentation.workspaceDescriptionDraft as NSString).length) " +
-                "height=\(String(format: "%.1f", commandPalettePresentation.workspaceDescriptionHeight)) " +
-                "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
-            )
-#endif
-            resetCommandPaletteWorkspaceDescriptionFocus()
-        }
-        .onChange(of: commandPaletteShouldFocusWorkspaceDescriptionEditor) { _, newValue in
-#if DEBUG
-            cmuxDebugLog(
-                "palette.wsDescription.focus.binding new=\(newValue ? 1 : 0) " +
-                "mode=\(commandPalettePresentation.mode.debugModeLabel) " +
-                "window={\((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow).commandPaletteWindowDebugSummary)} " +
-                "fr=\(((observedWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder).commandPaletteResponderDebugSummary)"
-            )
-#endif
-        }
-    }
-
-    private func renameInputHintText(target: CommandPaletteRenameTarget) -> String {
-        switch target.kind {
-        case .workspace:
-            return String(localized: "commandPalette.rename.workspaceInputHint", defaultValue: "Enter a workspace name. Press Enter to rename, Escape to cancel.")
-        case .tab:
-            return String(localized: "commandPalette.rename.tabInputHint", defaultValue: "Enter a tab name. Press Enter to rename, Escape to cancel.")
-        }
-    }
-
-    private func renameConfirmHintText(target: CommandPaletteRenameTarget) -> String {
-        switch target.kind {
-        case .workspace:
-            return String(localized: "commandPalette.rename.workspaceConfirmHint", defaultValue: "Press Enter to apply this workspace name, or Escape to cancel.")
-        case .tab:
-            return String(localized: "commandPalette.rename.tabConfirmHint", defaultValue: "Press Enter to apply this tab name, or Escape to cancel.")
         }
     }
 
