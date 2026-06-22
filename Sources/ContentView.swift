@@ -9557,8 +9557,17 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    @ViewBuilder
     private var workspaceContextMenu: some View {
+        SidebarWorkspaceContextMenu(
+            data: workspaceContextMenuData,
+            actions: workspaceContextMenuActions
+        )
+    }
+
+    /// Immutable snapshot of every label, id, flag, and submenu list rendered by
+    /// the lifted ``SidebarWorkspaceContextMenu``. Computed once per body eval so
+    /// the package menu never reads a live tab-manager/app-delegate store.
+    private var workspaceContextMenuData: SidebarWorkspaceContextMenuData {
         let workspaceSnapshot = self.workspaceSnapshot
         let targetIds = contextMenuWorkspaceIds
         let isMulti = targetIds.count > 1
@@ -9607,225 +9616,150 @@ struct TabItemView: View, Equatable {
         let renameWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .renameWorkspace)
         let editWorkspaceDescriptionShortcut = KeyboardShortcutSettings.shortcut(for: .editWorkspaceDescription)
         let closeWorkspaceShortcut = KeyboardShortcutSettings.shortcut(for: .closeWorkspace)
-        Button(pinLabel) {
-            guard let contextMenuPinState else {
-                NSSound.beep()
-                return
-            }
-            let result = WorkspaceActionDispatcher.performPinAction(contextMenuPinState, in: tabManager)
-            if result.changedWorkspaceIds.isEmpty {
-                refreshWorkspaceSnapshot(force: true)
-            }
-            syncSelectionAfterMutation()
+        let groupSelectedShortcut = KeyboardShortcutSettings.shortcut(for: .groupSelectedWorkspaces)
+        let groupInputs = workspaceGroupMenuInputs(targetIds: targetIds)
+        let palette = WorkspaceTabColorSettings.palette().map { entry in
+            SidebarWorkspaceColorMenuItem(id: entry.id, name: entry.name, hex: entry.hex)
         }
-        .disabled(contextMenuPinState == nil)
-
-        workspaceGroupContextMenuSection(targetIds: targetIds, isMulti: isMulti)
-
-        if let key = renameWorkspaceShortcut.keyEquivalent {
-            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
+        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
+        let windowMoveTargets = (AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? [])
+            .map { target in
+                SidebarWindowMoveMenuItem(
+                    windowId: target.windowId,
+                    label: target.label,
+                    isCurrentWindow: target.isCurrentWindow
+                )
             }
-            .keyboardShortcut(key, modifiers: renameWorkspaceShortcut.eventModifiers)
-        } else {
-            Button(String(localized: "contextMenu.renameWorkspace", defaultValue: "Rename Workspace…")) {
-                promptRename()
-            }
-        }
 
-        if tab.hasCustomTitle {
-            Button(String(localized: "contextMenu.removeCustomWorkspaceName", defaultValue: "Remove Custom Workspace Name")) {
-                tabManager.clearCustomTitle(tabId: tab.id)
-            }
-        }
+        return SidebarWorkspaceContextMenuData(
+            targetIds: targetIds,
+            isMulti: isMulti,
+            pinLabel: pinLabel,
+            pinEnabled: contextMenuPinState != nil,
+            groups: groupInputs.groups,
+            eligibleGroupTargetIds: groupInputs.eligibleTargetIds,
+            allTargetsInSameGroupId: groupInputs.allTargetsInSameGroupId,
+            hasAnyGroupedTarget: groupInputs.hasAnyGroupedTarget,
+            groupSelectedShortcutKey: groupSelectedShortcut.keyEquivalent,
+            groupSelectedShortcutModifiers: groupSelectedShortcut.eventModifiers,
+            renameShortcutKey: renameWorkspaceShortcut.keyEquivalent,
+            renameShortcutModifiers: renameWorkspaceShortcut.eventModifiers,
+            hasCustomTitle: tab.hasCustomTitle,
+            editDescriptionShortcutKey: editWorkspaceDescriptionShortcut.keyEquivalent,
+            editDescriptionShortcutModifiers: editWorkspaceDescriptionShortcut.eventModifiers,
+            hasCustomDescription: tab.hasCustomDescription,
+            hasRemoteContextMenuTargets: !remoteContextMenuWorkspaceIds.isEmpty,
+            reconnectLabel: reconnectLabel,
+            disconnectLabel: disconnectLabel,
+            allRemoteTargetsConnecting: allRemoteContextMenuTargetsConnecting,
+            allRemoteTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
+            hasCustomColor: tab.customColor != nil,
+            colorPalette: palette,
+            copyableSidebarSSHError: workspaceSnapshot.copyableSidebarSSHError,
+            isFirstRow: index == 0,
+            isLastRow: index >= tabManager.tabs.count - 1,
+            windowMoveTargets: windowMoveTargets,
+            closeShortcutKey: closeWorkspaceShortcut.keyEquivalent,
+            closeShortcutModifiers: closeWorkspaceShortcut.eventModifiers,
+            closeLabel: closeLabel,
+            closeOthersDisabled: tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count,
+            markReadLabel: markReadLabel,
+            markUnreadLabel: markUnreadLabel,
+            clearLatestNotificationLabel: clearLatestNotificationLabel,
+            canMarkRead: notificationStore.canMarkWorkspaceRead(forTabIds: targetIds),
+            canMarkUnread: notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds),
+            hasLatestNotifications: hasLatestNotifications(in: targetIds),
+            copyWorkspaceIDLabel: copyWorkspaceIDLabel,
+            copyWorkspaceLinkLabel: copyWorkspaceLinkLabel,
+            canShowInFinder: workspaceSnapshot.finderDirectoryPath != nil
+        )
+    }
 
-        if !isMulti {
-            if let key = editWorkspaceDescriptionShortcut.keyEquivalent {
-                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
-                    beginWorkspaceDescriptionEditFromContextMenu()
+    /// The closures the lifted context menu invokes. Each encapsulates the
+    /// app-coupled mutation the legacy inline button performed.
+    private var workspaceContextMenuActions: SidebarWorkspaceContextMenuActions {
+        SidebarWorkspaceContextMenuActions(
+            colorSwatchImage: { hex in
+                coloredCircleImage(color: tabColorSwatchColor(for: hex))
+            },
+            onPin: {
+                guard let contextMenuPinState else {
+                    NSSound.beep()
+                    return
                 }
-                .keyboardShortcut(key, modifiers: editWorkspaceDescriptionShortcut.eventModifiers)
-            } else {
-                Button(String(localized: "contextMenu.editWorkspaceDescription", defaultValue: "Edit Workspace Description…")) {
-                    beginWorkspaceDescriptionEditFromContextMenu()
+                let result = WorkspaceActionDispatcher.performPinAction(contextMenuPinState, in: tabManager)
+                if result.changedWorkspaceIds.isEmpty {
+                    refreshWorkspaceSnapshot(force: true)
                 }
-            }
-
-            if tab.hasCustomDescription {
-                Button(String(localized: "contextMenu.clearWorkspaceDescription", defaultValue: "Clear Workspace Description")) {
-                    tabManager.clearCustomDescription(tabId: tab.id)
+                syncSelectionAfterMutation()
+            },
+            onNewGroup: { ids in
+                promptNewWorkspaceGroup(workspaceIds: ids)
+            },
+            onMoveToGroup: { ids, groupId in
+                for id in ids {
+                    tabManager.addWorkspaceToGroup(workspaceId: id, groupId: groupId)
                 }
-            }
-
-        }
-
-        if !remoteContextMenuWorkspaceIds.isEmpty {
-            Divider()
-
-            Button(reconnectLabel) {
+            },
+            onRemoveFromGroup: { ids in
+                for id in ids {
+                    tabManager.removeWorkspaceFromGroup(workspaceId: id)
+                }
+            },
+            onRename: { promptRename() },
+            onRemoveCustomName: { tabManager.clearCustomTitle(tabId: tab.id) },
+            onEditDescription: { beginWorkspaceDescriptionEditFromContextMenu() },
+            onClearDescription: { tabManager.clearCustomDescription(tabId: tab.id) },
+            onReconnect: {
                 for workspace in remoteContextMenuWorkspaces() {
                     workspace.reconnectRemoteConnection()
                 }
-            }
-            .disabled(allRemoteContextMenuTargetsConnecting)
-
-            Button(disconnectLabel) {
+            },
+            onDisconnect: {
                 for workspace in remoteContextMenuWorkspaces() {
                     workspace.disconnectRemoteConnection(clearConfiguration: false)
                 }
-            }
-            .disabled(allRemoteContextMenuTargetsDisconnected)
-        }
-
-        Menu(String(localized: "contextMenu.workspaceColor", defaultValue: "Workspace Color")) {
-            let tabColorPalette = WorkspaceTabColorSettings.palette()
-
-            if tab.customColor != nil {
-                Button {
-                    applyTabColor(nil, targetIds: targetIds)
-                } label: {
-                    Label(String(localized: "contextMenu.clearColor", defaultValue: "Clear Color"), systemImage: "xmark.circle")
-                }
-            }
-
-            Button {
-                promptCustomColor(targetIds: targetIds)
-            } label: {
-                Label(String(localized: "contextMenu.chooseCustomColor", defaultValue: "Choose Custom Color…"), systemImage: "paintpalette")
-            }
-
-            if !tabColorPalette.isEmpty {
-                Divider()
-            }
-
-            ForEach(tabColorPalette, id: \.id) { entry in
-                Button {
-                    applyTabColor(entry.hex, targetIds: targetIds)
-                } label: {
-                    Label {
-                        Text(entry.name)
-                    } icon: {
-                        Image(nsImage: coloredCircleImage(color: tabColorSwatchColor(for: entry.hex)))
-                    }
-                }
-            }
-        }
-
-        if let copyableSidebarSSHError = workspaceSnapshot.copyableSidebarSSHError {
-            Button(String(localized: "contextMenu.copySshError", defaultValue: "Copy SSH Error")) {
-                WorkspaceSurfaceIdentifierClipboardText.copy(copyableSidebarSSHError)
-            }
-        }
-
-        Divider()
-
-        Button(String(localized: "contextMenu.moveUp", defaultValue: "Move Up")) {
-            moveBy(-1)
-        }
-        .disabled(index == 0)
-
-        Button(String(localized: "contextMenu.moveDown", defaultValue: "Move Down")) {
-            moveBy(1)
-        }
-        .disabled(index >= tabManager.tabs.count - 1)
-
-        Button(String(localized: "contextMenu.moveToTop", defaultValue: "Move to Top")) {
-            tabManager.moveTabsToTop(Set(targetIds))
-            syncSelectionAfterMutation()
-        }
-        .disabled(targetIds.isEmpty)
-
-        let referenceWindowId = AppDelegate.shared?.windowId(for: tabManager)
-        let windowMoveTargets = AppDelegate.shared?.windowMoveTargets(referenceWindowId: referenceWindowId) ?? []
-        let moveMenuTitle = targetIds.count > 1
-            ? String(localized: "contextMenu.moveWorkspacesToWindow", defaultValue: "Move Workspaces to Window")
-            : String(localized: "contextMenu.moveWorkspaceToWindow", defaultValue: "Move Workspace to Window")
-        Menu(moveMenuTitle) {
-            Button(String(localized: "contextMenu.newWindow", defaultValue: "New Window")) {
-                moveWorkspacesToNewWindow(targetIds)
-            }
-            .disabled(targetIds.isEmpty)
-
-            if !windowMoveTargets.isEmpty {
-                Divider()
-            }
-
-            ForEach(windowMoveTargets) { target in
-                Button(target.label) {
-                    moveWorkspaces(targetIds, toWindow: target.windowId)
-                }
-                .disabled(target.isCurrentWindow || targetIds.isEmpty)
-            }
-        }
-        .disabled(targetIds.isEmpty)
-
-        Divider()
-
-        if let key = closeWorkspaceShortcut.keyEquivalent {
-            Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
-            }
-            .keyboardShortcut(key, modifiers: closeWorkspaceShortcut.eventModifiers)
-            .disabled(targetIds.isEmpty)
-        } else {
-            Button(closeLabel) {
-                closeTabs(targetIds, allowPinned: true)
-            }
-            .disabled(targetIds.isEmpty)
-        }
-
-        Button(String(localized: "contextMenu.closeOtherWorkspaces", defaultValue: "Close Other Workspaces")) {
-            closeOtherTabs(targetIds)
-        }
-        .disabled(tabManager.tabs.count <= 1 || targetIds.count == tabManager.tabs.count)
-
-        Button(String(localized: "contextMenu.closeWorkspacesBelow", defaultValue: "Close Workspaces Below")) {
-            closeTabsBelow(tabId: tab.id)
-        }
-        .disabled(index >= tabManager.tabs.count - 1)
-
-        Button(String(localized: "contextMenu.closeWorkspacesAbove", defaultValue: "Close Workspaces Above")) {
-            closeTabsAbove(tabId: tab.id)
-        }
-        .disabled(index == 0)
-
-        Divider()
-
-        Button(markReadLabel) {
-            markTabsRead(targetIds)
-        }
-        .disabled(!notificationStore.canMarkWorkspaceRead(forTabIds: targetIds))
-
-        Button(markUnreadLabel) {
-            markTabsUnread(targetIds)
-        }
-        .disabled(!notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds))
-
-        Button(clearLatestNotificationLabel) {
-            clearLatestNotifications(targetIds)
-        }
-        .disabled(!hasLatestNotifications(in: targetIds))
-
-        Divider()
-
-        Button(copyWorkspaceIDLabel) {
-            copyWorkspaceIdsToPasteboard(targetIds)
-        }
-        .disabled(targetIds.isEmpty)
-
-        Button(copyWorkspaceLinkLabel) {
-            copyWorkspaceLinksToPasteboard(targetIds)
-        }
-        .disabled(targetIds.isEmpty)
-
-        if !isMulti {
-            Button(String(localized: "contextMenu.showWorkspaceInFinder", defaultValue: "Show in Finder")) {
+            },
+            onApplyColor: { hex, ids in
+                applyTabColor(hex, targetIds: ids)
+            },
+            onChooseCustomColor: { ids in
+                promptCustomColor(targetIds: ids)
+            },
+            onCopySshError: { error in
+                WorkspaceSurfaceIdentifierClipboardText.copy(error)
+            },
+            onMoveUp: { moveBy(-1) },
+            onMoveDown: { moveBy(1) },
+            onMoveToTop: { ids in
+                tabManager.moveTabsToTop(Set(ids))
+                syncSelectionAfterMutation()
+            },
+            onMoveToNewWindow: { ids in
+                moveWorkspacesToNewWindow(ids)
+            },
+            onMoveToWindow: { ids, windowId in
+                moveWorkspaces(ids, toWindow: windowId)
+            },
+            onClose: { ids in
+                closeTabs(ids, allowPinned: true)
+            },
+            onCloseOthers: { ids in
+                closeOtherTabs(ids)
+            },
+            onCloseBelow: { closeTabsBelow(tabId: tab.id) },
+            onCloseAbove: { closeTabsAbove(tabId: tab.id) },
+            onMarkRead: { ids in markTabsRead(ids) },
+            onMarkUnread: { ids in markTabsUnread(ids) },
+            onClearLatestNotifications: { ids in clearLatestNotifications(ids) },
+            onCopyWorkspaceIds: { ids in copyWorkspaceIdsToPasteboard(ids) },
+            onCopyWorkspaceLinks: { ids in copyWorkspaceLinksToPasteboard(ids) },
+            onShowInFinder: {
                 let url = workspaceSnapshot.finderDirectoryPath
                     .map { URL(fileURLWithPath: $0, isDirectory: true) }
                 workspaceFinderDirectoryOpenRequest = WorkspaceFinderDirectoryOpenRequest(directoryURL: url)
             }
-            .disabled(workspaceSnapshot.finderDirectoryPath == nil)
-        }
+        )
     }
 
     private var backgroundColor: Color {
