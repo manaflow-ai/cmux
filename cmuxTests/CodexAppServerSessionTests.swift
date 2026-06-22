@@ -1084,6 +1084,55 @@ struct CodexAppServerSessionTests {
     }
 
     @Test
+    func testCodexTaggedAgentMessageCompletionIgnoresStaleLegacyCompletionAfterQueuedTurnStarts() async throws {
+        var sentLines: [String] = []
+        var completions = 0
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in },
+            turnCompleteSink: {
+                completions += 1
+            }
+        )
+
+        try await session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        await Task.yield()
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+
+        try await session.submit("first prompt")
+        session.consumeStdout(#"{"id":3,"result":{"turn":{"id":"turn-1"}}}"# + "\n")
+        let secondSubmit = Task { try await session.submit("second prompt") }
+        await Task.yield()
+
+        session.consumeStdout(
+            #"{"method":"item/agentMessage/completed","params":{"threadId":"thread-1","turnId":"turn-1"}}"# + "\n")
+        for _ in 0..<10 where sentLines.count < 5 {
+            await Task.yield()
+        }
+        try await secondSubmit.value
+        expectEqual(sentLines.count, 5)
+        expectEqual(completions, 1)
+
+        session.consumeStdout(#"{"method":"turn/completed","params":{"threadId":"thread-1"}}"# + "\n")
+        expectEqual(completions, 1)
+
+        session.consumeStdout(#"{"id":4,"result":{"turn":{"id":"turn-2"}}}"# + "\n")
+        session.consumeStdout(
+            #"{"method":"turn/completed","params":{"threadId":"thread-1","turn":{"id":"turn-2"}}}"# + "\n")
+        expectEqual(completions, 2)
+
+        let queuedTurnParams = try #require(jsonLine(sentLines[4])["params"] as? [String: Any])
+        let queuedInput = try #require(queuedTurnParams["input"] as? [[String: Any]])
+        expectEqual(queuedInput.first?["text"] as? String, "second prompt")
+    }
+
+    @Test
     func testCodexAgentMessageCompletionIgnoresDuplicateTurnCompletionWhileIdle() async throws {
         var sentLines: [String] = []
         var completions = 0
@@ -1250,6 +1299,38 @@ struct CodexAppServerSessionTests {
             await Task.yield()
         }
         expectEqual(sentLines.count, 5)
+    }
+
+    @Test
+    func testCodexCloseFailsQueuedPromptAndRejectsLaterPrompts() async throws {
+        var sentLines: [String] = []
+        let session = CodexAppServerSession(
+            workingDirectory: nil,
+            writeData: { data in
+                sentLines.append(String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines))
+            },
+            outputSink: { _, _ in }
+        )
+
+        try await session.start()
+        session.consumeStdout(
+            #"{"id":1,"result":{"userAgent":"codex","codexHome":"/tmp","platformFamily":"unix","platformOs":"macos"}}"#
+                + "\n")
+        await Task.yield()
+        session.consumeStdout(#"{"id":2,"result":{"thread":{"id":"thread-1"}}}"# + "\n")
+
+        try await session.submit("first prompt")
+        let queuedSubmit = Task { try await session.submit("queued prompt") }
+        await Task.yield()
+
+        session.close()
+        await expectThrowsErrorAsync {
+            try await queuedSubmit.value
+        }
+        await expectThrowsErrorAsync {
+            try await session.submit("later prompt")
+        }
+        expectEqual(sentLines.count, 4)
     }
 
     @Test

@@ -112,6 +112,24 @@ final class CodexAppServerSession {
         try await sendTurnStart(threadID: threadID, text: text, permissionMode: permissionMode)
     }
 
+    func close(with error: Error = AgentSessionBridgeError.providerNotReady(AgentSessionProviderID.codex.displayName)) {
+        didFailStartup = true
+        initializeRequestID = nil
+        didInitialize = false
+        threadStartRequestID = nil
+        threadID = nil
+        isTurnInFlight = false
+        activeTurnID = nil
+        activePermissionMode = .standard
+        didEmitTurnCompleteForActiveTurn = false
+        didReceiveTerminalNotificationForActiveTurn = false
+        pendingTerminalNotificationShouldIgnoreFutureCompletion = false
+        shouldIgnoreNextLegacyTurnCompletion = false
+        completedTurnIDs.removeAll()
+        turnStartRequestIDs.removeAll()
+        failQueuedInputs(error)
+    }
+
     private func canQueueInput(_ text: String) -> Bool {
         guard queuedInputs.count < Self.maxQueuedInputCount else { return false }
         let queuedBytes = queuedInputs.reduce(0) { total, input in
@@ -345,7 +363,7 @@ final class CodexAppServerSession {
             rememberCompletedTurnID(completedTurnID)
         }
         if ignoreFutureTurnCompletion {
-            shouldIgnoreNextLegacyTurnCompletion = completedTurnID == nil
+            shouldIgnoreNextLegacyTurnCompletion = true
         }
         drainCodexAppServerQueuedInputs()
     }

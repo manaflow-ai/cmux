@@ -114,6 +114,7 @@ final class AgentSessionProcessStore {
             if process.isRunning {
                 process.terminate()
             }
+            running.codexAppServerSession?.close(with: error)
             running.openCodeEventTask?.cancel()
             sessions.removeValue(forKey: sessionId)
             emitActiveProviderStateIfNeeded()
@@ -202,6 +203,7 @@ final class AgentSessionProcessStore {
               sessions[session.sessionId] === session else {
             return
         }
+        session.codexAppServerSession?.close()
         sessions.removeValue(forKey: session.sessionId)
         cancelSessionTasks(session)
         emitActiveProviderStateIfNeeded()
@@ -227,6 +229,7 @@ final class AgentSessionProcessStore {
     }
 
     private func requestTermination(for session: AgentSessionRunningSession) {
+        session.codexAppServerSession?.close()
         session.openCodeEventTask?.cancel()
         if session.process.isRunning {
             session.process.terminate()
