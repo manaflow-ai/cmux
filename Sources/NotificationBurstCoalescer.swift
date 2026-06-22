@@ -17,21 +17,20 @@ final class NotificationBurstCoalescer {
         delay: TimeInterval = 1.0 / 30.0,
         schedule: @escaping Scheduler = { delay, action in
             let boundedDelay = max(0, delay)
-            let maximumDelay = Double(UInt64.max) / 1_000_000_000.0
-            let nanoseconds = UInt64(min(boundedDelay, maximumDelay) * 1_000_000_000.0)
-            let task = Task { @MainActor in
-                if nanoseconds > 0 {
-                    do {
-                        try await Task.sleep(nanoseconds: nanoseconds)
-                    } catch {
-                        return
-                    }
+            let maximumDelay = Double(Int.max) / 1_000_000_000.0
+            let nanoseconds = Int((min(boundedDelay, maximumDelay) * 1_000_000_000.0).rounded(.up))
+            // One-shot coalescing is an intentional sync deadline; tests inject `schedule`.
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now() + .nanoseconds(nanoseconds))
+            timer.setEventHandler {
+                MainActor.assumeIsolated {
+                    action()
                 }
-                guard !Task.isCancelled else { return }
-                action()
             }
+            timer.resume()
             return {
-                task.cancel()
+                timer.setEventHandler {}
+                timer.cancel()
             }
         }
     ) {
