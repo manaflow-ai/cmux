@@ -1,7 +1,7 @@
 # cmux-owned Swift file length budget.
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
-34289	CLI/cmux.swift
+34302	CLI/cmux.swift
 17719	Sources/AppDelegate.swift
 16112	Sources/ContentView.swift
 13952	Sources/TerminalController.swift
@@ -129,7 +129,7 @@
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
 710	Sources/TerminalSSHSessionDetector.swift
-707	CLI/CMUXCLI+AgentHookDefinitions.swift
+708	CLI/CMUXCLI+AgentHookDefinitions.swift
 706	CLI/CMUXCLI+Config.swift
 705	Sources/Panels/BrowserPopupWindowController.swift
 699	cmuxTests/TerminalNotificationClearAllTests.swift
@@ -143,8 +143,8 @@
 681	Sources/Panels/AgentSessionProcessStore.swift
 680	Sources/FileExplorerSearchController.swift
 677	Packages/macOS/CmuxRemoteSession/Sources/CmuxRemoteSession/Session/RemoteSessionCoordinator+Bootstrap.swift
-668	cmuxTests/FeedCoordinatorTests.swift
 668	cmuxTests/SettingsWindowPresenterTests.swift
+666	cmuxTests/FeedCoordinatorTests.swift
 664	Sources/CmuxTopSnapshot.swift
 663	Sources/PortScanner.swift
 663	cmuxTests/SessionIndexViewTests.swift
