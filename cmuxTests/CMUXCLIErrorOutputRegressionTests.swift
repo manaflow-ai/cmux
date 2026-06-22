@@ -9,7 +9,7 @@ import Testing
 @testable import cmux
 #endif
 
-struct CMUXCLIErrorOutputRegressionTests {
+@Suite(.serialized) struct CMUXCLIErrorOutputRegressionTests {
     struct ProcessRunResult {
         let status: Int32
         let stdout: String
