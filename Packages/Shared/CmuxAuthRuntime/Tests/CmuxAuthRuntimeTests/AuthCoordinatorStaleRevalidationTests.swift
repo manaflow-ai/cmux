@@ -169,6 +169,66 @@ import Testing
         #expect(await client.refreshToken() == nil)
     }
 
+    @Test func lateCancelledExchangeWaitsForSignOutCredentialCaptureBeforeCompareClear() async throws {
+        // Some SDK paths may ignore task cancellation until after they have
+        // written the exchange tokens. If that late exchange resumes while
+        // sign-out is suspended inside its raw credential capture, its
+        // cancellation cleanup must not compare-clear the freshly written
+        // tokens before sign-out reads them for server-side teardown.
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = GateableValidationAuthClient(user: user)
+        let store = FakeKeyValueStore()
+        let coordinator = AuthCoordinator(
+            client: client,
+            sessionCache: CMUXAuthSessionCache(keyValueStore: store, key: "has_tokens"),
+            userCache: CMUXAuthIdentityStore(keyValueStore: store, key: "cached_user"),
+            teamSelection: CMUXAuthTeamSelectionStore(keyValueStore: store, key: "selected_team"),
+            anchor: FakeAnchor(),
+            config: .test,
+            launch: .plain()
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        #expect(await client.refreshToken() == "refresh-1")
+
+        await client.setCredentialExchangeIgnoresCancellation(true)
+        await client.armCredentialGate()
+        let staleSignIn = Task { try await coordinator.signInWithPassword(email: "a@b.com", password: "pw") }
+        await client.credentialDidPark()
+
+        await client.armStoredAccessGate()
+        let capturedAccess = TokenProbe()
+        let capturedRefresh = TokenProbe()
+        let signOut = Task {
+            await coordinator.signOut(onSignedOut: { accessToken, refreshToken in
+                await capturedAccess.set(accessToken)
+                await capturedRefresh.set(refreshToken)
+            })
+        }
+        await client.storedAccessDidPark()
+
+        await client.releaseParkedCredential()
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while true {
+            let refresh = await client.refreshToken()
+            if refresh == "refresh-2" || refresh == nil { break }
+            if clock.now >= deadline {
+                preconditionFailure("Timed out waiting for late exchange cleanup to reach the token store")
+            }
+            await Task.yield()
+        }
+
+        await client.releaseParkedStoredAccess()
+        await signOut.value
+        await #expect(throws: AuthError.cancelled) { try await staleSignIn.value }
+
+        #expect(await capturedAccess.value == "access-2")
+        #expect(await capturedRefresh.value == "refresh-2")
+        #expect(coordinator.isAuthenticated == false)
+        #expect(await client.accessToken() == nil)
+        #expect(await client.refreshToken() == nil)
+    }
+
     @Test func staleSignInRollbackDoesNotWipeANewerSession() async throws {
         // Worst-case interleave of the rollback above: sign-in A parks in its
         // exchange, the user signs out, then completes a SECOND sign-in (B)

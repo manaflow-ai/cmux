@@ -31,6 +31,7 @@ extension AuthCoordinator {
             let refreshToken = await client.refreshToken()
             if Task.isCancelled {
                 if let refreshToken {
+                    await waitForSignOutCredentialCapture()
                     await client.clearLocalSession(ifRefreshTokenMatches: refreshToken)
                 }
                 throw CancellationError()
