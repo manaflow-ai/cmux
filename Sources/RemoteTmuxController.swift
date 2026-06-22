@@ -760,9 +760,8 @@ final class RemoteTmuxController {
         }
         connectionsByHostSession.removeValue(forKey: key)?.stop()
         let hostHasOtherMirrors = sessionMirrors.values.contains(where: { $0.host.connectionHash == host.connectionHash })
-        // The dedicated window for this host, captured before the bindings are torn
-        // down. `nil` once other sessions remain — losing one of several sessions
-        // closes only its workspace, never the shared window.
+        // Capture the dedicated window before teardown; if other sessions remain,
+        // losing one session only closes its workspace.
         let dedicatedWindowId = hostHasOtherMirrors ? nil : windowRegistry.windowId(forHostHash: host.connectionHash)
         // Decide the UI action BEFORE tearing down persistence/bindings, so the
         // persistence decision can depend on whether the dedicated window is
@@ -798,14 +797,8 @@ final class RemoteTmuxController {
             otherMainWindowCount: otherMainWindowCount
         )
         if !hostHasOtherMirrors {
-            // The host's last session is gone, so close its shared SSH ControlMaster
-            // now — but only if no other control connection (e.g. a
-            // remote.tmux.attach for the same endpoint) is still multiplexing
-            // over it. We must do it here rather than rely on the window's onClose
-            // hook: clearing the binding just below makes handleRemoteWindowClosed a
-            // no-op, and the dedicated window may be closed programmatically (the
-            // `.closeDedicatedWindow` path), so the hook can't be the one to tear the
-            // master down.
+            // Last session for this host: close the ControlMaster here if no other
+            // connection still multiplexes it; window onClose may not run this hook.
             let hostHasOtherConnections = connectionsByHostSession.values
                 .contains { $0.host.connectionHash == host.connectionHash }
             if !hostHasOtherConnections {
@@ -825,6 +818,9 @@ final class RemoteTmuxController {
             "ownedByEndingHost=\(ownedByEndingHost) otherWindows=\(otherMainWindowCount) action=\(action)"
         )
         #endif
+        if AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            .tabs.first(where: { $0.id == workspaceId })?
+            .handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() == true { return }
         switch action {
         case let .closeDedicatedWindow(windowId):
             // Tear down the whole dedicated window (true detach UX). Uses
@@ -914,11 +910,9 @@ final class RemoteTmuxController {
                 detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
                 jobs.append((transport, mirror.connection.sessionId.map { "$\($0)" } ?? mirror.sessionName))
             }
-            let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
-            if !stillUsed {
-                windowRegistry.unbind(hostHash: host.connectionHash)
-                transportRegistry.remove(connectionHash: host.connectionHash)
-            }
+            let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+            if !hostHasOtherMirrors { windowRegistry.unbind(hostHash: host.connectionHash) }
+            if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash) }
         }
         await RemoteTmuxSSHTransport.killSessions(jobs, timeout: timeout)
     }
@@ -945,10 +939,15 @@ final class RemoteTmuxController {
         }
     }
 
-    /// Handles user-initiated close of a mirrored session workspace: detaches the
-    /// control connection and kills the session on the remote. (The app-quit path
-    /// uses ``killMarkedSessionsBeforeTerminate(timeout:)`` instead, which awaits the
-    /// kill so it lands before cmux exits.)
+    func detachMirrorWorkspaceKeptOpenLocally(workspaceId: UUID) {
+        guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId }) else { return }
+        let host = entry.value.host; sessionMirrors.removeValue(forKey: entry.key); entry.value.detachObserver(); connectionsByHostSession.removeValue(forKey: entry.key)?.stop()
+        let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+        if !hostHasOtherMirrors { windowRegistry.unbind(hostHash: host.connectionHash) }
+        if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
+    }
+
+    /// User-initiated mirrored workspace close detaches locally and kills the remote session.
     func handleWorkspaceClosed(workspaceId: UUID) {
         guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId })
         else { return }
