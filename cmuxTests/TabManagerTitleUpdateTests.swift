@@ -72,7 +72,7 @@ struct TabManagerTitleUpdateTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: titleNotificationObject(workspace, focusedPanelId),
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -121,7 +121,7 @@ struct TabManagerTitleUpdateTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: titleNotificationObject(workspace, focusedPanelId),
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -163,7 +163,7 @@ struct TabManagerTitleUpdateTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: titleNotificationObject(workspace, focusedPanelId),
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -208,7 +208,7 @@ struct TabManagerTitleUpdateTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: titleNotificationObject(workspace, removedPanelId),
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: removedPanelId,
@@ -266,7 +266,7 @@ struct TabManagerTitleUpdateTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: titleNotificationObject(workspace, focusedPanelId),
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -317,7 +317,7 @@ struct TabManagerTitleUpdateTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: titleNotificationObject(workspace, focusedPanelId),
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -369,7 +369,7 @@ struct TabManagerTitleUpdateTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: titleNotificationObject(workspace, focusedPanelId),
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,
@@ -451,6 +451,10 @@ struct TabManagerTitleUpdateTests {
                 continuation.resume()
             }
         }
+    }
+
+    private func titleNotificationObject(_ workspace: Workspace, _ panelId: UUID) -> TerminalSurface? {
+        workspace.terminalPanel(for: panelId)?.surface
     }
 
     private final class ManualCoalescerScheduler {

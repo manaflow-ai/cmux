@@ -538,11 +538,11 @@ class TabManager: ObservableObject {
         ) { [weak self] notification in
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
-                guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
-                      let workspace = workspacesById[tabId],
-                      workspace.owningTabManager === self,
-                      let change = GhosttyTitleChange(notification: notification) else { return }
-                enqueuePanelTitleUpdate(tabId: change.tabId, panelId: change.surfaceId, title: change.title)
+                guard let sourceSurface = notification.object as? TerminalSurface,
+                      let change = GhosttyTitleChange(notification: notification),
+                      let workspace = workspacesById[change.tabId],
+                      workspace.owningTabManager === self else { return }
+                enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
             }
         })
         observers.append(NotificationCenter.default.addObserver(
@@ -3271,19 +3271,19 @@ class TabManager: ObservableObject {
     func dismissNotificationOnTerminalInteraction(tabId: UUID, surfaceId: UUID?) -> Bool {
         notificationDismissal.dismissNotificationOnTerminalInteraction(workspaceId: tabId, surfaceId: surfaceId)
     }
-    private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func enqueuePanelTitleUpdate(_ change: GhosttyTitleChange, sourceSurface: TerminalSurface) {
+        let trimmed = change.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard let sourceSurface = workspacesById[tabId]?.terminalPanel(for: panelId)?.surface else { return }
+        guard workspacesById[change.tabId]?.terminalPanel(for: change.surfaceId)?.surface === sourceSurface else { return }
 #if DEBUG
         if PanelTitleUpdateCoalescingSettings.diagnosticsEnabled(settings: settings) {
             cmuxDebugLog(
-                "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
-                "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
+                "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(change.tabId)) " +
+                "panel=\(change.surfaceId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
             )
         }
 #endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        let key = PanelTitleUpdateKey(tabId: change.tabId, panelId: change.surfaceId)
         pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(title: trimmed, sourceSurface: sourceSurface)
         panelTitleUpdateCoalescer.signal(
             delay: PanelTitleUpdateCoalescingSettings.delay(settings: settings)

@@ -38,7 +38,7 @@ struct TabManagerTitleUpdateStalenessTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: originalSurface,
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: panelId,
@@ -59,6 +59,54 @@ struct TabManagerTitleUpdateStalenessTests {
 
         scheduler.fire(at: 0)
 
+        #expect(workspace.terminalPanel(for: panelId)?.surface === replacementPanel.surface)
+        #expect(workspace.panelTitles[panelId] != staleTitle)
+        #expect(workspace.title != staleTitle)
+    }
+
+    @Test
+    func queuedTitleNotificationIgnoredAfterTerminalRespawnReusesPanelId() async throws {
+        let suiteName = "TabManagerTitleQueuedRespawnReuse.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let originalSurface = try #require(workspace.terminalPanel(for: panelId)?.surface)
+        let staleTitle = "Queued Stale Respawn Title - grok"
+        let staleUserInfo: [String: Any] = [
+            GhosttyNotificationKey.tabId: workspace.id,
+            GhosttyNotificationKey.surfaceId: panelId,
+            GhosttyNotificationKey.title: staleTitle,
+        ]
+
+        let replacementPanel = try #require(
+            workspace.respawnTerminalSurface(panelId: panelId, command: "echo replacement")
+        )
+        #expect(replacementPanel.id == panelId)
+        #expect(replacementPanel.surface !== originalSurface)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: originalSurface,
+            userInfo: staleUserInfo
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays.isEmpty)
         #expect(workspace.terminalPanel(for: panelId)?.surface === replacementPanel.surface)
         #expect(workspace.panelTitles[panelId] != staleTitle)
         #expect(workspace.title != staleTitle)

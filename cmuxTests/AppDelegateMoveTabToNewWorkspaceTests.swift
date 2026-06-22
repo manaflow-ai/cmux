@@ -78,7 +78,7 @@ struct AppDelegateMoveTabToNewWorkspaceTests {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: nil,
+            object: workspace.terminalPanel(for: movedPanel.id)?.surface,
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: movedPanel.id,
