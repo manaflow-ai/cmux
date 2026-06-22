@@ -6909,6 +6909,9 @@ extension BrowserPanel {
 
     func noteDeveloperToolsHostAttached() {
         cancelPendingDeveloperToolsVisibilityLossCheck()
+        if developerToolsRevealDeferredUntilWebViewAttached {
+            developerToolsRestoreRetryAttempt = 0
+        }
         // `developerToolsLastAttachedHostAt` anchors the manual-close detection
         // grace (see `consumeAttachedDeveloperToolsManualCloseIfNeeded`). Refresh it
         // only when this attach reflects genuine inspector churn: the inspector is
@@ -7008,6 +7011,11 @@ extension BrowserPanel {
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visible {
+            if forceDeveloperToolsRefreshOnNextAttach &&
+                shouldDeferDeveloperToolsRevealUntilWebViewAttached() {
+                deferDeveloperToolsRevealUntilWebViewAttached(source: "restore.visible")
+                return
+            }
             let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
             forceDeveloperToolsRefreshOnNextAttach = false
             developerToolsDetachedOpenGraceDeadline = nil
@@ -7031,13 +7039,12 @@ extension BrowserPanel {
         if hasPendingDetachedDeveloperToolsWindowCloseResolution {
             return
         }
-        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
-        forceDeveloperToolsRefreshOnNextAttach = false
         if preferredDeveloperToolsPresentation == .detached &&
             !detachedOpenStillSettling &&
             !developerToolsRevealDeferredUntilWebViewAttached {
             setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
+            forceDeveloperToolsRefreshOnNextAttach = false
             cancelDeveloperToolsRestoreRetry()
 #if DEBUG
             cmuxDebugLog(
@@ -7057,6 +7064,8 @@ extension BrowserPanel {
             return
         }
 
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        forceDeveloperToolsRefreshOnNextAttach = false
         #if DEBUG
         if shouldForceRefresh {
             cmuxDebugLog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
@@ -7071,6 +7080,9 @@ extension BrowserPanel {
         setPreferredDeveloperToolsVisible(true)
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
+            if shouldForceRefresh {
+                refreshAttachedDeveloperToolsFrontend(reason: "restore.revealed")
+            }
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
             cancelDeveloperToolsRestoreRetry()
