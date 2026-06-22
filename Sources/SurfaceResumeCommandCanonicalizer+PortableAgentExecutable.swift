@@ -224,11 +224,11 @@ extension SurfaceResumeCommandCanonicalizer {
         }
         var parts = Array(words[commandStartIndex...].map(\.value))
         guard !containsShellControlSyntax(parts) else {
-            return replacingExecutableOnly(
+            return replacingStaleClaudeExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
-                executableIndex: executableIndex,
-                executableName: "claude"
+                commandStartIndex: commandStartIndex,
+                executableIndex: executableIndex
             )
         }
         guard canRenderStaleClaudeCommandAsPortableArgv(
@@ -236,11 +236,11 @@ extension SurfaceResumeCommandCanonicalizer {
             commandStartIndex: commandStartIndex,
             executableIndex: executableIndex
         ) else {
-            return replacingExecutableOnly(
+            return replacingStaleClaudeExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
-                executableIndex: executableIndex,
-                executableName: "claude"
+                commandStartIndex: commandStartIndex,
+                executableIndex: executableIndex
             )
         }
         parts[executableIndex - commandStartIndex] = "claude"
@@ -250,6 +250,43 @@ extension SurfaceResumeCommandCanonicalizer {
         )
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
+    }
+
+    private static func replacingStaleClaudeExecutableWithWrapperShellCommand(
+        in command: String,
+        words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        commandStartIndex: Int,
+        executableIndex: Int
+    ) -> String {
+        let renderedParts = words[commandStartIndex...].indices.map { index in
+            if index == executableIndex {
+                return AgentResumeArgv.claudeWrapperShellExecutableToken
+            }
+            return renderedPortableShellWord(words[index].value)
+        }
+        let renderedCommand = AgentResumeArgv.portableClaudeResumeShellCommand(
+            posixCommand: renderedParts.joined(separator: " ")
+        )
+        let commandStart = words[commandStartIndex].range.lowerBound
+        return String(command[..<commandStart]) + renderedCommand
+    }
+
+    private static func renderedPortableShellWord(_ word: String) -> String {
+        if isShellControlSyntax(word) { return word }
+        if let renderedAssignment = renderedEnvironmentAssignment(word) {
+            return renderedAssignment
+        }
+        return shellQuoted(word)
+    }
+
+    private static func renderedEnvironmentAssignment(_ word: String) -> String? {
+        guard isEnvironmentAssignment(word),
+              let equals = word.firstIndex(of: "=") else {
+            return nil
+        }
+        let name = String(word[..<equals])
+        let valueStart = word.index(after: equals)
+        return "\(name)=\(shellQuoted(String(word[valueStart...])))"
     }
 
     private static func canRenderStaleClaudeCommandAsPortableArgv(
@@ -282,16 +319,18 @@ extension SurfaceResumeCommandCanonicalizer {
     }
 
     private static func containsShellControlSyntax(_ parts: [String]) -> Bool {
-        parts.contains { part in
-            part == "&&"
-                || part == "||"
-                || part == ";"
-                || part == "|"
-                || part == "&"
-                || part.hasPrefix(">")
-                || part.hasPrefix("<")
-                || part.hasPrefix("2>")
-        }
+        parts.contains(isShellControlSyntax)
+    }
+
+    private static func isShellControlSyntax(_ part: String) -> Bool {
+        part == "&&"
+            || part == "||"
+            || part == ";"
+            || part == "|"
+            || part == "&"
+            || part.hasPrefix(">")
+            || part.hasPrefix("<")
+            || part.hasPrefix("2>")
     }
 
     private static func commandExecutableWordIndex(

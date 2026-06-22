@@ -1213,7 +1213,7 @@ extension Workspace {
             )
             let remoteStartupCommand = remoteTerminalStartupCommand()
             let restoresRemoteWorkspaceTerminalSnapshot =
-                remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal == true
+                remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal != false
             let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup?
                     .remoteStartupInputWithLauncherScript(allowLauncherScript: false)

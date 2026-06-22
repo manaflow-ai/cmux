@@ -168,11 +168,10 @@ import Testing
         )
         let startupInput = try #require(binding.startupInput)
 
-        #expect(
-            startupInput.contains("CMUX_TRACE='bar baz' claude '--resume' 'session-env-cli'"),
-            "\(startupInput)"
-        )
-        #expect(!startupInput.contains("'CMUX_TRACE=bar baz'"), "\(startupInput)")
+        #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_TRACE="), "\(startupInput)")
+        #expect(startupInput.contains("bar baz"), "\(startupInput)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
@@ -196,7 +195,9 @@ import Testing
 
         #expect(binding.command.contains("&& echo done"), "\(binding.command)")
         #expect(binding.command.contains(staleExecutablePath), "\(binding.command)")
-        #expect(startupInput.contains("claude '--resume' 'session-operator-cli' && echo done"), "\(startupInput)")
+        #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("&& echo done"), "\(startupInput)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
