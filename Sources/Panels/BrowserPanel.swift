@@ -3228,7 +3228,7 @@ final class BrowserPanel: Panel, ObservableObject {
             restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
             drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
-            scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
+            scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
         }
     }
 
@@ -3310,8 +3310,8 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
-    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
-        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
+    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String, now: Date = Date()) {
+        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason, now: now)
     }
 
     private func cancelHiddenWebViewDiscard() {

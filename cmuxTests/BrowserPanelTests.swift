@@ -303,10 +303,9 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
 }
 
 @MainActor
-@Suite(.serialized)
-struct BrowserPanelVisualAutomationRestoreHostTests {
-    @Test func restoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
-        let discardedAt = Date()
+final class BrowserPanelVisualAutomationRestoreHostTests: XCTestCase {
+    func testRestoredDiscardedHiddenWebViewGetsRestoreHostBeforeOffscreenCapture() {
+        let discardedAt = Date(timeIntervalSince1970: 400)
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "about:blank")!,
@@ -318,25 +317,25 @@ struct BrowserPanelVisualAutomationRestoreHostTests {
         while panel.webView.isLoading,
               RunLoop.main.run(mode: .default, before: deadline),
               Date() < deadline {}
-        #expect(!panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
         let originalWebView = panel.webView
 
-        #expect(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-        #expect(panel.webView !== originalWebView)
-        #expect(panel.webView.superview == nil)
-        #expect(!panel.hasBackgroundPreloadHost)
+        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertNil(panel.webView.superview)
+        XCTAssertFalse(panel.hasBackgroundPreloadHost)
 
-        #expect(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
-        #expect(panel.webViewLifecycleState == .liveHidden)
-        #expect(panel.webView.superview == nil)
+        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+        XCTAssertNil(panel.webView.superview)
 
-        #expect(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation"))
-        #expect(panel.hasBackgroundPreloadHost)
-        #expect(panel.webView.superview != nil)
-        #expect(panel.webView.window != nil)
-        #expect(!panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
+        XCTAssertTrue(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation"))
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNotNil(panel.webView.superview)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertFalse(panel.ensureVisualAutomationRestoreHostIfNeeded(reason: "test.visualAutomation.alreadyAttached"))
     }
 }
 
