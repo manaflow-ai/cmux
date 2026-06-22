@@ -402,7 +402,7 @@ actor VMClient {
         return VMSnapshotResult(id: snapshotID, name: nameValue, createdAt: createdAt)
     }
 
-    func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult, vm: VMSummary) {
+    func fork(id: String, name: String? = nil, idempotencyKey: String) async throws -> (snapshot: VMSnapshotResult?, vm: VMSummary) {
         var body: [String: Any] = [:]
         if let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["name"] = name
@@ -417,8 +417,7 @@ actor VMClient {
         )
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
-        guard let snapshotID = obj["snapshotId"] as? String,
-              let vmID = obj["id"] as? String,
+        guard let vmID = obj["id"] as? String,
               let provider = obj["provider"] as? String,
               let image = obj["image"] as? String
         else {
@@ -427,8 +426,9 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let snapshotID = obj["snapshotId"] as? String
         return (
-            snapshot: VMSnapshotResult(id: snapshotID, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)),
+            snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
             vm: VMSummary(id: vmID, provider: provider, image: image, status: status?.isEmpty == false ? status : nil, createdAt: createdAt)
         )
     }

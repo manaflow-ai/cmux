@@ -26,6 +26,7 @@ export type VmProviderGatewayShape = {
     name?: string,
   ) => Effect.Effect<SnapshotRef, VmProviderOperationError>;
   readonly restore?: (provider: ProviderId, snapshotId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
+  readonly fork?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly exec: (
     provider: ProviderId,
     vmId: string,
@@ -77,6 +78,14 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "snapshot", () => getProvider(provider).snapshot(vmId, name)),
   restore: (provider, snapshotId) =>
     providerEffect(provider, "restore", () => getProvider(provider).restore(snapshotId)),
+  fork: (provider, vmId) =>
+    providerEffect(provider, "fork", async () => {
+      const driver = getProvider(provider);
+      if (!driver.fork) {
+        throw new Error("Cloud VM forks are not supported by this provider");
+      }
+      return await driver.fork(vmId);
+    }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   openAttach: (provider, vmId, options) =>

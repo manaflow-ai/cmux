@@ -57,7 +57,7 @@ extension TerminalController {
             return v2VmCall(id: id) {
                 let result = try await VMClient.shared.fork(id: vmId, name: name, idempotencyKey: idempotencyKey)
                 var payload = Self.socketWorkerVMSummaryPayload(result.vm)
-                payload["snapshot_id"] = result.snapshot.id
+                payload["snapshot_id"] = result.snapshot?.id ?? NSNull()
                 return payload
             }
         case "vm.restore":

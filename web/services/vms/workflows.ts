@@ -269,7 +269,147 @@ export function forkVm(input: {
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const billing = yield* VmBillingGateway;
     const source = yield* requireUserVm(input.userId, input.providerVmId);
+
+    if (source.provider === "freestyle" && providers.fork) {
+      const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: source.provider,
+        image: source.imageId,
+        imageVersion: source.imageVersion,
+        maxActiveVms: input.maxActiveVms,
+        idempotencyKey: input.idempotencyKey,
+        timing: input.timing,
+      });
+
+      if (!create.inserted) {
+        const existing = create.vm;
+        if (existing.status === "failed") {
+          return yield* Effect.fail(
+            new VmCreateFailedError({
+              idempotencyKey: input.idempotencyKey ?? "",
+              message: existing.failureMessage ?? "previous VM fork failed",
+            }),
+          );
+        }
+        if (!existing.providerVmId) {
+          return yield* Effect.fail(
+            new VmCreateInProgressError({ idempotencyKey: input.idempotencyKey ?? "" }),
+          );
+        }
+        return { snapshot: null, fork: vmEntryFromRow(existing) };
+      }
+
+      const creditReservation = yield* reserveCreateCredit(billing, repo, {
+        userId: input.userId,
+        billingCustomerType: input.billingCustomerType,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: source.provider,
+        image: source.imageId,
+        imageVersion: source.imageVersion,
+        idempotencyKey: input.idempotencyKey,
+        timing: input.timing,
+      }, create.vm);
+      yield* recordCreateRequestedEvents(repo, {
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        billingPlanId: input.billingPlanId,
+        provider: source.provider,
+        image: source.imageId,
+        imageVersion: source.imageVersion,
+        idempotencyKey: input.idempotencyKey,
+        timing: input.timing,
+      }, create.vm, creditReservation);
+
+      const handle = yield* measureVmEffect(
+        input.timing,
+        "provider_create",
+        providers.fork(source.provider, source.providerVmId ?? input.providerVmId),
+      ).pipe(
+        Effect.tapError((err) =>
+          Effect.all([
+            refundCredit(billing, repo, create.vm, creditReservation),
+            repo.markCreateFailed({
+              id: create.vm.id,
+              code: err.operation,
+              message: errorMessage(err.cause),
+            }),
+            repo.recordUsageEvent({
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              billingPlanId: input.billingPlanId,
+              vmId: create.vm.id,
+              eventType: "vm.create.failed",
+              provider: source.provider,
+              imageId: source.imageId,
+              metadata: { operation: err.operation, message: errorMessage(err.cause), sourceProviderVmId: source.providerVmId },
+            }),
+          ], { discard: true }).pipe(Effect.catchAll(() => Effect.void))
+        ),
+      );
+
+      const running = yield* measureVmEffect(
+        input.timing,
+        "mark_running",
+        repo.markCreateRunning({
+          id: create.vm.id,
+          providerVmId: handle.providerVmId,
+          image: source.imageId,
+          imageVersion: source.imageVersion,
+        }),
+      ).pipe(
+        Effect.catchAll((err) =>
+          Effect.gen(function* () {
+            yield* providers.destroy(source.provider, handle.providerVmId).pipe(Effect.catchAll(() => Effect.void));
+            yield* refundCredit(billing, repo, create.vm, creditReservation);
+            yield* repo.markCreateFailed({
+              id: create.vm.id,
+              code: "database_finalize_failed",
+              message: "Cloud VM fork state update failed.",
+            }).pipe(Effect.catchAll(() => Effect.void));
+            yield* recordCreateFailureEvent(
+              repo,
+              {
+                userId: input.userId,
+                billingTeamId: input.billingTeamId,
+                billingPlanId: input.billingPlanId,
+                provider: source.provider,
+                image: source.imageId,
+              },
+              create.vm,
+              "database_finalize_failed",
+              errorMessage(err.cause),
+            ).pipe(Effect.catchAll(() => Effect.void));
+            return yield* Effect.fail(err);
+          }),
+        ),
+      );
+
+      yield* recordCreateSuccessEvents(repo, input, running);
+      const fork = vmEntryFromRow(running);
+      yield* repo.recordUsageEvent({
+        userId: source.userId,
+        billingTeamId: source.billingTeamId,
+        billingPlanId: source.billingPlanId,
+        vmId: source.id,
+        eventType: "vm.forked",
+        provider: source.provider,
+        imageId: source.imageId,
+        metadata: {
+          native: true,
+          sourceProviderVmId: source.providerVmId,
+          forkProviderVmId: fork.providerVmId,
+          idempotencyKeySet: !!input.idempotencyKey,
+        },
+      }).pipe(Effect.catchAll(() => Effect.void));
+      return { snapshot: null, fork };
+    }
+
     const snapshot = yield* snapshotVm({
       userId: input.userId,
       providerVmId: input.providerVmId,

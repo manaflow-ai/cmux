@@ -3806,18 +3806,18 @@ struct CMUXCLI {
                     break
                 }
                 let id = (response["id"] as? String) ?? "?"
-                let snapshotId = (response["snapshot_id"] as? String) ?? "?"
+                let snapshotId = response["snapshot_id"] as? String
                 let provider = (response["provider"] as? String) ?? "?"
                 let image = (response["image"] as? String) ?? "?"
                 if detach {
                     print("OK \(id)")
                     print("  provider: \(provider)")
                     print("  image:    \(image)")
-                    print("  snapshot: \(snapshotId)")
+                    print("  snapshot: \(snapshotId ?? "native fork")")
                     break
                 }
                 print("Forked Cloud VM \(id)")
-                print("  snapshot: \(snapshotId)")
+                print("  snapshot: \(snapshotId ?? "native fork")")
                 try vmOpenShell(
                     id: id,
                     workspaceName: "vm:\(String(id.prefix(8)))",
@@ -14635,8 +14635,8 @@ struct CMUXCLI {
                                         Create a provider snapshot/checkpoint and print its id.
                                         Alias: `checkpoint`.
               fork <id> [--name <name>] [--window <id|ref|index>] [--detach|-d]
-                                        Snapshot a VM, restore it as a tracked Cloud VM, and
-                                        open it unless --detach is passed.
+                                        Fork a VM as a tracked Cloud VM and open it unless
+                                        --detach is passed.
               restore <snapshot-id> [--provider <provider>] [--window <id|ref|index>] [--detach|-d]
                                         Restore a snapshot as a tracked Cloud VM.
               shell <id> [--window <id|ref|index>]
@@ -34457,7 +34457,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
-          vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
+          vm <new|ls|status|snapshot|fork|restore|rm|exec|shell|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--no-caller]

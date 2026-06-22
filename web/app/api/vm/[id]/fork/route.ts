@@ -83,7 +83,7 @@ export async function POST(
           timing,
         }));
         return jsonResponse({
-          snapshotId: result.snapshot.id,
+          snapshotId: result.snapshot?.id ?? null,
           id: result.fork.providerVmId,
           provider: result.fork.provider,
           image: result.fork.image,
