@@ -6384,10 +6384,14 @@ extension BrowserPanel {
         detachedDeveloperToolsWindowCloseResolutionWorkItem = workItem
         // WebKit exposes no completion callback for re-dock. It closes the
         // detached window before the attached frontend/layout is observable.
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + developerToolsAttachedManualCloseDetectionDelay,
-            execute: workItem
-        )
+        let timer = Timer(
+            timeInterval: developerToolsAttachedManualCloseDetectionDelay,
+            repeats: false
+        ) { _ in
+            guard !workItem.isCancelled else { return }
+            workItem.perform()
+        }
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func resolveDetachedDeveloperToolsWindowClose(source: String, startedAt: Date) {

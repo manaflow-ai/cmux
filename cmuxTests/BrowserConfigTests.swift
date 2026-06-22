@@ -1,4 +1,14 @@
-import XCTest
+import class XCTest.XCTestCase
+import func XCTest.XCTAssertEqual
+import func XCTest.XCTAssertFalse
+import func XCTest.XCTAssertGreaterThan
+import func XCTest.XCTAssertGreaterThanOrEqual
+import func XCTest.XCTAssertNil
+import func XCTest.XCTAssertNotEqual
+import func XCTest.XCTAssertNotNil
+import func XCTest.XCTAssertTrue
+import func XCTest.XCTFail
+import func XCTest.XCTUnwrap
 import Combine
 import AppKit
 import Testing
