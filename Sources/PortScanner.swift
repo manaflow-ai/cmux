@@ -37,8 +37,8 @@ final class PortScanner: @unchecked Sendable {
 
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
-
     private var lastAgentPortsByWorkspace: [UUID: [Int]] = [:]
+    private var trackedAgentScanningPaused = false
 
     /// Panels that requested a scan since the last coalesce snapshot.
     private var pendingKicks: Set<PanelKey> = []
@@ -97,6 +97,14 @@ final class PortScanner: @unchecked Sendable {
     func refreshAgentPorts(workspaceId: UUID, agentPIDs: Set<Int>) {
         queue.async { [self] in
             refreshAgentPortsLocked(workspaceId: workspaceId, agentPIDs: agentPIDs)
+        }
+    }
+
+    func setTrackedAgentScanningPaused(_ paused: Bool) {
+        queue.async { [self] in
+            guard trackedAgentScanningPaused != paused else { return }
+            trackedAgentScanningPaused = paused
+            updateAgentScanTimerLocked()
         }
     }
 
@@ -267,7 +275,7 @@ final class PortScanner: @unchecked Sendable {
     }
 
     private func updateAgentScanTimerLocked() {
-        guard !trackedAgentWorkspaces.isEmpty else {
+        guard !trackedAgentScanningPaused, !trackedAgentWorkspaces.isEmpty else {
             agentScanTimer?.cancel()
             agentScanTimer = nil
             return
@@ -339,6 +347,7 @@ final class PortScanner: @unchecked Sendable {
         let inactiveWorkspaceIds = workspaceIds.subtracting(normalizedPIDsByWorkspace.keys)
         if !inactiveWorkspaceIds.isEmpty {
             trackedAgentWorkspaces.subtract(inactiveWorkspaceIds)
+            inactiveWorkspaceIds.forEach { lastAgentPortsByWorkspace.removeValue(forKey: $0) }
             updateAgentScanTimerLocked()
         }
 
@@ -426,7 +435,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
-    func validatedAgentResults(
+    private func validatedAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64]

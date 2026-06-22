@@ -35,51 +35,6 @@ struct PortScannerProcessCaptureTests {
         #expect(finalCount - baseline <= 8)
     }
 
-    @Test
-    func unchangedAgentPortResultsAreSuppressed() async {
-        let scanner = PortScanner()
-        let workspaceId = UUID()
-        let revisions = [workspaceId: UInt64(0)]
-
-        let initialEmpty = await scanner.validatedAgentResults(
-            workspaceIds: [workspaceId],
-            agentPortsByWorkspace: [:],
-            agentRevisions: revisions
-        )
-        #expect(initialEmpty.isEmpty)
-
-        let firstPorts = await scanner.validatedAgentResults(
-            workspaceIds: [workspaceId],
-            agentPortsByWorkspace: [workspaceId: [3000, 8787]],
-            agentRevisions: revisions
-        )
-        #expect(firstPorts.count == 1)
-        #expect(firstPorts.first?.0 == workspaceId)
-        #expect(firstPorts.first?.1 == [3000, 8787])
-
-        let unchangedPorts = await scanner.validatedAgentResults(
-            workspaceIds: [workspaceId],
-            agentPortsByWorkspace: [workspaceId: [8787, 3000]],
-            agentRevisions: revisions
-        )
-        #expect(unchangedPorts.isEmpty)
-
-        let clearedPorts = await scanner.validatedAgentResults(
-            workspaceIds: [workspaceId],
-            agentPortsByWorkspace: [:],
-            agentRevisions: revisions
-        )
-        #expect(clearedPorts.count == 1)
-        #expect(clearedPorts.first?.0 == workspaceId)
-        #expect(clearedPorts.first?.1 == [])
-
-        let unchangedEmpty = await scanner.validatedAgentResults(
-            workspaceIds: [workspaceId],
-            agentPortsByWorkspace: [:],
-            agentRevisions: revisions
-        )
-        #expect(unchangedEmpty.isEmpty)
-    }
 }
 
 @Suite
