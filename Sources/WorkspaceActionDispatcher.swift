@@ -5,6 +5,7 @@ enum WorkspaceActionDispatcher {
         let workspacesById: [UUID: Workspace]
         let liveWorkspaceIds: Set<UUID>
 
+        @MainActor
         init(workspaces: [Workspace]) {
             self.init(
                 workspacesById: Dictionary(uniqueKeysWithValues: workspaces.map { ($0.id, $0) }),
