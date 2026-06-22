@@ -2,15 +2,14 @@ import CMUXMobileCore
 import Foundation
 
 extension TerminalController {
-    /// Scrollback rows included in a cold-attach render-grid replay snapshot.
-    /// Live render-grid events carry no scrollback; the phone keeps its own
-    /// bounded Ghostty scrollback mirror and scrolls that mirror locally while
-    /// the Mac remains authoritative.
-    nonisolated static let mobileReplayScrollbackLineBudget = 240
+    /// The scrollback-budget policy for the mobile terminal data plane,
+    /// owning the replay/prefetch row windows and the prefetch clamp.
+    nonisolated static let mobileScrollPrefetchPolicy = MobileScrollPrefetchPolicy.standard
 
-    /// Larger history window returned only on explicit mobile scroll prefetch
-    /// requests, keeping ordinary scroll RPCs small.
-    nonisolated static let mobileScrollPrefetchScrollbackLineBudget = 600
+    /// Scrollback rows included in a cold-attach render-grid replay snapshot.
+    nonisolated static var mobileReplayScrollbackLineBudget: Int {
+        mobileScrollPrefetchPolicy.replayScrollbackLineBudget
+    }
 
     func mobileTerminalRenderGridFrame(
         terminalPanel: TerminalPanel,
@@ -57,9 +56,6 @@ extension TerminalController {
 
     private func mobileScrollPrefetchRows(params: [String: Any]) -> Int {
         let requestedRows = (params["max_scrollback_rows"] as? NSNumber)?.intValue ?? 0
-        return min(
-            max(0, requestedRows),
-            Self.mobileScrollPrefetchScrollbackLineBudget
-        )
+        return Self.mobileScrollPrefetchPolicy.rowsToPrefetch(requestedRows: requestedRows)
     }
 }
