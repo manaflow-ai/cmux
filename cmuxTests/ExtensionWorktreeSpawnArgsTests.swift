@@ -8,14 +8,6 @@ import Testing
 @testable import cmux
 #endif
 
-/// Regression coverage for https://github.com/manaflow-ai/cmux/issues/5032.
-///
-/// The Project Worktrees sidebar `+` button created the worktree on disk but
-/// the workspace tab exited immediately, because the worktree setup command was
-/// passed as the workspace's primary process (`initialTerminalCommand`). A
-/// workspace closes the moment its main process exits, so the setup command
-/// finishing (or failing) killed the tab. The fix routes setup through
-/// `initialTerminalInput` so the workspace's main process stays the login shell.
 @Suite("Extension worktree workspace spawn args")
 struct ExtensionWorktreeSpawnArgsTests {
     private func makeResult(setupCommand: String) -> CmuxExtensionWorktreeCreationResult {
@@ -57,14 +49,8 @@ struct ExtensionWorktreeSpawnArgsTests {
     }
 }
 
-/// Coverage for https://github.com/manaflow-ai/cmux/issues/6510 — worktree
-/// management (delete + "open terminal inside") for the Project Worktrees
-/// sidebar. Pure decision/parse helpers are tested in isolation; the on-disk
-/// removal path is exercised end-to-end against a real temporary git repo.
 @Suite("Extension worktree management")
 struct ExtensionWorktreeManagementTests {
-    // MARK: - Open terminal inside (issue #5032 lesson)
-
     @Test("open-terminal args spawn an interactive shell, not a one-shot command")
     func openTerminalArgsKeepShellAlive() {
         let path = "/tmp/project/.cmux/worktrees/cmux-sidebar-123"
@@ -86,8 +72,6 @@ struct ExtensionWorktreeManagementTests {
         #expect(args.workingDirectory == "/tmp/project/.cmux/worktrees/wt")
         #expect(args.title == "wt")
     }
-
-    // MARK: - Managed worktree identity parsing
 
     @Test("managed worktree identity is parsed from a .cmux/worktrees path")
     func managedWorktreeIdentityParsesManagedPath() {
@@ -117,8 +101,6 @@ struct ExtensionWorktreeManagementTests {
             gitRootPath: "/Users/me/repo/.cmux/worktrees/"
         ) == nil)
     }
-
-    // MARK: - Removal safety / force decisions
 
     @Test("clean removals do not require force")
     func cleanRemovalDoesNotRequireForce() {
@@ -179,8 +161,6 @@ struct ExtensionWorktreeManagementTests {
         #expect(safety.requiresForce == false)
     }
 
-    // MARK: - Replacement workspace before closing the last tab
-
     @Test("a replacement workspace is needed only when removal empties the window")
     func replacementNeededWhenClosingEveryTab() {
         // Closing the only/all worktree tabs would empty the window.
@@ -191,8 +171,6 @@ struct ExtensionWorktreeManagementTests {
         // Nothing to close.
         #expect(!CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(totalWorkspaceCount: 2, closingCount: 0))
     }
-
-    // MARK: - Which tabs close on removal
 
     @Test("workspaces with any directory inside the removed worktree are selected to close")
     func workspaceSelectionMatchesAnyWorktreeDirectory() {
@@ -255,8 +233,6 @@ struct ExtensionWorktreeManagementTests {
         #expect(plans[1].needsReplacement == false)
     }
 
-    // MARK: - On-disk removal (real git)
-
     @Test("removing a clean worktree deletes it from disk and from git")
     func removeCleanWorktreeRemovesFromDiskAndGit() async throws {
         let repo = try GitFixture.makeRepo()
@@ -306,6 +282,26 @@ struct ExtensionWorktreeManagementTests {
         )
         #expect(confirmed)
         #expect(confirmationText.contains("ignored.log"))
+    }
+
+    @Test("failed force-removal preview does not claim no paths were found")
+    @MainActor
+    func forcePreviewFailureOmitsEmptyPreviewCopy() {
+        var confirmationText = ""
+        let confirmed = confirmForceRemoveExtensionWorktreeAfterFailure(
+            worktreeName: "failed-wt",
+            message: "git refused",
+            previewPaths: [],
+            previewTruncated: false,
+            previewScanFailed: true,
+            alertRunner: { alert in
+                confirmationText = alert.informativeText
+                return .alertFirstButtonReturn
+            }
+        )
+        #expect(confirmed)
+        #expect(confirmationText.contains("could not fully preview"))
+        #expect(!confirmationText.contains("did not find changed"))
     }
 
     @Test("a dirty worktree is guarded: removal needs an explicit force")

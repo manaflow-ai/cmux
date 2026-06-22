@@ -262,7 +262,8 @@ func confirmForceRemoveExtensionWorktreeAfterFailure(
     message: String,
     previewPaths: [String],
     previewTruncated: Bool,
-    previewScanFailed: Bool
+    previewScanFailed: Bool,
+    alertRunner: ((NSAlert) -> NSApplication.ModalResponse)? = nil
 ) -> Bool {
     let alert = NSAlert()
     alert.messageText = String(
@@ -280,7 +281,7 @@ func confirmForceRemoveExtensionWorktreeAfterFailure(
             defaultValue: "cmux could not fully preview the paths that removal may delete."
         ))
     }
-    if previewPaths.isEmpty {
+    if previewPaths.isEmpty && !previewScanFailed {
         lines.append(String(
             localized: "dialog.removeWorktree.force.preview.empty",
             defaultValue: "The bounded preview did not find changed, ignored, or nested-repository paths beyond the worktree itself."
@@ -331,7 +332,8 @@ func confirmForceRemoveExtensionWorktreeAfterFailure(
         cancelButton.keyEquivalent = "\u{1b}"
     }
 
-    return runCmuxModalAlert(alert) == .alertFirstButtonReturn
+    let response = alertRunner?(alert) ?? runCmuxModalAlert(alert)
+    return response == .alertFirstButtonReturn
 }
 
 /// Surfaces a worktree-removal failure (e.g. git refused the operation).

@@ -218,7 +218,7 @@ enum CmuxExtensionWorktreePrototype {
             if headBranch.status != 0 {
                 let localRefsContainingHead = try await runGitTrimmed(
                     ["-C", worktree, "for-each-ref", "--count=1", "--contains", "HEAD", "--format=%(refname)", "refs/heads", "refs/tags"],
-                    failureDescription: "Could not inspect local refs containing HEAD."
+                    failureDescription: errorDescription("extensionWorktree.error.inspectLocalRefs", "Could not inspect local refs containing HEAD.")
                 )
                 hasUnreferencedDetachedHead = localRefsContainingHead.isEmpty
             }
@@ -229,13 +229,13 @@ enum CmuxExtensionWorktreePrototype {
             // `rev-list --not --remotes` count the entire local history.
             let remoteRefs = try await runGitTrimmed(
                 ["-C", worktree, "for-each-ref", "--count=1", "--format=%(refname)", "refs/remotes"],
-                failureDescription: "Could not list git remote refs."
+                failureDescription: errorDescription("extensionWorktree.error.listRemoteRefs", "Could not list git remote refs.")
             )
             var unpushedCommitCount = 0
             if !remoteRefs.isEmpty {
                 let revOutput = try await runGitTrimmed(
                     ["-C", worktree, "rev-list", "--count", "HEAD", "--not", "--remotes"],
-                    failureDescription: "Could not count unpushed commits."
+                    failureDescription: errorDescription("extensionWorktree.error.unpushedCommitCount", "Could not count unpushed commits.")
                 )
                 unpushedCommitCount = Int(revOutput) ?? 0
             }
@@ -261,7 +261,7 @@ enum CmuxExtensionWorktreePrototype {
                 throw NSError(
                     domain: "CmuxExtensionWorktreePrototype",
                     code: 3,
-                    userInfo: [NSLocalizedDescriptionKey: "Could not resolve the parent repository."]
+                    userInfo: [NSLocalizedDescriptionKey: errorDescription("extensionWorktree.error.parentRepository", "Could not resolve the parent repository.")]
                 )
             }
             let parentRepo = identity.parentRepoPath
@@ -270,7 +270,10 @@ enum CmuxExtensionWorktreePrototype {
             var removeArgs = ["-C", parentRepo, "worktree", "remove"]
             if force { removeArgs.append("--force") }
             removeArgs.append(worktreeToRemove)
-            _ = try await runGitTrimmed(removeArgs, failureDescription: "Could not remove the worktree.")
+            _ = try await runGitTrimmed(
+                removeArgs,
+                failureDescription: errorDescription("extensionWorktree.error.remove", "Could not remove the worktree.")
+            )
 
             // Prune stale administrative entries in the parent repository.
             // The branch itself is deliberately NOT deleted: the confirmation
@@ -289,7 +292,7 @@ enum CmuxExtensionWorktreePrototype {
         throw NSError(
             domain: "CmuxExtensionWorktreePrototype",
             code: 1,
-            userInfo: [NSLocalizedDescriptionKey: "Project root is not a git repository."]
+            userInfo: [NSLocalizedDescriptionKey: errorDescription("extensionWorktree.error.projectRootNotGitRepository", "Project root is not a git repository.")]
         )
     }
 
@@ -301,7 +304,7 @@ enum CmuxExtensionWorktreePrototype {
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",
                 code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "Could not resolve git exclude file."]
+                userInfo: [NSLocalizedDescriptionKey: errorDescription("extensionWorktree.error.gitExcludeFile", "Could not resolve git exclude file.")]
             )
         }
 
@@ -356,7 +359,7 @@ enum CmuxExtensionWorktreePrototype {
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",
                 code: Int(trackedStatus),
-                userInfo: [NSLocalizedDescriptionKey: "Could not inspect tracked changes."]
+                userInfo: [NSLocalizedDescriptionKey: errorDescription("extensionWorktree.error.inspectTrackedChanges", "Could not inspect tracked changes.")]
             )
         }
 
@@ -368,27 +371,28 @@ enum CmuxExtensionWorktreePrototype {
         throw NSError(
             domain: "CmuxExtensionWorktreePrototype",
             code: Int(untrackedStatus),
-            userInfo: [NSLocalizedDescriptionKey: "Could not inspect untracked files."]
+            userInfo: [NSLocalizedDescriptionKey: errorDescription("extensionWorktree.error.inspectUntrackedFiles", "Could not inspect untracked files.")]
         )
     }
 
     private static func runCapturingOutput(
         _ executable: String,
         _ arguments: [String],
-        failureDescription: String = "Could not create worktree."
+        failureDescription: String? = nil
     ) async throws -> Data {
         let result = await runProcess(executable, arguments)
         guard result.status == 0 else {
             var output = result.stdout
             output.append(result.stderr)
-            let details = String(data: output, encoding: .utf8) ?? "command failed"
+            let details = String(data: output, encoding: .utf8) ?? errorDescription("extensionWorktree.error.commandFailedDetails", "Command failed.")
+            let description = failureDescription ?? errorDescription("extensionWorktree.error.create", "Could not create worktree.")
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",
                 code: Int(result.status),
                 userInfo: [
-                    NSLocalizedDescriptionKey: failureDescription.isEmpty
-                        ? "Git command failed."
-                        : failureDescription,
+                    NSLocalizedDescriptionKey: description.isEmpty
+                        ? errorDescription("extensionWorktree.error.gitCommandFailed", "Git command failed.")
+                        : description,
                     "CmuxExtensionWorktreePrototypeDetails": details
                 ]
             )
@@ -406,6 +410,8 @@ enum CmuxExtensionWorktreePrototype {
         let data = try await runCapturingOutput("git", arguments, failureDescription: failureDescription)
         return (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    private static func errorDescription(_ key: StaticString, _ defaultValue: String.LocalizationValue) -> String { String(localized: key, defaultValue: defaultValue) }
 
     /// Runs `git` without throwing, returning the exit status and trimmed stdout.
     /// Used for best-effort cleanup (prune, branch -d) and optional probes
