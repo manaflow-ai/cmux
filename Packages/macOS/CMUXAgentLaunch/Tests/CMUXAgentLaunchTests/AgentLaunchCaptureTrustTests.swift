@@ -63,6 +63,27 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
                 kind: "claude"
             )
         )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "grok-macos-aarch64",
+                arguments: ["/Users/alice/.local/bin/grok-macos-aarch64", "-r", "session"],
+                kind: "grok"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "kiro-cli",
+                arguments: ["/Users/alice/.cargo/bin/kiro-cli", "chat"],
+                kind: "kiro"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "acme-agent",
+                arguments: ["/Users/alice/bin/acme-agent", "--session", "native-session"],
+                kind: "acme-agent"
+            )
+        )
         XCTAssertFalse(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "cmux DEV",
@@ -80,7 +101,7 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
                 kind: "claude"
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "agy",
                 arguments: ["/usr/local/bin/agy"],

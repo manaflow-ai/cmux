@@ -10,17 +10,30 @@ import Foundation
 /// capture verbatim poisons resume/fork for the session — the rendered command
 /// runs the wrong binary with the wrong flags.
 public enum AgentLaunchCaptureTrust {
-    private enum NativeProcessKind {
-        case codex
-        case claude
-    }
-
     /// Wrapper launchers that legitimately differ from the hook kind they launch.
     private static let wrapperLaunchersByKind: [String: Set<String>] = [
         "claude": ["claudeteams"],
         "codex": ["codexteams"],
         "opencode": ["omo", "omx", "omc"],
         "pi": ["omp"],
+    ]
+
+    private static let nativeProcessAliasesByKind: [String: Set<String>] = [
+        "antigravity": ["agy"],
+        "claude": ["claude"],
+        "codex": ["codex"],
+        "codebuddy": ["codebuddy"],
+        "copilot": ["copilot"],
+        "cursor": ["cursor-agent", "cursor"],
+        "factory": ["droid", "factory"],
+        "gemini": ["gemini"],
+        "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+        "kiro": ["kiro", "kiro-cli"],
+        "omp": ["omp"],
+        "opencode": ["opencode", "omo", "omx", "omc"],
+        "pi": ["pi", "omp"],
+        "qoder": ["qodercli", "qoder"],
+        "rovodev": ["rovodev", "rovo", "rovo-dev"],
     ]
 
     /// True when `launcher` plausibly describes a launch of agent `kind`.
@@ -71,37 +84,40 @@ public enum AgentLaunchCaptureTrust {
         arguments: [String]?,
         kind: String
     ) -> Bool {
-        guard let expectedKind = nativeProcessKind(for: kind),
+        guard let expectedKind = normalizedAgentName(kind),
               let arguments else {
             return false
         }
-        return nativeProcessKind(processName: processName, arguments: arguments) == expectedKind
+        return nativeProcessDescriptors(processName: processName, arguments: arguments).contains { descriptor in
+            descriptor == expectedKind
+                || nativeProcessAliasesByKind[expectedKind]?.contains(descriptor) == true
+                || descriptor == "\(expectedKind)-cli"
+        }
     }
 
     public static func nativeProcessDescribesKnownAgent(
         processName: String?,
         arguments: [String]
     ) -> Bool {
-        nativeProcessKind(processName: processName, arguments: arguments) != nil
-    }
-
-    private static func nativeProcessKind(for hookKind: String) -> NativeProcessKind? {
-        switch hookKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "codex":
-            return .codex
-        case "claude":
-            return .claude
-        default:
-            return nil
+        let knownNames = Set(nativeProcessAliasesByKind.keys).union(nativeProcessAliasesByKind.values.flatMap { $0 })
+        return nativeProcessDescriptors(processName: processName, arguments: arguments).contains { descriptor in
+            knownNames.contains(descriptor)
         }
     }
 
-    private static func nativeProcessKind(
+    private static func nativeProcessDescriptors(
         processName: String?,
         arguments: [String]
-    ) -> NativeProcessKind? {
+    ) -> Set<String> {
+        var descriptors = Set<String>()
         let nameBase = processBasename(processName)
         let executableBase = processBasename(arguments.first)
+        if let nameBase {
+            descriptors.insert(nameBase)
+        }
+        if let executableBase {
+            descriptors.insert(executableBase)
+        }
         if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
             if arguments.dropFirst().contains(where: { argument in
                 let lowered = argument.lowercased()
@@ -109,19 +125,27 @@ public enum AgentLaunchCaptureTrust {
                     || lowered.contains("/.claude/")
                     || lowered.contains("/claude/versions/")
             }) {
-                return .claude
+                descriptors.insert("claude")
             }
-            return nil
+            return descriptors
         }
 
         let executable = arguments.first?.lowercased() ?? ""
         if nameBase == "codex" || executableBase == "codex" || executable.contains("/codex/codex") {
-            return .codex
+            descriptors.insert("codex")
         }
         if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
-            return .claude
+            descriptors.insert("claude")
         }
-        return nil
+        return descriptors
+    }
+
+    private static func normalizedAgentName(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return value.lowercased()
     }
 
     private static func processBasename(_ value: String?) -> String? {
