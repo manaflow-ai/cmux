@@ -1679,7 +1679,7 @@ struct ContentView: View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
-            windowId: windowId,
+            windowId: windowId, sidebarWidth: sidebarWidth,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
@@ -2110,7 +2110,7 @@ struct ContentView: View {
                 }
 
                 Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
+                    .cmuxFont(size: 13, weight: .bold)
                     .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
                     .lineLimit(1)
                     .allowsHitTesting(false)
@@ -2226,7 +2226,7 @@ struct ContentView: View {
         }
     }
 
-    private func updateTitlebarText() {
+    @MainActor private func updateTitlebarText() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             if !titlebarText.isEmpty {
@@ -2241,7 +2241,7 @@ struct ContentView: View {
         }
     }
 
-    private func scheduleTitlebarTextRefresh() {
+    @MainActor private func scheduleTitlebarTextRefresh() {
         titlebarTextUpdateCoalescer.signal {
             updateTitlebarText()
         }
@@ -2644,8 +2644,13 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
-            guard GhosttyTitleChange(notification: notification)?.tabId == tabManager.selectedTabId else { return }
+            guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: GhosttyTitleChange(notification: notification)?.tabId) else { return }
             scheduleTitlebarTextRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange, object: tabManager)) { notification in
+            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID, workspaceId == tabManager.selectedTabId, !tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspaceId) else { return }
+            updateTitlebarText()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
@@ -3567,7 +3572,7 @@ struct ContentView: View {
         case .singleLine(let accessibilityIdentifier, let focus, let onDeleteBackward):
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13, weight: .regular))
+                .cmuxFont(size: 13, weight: .regular)
                 .tint(Color(nsColor: sidebarActiveForegroundNSColor(opacity: 1.0)))
                 .focused(focus)
                 .accessibilityIdentifier(accessibilityIdentifier)
@@ -3616,7 +3621,7 @@ struct ContentView: View {
             Divider()
 
             Text(renameInputHintText(target: target))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -3648,7 +3653,7 @@ struct ContentView: View {
 
         return VStack(spacing: 0) {
             Text(nextName)
-                .font(.system(size: 13, weight: .regular))
+                .cmuxFont(size: 13, weight: .regular)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 9)
@@ -3657,7 +3662,7 @@ struct ContentView: View {
             Divider()
 
             Text(renameConfirmHintText(target: target))
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -3706,7 +3711,7 @@ struct ContentView: View {
             Divider()
 
             Text(target.inputHint)
-                .font(.system(size: 11))
+                .cmuxFont(size: 11)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -3783,6 +3788,7 @@ struct ContentView: View {
         let onEscape: () -> Void
         let onMoveSelection: (Int) -> Void
         let onUnhandledNavigationKey: (NSEvent) -> Bool
+        @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
         @MainActor final class Coordinator: NSObject, NSTextFieldDelegate {
             var parent: CommandPaletteSearchFieldRepresentable
@@ -3906,7 +3912,7 @@ struct ContentView: View {
 
         func makeNSView(context: Context) -> CommandPaletteNativeTextField {
             let field = CommandPaletteNativeTextField(frame: .zero)
-            field.font = .systemFont(ofSize: 13)
+            field.font = GlobalFontMagnification.systemFont(ofSize: 13)
             field.placeholderString = placeholder
             field.setAccessibilityIdentifier("CommandPaletteSearchField")
             field.delegate = context.coordinator
@@ -3925,6 +3931,7 @@ struct ContentView: View {
             context.coordinator.parent = self
             context.coordinator.parentField = nsView
             nsView.placeholderString = placeholder
+            nsView.font = GlobalFontMagnification.systemFont(ofSize: 13)
 
             if let editor = nsView.currentEditor() as? NSTextView {
                 context.coordinator.attachEditorTextDidChangeObserverIfNeeded(editor)
@@ -4106,16 +4113,19 @@ struct ContentView: View {
     }
 
     private final class CommandPaletteMultilineTextEditorView: NSView {
-        private static let font = NSFont.systemFont(ofSize: 13)
+        private static var font: NSFont {
+            GlobalFontMagnification.systemFont(ofSize: 13)
+        }
         private static let textInset = NSSize(width: 0, height: 2)
-        static let defaultMinimumHeight: CGFloat = {
+        static var defaultMinimumHeight: CGFloat {
             let lineHeight = ceil(font.ascender - font.descender + font.leading)
             return lineHeight * 5 + textInset.height * 2
-        }()
+        }
 
         private let scrollView = NSScrollView(frame: .zero)
         let textView = CommandPaletteMultilineTextView(frame: .zero)
         private let placeholderField = CommandPalettePassthroughLabel(labelWithString: "")
+        private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
         var onMeasuredHeightChange: ((CGFloat) -> Void)?
         private var lastReportedHeight: CGFloat?
         var maximumHeight: CGFloat = .greatestFiniteMagnitude {
@@ -4151,7 +4161,7 @@ struct ContentView: View {
             textView.isVerticallyResizable = true
             textView.backgroundColor = .clear
             textView.drawsBackground = false
-            textView.font = Self.font
+            applyFonts()
             textView.textColor = .labelColor
             textView.insertionPointColor = .labelColor
             textView.textContainerInset = Self.textInset
@@ -4166,7 +4176,6 @@ struct ContentView: View {
             scrollView.documentView = textView
 
             placeholderField.translatesAutoresizingMaskIntoConstraints = false
-            placeholderField.font = Self.font
             placeholderField.textColor = .secondaryLabelColor
             placeholderField.lineBreakMode = .byWordWrapping
             placeholderField.maximumNumberOfLines = 0
@@ -4178,6 +4187,10 @@ struct ContentView: View {
                 name: NSText.didChangeNotification,
                 object: textView
             )
+            fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+                self?.applyFonts()
+                self?.refreshMetrics()
+            }
 
             NSLayoutConstraint.activate([
                 scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -4199,6 +4212,13 @@ struct ContentView: View {
 
         deinit {
             NotificationCenter.default.removeObserver(self)
+        }
+
+        private func applyFonts() {
+            let font = Self.font
+            textView.font = font
+            placeholderField.font = font
+            textView.minSize = NSSize(width: 0, height: Self.defaultMinimumHeight)
         }
 
         override func layout() {
@@ -4311,7 +4331,9 @@ struct ContentView: View {
     }
 
     private struct CommandPaletteMultilineTextEditorRepresentable: NSViewRepresentable {
-        static let defaultMinimumHeight = CommandPaletteMultilineTextEditorView.defaultMinimumHeight
+        static var defaultMinimumHeight: CGFloat {
+            CommandPaletteMultilineTextEditorView.defaultMinimumHeight
+        }
 
         let placeholder: String
         let accessibilityLabel: String
@@ -4322,6 +4344,7 @@ struct ContentView: View {
         let maxHeight: CGFloat
         let onSubmit: (String) -> Void
         let onEscape: () -> Void
+        @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
 
         final class Coordinator: NSObject, NSTextViewDelegate {
             var parent: CommandPaletteMultilineTextEditorRepresentable
@@ -5192,7 +5215,7 @@ struct ContentView: View {
             switch trailingLabel.style {
             case .shortcut:
                 Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 4)
                     .padding(.vertical, 1)
@@ -5202,7 +5225,7 @@ struct ContentView: View {
                     )
             case .kind:
                 Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .regular))
+                    .cmuxFont(size: 11, weight: .regular)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -5219,7 +5242,7 @@ struct ContentView: View {
                 title,
                 matchedIndices: matchedIndices
             )
-                .font(.system(size: 13, weight: .regular))
+                .cmuxFont(size: 13, weight: .regular)
                 .lineLimit(1)
             Spacer()
             commandPaletteRenderTrailingLabelView(trailingLabel)
@@ -9988,6 +10011,7 @@ struct VerticalTabsSidebar: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
+    let sidebarWidth: CGFloat
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
@@ -10357,7 +10381,7 @@ struct VerticalTabsSidebar: View {
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
-        let tabItemSettings: SidebarTabItemSettingsSnapshot
+        let tabItemSettings: SidebarTabItemSettingsSnapshot, sidebarWidth: CGFloat
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
         let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
@@ -10419,7 +10443,7 @@ struct VerticalTabsSidebar: View {
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
-            tabItemSettings: tabItemSettings,
+            tabItemSettings: tabItemSettings, sidebarWidth: sidebarWidth,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
@@ -11340,10 +11364,10 @@ struct VerticalTabsSidebar: View {
             Button(action: onNewTab) {
                 HStack(spacing: 9) {
                     Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .regular))
+                        .cmuxFont(size: 15, weight: .regular)
                         .frame(width: 22, height: 22)
                     Text(String(localized: "sidebar.browserStack.newTab", defaultValue: "New Tab"))
-                        .font(.system(size: 13, weight: .regular))
+                        .cmuxFont(size: 13, weight: .regular)
                     Spacer(minLength: 0)
                 }
                 .foregroundColor(.secondary)
@@ -11377,14 +11401,14 @@ struct VerticalTabsSidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Image(systemName: "folder.fill")
-                    .font(.system(size: 14, weight: .regular))
+                    .cmuxFont(size: 14, weight: .regular)
                     .foregroundColor(.secondary)
                 Text(extensionSidebarTreeSectionTitle(section.treeSection))
-                    .font(.system(size: 13, weight: .semibold))
+                    .cmuxFont(size: 13, weight: .semibold)
                     .foregroundColor(.primary.opacity(0.86))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .foregroundColor(.secondary)
                 Spacer(minLength: 0)
             }
@@ -11501,14 +11525,14 @@ struct VerticalTabsSidebar: View {
             HStack(spacing: 9) {
                 extensionBrowserStackIcon(row.leadingIcon, size: compact ? 22 : 24)
                 Text(row.title)
-                    .font(.system(size: compact ? 12.5 : 13, weight: .medium))
+                    .cmuxFont(size: compact ? 12.5 : 13, weight: .medium)
                     .foregroundColor(isSelected ? .primary : .primary.opacity(0.82))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
                 if let trailing = extensionSidebarRenderedText(row.trailingText, now: now) {
                     Text(trailing)
-                        .font(.system(size: 11, weight: .regular))
+                        .cmuxFont(size: 11, weight: .regular)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                 }
@@ -11677,11 +11701,11 @@ struct VerticalTabsSidebar: View {
             }
             if let systemImageName = icon?.systemImageName {
                 Image(systemName: systemImageName)
-                    .font(.system(size: size * 0.58, weight: .semibold))
+                    .cmuxFont(size: size * 0.58, weight: .semibold)
                     .foregroundColor(foreground)
             } else {
                 Text(icon?.text ?? ".")
-                    .font(.system(size: size * 0.58, weight: .bold))
+                    .cmuxFont(size: size * 0.58, weight: .bold)
                     .foregroundColor(foreground)
             }
         }
@@ -11736,14 +11760,14 @@ struct VerticalTabsSidebar: View {
                     }
                 } label: {
                     Image(systemName: isCollapsed ? "folder" : "folder.fill")
-                        .font(.system(size: 13, weight: .regular))
+                        .cmuxFont(size: 13, weight: .regular)
                         .offset(y: -0.5)
                 }
                 .buttonStyle(.plain)
                 .safeHelp(String(localized: "sidebar.extension.toggleSection", defaultValue: "Toggle section"))
 
                 Text(extensionSidebarTreeSectionTitle(section.treeSection))
-                    .font(.system(size: 12, weight: .regular))
+                    .cmuxFont(size: 12, weight: .regular)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -11755,7 +11779,7 @@ struct VerticalTabsSidebar: View {
                         createExtensionWorktreeWorkspace(for: section.treeSection)
                     } label: {
                         Image(systemName: extensionSidebarWorktreeCreationInFlightSectionIds.contains(section.id) ? "clock" : "plus")
-                            .font(.system(size: 11, weight: .regular))
+                            .cmuxFont(size: 11, weight: .regular)
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
@@ -12121,6 +12145,7 @@ struct VerticalTabsSidebar: View {
             )
         }
 
+        let rowSidebarWidth = renderContext.sidebarWidth - (tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12136,7 +12161,7 @@ struct VerticalTabsSidebar: View {
             unreadCount: liveUnreadCount,
             hasMemoryWarning: liveHasMemoryWarning,
             latestNotificationText: liveLatestNotificationText,
-            rowSpacing: tabRowSpacing,
+            rowSpacing: tabRowSpacing, sidebarWidth: rowSidebarWidth,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -12416,7 +12441,7 @@ private struct SidebarFooterButtons: View {
                 } label: {
                     Image(systemName: "puzzlepiece.extension")
                         .symbolRenderingMode(.monochrome)
-                        .font(.system(size: 12, weight: .medium))
+                        .cmuxFont(size: 12, weight: .medium)
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .frame(width: 22, height: 22, alignment: .center)
                 }
@@ -12586,7 +12611,7 @@ private struct SidebarHelpMenuButton: View {
         } label: {
             HStack(spacing: 8) {
                 Text(title)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                 Spacer(minLength: 0)
                 if let shortcutHint {
                     helpOptionShortcutHint(text: shortcutHint)
@@ -12610,7 +12635,7 @@ private struct SidebarHelpMenuButton: View {
         Text(text)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .font(.system(size: 10, weight: .regular, design: .rounded))
+            .cmuxFont(size: 10, weight: .regular, design: .rounded)
             .monospacedDigit()
             .foregroundStyle(Color(nsColor: .secondaryLabelColor))
     }
@@ -12722,7 +12747,7 @@ private struct SidebarDevFooter: View {
             SidebarFooterButtons(updateViewModel: updateViewModel, fileExplorerState: fileExplorerState, onSendFeedback: onSendFeedback)
             if showSidebarDevBuildBanner {
                 Text(String(localized: "debug.devBuildBanner.title", defaultValue: "THIS IS A DEV BUILD"))
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .foregroundColor(.red)
             }
         }
@@ -12910,6 +12935,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
         let finderDirectoryPath: String?
+        let mediaActivity: BrowserMediaActivity
     }
 }
 
@@ -12934,7 +12960,7 @@ struct TabItemView: View, Equatable {
         lhs.unreadCount == rhs.unreadCount &&
         lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
-        lhs.rowSpacing == rhs.rowSpacing &&
+        lhs.rowSpacing == rhs.rowSpacing && lhs.sidebarWidth == rhs.sidebarWidth &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
@@ -12965,7 +12991,7 @@ struct TabItemView: View, Equatable {
     /// the orange warning badge alongside the unread badge.
     let hasMemoryWarning: Bool
     let latestNotificationText: String?
-    let rowSpacing: CGFloat
+    let rowSpacing: CGFloat, sidebarWidth: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -12980,9 +13006,9 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
+    /// Factory invoked from `body` with a stable drop-hit height. Closure
     /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference (snapshot-boundary rule).
+    /// `@Observable` store reference or layout-driven state (snapshot-boundary rule).
     let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
@@ -13002,10 +13028,10 @@ struct TabItemView: View, Equatable {
     @State private var observedIsActive: Bool?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var rowHeight: CGFloat = 1
+    @State private var metadataRowsExpanded = false
+    @State private var metadataBlocksExpanded = false
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
-    private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
     var isMultiSelected: Bool {
@@ -13238,18 +13264,6 @@ struct TabItemView: View, Equatable {
         }
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
-    }
-
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -13257,7 +13271,7 @@ struct TabItemView: View, Equatable {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(remoteWorkspaceSidebarText)
-                        .font(.system(size: scaledFontSize(10), design: .monospaced))
+                        .cmuxFont(size: scaledFontSize(10), design: .monospaced)
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -13265,7 +13279,7 @@ struct TabItemView: View, Equatable {
                     Spacer(minLength: 0)
 
                     Text(workspaceSnapshot.remoteConnectionStatusText)
-                        .font(.system(size: scaledFontSize(9), weight: .medium))
+                        .cmuxFont(size: scaledFontSize(9), weight: .medium)
                         .foregroundColor(activeSecondaryColor(0.58))
                         .lineLimit(1)
 
@@ -13278,7 +13292,7 @@ struct TabItemView: View, Equatable {
                                 systemImage: "arrow.clockwise"
                             )
                             .labelStyle(.titleAndIcon)
-                            .font(.system(size: scaledFontSize(9), weight: .semibold))
+                            .cmuxFont(size: scaledFontSize(9), weight: .semibold)
                         }
                         .buttonStyle(.borderless)
                         .foregroundColor(activeSecondaryColor(0.9))
@@ -13327,6 +13341,18 @@ struct TabItemView: View, Equatable {
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
             defaultValue: "Pinned workspace. Closing requires confirmation."
         )
+        let audioPlayingTooltip = String(
+            localized: "sidebar.mediaActivity.audio.tooltip",
+            defaultValue: "Playing audio"
+        )
+        let microphoneInUseTooltip = String(
+            localized: "sidebar.mediaActivity.microphone.tooltip",
+            defaultValue: "Microphone in use"
+        )
+        let cameraInUseTooltip = String(
+            localized: "sidebar.mediaActivity.camera.tooltip",
+            defaultValue: "Camera in use"
+        )
         let closeButtonTooltip = workspaceSnapshot.isPinned
             ? protectedWorkspaceTooltip
             : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
@@ -13341,10 +13367,19 @@ struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
+        let titleLineLimit = settings.wrapsWorkspaceTitles ? SidebarWorkspaceRowDropMetrics.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
+        )
+        let dropTargetHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
+            snapshot: workspaceSnapshot,
+            settings: settings,
+            effectiveSubtitle: effectiveSubtitle,
+            metadataEntryIsExpanded: metadataRowsExpanded,
+            metadataBlocksAreExpanded: metadataBlocksExpanded,
+            sidebarWidth: sidebarWidth, unreadCount: unreadCount,
+            hasMemoryWarning: hasMemoryWarning, canCloseWorkspace: canCloseWorkspace
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
@@ -13360,7 +13395,7 @@ struct TabItemView: View, Equatable {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
                         Text("\(unreadCount)")
-                            .font(.system(size: scaledFontSize(9), weight: .semibold))
+                            .cmuxFont(size: scaledFontSize(9), weight: .semibold)
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
@@ -13368,7 +13403,7 @@ struct TabItemView: View, Equatable {
 
                 if hasMemoryWarning {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: scaledFontSize(11), weight: .semibold))
+                        .cmuxFont(size: scaledFontSize(11), weight: .semibold)
                         .foregroundColor(.orange)
                         .safeHelp(String(
                             localized: "sidebar.memoryWarning.tooltip",
@@ -13382,13 +13417,41 @@ struct TabItemView: View, Equatable {
 
                 if workspaceSnapshot.isPinned {
                     Image(systemName: "pin.fill")
-                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .cmuxFont(size: scaledFontSize(9), weight: .semibold)
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
+                // Chrome-style media-activity glyphs: a noisy or capturing
+                // background browser pane is surfaced on its workspace row,
+                // styled like the pin indicator. Audio is the must-have signal;
+                // mic/camera follow the macOS orange/green convention.
+                if workspaceSnapshot.mediaActivity.isPlayingAudio {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(audioPlayingTooltip)
+                        .accessibilityLabel(audioPlayingTooltip)
+                }
+
+                if workspaceSnapshot.mediaActivity.isUsingMicrophone {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(.orange)
+                        .safeHelp(microphoneInUseTooltip)
+                        .accessibilityLabel(microphoneInUseTooltip)
+                }
+
+                if workspaceSnapshot.mediaActivity.isUsingCamera {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(.green)
+                        .safeHelp(cameraInUseTooltip)
+                        .accessibilityLabel(cameraInUseTooltip)
+                }
+
                 Text(displayedTitle)
-                    .font(.system(size: scaledFontSize(12.5), weight: titleFontWeight))
+                    .cmuxFont(size: scaledFontSize(12.5), weight: titleFontWeight)
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(titleLineLimit)
                     .truncationMode(.tail)
@@ -13433,7 +13496,7 @@ struct TabItemView: View, Equatable {
 
             if let subtitle = effectiveSubtitle {
                 Text(subtitle)
-                    .font(.system(size: scaledFontSize(10)))
+                    .cmuxFont(size: scaledFontSize(10))
                     .foregroundColor(activeSecondaryColor(0.8))
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -13448,6 +13511,7 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
+                        isExpanded: $metadataRowsExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13459,6 +13523,7 @@ struct TabItemView: View, Equatable {
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
+                        isExpanded: $metadataBlocksExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.8),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13472,10 +13537,10 @@ struct TabItemView: View, Equatable {
             if detailVisibility.showsLog, let latestLog = workspaceSnapshot.latestLog {
                 HStack(spacing: 4) {
                     Image(systemName: logLevelIcon(latestLog.level))
-                        .font(.system(size: scaledFontSize(8)))
+                        .cmuxFont(size: scaledFontSize(8))
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
-                        .font(.system(size: scaledFontSize(10)))
+                        .cmuxFont(size: scaledFontSize(10))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -13498,7 +13563,7 @@ struct TabItemView: View, Equatable {
 
                     if let label = progress.label {
                         Text(label)
-                            .font(.system(size: scaledFontSize(9)))
+                            .cmuxFont(size: scaledFontSize(9))
                             .foregroundColor(activeSecondaryColor(0.6))
                             .lineLimit(1)
                     }
@@ -13513,7 +13578,7 @@ struct TabItemView: View, Equatable {
                         HStack(alignment: .top, spacing: 3) {
                             if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
                                 Image(systemName: "arrow.triangle.branch")
-                                    .font(.system(size: scaledFontSize(9)))
+                                    .cmuxFont(size: scaledFontSize(9))
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
                             VStack(alignment: .leading, spacing: 1) {
@@ -13521,7 +13586,7 @@ struct TabItemView: View, Equatable {
                                     if sidebarStacksBranchAndDirectory {
                                         if let branch = line.branch {
                                             Text(branch)
-                                                .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                                .cmuxFont(size: scaledFontSize(10), design: .monospaced)
                                                 .foregroundColor(activeSecondaryColor(0.75))
                                                 .lineLimit(1)
                                                 .truncationMode(.tail)
@@ -13537,14 +13602,14 @@ struct TabItemView: View, Equatable {
                                         HStack(spacing: 3) {
                                             if let branch = line.branch {
                                                 Text(branch)
-                                                    .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                                    .cmuxFont(size: scaledFontSize(10), design: .monospaced)
                                                     .foregroundColor(activeSecondaryColor(0.75))
                                                     .lineLimit(1)
                                                     .truncationMode(.tail)
                                             }
                                             if line.branch != nil, !line.directoryCandidates.isEmpty {
                                                 Image(systemName: "circle.fill")
-                                                    .font(.system(size: scaledFontSize(3)))
+                                                    .cmuxFont(size: scaledFontSize(3))
                                                     .foregroundColor(activeSecondaryColor(0.6))
                                                     .padding(.horizontal, 1)
                                             }
@@ -13567,13 +13632,13 @@ struct TabItemView: View, Equatable {
                     HStack(alignment: .top, spacing: 3) {
                         if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
                             Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: scaledFontSize(9)))
+                                .cmuxFont(size: scaledFontSize(9))
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
                         VStack(alignment: .leading, spacing: 1) {
                             if let branchRow = workspaceSnapshot.compactGitBranchSummaryText {
                                 Text(branchRow)
-                                    .font(.system(size: scaledFontSize(10), design: .monospaced))
+                                    .cmuxFont(size: scaledFontSize(10), design: .monospaced)
                                     .foregroundColor(activeSecondaryColor(0.75))
                                     .lineLimit(1)
                                     .truncationMode(.tail)
@@ -13591,7 +13656,7 @@ struct TabItemView: View, Equatable {
                     HStack(spacing: 3) {
                         if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
                             Image(systemName: "arrow.triangle.branch")
-                                .font(.system(size: scaledFontSize(9)))
+                                .cmuxFont(size: scaledFontSize(9))
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
                         SidebarDirectoryText(
@@ -13619,7 +13684,7 @@ struct TabItemView: View, Equatable {
                             Text(pullRequestStatusLabel(pullRequest.status)).lineLimit(1)
                             Spacer(minLength: 0)
                         }
-                        .font(.system(size: scaledFontSize(10), weight: .semibold))
+                        .cmuxFont(size: scaledFontSize(10), weight: .semibold)
                         .foregroundColor(pullRequestForegroundColor)
                         .opacity(pullRequest.isStale ? 0.5 : 1)
                         if settings.makesPullRequestsClickable {
@@ -13652,7 +13717,7 @@ struct TabItemView: View, Equatable {
                     }
                     Spacer(minLength: 0)
                 }
-                .font(.system(size: scaledFontSize(10), design: .monospaced))
+                .cmuxFont(size: scaledFontSize(10), design: .monospaced)
                 .foregroundColor(activeSecondaryColor(0.75))
                 .lineLimit(1)
             }
@@ -13692,7 +13757,6 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
@@ -13772,7 +13836,7 @@ struct TabItemView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(dropTargetHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -14447,7 +14511,8 @@ struct TabItemView: View, Equatable {
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
-            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab)
+            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
+            mediaActivity: tab.browserMediaActivity
         )
     }
 
@@ -14732,7 +14797,7 @@ struct TabItemView: View, Equatable {
                     .frame(width: customFrameSize, height: customFrameSize)
             case .closed:
                 Image(systemName: "xmark.circle")
-                    .font(.system(size: 7 * fontScale, weight: .regular))
+                    .cmuxFont(size: 7 * fontScale, weight: .regular)
                     .foregroundColor(color)
                     .frame(width: closedFrameSize, height: closedFrameSize)
             }
@@ -14896,7 +14961,7 @@ private struct SidebarWorkspaceDescriptionText: View {
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
-    private static let maxDisplayedLines = 12
+    private static let maxDisplayedLines = SidebarWorkspaceRowDropMetrics.maxDescriptionLines
     private static let maxDisplayedCharacters = 4096
 
     var body: some View {
@@ -14912,7 +14977,7 @@ private struct SidebarWorkspaceDescriptionText: View {
                 Text(displayMarkdown)
             }
         }
-        .font(.system(size: 10.5 * fontScale))
+        .cmuxFont(size: 10.5 * fontScale)
         .foregroundColor(foregroundColor)
         .multilineTextAlignment(.leading)
         .lineLimit(Self.maxDisplayedLines)
@@ -14993,14 +15058,12 @@ private extension String {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
+    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
-
-    @State private var isExpanded: Bool = false
-    private let collapsedEntryLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -15022,7 +15085,7 @@ private struct SidebarMetadataRows: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10 * fontScale, weight: .semibold))
+                .cmuxFont(size: 10 * fontScale, weight: .semibold)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -15031,8 +15094,10 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
-        return Array(entries.prefix(collapsedEntryLimit))
+        guard !isExpanded, entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit else {
+            return entries
+        }
+        return Array(entries.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit))
     }
 
     private var helpText: String {
@@ -15044,7 +15109,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > collapsedEntryLimit
+        entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit
     }
 }
 
@@ -15086,7 +15151,7 @@ private struct SidebarMetadataEntryRow: View {
                 .truncationMode(.tail)
             Spacer(minLength: 0)
         }
-        .font(.system(size: 10 * fontScale))
+        .cmuxFont(size: 10 * fontScale)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -15110,12 +15175,12 @@ private struct SidebarMetadataEntryRow: View {
         if iconRaw.hasPrefix("emoji:") {
             let value = String(iconRaw.dropFirst("emoji:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 9 * fontScale)))
+            return AnyView(Text(value).cmuxFont(size: 9 * fontScale))
         }
         if iconRaw.hasPrefix("text:") {
             let value = String(iconRaw.dropFirst("text:".count))
             guard !value.isEmpty else { return nil }
-            return AnyView(Text(value).font(.system(size: 8 * fontScale, weight: .semibold)))
+            return AnyView(Text(value).cmuxFont(size: 8 * fontScale, weight: .semibold))
         }
         let symbolName: String
         if iconRaw.hasPrefix("sf:") {
@@ -15149,14 +15214,12 @@ private struct SidebarMetadataEntryRow: View {
 
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
+    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
-
-    @State private var isExpanded: Bool = false
-    private let collapsedBlockLimit = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -15178,7 +15241,7 @@ private struct SidebarMetadataMarkdownBlocks: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(.system(size: 10 * fontScale, weight: .semibold))
+                .cmuxFont(size: 10 * fontScale, weight: .semibold)
                 .foregroundColor(isActive ? activeSecondaryForegroundColor : .secondary.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -15186,12 +15249,14 @@ private struct SidebarMetadataMarkdownBlocks: View {
     }
 
     private var visibleBlocks: [SidebarMetadataBlock] {
-        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
-        return Array(blocks.prefix(collapsedBlockLimit))
+        guard !isExpanded, blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit else {
+            return blocks
+        }
+        return Array(blocks.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit))
     }
 
     private var shouldShowToggle: Bool {
-        blocks.count > collapsedBlockLimit
+        blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit
     }
 }
 
@@ -15201,7 +15266,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
-    private static let maxDisplayedLines = 12
+    private static let maxDisplayedLines = SidebarWorkspaceRowDropMetrics.maxMetadataBlockLines
     private static let maxDisplayedCharacters = 4096
 
     var body: some View {
@@ -15220,7 +15285,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
                     .foregroundColor(foregroundColor)
             }
         }
-        .font(.system(size: 10 * fontScale))
+        .cmuxFont(size: 10 * fontScale)
         .multilineTextAlignment(.leading)
         .lineLimit(Self.maxDisplayedLines)
         .truncationMode(.tail)

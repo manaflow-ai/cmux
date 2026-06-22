@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CoreGraphics
 
 enum WindowChromeMetrics {
@@ -32,12 +33,21 @@ enum HeaderChromeControlMetrics {
 
 enum RightSidebarChromeMetrics {
     static let titlebarHeight: CGFloat = WindowChromeMetrics.appTitlebarHeight
-    static let secondaryBarHeight: CGFloat = WindowChromeMetrics.secondaryTitlebarHeight
+    static var secondaryBarHeight: CGFloat {
+        controlHeight + (barVerticalPadding * 2)
+    }
     static let barHorizontalPadding: CGFloat = 8
     static let barVerticalPadding: CGFloat = 4
-    static let controlHeight: CGFloat = secondaryBarHeight - (barVerticalPadding * 2)
+    static var controlHeight: CGFloat {
+        let baseHeight = WindowChromeMetrics.secondaryTitlebarHeight - (barVerticalPadding * 2)
+        let scaledTextHeight = GlobalFontMagnification.scaledSize(12)
+        let scaledContentHeight = scaledTextHeight + 8
+        return max(baseHeight, scaledContentHeight)
+    }
     static let controlHorizontalPadding: CGFloat = 8
-    static let controlCornerRadius: CGFloat = 5
+    static var controlCornerRadius: CGFloat {
+        min(10, max(5, controlHeight * 0.25))
+    }
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
     static let headerIconSize: CGFloat = 10
     static let headerIconFrameSize: CGFloat = headerIconSize

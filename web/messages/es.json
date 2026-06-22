@@ -793,10 +793,11 @@
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
           "warnBeforeClosingTabXButton": "Mostrar una confirmación antes de cerrar una pestaña con el botón de cerrar pestaña.",
           "hideTabCloseButton": "Ocultar los botones de cerrar pestaña en la barra de pestañas del panel.",
-          "forkConversationDefaultDestination": "Destino predeterminado de la acción principal Fork Conversation en el menú contextual de la pestaña. El submenú sigue mostrando todos los destinos."
+          "forkConversationDefaultDestination": "Destino predeterminado de la acción principal Fork Conversation en el menú contextual de la pestaña. El submenú sigue mostrando todos los destinos.",
+          "globalFontMagnification": "Escala en este porcentaje las terminales, títulos de pestañas, barras laterales, ajustes, superposiciones y chrome de la app que pertenecen a cmux. Se excluye el contenido renderizado de las páginas del navegador."
         },
         "terminal": {
-          "copyOnSelect": "Copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección, incluidas las selecciones de palabras y líneas con doble y triple clic.",
+          "copyOnSelect": "Cuando es true, copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección. Cuando es false, cmux no emite una anulación de copy-on-select de Ghostty; la configuración y los valores predeterminados de Ghostty controlan el comportamiento del portapapeles de selección.",
           "scrollSpeed": "Multiplicador aplicado a los desplazamientos de la rueda de desplazamiento y del panel táctil en el terminal. Los valores más altos desplazan más rápido y los más bajos, más lento.",
           "showTextBoxOnNewTerminals": "Muestra la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados.",
           "focusTextBoxOnNewTerminals": "Enfoca la entrada TextBox beta de forma predeterminada en espacios de trabajo, pestañas y divisiones de terminal recién creados. Enfocar también muestra TextBox."
@@ -1260,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "App para iOS"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1413,6 +1415,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multiagente en cmux",
       "metaDescription": "oh-my-opencode (cmux omo) ejecuta la CLI de OpenCode con el plugin oh-my-openagent dentro de cmux. Orquesta Claude, GPT, Gemini y Grok como agentes paralelos, cada uno en una división nativa de cmux."
+    },
+    "ios": {
+      "metaTitle": "App para iOS",
+      "metaDescription": "Configura la app complementaria de cmux para iOS: acceso por TestFlight, tu propia red con Tailscale o WireGuard, emparejamiento, notificaciones y qué datos almacena cmux.",
+      "title": "App para iOS",
+      "intro": "La app de cmux para iOS es un complemento para tu Mac. Empareja tu iPhone o iPad con un Mac que ejecute cmux y conéctate a tus terminales desde el teléfono, con reenvío opcional de las notificaciones de la terminal.",
+      "betaNote": "La app para iOS está en beta. Se distribuye en TestFlight como cmux BETA.",
+      "accessTitle": "Obtener acceso",
+      "accessDesc": "La app se distribuye a través de TestFlight. El acceso anticipado se incluye con <foundersLink>cmux Founders Edition</foundersLink>, junto con otras funciones tempranas.",
+      "prereqTitle": "Requisitos previos",
+      "prereqIntro": "Antes de empezar, necesitas:",
+      "prereq1": "Un Mac que ejecute cmux con la sesión iniciada.",
+      "prereq2": "Un iPhone o iPad con la app cmux BETA instalada desde TestFlight.",
+      "prereq3": "Una ruta de red desde tu teléfono hasta tu Mac (consulta Usa tu propia red más abajo).",
+      "networkingTitle": "Usa tu propia red",
+      "networkingDesc": "cmux no proporciona red de fábrica. El flujo de la terminal va directamente entre tu teléfono y tu Mac, así que tu teléfono debe poder alcanzar tu Mac en la red. La forma más sencilla es una red superpuesta privada.",
+      "tailscaleTitle": "Tailscale (recomendado)",
+      "tailscaleDesc": "Instala <link>Tailscale</link> en tu Mac y en tu teléfono e inicia sesión en el mismo tailnet. Tu teléfono podrá entonces alcanzar tu Mac por su dirección de tailnet desde cualquier lugar, sin reenvío de puertos.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Si ya usas <link>WireGuard</link>, pon tu Mac y tu teléfono en la misma red y usa la dirección WireGuard del Mac.",
+      "networkingNote": "Elijas lo que elijas, la conexión es tuya. cmux no actúa de proxy ni retransmite el tráfico de la terminal entre tus dispositivos.",
+      "pairTitle": "Empareja y conecta",
+      "pairStep1": "En el Mac, abre la ventana Mobile Connect en cmux.",
+      "pairStep2": "En tu teléfono, abre la app cmux BETA y confirma el emparejamiento que aparece en Mobile Connect.",
+      "pairStep3": "Una vez emparejados, tus espacios de trabajo y terminales aparecen en el teléfono a través de tu red.",
+      "pairNote": "El emparejamiento es por dispositivo. Un dispositivo nuevo, o una app reinstalada, vuelve a emparejarse.",
+      "notificationsTitle": "Notificaciones",
+      "notificationsDesc": "Puedes activar el reenvío de las notificaciones de la terminal a tu teléfono, para que un panel que necesita atención envíe un aviso a tu dispositivo. Cuando el reenvío está activado, el texto de la notificación (título y cuerpo, extraído de la salida de la terminal) se envía a través de los servidores de cmux al servicio de notificaciones de Apple para entregarlo. Activa Hide content en los ajustes de notificaciones para enviar un mensaje genérico en su lugar y mantener el texto de la terminal en tus dispositivos. Consulta <link>notificaciones</link> para ver cómo las genera cmux.",
+      "dataTitle": "Qué datos se almacenan",
+      "dataIntro": "cmux está diseñado para que tu terminal permanezca entre tus dispositivos. En los servidores de cmux solo almacenamos lo necesario para iniciar tu sesión y conectar tus dispositivos:",
+      "data1": "Tu cuenta del inicio de sesión (correo electrónico), para identificarte en todos los dispositivos.",
+      "data2": "Un token de notificaciones para tu dispositivo, para entregar las notificaciones reenviadas de la terminal.",
+      "data3": "Metadatos de emparejamiento y del dispositivo, para conectar tu teléfono con tu Mac.",
+      "dataNot": "Tu sesión interactiva de terminal, su contenido y las pulsaciones de teclas fluyen directamente entre tu teléfono y tu Mac a través de tu propia red, y no se retransmiten ni se almacenan en los servidores de cmux. La única excepción es el texto de las notificaciones reenviadas, que transita por cmux y el servicio de notificaciones de Apple para llegar a tu teléfono, a menos que actives Hide content (consulta Notificaciones más arriba).",
+      "enterpriseTitle": "Empresas y autoalojamiento",
+      "enterpriseDesc": "Para un despliegue autoalojado o aislado de red, contacta con <link>founders@manaflow.com</link>."
     }
   },
   "legal": {
