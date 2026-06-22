@@ -314,6 +314,11 @@ struct ExtensionWorktreeManagementTests {
         #expect(safety.requiresForce)
         let preview = await CmuxExtensionWorktreePrototype.forceRemovalPreview(worktreePath: worktree)
         #expect(preview.paths.contains("uncommitted.txt"))
+        for index in 0..<30 {
+            try "extra\n".write(toFile: worktree + "/extra-\(index).txt", atomically: true, encoding: .utf8)
+        }
+        let truncatedPreview = await CmuxExtensionWorktreePrototype.forceRemovalPreview(worktreePath: worktree, itemLimit: 5)
+        #expect(truncatedPreview.truncated)
 
         // Without force, git refuses and the worktree survives.
         var refusedWithoutForce = false

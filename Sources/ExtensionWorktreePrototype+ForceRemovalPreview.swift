@@ -76,10 +76,20 @@ extension CmuxExtensionWorktreePrototype {
         }
 
         let byteLimit = max(1_024, maxBytes)
-        let output = stdout.fileHandleForReading.readData(ofLength: byteLimit + 1)
-        let overByteLimit = output.count > byteLimit
-        if overByteLimit {
-            process.terminate()
+        var output = Data()
+        var overByteLimit = false
+        while true {
+            let remaining = byteLimit + 1 - output.count
+            let chunk = stdout.fileHandleForReading.readData(ofLength: min(8 * 1_024, remaining))
+            if chunk.isEmpty {
+                break
+            }
+            output.append(chunk)
+            if output.count > byteLimit {
+                overByteLimit = true
+                process.terminate()
+                break
+            }
         }
         process.waitUntilExit()
         try? stdout.fileHandleForReading.close()
