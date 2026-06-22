@@ -189,7 +189,7 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
             attachmentLabel,
         ])
         reviewStack.orientation = .vertical
-        reviewStack.alignment = .leading
+        reviewStack.alignment = .width
         reviewStack.spacing = 8
 
         let buttonStack = NSStackView(views: [openFolderButton, submitButton, closeButton])
