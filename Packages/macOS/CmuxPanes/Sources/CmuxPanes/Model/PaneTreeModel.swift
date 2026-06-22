@@ -79,10 +79,13 @@ public final class PaneTreeModel<Panel> {
     }
 
     /// Removes every mapping that can still resolve to a closed panel.
+    ///
+    /// When `surfaceId` is present, it is expected to still belong to
+    /// `panelId`; cleanup intentionally removes by panel id so a stale surface
+    /// id cannot delete a live binding that has already moved to another panel.
     public func removeSurfaceMappings(forPanelId panelId: UUID, includingSurfaceId surfaceId: TabID? = nil) {
-        surfaceIdToPanelId = surfaceIdToPanelId.filter { existingSurfaceId, existingPanelId in
-            let isExplicitSurface = surfaceId.map { existingSurfaceId == $0 } ?? false
-            return existingPanelId != panelId && !isExplicitSurface
+        surfaceIdToPanelId = surfaceIdToPanelId.filter { _, existingPanelId in
+            existingPanelId != panelId
         }
     }
 

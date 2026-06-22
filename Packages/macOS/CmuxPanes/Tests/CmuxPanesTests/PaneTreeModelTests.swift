@@ -117,4 +117,23 @@ struct PaneTreeModelTests {
         #expect(model.panelId(forSurfaceId: newTabId) == panelId)
         #expect(model.surfaceId(forPanelId: panelId) == newTabId)
     }
+
+    /// Close cleanup removes stale aliases for the closed panel without using
+    /// a stale tab id to drop a surface that has already moved to another panel.
+    @Test func closedPanelCleanupKeepsReboundSurfaceMapping() {
+        let model = PaneTreeModel<String>()
+        let closedPanelTabId = TabID()
+        let reboundTabId = TabID()
+        let closedPanelId = UUID()
+        let livePanelId = UUID()
+
+        model.bindSurface(closedPanelTabId, toPanelId: closedPanelId)
+        model.bindSurface(reboundTabId, toPanelId: livePanelId)
+
+        model.removeSurfaceMappings(forPanelId: closedPanelId, includingSurfaceId: reboundTabId)
+
+        #expect(model.panelId(forSurfaceId: closedPanelTabId) == nil)
+        #expect(model.panelId(forSurfaceId: reboundTabId) == livePanelId)
+        #expect(model.surfaceId(forPanelId: livePanelId) == reboundTabId)
+    }
 }
