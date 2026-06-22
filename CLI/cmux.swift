@@ -28233,12 +28233,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         existing["hooks"] = hooks
-        switch def.format {
-        case .flat, .nested:
-            existing["version"] = 1
-        default:
-            break
-        }
+        // Copilot CLI and Cursor both require "version":1 in their hooks JSON.
+        // Codex uses deny_unknown_fields and must NOT receive this key.
+        // Grok and Gemini hooks configs also do not use a version field.
+        if case .flat = def.format { existing["version"] = 1 }
+        if def.name == "copilot" { existing["version"] = 1 }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
