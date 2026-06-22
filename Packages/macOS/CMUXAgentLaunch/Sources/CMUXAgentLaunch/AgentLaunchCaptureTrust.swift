@@ -10,6 +10,11 @@ import Foundation
 /// capture verbatim poisons resume/fork for the session — the rendered command
 /// runs the wrong binary with the wrong flags.
 public enum AgentLaunchCaptureTrust {
+    private enum NativeProcessKind {
+        case codex
+        case claude
+    }
+
     /// Wrapper launchers that legitimately differ from the hook kind they launch.
     private static let wrapperLaunchersByKind: [String: Set<String>] = [
         "claude": ["claudeteams"],
@@ -56,5 +61,74 @@ public enum AgentLaunchCaptureTrust {
         return !letters.isEmpty
             && letters.contains("c")
             && letters.allSatisfy { "cilms".contains($0) }
+    }
+
+    /// True when PID-derived process metadata describes the same native agent as
+    /// the hook kind. This keeps unrelated parents, including Xcode test hosts
+    /// and the cmux app executable, from becoming persisted resume commands.
+    public static func nativeProcessDescribesKind(
+        processName: String?,
+        arguments: [String]?,
+        kind: String
+    ) -> Bool {
+        guard let expectedKind = nativeProcessKind(for: kind),
+              let arguments else {
+            return false
+        }
+        return nativeProcessKind(processName: processName, arguments: arguments) == expectedKind
+    }
+
+    public static func nativeProcessDescribesKnownAgent(
+        processName: String?,
+        arguments: [String]
+    ) -> Bool {
+        nativeProcessKind(processName: processName, arguments: arguments) != nil
+    }
+
+    private static func nativeProcessKind(for hookKind: String) -> NativeProcessKind? {
+        switch hookKind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "codex":
+            return .codex
+        case "claude":
+            return .claude
+        default:
+            return nil
+        }
+    }
+
+    private static func nativeProcessKind(
+        processName: String?,
+        arguments: [String]
+    ) -> NativeProcessKind? {
+        let nameBase = processBasename(processName)
+        let executableBase = processBasename(arguments.first)
+        if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
+            if arguments.dropFirst().contains(where: { argument in
+                let lowered = argument.lowercased()
+                return processBasename(argument) == "claude"
+                    || lowered.contains("/.claude/")
+                    || lowered.contains("/claude/versions/")
+            }) {
+                return .claude
+            }
+            return nil
+        }
+
+        let executable = arguments.first?.lowercased() ?? ""
+        if nameBase == "codex" || executableBase == "codex" || executable.contains("/codex/codex") {
+            return .codex
+        }
+        if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
+            return .claude
+        }
+        return nil
+    }
+
+    private static func processBasename(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: value).lastPathComponent.lowercased()
     }
 }

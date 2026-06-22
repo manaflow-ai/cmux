@@ -41,4 +41,51 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
         // `--chrome` is a long option, not a shell command-string flag.
         XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["zsh", "--chrome"]))
     }
+
+    func testPIDProcessMetadataMustMatchHookKind() {
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex", "--sandbox", "workspace-write"],
+                kind: "codex"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex", "--sandbox", "workspace-write"]
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/Users/alice/.claude/local/claude.js"],
+                kind: "claude"
+            )
+        )
+        XCTAssertFalse(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "cmux DEV",
+                arguments: [
+                    "/tmp/cmux-tests/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+                    "-NSTreatUnknownArgumentsAsOpen",
+                ],
+                kind: "codex"
+            )
+        )
+        XCTAssertFalse(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex"],
+                kind: "claude"
+            )
+        )
+        XCTAssertFalse(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "agy",
+                arguments: ["/usr/local/bin/agy"],
+                kind: "antigravity"
+            )
+        )
+    }
 }
