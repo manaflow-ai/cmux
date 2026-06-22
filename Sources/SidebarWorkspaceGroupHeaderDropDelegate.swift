@@ -16,6 +16,7 @@ enum SidebarWorkspaceGroupHeaderDropZone {
 
 enum SidebarWorkspaceGroupHeaderDropAction: Equatable {
     case addWorkspaceToGroup(UUID)
+    case reparentGroup(groupId: UUID, parentGroupId: UUID)
     case noOp
 }
 
@@ -26,6 +27,8 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
         draggedWorkspaceIsPinned: Bool,
         draggedWorkspaceGroupId: UUID?,
         draggedWorkspaceIsGroupAnchor: Bool,
+        draggedWorkspaceAnchoredGroupId: UUID? = nil,
+        canReparentDraggedGroupToTarget: Bool = false,
         targetGroupId: UUID,
         targetAnchorWorkspaceId: UUID,
         targetAnchorMatchesGroup: Bool,
@@ -40,6 +43,13 @@ enum SidebarWorkspaceGroupHeaderDropPolicy {
                   rowHeight: rowHeight
               ) else {
             return nil
+        }
+        if let draggedWorkspaceAnchoredGroupId {
+            if draggedWorkspaceAnchoredGroupId == targetGroupId {
+                return .noOp
+            }
+            guard canReparentDraggedGroupToTarget else { return nil }
+            return .reparentGroup(groupId: draggedWorkspaceAnchoredGroupId, parentGroupId: targetGroupId)
         }
         if draggedWorkspaceId == targetAnchorWorkspaceId || draggedWorkspaceGroupId == targetGroupId {
             return .noOp
@@ -129,6 +139,8 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
         switch action {
         case .addWorkspaceToGroup(let draggedTabId):
             tabManager.addWorkspaceToGroup(workspaceId: draggedTabId, groupId: targetGroupId)
+        case .reparentGroup(let groupId, let parentGroupId):
+            tabManager.setWorkspaceGroupParent(groupId: groupId, parentGroupId: parentGroupId)
         case .noOp:
             break
         }
@@ -148,6 +160,9 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
               let group = tabManager.workspaceGroups.first(where: { $0.id == targetGroupId }) else {
             return nil
         }
+        let draggedWorkspaceAnchoredGroupId = tabManager.workspaceGroups.first {
+            $0.anchorWorkspaceId == draggedTabId
+        }?.id
         return SidebarWorkspaceGroupHeaderDropPolicy.action(
             hasSidebarPayload: info.hasItemsConforming(to: [SidebarTabDragPayload.typeIdentifier]),
             draggedWorkspaceId: draggedTabId,
@@ -156,6 +171,10 @@ struct SidebarWorkspaceGroupHeaderDropDelegate: DropDelegate {
             draggedWorkspaceIsGroupAnchor: tabManager.workspaceGroups.contains {
                 $0.anchorWorkspaceId == draggedTabId
             },
+            draggedWorkspaceAnchoredGroupId: draggedWorkspaceAnchoredGroupId,
+            canReparentDraggedGroupToTarget: draggedWorkspaceAnchoredGroupId.map {
+                tabManager.canSetWorkspaceGroupParent(groupId: $0, parentGroupId: targetGroupId)
+            } ?? false,
             targetGroupId: targetGroupId,
             targetAnchorWorkspaceId: targetAnchorWorkspaceId,
             targetAnchorMatchesGroup: group.anchorWorkspaceId == targetAnchorWorkspaceId,

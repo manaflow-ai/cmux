@@ -195,6 +195,54 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertNil(action)
     }
 
+    func testWorkspaceGroupHeaderCenterDropReparentsDraggedFolder() {
+        let anchorWorkspaceId = UUID()
+        let draggedGroupId = UUID()
+        let targetGroupId = UUID()
+        let targetAnchorId = UUID()
+
+        let action = SidebarWorkspaceGroupHeaderDropPolicy.action(
+            hasSidebarPayload: true,
+            draggedWorkspaceId: anchorWorkspaceId,
+            draggedWorkspaceIsPinned: false,
+            draggedWorkspaceGroupId: draggedGroupId,
+            draggedWorkspaceIsGroupAnchor: true,
+            draggedWorkspaceAnchoredGroupId: draggedGroupId,
+            canReparentDraggedGroupToTarget: true,
+            targetGroupId: targetGroupId,
+            targetAnchorWorkspaceId: targetAnchorId,
+            targetAnchorMatchesGroup: true,
+            locationY: 12,
+            rowHeight: 24
+        )
+
+        XCTAssertEqual(action, .reparentGroup(groupId: draggedGroupId, parentGroupId: targetGroupId))
+    }
+
+    func testWorkspaceGroupHeaderCenterDropRejectsFolderReparentCycle() {
+        let anchorWorkspaceId = UUID()
+        let draggedGroupId = UUID()
+        let targetGroupId = UUID()
+        let targetAnchorId = UUID()
+
+        let action = SidebarWorkspaceGroupHeaderDropPolicy.action(
+            hasSidebarPayload: true,
+            draggedWorkspaceId: anchorWorkspaceId,
+            draggedWorkspaceIsPinned: false,
+            draggedWorkspaceGroupId: draggedGroupId,
+            draggedWorkspaceIsGroupAnchor: true,
+            draggedWorkspaceAnchoredGroupId: draggedGroupId,
+            canReparentDraggedGroupToTarget: false,
+            targetGroupId: targetGroupId,
+            targetAnchorWorkspaceId: targetAnchorId,
+            targetAnchorMatchesGroup: true,
+            locationY: 12,
+            rowHeight: 24
+        )
+
+        XCTAssertNil(action)
+    }
+
     func testWorkspaceDropCenterTargetsExistingWorkspace() {
         let first = UUID()
         let second = UUID()

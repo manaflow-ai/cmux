@@ -71,8 +71,8 @@ struct MobileWorkspaceListFidelityTests {
         #expect(ordered.count == 3)
 
         let versionBefore = workspace.paneLayoutVersion
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace],
             selectedTabID: workspace.id
         )
 
@@ -92,8 +92,8 @@ struct MobileWorkspaceListFidelityTests {
             "a pure reorder must bump paneLayoutVersion so the observer re-evaluates"
         )
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace],
             selectedTabID: workspace.id
         )
         #expect(before != after, "a pure reorder must change the mobile summary hash")
@@ -103,8 +103,8 @@ struct MobileWorkspaceListFidelityTests {
         let (workspace, ordered) = try makeWorkspaceWithTabTerminals(count: 2)
         let panelId = try #require(ordered.first)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace],
             selectedTabID: workspace.id
         )
 
@@ -114,8 +114,8 @@ struct MobileWorkspaceListFidelityTests {
         workspace.setPanelCustomTitle(panelId: panelId, title: "Renamed Terminal")
         #expect(workspace.panelTitle(panelId: panelId) == "Renamed Terminal")
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace],
             selectedTabID: workspace.id
         )
         #expect(before != after, "a terminal rename must change the mobile summary hash")
@@ -124,8 +124,8 @@ struct MobileWorkspaceListFidelityTests {
     @Test func renamingWorkspaceChangesObserverHashAndDisplayedTitle() throws {
         let (workspace, _) = try makeWorkspaceWithTabTerminals(count: 1)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace],
             selectedTabID: workspace.id
         )
 
@@ -133,8 +133,8 @@ struct MobileWorkspaceListFidelityTests {
         // The mobile workspace.list response sends workspace.title.
         #expect(workspace.title == "Renamed Workspace")
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: [workspace],
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: [workspace],
             selectedTabID: workspace.id
         )
         #expect(before != after, "a workspace rename must change the mobile summary hash")
@@ -153,8 +153,8 @@ struct MobileWorkspaceListFidelityTests {
         let groupId = try #require(manager.createWorkspaceGroup(name: "Group A"))
         #expect(member.groupId == nil)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId
         )
@@ -162,12 +162,33 @@ struct MobileWorkspaceListFidelityTests {
         // Move the workspace into the group: only `groupId` changes.
         member.groupId = groupId
 
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId
         )
         #expect(before != after, "a pure group-membership move must change the mobile summary hash")
+    }
+
+    @Test func reparentingWorkspaceGroupChangesObserverHash() throws {
+        let manager = TabManager()
+        let parentId = try #require(manager.createWorkspaceGroup(name: "Hotels"))
+        let childId = try #require(manager.createWorkspaceGroup(name: "Marriott"))
+
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+
+        #expect(manager.setWorkspaceGroupParent(groupId: childId, parentGroupId: parentId))
+
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(before != after, "a folder reparent must change the mobile summary hash")
     }
 
     /// A new notification (or clearing the latest one) changes only a workspace's
@@ -178,22 +199,22 @@ struct MobileWorkspaceListFidelityTests {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
 
-        let before = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let before = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId,
             previewSignatures: [:]
         )
-        let after = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let after = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId,
             previewSignatures: [workspace.id: 42]
         )
         #expect(before != after, "a preview-signature change must change the mobile summary hash")
 
-        let changed = MobileWorkspaceListObserver.summaryHashForTesting(
-            tabs: manager.tabs,
+        let changed = MobileWorkspaceListObserver.summaryHash(
+            for: manager.tabs,
             groups: manager.workspaceGroups,
             selectedTabID: manager.selectedTabId,
             previewSignatures: [workspace.id: 43]

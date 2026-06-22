@@ -35,6 +35,8 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     public var isCollapsed: Bool
     /// Whether the group is pinned on the Mac.
     public var isPinned: Bool
+    /// The parent group when this group is nested, or `nil` at the root.
+    public var parentGroupID: ID?
     /// The anchor workspace that owns this group. It is represented by the group
     /// header and never rendered as a separate row.
     public var anchorWorkspaceID: MobileWorkspacePreview.ID
@@ -45,18 +47,21 @@ public struct MobileWorkspaceGroupPreview: Identifiable, Equatable, Sendable {
     ///   - name: The group's user-facing name.
     ///   - isCollapsed: Whether the group is collapsed. Defaults to `false`.
     ///   - isPinned: Whether the group is pinned. Defaults to `false`.
+    ///   - parentGroupID: The parent group id for nested groups. Defaults to `nil`.
     ///   - anchorWorkspaceID: The anchor workspace that owns the group.
     public init(
         id: ID,
         name: String,
         isCollapsed: Bool = false,
         isPinned: Bool = false,
+        parentGroupID: ID? = nil,
         anchorWorkspaceID: MobileWorkspacePreview.ID
     ) {
         self.id = id
         self.name = name
         self.isCollapsed = isCollapsed
         self.isPinned = isPinned
+        self.parentGroupID = parentGroupID
         self.anchorWorkspaceID = anchorWorkspaceID
     }
 }

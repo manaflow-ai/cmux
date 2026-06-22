@@ -273,7 +273,8 @@ extension SessionPersistencePolicy {
         let originalMembersByGroupId = Dictionary(grouping: originalWorkspaces, by: \.groupId)
         let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces, by: \.groupId)
         let occupiedGroupIds = Set(keptMembersByGroupId.keys.compactMap { $0 })
-        let pruned = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
+        let groupsById = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0) })
+        var pruned = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
             guard occupiedGroupIds.contains(group.id) else { return nil }
             let groupId = Optional(group.id)
             let originalMembers = originalMembersByGroupId[groupId] ?? []
@@ -290,6 +291,36 @@ extension SessionPersistencePolicy {
             copy.anchorMemberIndex = newAnchorIndex
             copy.anchorWorkspaceId = keptMembers[newAnchorIndex].workspaceId
             return copy
+        }
+        let survivingIds = Set(pruned.map(\.id))
+        func originalParentId(for group: SessionWorkspaceGroupSnapshot) -> UUID? {
+            if let parentGroupIndex = group.parentGroupIndex,
+               groups.indices.contains(parentGroupIndex) {
+                return groups[parentGroupIndex].id
+            }
+            if let parentGroupId = group.parentGroupId,
+               groupsById[parentGroupId] != nil {
+                return parentGroupId
+            }
+            return nil
+        }
+        func survivingParentId(for group: SessionWorkspaceGroupSnapshot) -> UUID? {
+            var visited: Set<UUID> = [group.id]
+            var cursor = originalParentId(for: group)
+            while let current = cursor {
+                guard visited.insert(current).inserted else { return nil }
+                if survivingIds.contains(current) {
+                    return current
+                }
+                cursor = groupsById[current].flatMap { originalParentId(for: $0) }
+            }
+            return nil
+        }
+        let survivingIndexById = Dictionary(uniqueKeysWithValues: pruned.enumerated().map { ($0.element.id, $0.offset) })
+        for index in pruned.indices {
+            let parentId = survivingParentId(for: pruned[index])
+            pruned[index].parentGroupId = parentId
+            pruned[index].parentGroupIndex = parentId.flatMap { survivingIndexById[$0] }
         }
         return pruned.isEmpty ? nil : pruned
     }

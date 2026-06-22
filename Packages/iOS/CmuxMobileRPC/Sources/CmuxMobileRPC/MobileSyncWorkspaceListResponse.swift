@@ -71,6 +71,8 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
         public let isCollapsed: Bool
         /// Whether the group is pinned on the Mac.
         public let isPinned: Bool
+        /// The parent group id when this group is nested under another group.
+        public let parentGroupID: String?
         /// The anchor workspace that owns this group. It is represented by the
         /// group header and never rendered as a separate row.
         public let anchorWorkspaceID: String
@@ -84,6 +86,7 @@ public struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
             case name
             case isCollapsed = "is_collapsed"
             case isPinned = "is_pinned"
+            case parentGroupID = "parent_group_id"
             case anchorWorkspaceID = "anchor_workspace_id"
         }
     }

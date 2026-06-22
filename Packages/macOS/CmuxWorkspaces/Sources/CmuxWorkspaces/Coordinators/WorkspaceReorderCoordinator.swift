@@ -246,7 +246,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         isDragOperation: Bool = false,
         usesTopLevelRows: Bool = false
     ) -> Bool {
-        if usesTopLevelRows || model.isWorkspaceGroupAnchor(tabId) {
+        if usesTopLevelRows || model.isRootWorkspaceGroupAnchor(tabId) {
             return reorderTopLevelWorkspaceItem(
                 tabId: tabId,
                 toIndex: targetIndex,
@@ -266,17 +266,40 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
         )
         guard let fromIndex = topLevelIds.firstIndex(of: tabId) else { return false }
+        let promotedGroupIndex = promotesGroupedWorkspace
+            ? model.workspaceGroups.firstIndex { $0.anchorWorkspaceId == tabId && $0.parentGroupId != nil }
+            : nil
+        let promotedTab = promotesGroupedWorkspace
+            ? model.tabs.first { $0.id == tabId }
+            : nil
+        let promotesWorkspaceOutOfGroup = promotesGroupedWorkspace
+            && promotedTab?.groupId != nil
+            && !model.isWorkspaceGroupAnchor(tabId)
+        var pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIds()
+        if let promotedGroupIndex {
+            if model.workspaceGroups[promotedGroupIndex].isPinned {
+                pinnedTopLevelIds.insert(tabId)
+            }
+        } else if promotesWorkspaceOutOfGroup,
+                  promotedTab?.isPinned == true {
+            pinnedTopLevelIds.insert(tabId)
+        }
         let clampedTarget = model.clampedTopLevelReorderIndex(
             forWorkspaceId: tabId,
             targetIndex: targetIndex,
-            topLevelIds: topLevelIds
+            topLevelIds: topLevelIds,
+            pinnedTopLevelIds: pinnedTopLevelIds
         )
-        guard fromIndex != clampedTarget else { return false }
+        guard fromIndex != clampedTarget || promotedGroupIndex != nil || promotesWorkspaceOutOfGroup else {
+            return false
+        }
 
         var desiredTopLevelIds = topLevelIds
         let movedId = desiredTopLevelIds.remove(at: fromIndex)
         desiredTopLevelIds.insert(movedId, at: clampedTarget)
-        if promotesGroupedWorkspace,
+        if let promotedGroupIndex {
+            model.workspaceGroups[promotedGroupIndex].parentGroupId = nil
+        } else if promotesGroupedWorkspace,
            let tab = model.tabs.first(where: { $0.id == tabId }),
            tab.groupId != nil,
            !model.isWorkspaceGroupAnchor(tabId) {
@@ -287,7 +310,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
 
         let movedWorkspaceIds: [UUID]
         if let group = model.workspaceGroups.first(where: { $0.anchorWorkspaceId == tabId }) {
-            movedWorkspaceIds = model.tabs.filter { $0.groupId == group.id }.map(\.id)
+            movedWorkspaceIds = model.workspaceGroupSubtreeWorkspaceIds(groupId: group.id)
         } else {
             movedWorkspaceIds = [tabId]
         }
@@ -316,8 +339,8 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         workspaceGroupIdByWorkspaceId: [UUID: UUID?]
     ) -> Bool {
         guard let draggedWorkspaceId else { return false }
-        if model.isWorkspaceGroupAnchor(draggedWorkspaceId) ||
-            targetWorkspaceId.map(model.isWorkspaceGroupAnchor) == true {
+        if model.isRootWorkspaceGroupAnchor(draggedWorkspaceId) ||
+            targetWorkspaceId.map(model.isRootWorkspaceGroupAnchor) == true {
             return true
         }
         guard let draggedWorkspaceGroupId = workspaceGroupIdByWorkspaceId[draggedWorkspaceId],
