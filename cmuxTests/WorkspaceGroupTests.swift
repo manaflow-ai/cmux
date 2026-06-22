@@ -246,10 +246,10 @@ struct WorkspaceGroupTests {
             (item.id, item.rowWorkspaceId, item.depth)
         }
 
-        #expect(projected.contains((.group(hotelsId), hotels.anchorWorkspaceId, 0)))
-        #expect(projected.contains((.workspace(originalIds[1]), originalIds[1], 1)))
-        #expect(projected.contains((.group(marriottId), marriott.anchorWorkspaceId, 1)))
-        #expect(projected.contains((.workspace(originalIds[2]), originalIds[2], 2)))
+        #expect(projected.contains(where: { $0 == (.group(hotelsId), hotels.anchorWorkspaceId, 0) }))
+        #expect(projected.contains(where: { $0 == (.workspace(originalIds[1]), originalIds[1], 1) }))
+        #expect(projected.contains(where: { $0 == (.group(marriottId), marriott.anchorWorkspaceId, 1) }))
+        #expect(projected.contains(where: { $0 == (.workspace(originalIds[2]), originalIds[2], 2) }))
     }
 
     @Test func collapsedParentGroupRenderItemHidesDescendantFolderRows() throws {
