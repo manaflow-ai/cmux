@@ -223,7 +223,11 @@ extension SurfaceResumeCommandCanonicalizer {
             return command
         }
         var parts = Array(words[commandStartIndex...].map(\.value))
-        guard !containsShellControlSyntax(parts) else {
+        guard !containsShellControlSyntax(
+            words: words,
+            command: command,
+            commandStartIndex: commandStartIndex
+        ) else {
             return replacingStaleClaudeExecutableWithWrapperShellCommand(
                 in: command,
                 words: words,
@@ -276,9 +280,9 @@ extension SurfaceResumeCommandCanonicalizer {
         _ word: TerminalStartupWorkingDirectoryPrefix.ShellWordRange,
         in command: String
     ) -> String {
-        if isShellControlSyntax(word.value),
-           String(command[word.range]) == word.value {
-            return word.value
+        let rawWord = String(command[word.range])
+        if containsUnquotedShellControlSyntax(rawWord) {
+            return rawWord
         }
         if let renderedAssignment = renderedEnvironmentAssignment(word, in: command) {
             return renderedAssignment
@@ -329,19 +333,50 @@ extension SurfaceResumeCommandCanonicalizer {
         return repaired
     }
 
-    private static func containsShellControlSyntax(_ parts: [String]) -> Bool {
-        parts.contains(where: isShellControlSyntax)
+    private static func containsShellControlSyntax(
+        words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        command: String,
+        commandStartIndex: Int
+    ) -> Bool {
+        guard commandStartIndex < words.count else { return false }
+        return words[commandStartIndex...].contains {
+            containsUnquotedShellControlSyntax(String(command[$0.range]))
+        }
     }
 
-    private static func isShellControlSyntax(_ part: String) -> Bool {
-        part == "&&"
-            || part == "||"
-            || part == ";"
-            || part == "|"
-            || part == "&"
-            || part.hasPrefix(">")
-            || part.hasPrefix("<")
-            || part.hasPrefix("2>")
+    private static func containsUnquotedShellControlSyntax(_ word: String) -> Bool {
+        var quote: Character?
+        var escaped = false
+        var index = word.startIndex
+        while index < word.endIndex {
+            let character = word[index]
+            if escaped {
+                escaped = false
+                index = word.index(after: index)
+                continue
+            }
+            if let currentQuote = quote {
+                if currentQuote == "\"", character == "\\" {
+                    let next = word.index(after: index)
+                    if next < word.endIndex,
+                       ["$", "`", "\"", "\\", "\n"].contains(word[next]) {
+                        index = word.index(after: next)
+                        continue
+                    }
+                }
+                if character == currentQuote {
+                    quote = nil
+                }
+            } else if character == "'" || character == "\"" {
+                quote = character
+            } else if character == "\\" {
+                escaped = true
+            } else if [";", "|", "&", "<", ">", "(", ")"].contains(character) {
+                return true
+            }
+            index = word.index(after: index)
+        }
+        return false
     }
 
     private static func commandExecutableWordIndex(

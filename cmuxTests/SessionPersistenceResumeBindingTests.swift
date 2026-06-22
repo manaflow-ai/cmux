@@ -207,9 +207,10 @@ import Testing
             "cmux-missing-\(UUID().uuidString)",
             "bin"
         )
+        let redirection = "1>/tmp/cmux-claude-resume.log"
         let binding = SurfaceResumeBindingSnapshot(
             kind: "claude",
-            command: "'\(staleExecutablePath)' '--resume' 'session-operator-cli' && echo done",
+            command: "'\(staleExecutablePath)' '--resume' 'session-operator-cli' \(redirection) && echo done",
             checkpointId: "session-operator-cli",
             source: "agent-hook",
             autoResume: true
@@ -220,7 +221,7 @@ import Testing
         #expect(binding.command.contains(staleExecutablePath), "\(binding.command)")
         #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
         #expect(startupInput.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(startupInput)")
-        #expect(startupInput.contains("&& echo done"), "\(startupInput)")
+        #expect(startupInput.contains("session-operator-cli \(redirection) && echo done"), "\(startupInput)")
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
