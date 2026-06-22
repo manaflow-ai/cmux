@@ -191,9 +191,13 @@ struct RemoteTmuxControlStreamParser {
         }
         if line.hasPrefix("%session-renamed ") {
             // tmux emits this for `rename-session` (NOT `%session-changed`, which
-            // fires on an attached-session switch). The control-mode notification
-            // carries only the new name, and names may contain spaces.
-            return .sessionRenamed(name: Self.fieldsFrom(line, 1))
+            // fires on an attached-session switch). The man page documents only a
+            // name, while tmux 3.6a emits "$<id> <name>"; accept both forms.
+            if let id = Self.fieldId(line, 1, sigil: "$") {
+                let name = Self.fieldsFrom(line, 2)
+                if !name.isEmpty { return .sessionRenamed(sessionId: id, name: name) }
+            }
+            return .sessionRenamed(sessionId: nil, name: Self.fieldsFrom(line, 1))
         }
         if line == "%sessions-changed" { return .sessionsChanged }
         if line.hasPrefix("%window-add ") {

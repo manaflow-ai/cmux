@@ -19,12 +19,11 @@ enum RemoteTmuxControlMessage: Sendable, Equatable {
     /// `%session-changed $<id> <name>` — the attached session changed.
     case sessionChanged(sessionId: Int, name: String)
 
-    /// `%session-renamed <name>` — the current session was renamed.
+    /// `%session-renamed [session-id] <name>` — the current session was renamed.
     /// tmux emits this for `rename-session` — distinct from `%session-changed`
-    /// (which fires when the attached session switches). Carries only the new
-    /// name, so the mirror tracks it and re-titles its workspace just like a
-    /// window rename.
-    case sessionRenamed(name: String)
+    /// (which fires when the attached session switches). Some tmux builds include
+    /// the session id even though the man page documents only the name.
+    case sessionRenamed(sessionId: Int?, name: String)
 
     /// `%sessions-changed` — the set of sessions changed (re-list to refresh).
     case sessionsChanged

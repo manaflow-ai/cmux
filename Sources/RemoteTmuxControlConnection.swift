@@ -1146,13 +1146,13 @@ final class RemoteTmuxControlConnection {
             // An attached-session SWITCH: the window set changes with it, so
             // re-fetch the topology.
             applySessionNameChange(sessionId: id, name: name, event: "session-changed", refetchWindows: true)
-        case let .sessionRenamed(name):
+        case let .sessionRenamed(id, name):
             // tmux's `rename-session` notification. Same name handling as
             // `%session-changed` (track the new name for attach/reconnect and emit
             // the name-change observers that re-key controller state and re-title
-            // the mirror workspace), but a rename carries no session id and does
-            // NOT change the window set, so skip the topology re-fetch.
-            applySessionNameChange(sessionId: nil, name: name, event: "session-renamed", refetchWindows: false)
+            // the mirror workspace), but a rename does NOT change the window set,
+            // so skip the topology re-fetch.
+            applySessionNameChange(sessionId: id, name: name, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
         case let .windowAdd(id):
