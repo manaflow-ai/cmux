@@ -6464,6 +6464,7 @@ extension BrowserPanel {
                 }
             }
             developerToolsLastKnownVisibleAt = Date()
+            refreshAttachedDeveloperToolsFrontend(reason: "detachedClose.redock.\(source)")
             cancelDeveloperToolsRestoreRetry()
 #if DEBUG
             cmuxDebugLog(
@@ -6506,6 +6507,14 @@ extension BrowserPanel {
             return false
         }
         return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
+    }
+
+    private func refreshAttachedDeveloperToolsFrontend(reason: String) {
+        guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
+              frontendWebView.window != nil else {
+            return
+        }
+        frontendWebView.cmuxRefreshWebInspectorFrontendRendering(reason: reason)
     }
 
     private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
@@ -6925,6 +6934,9 @@ extension BrowserPanel {
             developerToolsDetachedOpenGraceDeadline = nil
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
+            if shouldForceRefresh {
+                refreshAttachedDeveloperToolsFrontend(reason: "restore.visible")
+            }
             #if DEBUG
             if shouldForceRefresh {
                 cmuxDebugLog("browser.devtools refresh.consumeVisible panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
@@ -8156,6 +8168,67 @@ extension WKWebView {
             return nil
         }
         return inspectorWebView
+    }
+
+    func cmuxRefreshWebInspectorFrontendRendering(reason: String) {
+        guard window != nil else { return }
+
+        #if DEBUG
+        var firedSelectors: [String] = []
+        #endif
+        for rawSelector in [
+            "viewDidUnhide",
+            "_enterInWindow",
+            "_endDeferringViewInWindowChangesSync",
+        ] {
+            let selector = NSSelectorFromString(rawSelector)
+            guard responds(to: selector) else { continue }
+            cmuxCallVoid(selector: selector)
+            #if DEBUG
+            firedSelectors.append(rawSelector)
+            #endif
+        }
+
+        let relatedViews: [NSView?] = [
+            enclosingScrollView,
+            enclosingScrollView?.contentView,
+            superview,
+            window?.contentView,
+        ]
+        for view in ([self] as [NSView]) + relatedViews.compactMap({ $0 }) {
+            view.needsLayout = true
+            view.needsDisplay = true
+            view.setNeedsDisplay(view.bounds)
+        }
+
+        for view in relatedViews.compactMap({ $0 }) {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+        }
+        layoutSubtreeIfNeeded()
+        displayIfNeeded()
+        window?.displayIfNeeded()
+
+        evaluateJavaScript(
+            """
+            (() => {
+                window.dispatchEvent(new Event("resize"));
+                document.documentElement?.getBoundingClientRect();
+                document.body?.getBoundingClientRect();
+                if (typeof requestAnimationFrame === "function")
+                    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+                return true;
+            })();
+            """,
+            completionHandler: nil
+        )
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools frontend.refresh web=\(Unmanaged.passUnretained(self).toOpaque()) " +
+            "reason=\(reason) selectors=\(firedSelectors.joined(separator: ","))"
+        )
+#endif
     }
 }
 
