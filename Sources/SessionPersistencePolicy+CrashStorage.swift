@@ -223,11 +223,14 @@ extension SessionPersistencePolicy {
         keptWorkspaces: [SessionWorkspaceSnapshot]
     ) -> [SessionWorkspaceGroupSnapshot]? {
         guard let groups else { return nil }
-        let occupiedGroupIds = Set(keptWorkspaces.compactMap(\.groupId))
+        let originalMembersByGroupId = Dictionary(grouping: originalWorkspaces, by: \.groupId)
+        let keptMembersByGroupId = Dictionary(grouping: keptWorkspaces, by: \.groupId)
+        let occupiedGroupIds = Set(keptMembersByGroupId.keys.compactMap { $0 })
         let pruned = groups.compactMap { group -> SessionWorkspaceGroupSnapshot? in
             guard occupiedGroupIds.contains(group.id) else { return nil }
-            let originalMembers = originalWorkspaces.filter { $0.groupId == group.id }
-            let keptMembers = keptWorkspaces.filter { $0.groupId == group.id }
+            let groupId = Optional(group.id)
+            let originalMembers = originalMembersByGroupId[groupId] ?? []
+            let keptMembers = keptMembersByGroupId[groupId] ?? []
             guard !keptMembers.isEmpty else { return nil }
 
             var copy = group
