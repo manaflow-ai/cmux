@@ -378,6 +378,7 @@ final class RemoteTmuxController {
             host: host,
             sessionName: sessionName,
             connection: connection,
+            tabManager: tabManager,
             workspace: workspace
         )
         return true

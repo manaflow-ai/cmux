@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -18,7 +19,7 @@ struct RemoteTmuxSessionRenameTitleTests {
     private func makeMirror(
         sessionName: String,
         title: String?
-    ) -> (mirror: RemoteTmuxSessionMirror, workspace: Workspace) {
+    ) -> (mirror: RemoteTmuxSessionMirror, workspace: Workspace, manager: TabManager) {
         let manager = TabManager()
         let workspace = manager.addWorkspace(title: title, select: false, autoWelcomeIfNeeded: false)
         workspace.isRemoteTmuxMirror = true
@@ -28,13 +29,14 @@ struct RemoteTmuxSessionRenameTitleTests {
             host: host,
             sessionName: sessionName,
             connection: connection,
+            tabManager: manager,
             workspace: workspace
         )
-        return (mirror, workspace)
+        return (mirror, workspace, manager)
     }
 
     @Test func remoteRenameUpdatesWorkspaceTitle() {
-        let (mirror, workspace) = makeMirror(sessionName: "old", title: "old")
+        let (mirror, workspace, _) = makeMirror(sessionName: "old", title: "old")
         mirror.applySessionNameToWorkspaceTitle("dev")
         #expect(workspace.title == "dev")
         #expect(workspace.customTitle == "dev")
@@ -43,7 +45,7 @@ struct RemoteTmuxSessionRenameTitleTests {
     @Test func remoteRenameOverwritesAUserSetTitle() {
         // The remote session name is the source of truth for a mirror workspace's
         // title (same as a remote window rename unconditionally re-titles its tab).
-        let (mirror, workspace) = makeMirror(sessionName: "old", title: "my custom name")
+        let (mirror, workspace, _) = makeMirror(sessionName: "old", title: "my custom name")
         mirror.applySessionNameToWorkspaceTitle("dev")
         #expect(workspace.title == "dev")
     }
@@ -51,8 +53,31 @@ struct RemoteTmuxSessionRenameTitleTests {
     @Test func remoteRenameRejectsLineUnsafeName() {
         // A name carrying control bytes (which could only arrive corrupted) must
         // not be written as the workspace title.
-        let (mirror, workspace) = makeMirror(sessionName: "old", title: "old")
+        let (mirror, workspace, _) = makeMirror(sessionName: "old", title: "old")
         mirror.applySessionNameToWorkspaceTitle("dev\nrename-window injected")
         #expect(workspace.title == "old")
+    }
+
+    @Test func remoteRenameRefreshesSelectedWindowTitle() {
+        let (mirror, workspace, manager) = makeMirror(sessionName: "old", title: "old")
+        manager.selectedTabId = workspace.id
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        manager.window = window
+        defer {
+            manager.window = nil
+            window.close()
+        }
+
+        manager.refreshWindowTitle()
+        #expect(window.title == "old")
+
+        mirror.applySessionNameToWorkspaceTitle("dev")
+
+        #expect(window.title == "dev")
     }
 }
