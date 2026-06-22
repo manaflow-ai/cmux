@@ -25728,6 +25728,31 @@ struct CMUXCLI {
             String(localized: "agent.generic.notification.body.sentNotification", defaultValue: "%@ sent a notification"),
             def.displayName
         )
+        if def.name == "copilot", let error = object["error"] as? [String: Any] {
+            let label = firstString(in: error, keys: ["name", "code", "status", "type"])
+            let details = firstString(in: error, keys: ["message", "description"])
+                ?? firstString(in: object, keys: ["message", "description"])
+            let body: String
+            switch (label.map(normalizedSingleLine), details.map(normalizedSingleLine)) {
+            case let (label?, details?) where !label.isEmpty && !details.isEmpty && details != label:
+                body = "\(label): \(details)"
+            case let (_, details?) where !details.isEmpty:
+                body = details
+            case let (label?, _) where !label.isEmpty:
+                body = label
+            default:
+                body = String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.body.reportedError", defaultValue: "%@ reported an error"),
+                    def.displayName
+                )
+            }
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                body: truncate(body, maxLength: 180),
+                status: .error,
+                isFallback: false
+            )
+        }
         let message = messageCandidates.compactMap { $0 }.first ?? fallbackBody
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         let normalizedMessage = normalizedSingleLine(message)
@@ -26987,9 +27012,10 @@ struct CMUXCLI {
                 result[agentEvent] = groups
             case .copilotJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
+                let timeoutSeconds = Self.timeoutSecondsFromMilliseconds(feedTimeoutMs)
                 entries.append(Self.copilotHookEntry(
                     command: feedCmd,
-                    timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs) + 5
+                    timeoutSeconds: timeoutSeconds + (feedTimeoutMs >= 120_000 ? 5 : 0)
                 ))
                 result[agentEvent] = entries
             case .antigravityJSON:
@@ -27017,8 +27043,11 @@ struct CMUXCLI {
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
-    private func feedHookTimeoutMs(for def: AgentHookDef, agentEvent _: String) -> Int {
+    private func feedHookTimeoutMs(for def: AgentHookDef, agentEvent: String) -> Int {
         if def.name == "codex" {
+            return 5_000
+        }
+        if def.name == "copilot", agentEvent == "preToolUse" {
             return 5_000
         }
         return 120_000
