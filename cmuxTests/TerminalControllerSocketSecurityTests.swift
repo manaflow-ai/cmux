@@ -633,7 +633,7 @@ final class TerminalControllerSocketSecurityTests {
                 "mobile.terminal.replay",
                 "terminal.replay",
                 "mobile.terminal.viewport",
-                "terminal.viewport",
+                "terminal.viewport", "mobile.notifications.list", "notifications.list",
                 "mobile.events.subscribe",
                 "mobile.events.unsubscribe",
             ]
