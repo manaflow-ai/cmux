@@ -1,5 +1,5 @@
-import XCTest
 import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -9,131 +9,126 @@ import AppKit
 
 /// Covers `SidebarInlineRenameKeyResolver` (the two-stage-Escape state machine)
 /// and `SidebarInlineRenameCommit.normalized` (the empty-is-no-op rule).
-final class SidebarInlineRenameKeyResolverTests: XCTestCase {
+@MainActor
+@Suite struct SidebarInlineRenameKeyResolverTests {
     private let resolver = SidebarInlineRenameKeyResolver()
 
-    func testEnterCommitsRegardlessOfCaretState() {
-        XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.insertNewline(_:)), hasMovedCaretToStart: false),
-            .commit
+    @Test func enterCommitsRegardlessOfCaretState() {
+        #expect(resolver.action(for: #selector(NSResponder.insertNewline(_:)), hasMovedCaretToStart: false) == .commit)
+        #expect(resolver.action(for: #selector(NSResponder.insertNewline(_:)), hasMovedCaretToStart: true) == .commit)
+    }
+
+    @Test func firstEscapeMovesCaretToStart() {
+        #expect(resolver.action(for: #selector(NSResponder.cancelOperation(_:)), hasMovedCaretToStart: false) == .caretToStart)
+    }
+
+    @Test func secondEscapeCancels() {
+        #expect(resolver.action(for: #selector(NSResponder.cancelOperation(_:)), hasMovedCaretToStart: true) == .cancel)
+    }
+
+    @Test func unrelatedSelectorPassesThrough() {
+        #expect(resolver.action(for: #selector(NSResponder.moveLeft(_:)), hasMovedCaretToStart: true) == .passThrough)
+    }
+
+    @Test func coordinatorReturnPassesThroughDuringMarkedTextComposition() {
+        var commitCount = 0
+        var cancelCount = 0
+        let coordinator = SidebarInlineRenameField.Coordinator(
+            onCommit: { _ in commitCount += 1 },
+            onCancel: { cancelCount += 1 }
         )
-        XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.insertNewline(_:)), hasMovedCaretToStart: true),
-            .commit
+        let field = NSTextField(string: "compose")
+        let editor = markedTextEditor()
+
+        let handled = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
         )
+
+        #expect(!handled)
+        #expect(commitCount == 0)
+        #expect(cancelCount == 0)
+        #expect(editor.hasMarkedText())
     }
 
-    func testFirstEscapeMovesCaretToStart() {
-        XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.cancelOperation(_:)), hasMovedCaretToStart: false),
-            .caretToStart
+    @Test func coordinatorEscapePassesThroughDuringMarkedTextComposition() {
+        var commitCount = 0
+        var cancelCount = 0
+        let coordinator = SidebarInlineRenameField.Coordinator(
+            onCommit: { _ in commitCount += 1 },
+            onCancel: { cancelCount += 1 }
         )
-    }
+        let field = NSTextField(string: "compose")
+        let editor = markedTextEditor()
 
-    func testSecondEscapeCancels() {
-        XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.cancelOperation(_:)), hasMovedCaretToStart: true),
-            .cancel
+        let handled = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
         )
+
+        #expect(!handled)
+        #expect(commitCount == 0)
+        #expect(cancelCount == 0)
+        #expect(editor.hasMarkedText())
     }
 
-    func testUnrelatedSelectorPassesThrough() {
-        XCTAssertEqual(
-            resolver.action(for: #selector(NSResponder.moveLeft(_:)), hasMovedCaretToStart: true),
-            .passThrough
-        )
+    @Test func normalizeTrimsAndKeepsNonEmpty() {
+        #expect(SidebarInlineRenameCommit.normalized("  Renamed  ") == "Renamed")
     }
 
-    func testCoordinatorReturnPassesThroughDuringMarkedTextComposition() async {
-        await MainActor.run {
-            var commitCount = 0
-            var cancelCount = 0
-            let coordinator = SidebarInlineRenameField.Coordinator(
-                onCommit: { _ in commitCount += 1 },
-                onCancel: { cancelCount += 1 }
-            )
-            let field = NSTextField(string: "compose")
-            let editor = markedTextEditor()
-
-            let handled = coordinator.control(
-                field,
-                textView: editor,
-                doCommandBy: #selector(NSResponder.insertNewline(_:))
-            )
-
-            XCTAssertFalse(handled)
-            XCTAssertEqual(commitCount, 0)
-            XCTAssertEqual(cancelCount, 0)
-            XCTAssertTrue(editor.hasMarkedText())
-        }
+    @Test func normalizeReturnsNilForEmptyOrWhitespace() {
+        #expect(SidebarInlineRenameCommit.normalized("") == nil)
+        #expect(SidebarInlineRenameCommit.normalized("   \n\t ") == nil)
     }
 
-    func testCoordinatorEscapePassesThroughDuringMarkedTextComposition() async {
-        await MainActor.run {
-            var commitCount = 0
-            var cancelCount = 0
-            let coordinator = SidebarInlineRenameField.Coordinator(
-                onCommit: { _ in commitCount += 1 },
-                onCancel: { cancelCount += 1 }
-            )
-            let field = NSTextField(string: "compose")
-            let editor = markedTextEditor()
-
-            let handled = coordinator.control(
-                field,
-                textView: editor,
-                doCommandBy: #selector(NSResponder.cancelOperation(_:))
-            )
-
-            XCTAssertFalse(handled)
-            XCTAssertEqual(commitCount, 0)
-            XCTAssertEqual(cancelCount, 0)
-            XCTAssertTrue(editor.hasMarkedText())
-        }
+    @Test func titleToCommitReturnsNilForEmptyDraft() {
+        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "   ", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
     }
 
-    func testNormalizeTrimsAndKeepsNonEmpty() {
-        XCTAssertEqual(SidebarInlineRenameCommit.normalized("  Renamed  "), "Renamed")
+    @Test func titleToCommitSkipsUnchangedAutoTitle() {
+        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
     }
 
-    func testNormalizeReturnsNilForEmptyOrWhitespace() {
-        XCTAssertNil(SidebarInlineRenameCommit.normalized(""))
-        XCTAssertNil(SidebarInlineRenameCommit.normalized("   \n\t "))
+    @Test func titleToCommitWritesChangedNameForAutoTitle() {
+        #expect(SidebarInlineRenameCommit.titleToCommit(
+            draft: "  My Work  ",
+            baseline: "zsh",
+            baselineHadUserCustomTitle: false
+        ) == "My Work")
     }
 
-    func testTitleToCommitReturnsNilForEmptyDraft() {
-        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "   ", baseline: "zsh", baselineHadCustomTitle: false))
+    @Test func titleToCommitWritesWhenBaselineHadUserCustomTitle() {
+        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "Foo", baseline: "Foo", baselineHadUserCustomTitle: true) == "Foo")
     }
 
-    func testTitleToCommitSkipsUnchangedAutoTitle() {
-        XCTAssertNil(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadCustomTitle: false))
-    }
-
-    func testTitleToCommitWritesChangedNameForAutoTitle() {
-        XCTAssertEqual(
-            SidebarInlineRenameCommit.titleToCommit(draft: "  My Work  ", baseline: "zsh", baselineHadCustomTitle: false),
-            "My Work"
-        )
-    }
-
-    func testTitleToCommitWritesWhenBaselineHadCustomTitle() {
-        XCTAssertEqual(
-            SidebarInlineRenameCommit.titleToCommit(draft: "Foo", baseline: "Foo", baselineHadCustomTitle: true),
-            "Foo"
-        )
-    }
-
-    func testTitleToCommitWritesStaleBaselineWhenAutoTitleChangedMidEdit() {
+    @Test func titleToCommitSkipsStaleBaselineWhenAutoTitleChangedMidEdit() {
         // Regression: the decision is based on the edit-begin baseline, not a
         // live title read at commit. Committing the unchanged baseline of an
         // auto-titled workspace is skipped even if the process title moved on.
-        XCTAssertNil(
-            SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadCustomTitle: false)
-        )
+        #expect(SidebarInlineRenameCommit.titleToCommit(draft: "zsh", baseline: "zsh", baselineHadUserCustomTitle: false) == nil)
         // ...but a real edit still writes, regardless of any mid-edit drift.
-        XCTAssertEqual(
-            SidebarInlineRenameCommit.titleToCommit(draft: "vim", baseline: "zsh", baselineHadCustomTitle: false),
-            "vim"
+        #expect(SidebarInlineRenameCommit.titleToCommit(
+            draft: "vim",
+            baseline: "zsh",
+            baselineHadUserCustomTitle: false
+        ) == "vim")
+    }
+
+    @Test func titleToCommitSkipsUnchangedAutoGeneratedCustomTitle() {
+        let workspace = Workspace(title: "Terminal")
+        workspace.setCustomTitle("Fix auth bug", source: .auto)
+
+        let baselineHadUserCustomTitle = workspace.effectiveCustomTitleSource == .user
+
+        #expect(!baselineHadUserCustomTitle)
+        #expect(
+            SidebarInlineRenameCommit.titleToCommit(
+                draft: "Fix auth bug",
+                baseline: "Fix auth bug",
+                baselineHadUserCustomTitle: baselineHadUserCustomTitle
+            ) == nil
         )
     }
 
