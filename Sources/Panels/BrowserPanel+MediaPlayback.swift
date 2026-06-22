@@ -27,9 +27,8 @@ extension BrowserPanel {
     ///
     /// Reports only on change (debounced via `lastReported`) and on `pagehide`.
     /// Uses `paused`/`ended`, so playback that the user has muted still counts as
-    /// "playing media" (matching Chrome's keep-alive). Uses only public DOM APIs,
-    /// so it is stable across WebKit/macOS versions, unlike the private
-    /// `_isPlayingAudio` KVO property (which would also drop user-muted video).
+    /// "playing media" and can render the muted activity glyph. Uses only public
+    /// DOM APIs, so it is stable across WebKit/macOS versions.
     ///
     /// The script is purely passive (capture-phase listeners only; no console,
     /// prototype, or enumerable-global tampering) so it does not trip the

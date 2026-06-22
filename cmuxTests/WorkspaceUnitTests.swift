@@ -1,4 +1,3 @@
-import XCTest
 import CmuxCore
 import AppKit
 import CmuxFoundation
@@ -18,6 +17,7 @@ import CmuxTerminal
 import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -565,9 +565,8 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
         let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
         let expectedActions: [KeyboardShortcutSettings.Action] = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
+            .focusRightSidebar, .toggleRightSidebar, .findInDirectory,
+            .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
