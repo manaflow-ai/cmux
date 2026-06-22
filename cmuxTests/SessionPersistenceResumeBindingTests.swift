@@ -23,10 +23,18 @@ import Testing
     }
 
     @Test func decodingAgentHookBindingRewritesPersistedPATHManagedAgentExecutable() throws {
+        let executablePath = Self.homeManagedExecutablePath(
+            executableName: "claude",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
         let json = """
         {
           "kind": "claude",
-          "command": "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && '/Users/me/.nvm/versions/node/v24.2.0/bin/claude' '--resume' 'session-moved-cli' '--chrome'",
+          "command": "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && '\(executablePath)' '--resume' 'session-moved-cli' '--chrome'",
           "cwd": "/tmp/project",
           "checkpointId": "session-moved-cli",
           "source": "agent-hook",
@@ -39,34 +47,65 @@ import Testing
         #expect(binding.command.contains("/bin/sh -c"), "\(binding.command)")
         #expect(binding.command.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(binding.command)")
         #expect(binding.command.contains("--resume"), "\(binding.command)")
-        #expect(!binding.command.contains("/Users/me/.nvm/versions/node/v24.2.0/bin/claude"), "\(binding.command)")
+        #expect(!binding.command.contains(executablePath), "\(binding.command)")
     }
 
-    @Test(
-        "Agent-hook binding rewrites stale executables from supported managed directories",
-        arguments: [
-            "/Users/me/.fnm/current/bin/codex",
-            "/Users/me/Library/Application Support/fnm/node-versions/v24.2.0/installation/bin/codex",
-            "/Users/me/.local/share/fnm/node-versions/v24.2.0/installation/bin/codex",
-            "/Users/me/.local/share/mise/shims/codex",
-        ]
-    )
-    func agentHookBindingRewritesSupportedManagedExecutablePath(_ executablePath: String) throws {
-        let binding = SurfaceResumeBindingSnapshot(
-            kind: "codex",
-            command: "'\(executablePath)' 'resume' 'session-managed-cli'",
-            checkpointId: "session-managed-cli",
-            source: "agent-hook",
-            autoResume: true
-        )
+    @Test func agentHookBindingRewritesSupportedLocalManagedExecutablePaths() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-stale-managed-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
 
-        let startupInput = try #require(binding.startupInput)
-        #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
-        #expect(!startupInput.contains(executablePath), "\(startupInput)")
+        let executablePaths = [
+            Self.localManagedExecutablePath(root: root, executableName: "codex", ".fnm", "current", "bin"),
+            Self.localManagedExecutablePath(
+                root: root,
+                executableName: "codex",
+                "Library",
+                "Application Support",
+                "fnm",
+                "node-versions",
+                "v24.2.0",
+                "installation",
+                "bin"
+            ),
+            Self.localManagedExecutablePath(
+                root: root,
+                executableName: "codex",
+                ".local",
+                "share",
+                "fnm",
+                "node-versions",
+                "v24.2.0",
+                "installation",
+                "bin"
+            ),
+            Self.localManagedExecutablePath(root: root, executableName: "codex", ".local", "share", "mise", "shims"),
+        ]
+
+        for executablePath in executablePaths {
+            let binding = SurfaceResumeBindingSnapshot(
+                kind: "codex",
+                command: "'\(executablePath)' 'resume' 'session-managed-cli'",
+                checkpointId: "session-managed-cli",
+                source: "agent-hook",
+                autoResume: true
+            )
+
+            let startupInput = try #require(binding.startupInput)
+            #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
+            #expect(!startupInput.contains(executablePath), "\(startupInput)")
+        }
     }
 
     @Test func agentHookBindingWithDirectEnvironmentAssignmentRewritesMovedExecutable() throws {
-        let staleExecutablePath = "/Users/me/.nvm/versions/node/v24.2.0/bin/codex"
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "CMUX_TRACE=1 '\(staleExecutablePath)' 'resume' 'session-env-cli'",
@@ -81,8 +120,40 @@ import Testing
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
+    @Test func agentHookClaudeBindingWithDirectEnvironmentAssignmentPreservesAssignmentSyntax() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "claude",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "CMUX_TRACE='bar baz' '\(staleExecutablePath)' '--resume' 'session-env-cli'",
+            checkpointId: "session-env-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(
+            binding.command.contains("CMUX_TRACE='bar baz' claude '--resume' 'session-env-cli'"),
+            "\(binding.command)"
+        )
+        #expect(!binding.command.contains("'CMUX_TRACE=bar baz'"), "\(binding.command)")
+        #expect(!binding.command.contains(staleExecutablePath), "\(binding.command)")
+    }
+
     @Test func agentHookClaudeBindingWithShellOperatorKeepsOriginalCommandShape() throws {
-        let staleExecutablePath = "/Users/me/.nvm/versions/node/v24.2.0/bin/claude"
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "claude",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
         let binding = SurfaceResumeBindingSnapshot(
             kind: "claude",
             command: "'\(staleExecutablePath)' '--resume' 'session-operator-cli' && echo done",
@@ -93,6 +164,20 @@ import Testing
 
         #expect(binding.command.contains("&& echo done"), "\(binding.command)")
         #expect(binding.command.contains(staleExecutablePath), "\(binding.command)")
+    }
+
+    @Test func agentHookBindingPreservesRemoteManagedExecutablePath() throws {
+        let remoteExecutablePath = "/home/me/.nvm/versions/node/v24.2.0/bin/codex"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(remoteExecutablePath)' 'resume' 'session-remote-cli'",
+            checkpointId: "session-remote-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+        #expect(startupInput.contains("'\(remoteExecutablePath)' 'resume' 'session-remote-cli'"), "\(startupInput)")
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
@@ -205,5 +290,29 @@ import Testing
             _ = exited.wait(timeout: .now() + 2)
             throw ResumeShellTimeout(shellDescription: shellDescription, timeout: timeout)
         }
+    }
+
+    private static func homeManagedExecutablePath(executableName: String, _ components: String...) -> String {
+        localManagedExecutablePath(root: FileManager.default.homeDirectoryForCurrentUser, executableName: executableName, components)
+    }
+
+    private static func localManagedExecutablePath(
+        root: URL,
+        executableName: String,
+        _ components: String...
+    ) -> String {
+        localManagedExecutablePath(root: root, executableName: executableName, components)
+    }
+
+    private static func localManagedExecutablePath(
+        root: URL,
+        executableName: String,
+        _ components: [String]
+    ) -> String {
+        var directory = root
+        for component in components {
+            directory.appendPathComponent(component, isDirectory: true)
+        }
+        return directory.appendingPathComponent(executableName, isDirectory: false).path
     }
 }

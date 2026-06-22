@@ -48,9 +48,12 @@ extension SurfaceResumeCommandCanonicalizer {
                 executableIndex: executableIndex
             )
         } else {
-            var repaired = command
-            repaired.replaceSubrange(words[executableIndex].range, with: shellQuoted(executableName))
-            return repaired
+            return replacingExecutableOnly(
+                in: command,
+                words: words,
+                executableIndex: executableIndex,
+                executableName: executableName
+            )
         }
     }
 
@@ -67,10 +70,7 @@ extension SurfaceResumeCommandCanonicalizer {
 
     private static func isPATHManagedAgentExecutablePath(_ path: String, executableName: String) -> Bool {
         let standardized = (path as NSString).standardizingPath
-        if standardized == "/usr/local/bin/\(executableName)"
-            || standardized == "/opt/homebrew/bin/\(executableName)" {
-            return true
-        }
+        guard isLocalManagedAgentExecutableCandidate(standardized) else { return false }
         let components = standardized.split(separator: "/").map(String.init)
         let lastThree = Array(components.suffix(3))
         if lastThree == [".local", "bin", executableName]
@@ -104,6 +104,17 @@ extension SurfaceResumeCommandCanonicalizer {
         return components.contains("cmux-cli-shims")
     }
 
+    private static func isLocalManagedAgentExecutableCandidate(_ standardizedPath: String) -> Bool {
+        [
+            FileManager.default.homeDirectoryForCurrentUser.path,
+            FileManager.default.temporaryDirectory.path,
+        ]
+        .map { ($0 as NSString).standardizingPath }
+        .contains { root in
+            standardizedPath == root || standardizedPath.hasPrefix(root + "/")
+        }
+    }
+
     private static func isExecutableFile(atPath path: String) -> Bool {
         path.withCString { access($0, X_OK) == 0 }
     }
@@ -122,6 +133,18 @@ extension SurfaceResumeCommandCanonicalizer {
         guard !containsShellControlSyntax(parts) else {
             return command
         }
+        guard canRenderStaleClaudeCommandAsPortableArgv(
+            words: words,
+            commandStartIndex: commandStartIndex,
+            executableIndex: executableIndex
+        ) else {
+            return replacingExecutableOnly(
+                in: command,
+                words: words,
+                executableIndex: executableIndex,
+                executableName: "claude"
+            )
+        }
         parts[executableIndex - commandStartIndex] = "claude"
         let renderedCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
             parts: parts,
@@ -129,6 +152,35 @@ extension SurfaceResumeCommandCanonicalizer {
         )
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
+    }
+
+    private static func canRenderStaleClaudeCommandAsPortableArgv(
+        words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        commandStartIndex: Int,
+        executableIndex: Int
+    ) -> Bool {
+        if commandStartIndex == executableIndex {
+            return true
+        }
+        guard commandStartIndex < words.count,
+              words[commandStartIndex].value == "env" || words[commandStartIndex].value == "/usr/bin/env",
+              commandStartIndex < executableIndex else {
+            return false
+        }
+        return words[(commandStartIndex + 1)..<executableIndex].allSatisfy {
+            isEnvironmentAssignment($0.value)
+        }
+    }
+
+    private static func replacingExecutableOnly(
+        in command: String,
+        words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        executableIndex: Int,
+        executableName: String
+    ) -> String {
+        var repaired = command
+        repaired.replaceSubrange(words[executableIndex].range, with: shellQuoted(executableName))
+        return repaired
     }
 
     private static func containsShellControlSyntax(_ parts: [String]) -> Bool {
