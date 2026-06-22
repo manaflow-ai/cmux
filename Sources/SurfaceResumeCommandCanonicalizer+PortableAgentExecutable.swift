@@ -314,7 +314,7 @@ extension SurfaceResumeCommandCanonicalizer {
             return false
         }
         return words[(commandStartIndex + 1)..<executableIndex].allSatisfy {
-            isEnvironmentAssignmentSyntax($0, in: command)
+            isEnvironmentAssignmentArgument($0)
         }
     }
 
@@ -330,7 +330,7 @@ extension SurfaceResumeCommandCanonicalizer {
     }
 
     private static func containsShellControlSyntax(_ parts: [String]) -> Bool {
-        parts.contains(isShellControlSyntax)
+        parts.contains(where: isShellControlSyntax)
     }
 
     private static func isShellControlSyntax(_ part: String) -> Bool {
@@ -356,7 +356,7 @@ extension SurfaceResumeCommandCanonicalizer {
         guard index < words.count else { return nil }
         if words[index].value == "env" || words[index].value == "/usr/bin/env" {
             index += 1
-            while index < words.count, isEnvironmentAssignmentSyntax(words[index], in: command) {
+            while index < words.count, isEnvironmentAssignmentArgument(words[index]) {
                 index += 1
             }
         }
@@ -391,6 +391,12 @@ extension SurfaceResumeCommandCanonicalizer {
         let allowedNameScalars = allowedFirstScalars.union(CharacterSet(charactersIn: "0123456789"))
         guard let first = name.unicodeScalars.first, allowedFirstScalars.contains(first) else { return false }
         return name.unicodeScalars.allSatisfy { allowedNameScalars.contains($0) }
+    }
+
+    private static func isEnvironmentAssignmentArgument(
+        _ word: TerminalStartupWorkingDirectoryPrefix.ShellWordRange
+    ) -> Bool {
+        isEnvironmentAssignment(word.value)
     }
 
     private static func isEnvironmentAssignmentSyntax(

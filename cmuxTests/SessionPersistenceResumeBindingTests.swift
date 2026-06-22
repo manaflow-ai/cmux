@@ -150,6 +150,28 @@ import Testing
         #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
+    @Test func agentHookBindingWithQuotedEnvAssignmentRewritesMovedExecutable() throws {
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "env 'CMUX_TRACE=1' '\(staleExecutablePath)' 'resume' 'session-quoted-env-cli'",
+            checkpointId: "session-quoted-env-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(startupInput.contains("env 'CMUX_TRACE=1' codex 'resume' 'session-quoted-env-cli'"), "\(startupInput)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+    }
+
     @Test func agentHookClaudeBindingWithDirectEnvironmentAssignmentPreservesAssignmentSyntax() throws {
         let staleExecutablePath = Self.homeManagedExecutablePath(
             executableName: "claude",
