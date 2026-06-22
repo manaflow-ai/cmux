@@ -32871,11 +32871,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
         // so the agent proceeds without a decision.
-        let (hookEventName, isActionable) = FeedEventClassifier.classify(
+        var (hookEventName, isActionable) = FeedEventClassifier.classify(
             source: source,
             event: rawEvent,
             toolName: toolName
         )
+        if commandArgs.contains("--telemetry-only") {
+            hookEventName = rawEvent.isEmpty ? hookEventName : rawEvent
+            isActionable = false
+        }
         let env = ProcessInfo.processInfo.environment
         if Self.shouldSuppressKiroFeedEvent(
             source: source,

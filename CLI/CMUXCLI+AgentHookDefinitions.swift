@@ -381,14 +381,18 @@ extension CMUXCLI {
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+        let telemetryOnlyFlag = def.name == "copilot" && agentEvent == "preToolUse"
+            ? " --telemetry-only"
+            : ""
+        let command = "cmux hooks feed --source \(def.name) --event \(agentEvent)\(telemetryOnlyFlag)"
         switch def.format {
         case .kiroAgentJSON:
             return exitTwoPropagatingAgentHookShellCommand(
-                "cmux hooks feed --source \(def.name) --event \(agentEvent)",
+                command,
                 for: def
             )
         default:
-            return agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
+            return agentHookShellCommand(command, for: def)
         }
     }
 

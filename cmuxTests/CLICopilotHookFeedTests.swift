@@ -96,6 +96,7 @@ struct CLICopilotHookFeedTests {
         #expect(
             preToolUse.contains {
                 ($0["bash"] as? String)?.contains("hooks feed --source copilot --event preToolUse") == true
+                    && ($0["bash"] as? String)?.contains("--telemetry-only") == true
                     && ($0["type"] as? String) == "command"
                     && ($0["timeoutSec"] as? Int) == 125
                     && $0["command"] == nil
