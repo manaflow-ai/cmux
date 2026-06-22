@@ -383,7 +383,10 @@ final class WindowTerminalHostView: NSView {
         let collected = PortalSplitDividerRegion.collect(in: rootView)
         cachedSplitDividerRegions = collected.regions
         cachedSplitDividerRootSubviewIds = rootSubviewIds
-        splitDividerCacheInvalidator.observe(collected.observedViews) { [weak self] in
+        splitDividerCacheInvalidator.observe(
+            geometryViews: collected.geometryObservedViews,
+            structureViews: collected.structureObservedViews
+        ) { [weak self] in
             guard let self else { return }
             self.invalidateSplitDividerRegionCache()
             self.window?.invalidateCursorRects(for: self)

@@ -242,6 +242,45 @@ struct PortalHitTestingPerformanceTests {
     }
 
     @Test
+    func terminalSplitDividerCacheRefreshesAfterNestedSubviewInsertion() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try #require(window.contentView)
+        let container = NSView(frame: contentView.bounds)
+        contentView.addSubview(container)
+
+        let hostedView = CapturingView(frame: contentView.bounds)
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+
+        let warmPointInWindow = contentView.convert(NSPoint(x: 20, y: 20), to: nil)
+        let warmEvent = makeMouseEvent(type: .mouseMoved, at: warmPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(warmPointInWindow, from: nil), currentEvent: warmEvent) === hostedView)
+
+        let insertedSplitView = CountingSplitView(frame: container.bounds)
+        insertedSplitView.isVertical = true
+        let insertedSplitDelegate = SplitDelegate()
+        insertedSplitView.delegate = insertedSplitDelegate
+        insertedSplitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 200, height: container.bounds.height)))
+        insertedSplitView.addSubview(NSView(frame: NSRect(x: 201, y: 0, width: 119, height: container.bounds.height)))
+        container.addSubview(insertedSplitView)
+
+        let insertedDividerPointInWindow = insertedSplitView.convert(
+            NSPoint(x: insertedSplitView.arrangedSubviews[0].frame.maxX + (insertedSplitView.dividerThickness * 0.5), y: insertedSplitView.bounds.midY),
+            to: nil
+        )
+        let insertedEvent = makeMouseEvent(type: .mouseMoved, at: insertedDividerPointInWindow, window: window)
+        #expect(host.performHitTest(at: host.convert(insertedDividerPointInWindow, from: nil), currentEvent: insertedEvent) == nil)
+    }
+
+    @Test
     func terminalSplitDividerCacheRefreshesWhenNestedSplitBecomesVisible() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),

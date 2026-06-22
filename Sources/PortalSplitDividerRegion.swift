@@ -52,14 +52,19 @@ final class PortalSplitDividerRegion {
         regions.allSatisfy(\.isLive)
     }
 
-    static func collect(in rootView: NSView, hostView: NSView? = nil) -> (regions: [PortalSplitDividerRegion], observedViews: [NSView]) {
+    static func collect(
+        in rootView: NSView,
+        hostView: NSView? = nil
+    ) -> (regions: [PortalSplitDividerRegion], geometryObservedViews: [NSView], structureObservedViews: [NSView]) {
         var regions: [PortalSplitDividerRegion] = []
-        var observedViews: [NSView] = []
-        var observedIds = Set<ObjectIdentifier>()
+        var geometryObservedViews: [NSView] = []
+        var geometryObservedIds = Set<ObjectIdentifier>()
+        var structureObservedViews: [NSView] = []
+        var structureObservedIds = Set<ObjectIdentifier>()
         var ancestorStack: [NSView] = []
-        appendObserved(rootView, to: &observedViews, ids: &observedIds)
+        appendObserved(rootView, to: &geometryObservedViews, ids: &geometryObservedIds)
         for subview in rootView.subviews {
-            appendObserved(subview, to: &observedViews, ids: &observedIds)
+            appendObserved(subview, to: &geometryObservedViews, ids: &geometryObservedIds)
         }
         collect(
             in: rootView,
@@ -67,10 +72,12 @@ final class PortalSplitDividerRegion {
             ancestorHidden: false,
             ancestorStack: &ancestorStack,
             into: &regions,
-            observedViews: &observedViews,
-            observedIds: &observedIds
+            geometryObservedViews: &geometryObservedViews,
+            geometryObservedIds: &geometryObservedIds,
+            structureObservedViews: &structureObservedViews,
+            structureObservedIds: &structureObservedIds
         )
-        return (regions, observedViews)
+        return (regions, geometryObservedViews, structureObservedViews)
     }
 
     private static func collect(
@@ -79,16 +86,19 @@ final class PortalSplitDividerRegion {
         ancestorHidden: Bool,
         ancestorStack: inout [NSView],
         into result: inout [PortalSplitDividerRegion],
-        observedViews: inout [NSView],
-        observedIds: inout Set<ObjectIdentifier>
+        geometryObservedViews: inout [NSView],
+        geometryObservedIds: inout Set<ObjectIdentifier>,
+        structureObservedViews: inout [NSView],
+        structureObservedIds: inout Set<ObjectIdentifier>
     ) {
         let isHidden = ancestorHidden || view.isHidden
+        appendObserved(view, to: &structureObservedViews, ids: &structureObservedIds)
 
         if let splitView = view as? NSSplitView {
             for ancestor in ancestorStack {
-                appendObserved(ancestor, to: &observedViews, ids: &observedIds)
+                appendObserved(ancestor, to: &geometryObservedViews, ids: &geometryObservedIds)
             }
-            appendObserved(splitView, to: &observedViews, ids: &observedIds)
+            appendObserved(splitView, to: &geometryObservedViews, ids: &geometryObservedIds)
             if !isHidden {
                 appendDividerRegions(for: splitView, hostView: hostView, into: &result)
             }
@@ -104,8 +114,10 @@ final class PortalSplitDividerRegion {
                 ancestorHidden: isHidden,
                 ancestorStack: &ancestorStack,
                 into: &result,
-                observedViews: &observedViews,
-                observedIds: &observedIds
+                geometryObservedViews: &geometryObservedViews,
+                geometryObservedIds: &geometryObservedIds,
+                structureObservedViews: &structureObservedViews,
+                structureObservedIds: &structureObservedIds
             )
         }
     }
