@@ -43,6 +43,42 @@ struct BrowserControlServiceTests {
         #expect(dict?["V"] is NSNull)
     }
 
+    @Test("unwrapEvalEnvelope maps the undefined discriminator to the sentinel")
+    func unwrapUndefined() {
+        let result = service.unwrapEvalEnvelope(["__cmux_t": "undefined", "__cmux_v": NSNull()])
+        #expect(result is BrowserEvalUndefinedSentinel)
+    }
+
+    @Test("unwrapEvalEnvelope returns the carried value for the value discriminator")
+    func unwrapValue() {
+        let result = service.unwrapEvalEnvelope(["__cmux_t": "value", "__cmux_v": 42])
+        #expect(result as? Int == 42)
+    }
+
+    @Test("unwrapEvalEnvelope passes through non-envelope values unchanged")
+    func unwrapPassthrough() {
+        #expect(service.unwrapEvalEnvelope("plain") as? String == "plain")
+        #expect(service.unwrapEvalEnvelope(["other": 1]) as? [String: Int] == ["other": 1])
+        #expect(service.unwrapEvalEnvelope(nil) == nil)
+    }
+
+    @Test("normalizeJSValue convenience round-trips the unwrapped undefined sentinel")
+    func normalizeUnwrappedUndefined() {
+        let unwrapped = service.unwrapEvalEnvelope(["__cmux_t": "undefined", "__cmux_v": NSNull()])
+        let dict = service.normalizeJSValue(unwrapped) as? [String: Any]
+        #expect(dict?["__cmux_t"] as? String == "undefined")
+        #expect(dict?["__cmux_v"] is NSNull)
+    }
+
+    @Test("unwrapEvalEnvelope honors a custom envelope's discriminators")
+    func unwrapCustomEnvelope() {
+        let custom = BrowserControlService(
+            evalEnvelope: BrowserEvalEnvelope(typeKey: "T", valueKey: "V", typeUndefined: "U", typeValue: "VAL")
+        )
+        #expect(custom.unwrapEvalEnvelope(["T": "U", "V": NSNull()]) is BrowserEvalUndefinedSentinel)
+        #expect(custom.unwrapEvalEnvelope(["T": "VAL", "V": "x"]) as? String == "x")
+    }
+
     @Test("failureLooksLikeCSPEvalBlock matches CSP phrasings")
     func cspDetection() {
         #expect(service.failureLooksLikeCSPEvalBlock("blocked: unsafe-eval"))
