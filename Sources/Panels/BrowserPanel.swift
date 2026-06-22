@@ -6277,6 +6277,10 @@ extension BrowserPanel {
         detachedDeveloperToolsWindows().filter(detachedDeveloperToolsWindowBelongsToPanel)
     }
 
+    private var hasPendingDetachedDeveloperToolsWindowCloseResolution: Bool {
+        detachedDeveloperToolsWindowCloseResolutionWorkItem != nil
+    }
+
     private func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
         return Self.visibleDescendants(in: container)
@@ -6742,6 +6746,9 @@ extension BrowserPanel {
             cancelDeveloperToolsRestoreRetry()
             return
         }
+        if hasPendingDetachedDeveloperToolsWindowCloseResolution {
+            return
+        }
         if preserveVisibleIntent && preferredDeveloperToolsVisible {
             return
         }
@@ -6867,6 +6874,9 @@ extension BrowserPanel {
         }
 
         let detachedOpenStillSettling = developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false
+        if hasPendingDetachedDeveloperToolsWindowCloseResolution {
+            return
+        }
         if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
             setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
@@ -6942,6 +6952,7 @@ extension BrowserPanel {
             (
                 forceDeveloperToolsRefreshOnNextAttach ||
                 developerToolsRestoreRetryWorkItem != nil ||
+                hasPendingDetachedDeveloperToolsWindowCloseResolution ||
                 webView.superview == nil ||
                 webView.window == nil
             )
