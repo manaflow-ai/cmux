@@ -365,7 +365,7 @@ final class WindowTerminalHostView: NSView {
     private func splitDividerCursorKind(at point: NSPoint) -> DividerCursorKind? {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
-        return Self.dividerCursorKind(at: windowPoint, in: splitDividerRegions())
+        return Self.dividerCursorKind(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
     }
 
     static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
@@ -408,10 +408,10 @@ final class WindowTerminalHostView: NSView {
         }
     }
 
-    private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerCursorKind? {
+    private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerCursorKind? {
         let expansion: CGFloat = 5
         for region in regions.reversed() {
-            guard region.isLive else { continue }
+            if checkLiveness, !region.isLive { continue }
             let hitRect = region.rectInWindow.insetBy(dx: -expansion, dy: -expansion)
                 .intersection(region.boundsInWindow)
             if !hitRect.isNull, hitRect.contains(windowPoint) {

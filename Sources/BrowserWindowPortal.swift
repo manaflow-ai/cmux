@@ -880,7 +880,7 @@ final class WindowBrowserHostView: NSView {
     private func splitDividerHit(at point: NSPoint) -> DividerHit? {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
-        return Self.dividerHit(at: windowPoint, in: splitDividerRegions())
+        return Self.dividerHit(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
     }
 
     private func dividerSearchRootView() -> NSView? {
@@ -1145,10 +1145,10 @@ final class WindowBrowserHostView: NSView {
         }
     }
 
-    private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerHit? {
+    private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerHit? {
         let expansion: CGFloat = 5
         for region in regions.reversed() {
-            guard region.isLive else { continue }
+            if checkLiveness, !region.isLive { continue }
             let hitRect = region.rectInWindow.insetBy(dx: -expansion, dy: -expansion)
                 .intersection(region.boundsInWindow)
             if !hitRect.isNull, hitRect.contains(windowPoint) {
