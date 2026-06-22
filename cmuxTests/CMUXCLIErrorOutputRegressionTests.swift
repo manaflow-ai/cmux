@@ -1266,7 +1266,7 @@ struct CMUXCLIErrorOutputRegressionTests {
     }
 
     func bundledCLIPath() throws -> String {
-        try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+        try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
 
     /// A throwaway home directory for hermetic CLI socket-resolution tests.

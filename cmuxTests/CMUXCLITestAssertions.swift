@@ -4,31 +4,47 @@ import Testing
 func XCTAssertFalse(
     _ expression: @autoclosure () throws -> Bool,
     _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try !expression(), Comment(rawValue: message()))
+) {
+    do {
+        #expect(try !expression(), Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
 }
 
 func XCTAssertTrue(
     _ expression: @autoclosure () throws -> Bool,
     _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try expression(), Comment(rawValue: message()))
+) {
+    do {
+        #expect(try expression(), Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
 }
 
 func XCTAssertEqual<T: Equatable>(
     _ lhs: @autoclosure () throws -> T,
     _ rhs: @autoclosure () throws -> T,
     _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try lhs() == rhs(), Comment(rawValue: message()))
+) {
+    do {
+        #expect(try lhs() == rhs(), Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
 }
 
 func XCTAssertNotEqual<T: Equatable>(
     _ lhs: @autoclosure () throws -> T,
     _ rhs: @autoclosure () throws -> T,
     _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try lhs() != rhs(), Comment(rawValue: message()))
+) {
+    do {
+        #expect(try lhs() != rhs(), Comment(rawValue: message()))
+    } catch {
+        Issue.record(error)
+    }
 }
 
 func XCTUnwrap<T>(
