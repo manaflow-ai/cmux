@@ -216,6 +216,11 @@ struct FeedEventClassifier {
             "agentSpawn": .sessionStart,
             "stop": .response,
         ],
+        "copilot": [
+            // Copilot's PreToolUse hook is the permission gate itself:
+            // the hook output directly controls whether the tool runs.
+            "PreToolUse": .approvalRequest,
+        ],
     ]
 
     /// Fallback table for agents without a dedicated entry in
