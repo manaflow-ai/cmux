@@ -191,7 +191,12 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "claude":
             return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "codex":
-            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
+            let parts = commandParts(
+                executablePath: executablePath,
+                arguments: arguments,
+                fallbackExecutable: "codex",
+                preferPathExecutableName: true
+            )
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: parts.tail) else { return nil }
             return [parts.executable, "resume", sessionId] + preserved
         case "grok":
@@ -286,11 +291,31 @@ public struct AgentResumeArgv: Sendable, Equatable {
     private func commandParts(
         executablePath: String?,
         arguments: [String],
-        fallbackExecutable: String
+        fallbackExecutable: String,
+        preferPathExecutableName: Bool = false
     ) -> (executable: String, tail: [String]) {
-        let executable = normalized(executablePath) ?? normalized(arguments.first) ?? fallbackExecutable
+        let capturedExecutable = normalized(executablePath) ?? normalized(arguments.first)
+        let executable = portableExecutableName(
+            capturedExecutable,
+            fallbackExecutable: fallbackExecutable,
+            preferPathExecutableName: preferPathExecutableName
+        ) ?? fallbackExecutable
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
+    }
+
+    private func portableExecutableName(
+        _ executable: String?,
+        fallbackExecutable: String,
+        preferPathExecutableName: Bool
+    ) -> String? {
+        guard let executable else { return nil }
+        guard preferPathExecutableName, executable.contains("/") else {
+            return executable
+        }
+        return (executable as NSString).lastPathComponent == fallbackExecutable
+            ? fallbackExecutable
+            : executable
     }
 
     private func normalized(_ value: String?) -> String? {
