@@ -6659,10 +6659,19 @@ extension BrowserPanel {
         if let developerToolsTransitionTargetVisible {
             return developerToolsTransitionTargetVisible
         }
-        if preferredDeveloperToolsVisible {
+        if shouldTreatPreferredDeveloperToolsVisibleAsPendingIntent {
             return true
         }
         return isDeveloperToolsVisible()
+    }
+
+    private var shouldTreatPreferredDeveloperToolsVisibleAsPendingIntent: Bool {
+        guard preferredDeveloperToolsVisible else { return false }
+        return developerToolsRevealDeferredUntilWebViewAttached ||
+            forceDeveloperToolsRefreshOnNextAttach ||
+            developerToolsRestoreRetryWorkItem != nil ||
+            hasPendingDetachedDeveloperToolsWindowCloseResolution ||
+            (developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false)
     }
 
     private func scheduleDeveloperToolsTransitionSettle(source: String) {
@@ -6810,16 +6819,11 @@ extension BrowserPanel {
     func showDeveloperToolsConsole() -> Bool {
         guard showDeveloperTools() else { return false }
         guard let inspector = webView.cmuxInspectorObject() else { return true }
-        if isDeveloperToolsVisible() {
-            showDeveloperToolsConsole(in: inspector)
-            return true
-        }
-        guard !developerToolsRevealDeferredUntilWebViewAttached,
-              !isDeveloperToolsTransitionInFlight else {
+        if !isDeveloperToolsVisible() {
             developerToolsConsoleSelectionPending = true
             return true
         }
-        developerToolsConsoleSelectionPending = true
+        showDeveloperToolsConsole(in: inspector)
         return true
     }
 

@@ -3902,6 +3902,33 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
+    func testToggleReopensAfterManualInspectorCloseWithStaleVisibleIntent() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(
+            panel.preferredDeveloperToolsVisible,
+            "Manual inspector closes are consumed asynchronously, so the next toggle must prefer live visibility"
+        )
+
+        XCTAssertTrue(panel.toggleDeveloperTools())
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertEqual(
+            inspector.showCount,
+            2,
+            "The first toggle after a manual inspector close should reopen DevTools instead of only clearing stale intent"
+        )
+    }
+
     func testDetachedRenderedWebViewDefersDeveloperToolsRevealUntilHostReattaches() {
         let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
         defer { closeBrowserPanel(panel) }
