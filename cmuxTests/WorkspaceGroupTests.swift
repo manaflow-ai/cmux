@@ -207,6 +207,22 @@ struct WorkspaceGroupTests {
         ])
     }
 
+    @Test func renderItemsShowWorkspaceWithStaleGroupIdAsRootRow() {
+        let manager = makeTabManager()
+        let staleGroupId = UUID()
+        let staleWorkspaceId = manager.tabs[0].id
+        manager.tabs[0].groupId = staleGroupId
+
+        let items = SidebarWorkspaceRenderItem.renderItems(tabs: manager.tabs, groupsById: [:])
+        let visibleWorkspaceRows = items.compactMap { item -> (UUID, Int)? in
+            guard case .workspace(let workspace, let depth) = item else { return nil }
+            return (workspace.id, depth)
+        }
+
+        #expect(visibleWorkspaceRows.contains { id, depth in id == staleWorkspaceId && depth == 0 })
+        #expect(items.first?.rowWorkspaceId == staleWorkspaceId)
+    }
+
     @Test func nestedGroupRenderItemsRecurseWithDepthAndMixedLooseWorkspaces() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)

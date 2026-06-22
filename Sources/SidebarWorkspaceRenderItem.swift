@@ -121,8 +121,8 @@ enum SidebarWorkspaceRenderItem {
                 ].append(.group(anchoredGroup))
                 continue
             }
-            if let groupId = tab.groupId {
-                if groupsById[groupId]?.anchorWorkspaceId == tab.id {
+            if let groupId = tab.groupId, let group = groupsById[groupId] {
+                if group.anchorWorkspaceId == tab.id {
                     continue
                 }
                 childRowsByParentId[Optional(groupId), default: []].append(.workspace(tab))
