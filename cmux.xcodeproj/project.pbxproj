@@ -381,6 +381,7 @@
 			E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */; };
 			E4C002000000000000000001 /* ExtensionSidebarWorktreeHeaderControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C002000000000000000002 /* ExtensionSidebarWorktreeHeaderControls.swift */; };
 			E4C003000000000000000001 /* ExtensionSidebarWorktreeRowContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C003000000000000000002 /* ExtensionSidebarWorktreeRowContextMenu.swift */; };
+			E4C007000000000000000001 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C007000000000000000002 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift */; };
 			E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */; };
 			E50320010000000000000001 /* ExtensionWorktreeSpawnArgsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */; };
 		FEED0A00000000000000F007 /* feed-tui in Resources */ = {isa = PBXBuildFile; fileRef = FEED0A00000000000000F006 /* feed-tui */; };
@@ -1430,6 +1431,7 @@
 		E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorkspaceRowView.swift; sourceTree = "<group>"; };
 			E4C002000000000000000002 /* ExtensionSidebarWorktreeHeaderControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorktreeHeaderControls.swift; sourceTree = "<group>"; };
 			E4C003000000000000000002 /* ExtensionSidebarWorktreeRowContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionSidebarWorktreeRowContextMenu.swift; sourceTree = "<group>"; };
+			E4C007000000000000000002 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ExtensionWorktreePrototype+ForceRemovalPreview.swift"; sourceTree = "<group>"; };
 			E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreePrototype.swift; sourceTree = "<group>"; };
 			E50320010000000000000002 /* ExtensionWorktreeSpawnArgsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionWorktreeSpawnArgsTests.swift; sourceTree = "<group>"; };
 		FEED0A00000000000000F006 /* feed-tui */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "feed-tui"; sourceTree = "<group>"; };
@@ -2368,6 +2370,7 @@
 				E4C002000000000000000002 /* ExtensionSidebarWorktreeHeaderControls.swift */,
 					E4C003000000000000000002 /* ExtensionSidebarWorktreeRowContextMenu.swift */,
 					E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
+					E4C007000000000000000002 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift */,
 					E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
 					E4C005000000000000000002 /* CmuxExtensionProcessTermination.swift */,
 					E4C006000000000000000002 /* CmuxExtensionPipeOutputCollector.swift */,
@@ -3831,8 +3834,9 @@
 				D0C0D0C0D0C0D0C0D0C0D001 /* DockPanelView.swift in Sources */,
 				D0B10014A1B2C3D4E5F60001 /* DragOverlayRoutingPolicy.swift in Sources */,
 				E4C001000000000000000001 /* ExtensionSidebarWorkspaceRowView.swift in Sources */,
-					E4C002000000000000000001 /* ExtensionSidebarWorktreeHeaderControls.swift in Sources */,
+				E4C002000000000000000001 /* ExtensionSidebarWorktreeHeaderControls.swift in Sources */,
 					E4C003000000000000000001 /* ExtensionSidebarWorktreeRowContextMenu.swift in Sources */,
+					E4C007000000000000000001 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift in Sources */,
 					E4C001000000000000000003 /* ExtensionWorktreePrototype.swift in Sources */,
 					FEED0000000000000000F00D /* FeedButtonStyleDebugWindowController.swift in Sources */,
 				FEED0000000000000000F002 /* FeedCoordinator.swift in Sources */,

@@ -312,6 +312,8 @@ struct ExtensionWorktreeManagementTests {
         let safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktree)
         #expect(safety.hasUncommittedChanges)
         #expect(safety.requiresForce)
+        let preview = await CmuxExtensionWorktreePrototype.forceRemovalPreview(worktreePath: worktree)
+        #expect(preview.paths.contains("uncommitted.txt"))
 
         // Without force, git refuses and the worktree survives.
         var refusedWithoutForce = false
@@ -364,6 +366,8 @@ struct ExtensionWorktreeManagementTests {
         let safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktree)
         #expect(safety.isClean)
         #expect(safety.requiresForce == false)
+        let preview = await CmuxExtensionWorktreePrototype.forceRemovalPreview(worktreePath: worktree)
+        #expect(preview.paths.contains("deps/lib/.git"))
 
         var refusedWithoutForce = false
         do {

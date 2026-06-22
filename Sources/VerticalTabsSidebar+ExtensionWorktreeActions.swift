@@ -99,9 +99,13 @@ extension VerticalTabsSidebar {
 #if DEBUG
             cmuxDebugLog("extensionSidebar.worktree.remove.failed path=\(worktreePath) error=\(error.localizedDescription)")
 #endif
+            let forcePreview = await CmuxExtensionWorktreePrototype.forceRemovalPreview(worktreePath: worktreePath)
             if confirmForceRemoveExtensionWorktreeAfterFailure(
                 worktreeName: worktreeName,
-                message: message
+                message: message,
+                previewPaths: forcePreview.paths,
+                previewTruncated: forcePreview.truncated,
+                previewScanFailed: forcePreview.scanFailed
             ) {
                 do {
                     try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: true)

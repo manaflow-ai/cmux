@@ -224,7 +224,13 @@ func confirmRemoveExtensionWorktree(
 
 /// Confirmation dialog for retrying a refused worktree removal with `--force`.
 @MainActor
-func confirmForceRemoveExtensionWorktreeAfterFailure(worktreeName: String, message: String) -> Bool {
+func confirmForceRemoveExtensionWorktreeAfterFailure(
+    worktreeName: String,
+    message: String,
+    previewPaths: [String],
+    previewTruncated: Bool,
+    previewScanFailed: Bool
+) -> Bool {
     let alert = NSAlert()
     alert.messageText = String(
         localized: "dialog.removeWorktree.force.title",
@@ -232,9 +238,49 @@ func confirmForceRemoveExtensionWorktreeAfterFailure(worktreeName: String, messa
     )
     let format = String(
         localized: "dialog.removeWorktree.force.message",
-        defaultValue: "Git could not remove the worktree \u{201C}%@\u{201D} without force:\n\n%@\n\nForce removal deletes the working directory even if it contains ignored files, nested repositories, or other files Git refuses to remove normally."
+        defaultValue: "Git could not remove the worktree \u{201C}%@\u{201D} without force:\n\n%@"
     )
-    alert.informativeText = String.localizedStringWithFormat(format, worktreeName, message)
+    var lines = [String.localizedStringWithFormat(format, worktreeName, message)]
+    if previewScanFailed {
+        lines.append(String(
+            localized: "dialog.removeWorktree.force.preview.failed",
+            defaultValue: "cmux could not fully preview the paths that force removal may delete."
+        ))
+    }
+    if previewPaths.isEmpty {
+        lines.append(String(
+            localized: "dialog.removeWorktree.force.preview.empty",
+            defaultValue: "The bounded preview did not find changed, ignored, or nested-repository paths beyond the worktree itself."
+        ))
+    } else {
+        let header = String(
+            localized: "dialog.removeWorktree.force.preview.header",
+            defaultValue: "Force removal may delete these changed, ignored, or nested-repository paths:"
+        )
+        let itemFormat = String(
+            localized: "dialog.removeWorktree.force.preview.item",
+            defaultValue: "\u{2022} %@"
+        )
+        let itemLines = previewPaths.map { path in
+            let displayPath = path
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return String.localizedStringWithFormat(itemFormat, displayPath)
+        }
+        lines.append(([header] + itemLines).joined(separator: "\n"))
+    }
+    if previewTruncated {
+        lines.append(String(
+            localized: "dialog.removeWorktree.force.preview.truncated",
+            defaultValue: "Additional paths may exist; only the first preview results are shown."
+        ))
+    }
+    lines.append(String(
+        localized: "dialog.removeWorktree.force.warning",
+        defaultValue: "Force removal deletes the working directory, including anything not shown above."
+    ))
+    alert.informativeText = lines.joined(separator: "\n\n")
     alert.alertStyle = .warning
     alert.addButton(withTitle: String(
         localized: "dialog.removeWorktree.force.remove",
