@@ -94,10 +94,10 @@ extension WorkspacesModel {
 
     /// The pinned subset of the top-level rows (pinned groups by group pin,
     /// ungrouped workspaces by workspace pin).
-    func sidebarTopLevelPinnedWorkspaceIds() -> Set<UUID> {
+    func sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: UUID? = nil) -> Set<UUID> {
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        return Set(sidebarTopLevelWorkspaceIds().filter { id in
+        return Set(sidebarTopLevelWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId).filter { id in
             if let group = groupsByAnchorId[id] {
                 return group.isPinned
             }
@@ -109,10 +109,11 @@ extension WorkspacesModel {
     func clampedTopLevelReorderIndex(
         forWorkspaceId workspaceId: UUID,
         targetIndex: Int,
-        topLevelIds: [UUID]
+        topLevelIds: [UUID],
+        promotingWorkspaceId: UUID? = nil
     ) -> Int {
         let clamped = max(0, min(targetIndex, max(0, topLevelIds.count - 1)))
-        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds()
+        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId)
         let pinnedCount = topLevelIds.reduce(into: 0) { count, id in
             if pinnedIds.contains(id) {
                 count += 1

@@ -234,7 +234,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         ) else {
             return Set(model.tabs.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
         }
-        return model.sidebarTopLevelPinnedWorkspaceIds()
+        return model.sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: draggedWorkspaceId)
     }
 
     /// The legal insertion range for an in-group member drag, or `nil` when
@@ -316,17 +316,26 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         let clampedTarget = model.clampedTopLevelReorderIndex(
             forWorkspaceId: tabId,
             targetIndex: targetIndex,
-            topLevelIds: topLevelIds
+            topLevelIds: topLevelIds,
+            promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
         )
-        guard fromIndex != clampedTarget else { return false }
+        let shouldPromoteGroupedWorkspace: Bool = {
+            guard promotesGroupedWorkspace,
+                  let tab = model.tabs.first(where: { $0.id == tabId }),
+                  tab.groupId != nil,
+                  !model.isWorkspaceGroupAnchor(tabId) else {
+                return false
+            }
+            return true
+        }()
+        guard fromIndex != clampedTarget || shouldPromoteGroupedWorkspace else { return false }
 
         var desiredTopLevelIds = topLevelIds
-        let movedId = desiredTopLevelIds.remove(at: fromIndex)
-        desiredTopLevelIds.insert(movedId, at: clampedTarget)
-        if promotesGroupedWorkspace,
-           let tab = model.tabs.first(where: { $0.id == tabId }),
-           tab.groupId != nil,
-           !model.isWorkspaceGroupAnchor(tabId) {
+        if fromIndex != clampedTarget {
+            let movedId = desiredTopLevelIds.remove(at: fromIndex)
+            desiredTopLevelIds.insert(movedId, at: clampedTarget)
+        }
+        if shouldPromoteGroupedWorkspace {
             model.assignGroup(workspaceId: tabId, groupId: nil)
         }
         model.normalizeWorkspaceGroupRunsPreservingOrder(desiredTopLevelIds)

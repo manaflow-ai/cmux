@@ -8,6 +8,11 @@ import Testing
 #endif
 
 @Suite struct SidebarWorkspaceReorderDropOverlayHitTestingTests {
+    @Test @MainActor func dropViewUsesTopOriginCoordinates() {
+        let view = SidebarWorkspaceReorderDropOverlay.DropView()
+        #expect(view.isFlipped)
+    }
+
     @Test func doesNotCaptureMouseDownBeforeDragStart() {
         #expect(!SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
             eventType: .leftMouseDown,

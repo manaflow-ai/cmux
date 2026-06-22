@@ -29,6 +29,9 @@ public final class SidebarDragState {
     /// space the planner reasoned in.
     public var dropIndicatorUsesTopLevelRows = false
 
+    /// The visible row scope where the active indicator should be drawn.
+    public var dropIndicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
+
     /// True while the `debug.sidebar.simulate_drag` debug-only method is driving
     /// the drag state. Lifecycle observers honor this by not starting the
     /// failsafe monitor (which would otherwise post a `mouse_up_failsafe` clear
@@ -77,8 +80,17 @@ public final class SidebarDragState {
     /// Sets the current drop indicator and whether it is positioned in top-level
     /// row space.
     public func setDropIndicator(_ indicator: SidebarDropIndicator?, usesTopLevelRows: Bool = false) {
+        setDropIndicator(indicator, scope: usesTopLevelRows ? .topLevel : .raw)
+    }
+
+    /// Sets the current drop indicator and the visible row scope it belongs to.
+    public func setDropIndicator(
+        _ indicator: SidebarDropIndicator?,
+        scope: SidebarWorkspaceReorderDropIndicatorScope
+    ) {
         dropIndicator = indicator
-        dropIndicatorUsesTopLevelRows = indicator != nil && usesTopLevelRows
+        dropIndicatorScope = indicator == nil ? .raw : scope
+        dropIndicatorUsesTopLevelRows = indicator != nil && scope == .topLevel
     }
 
     /// Clears any visible drop indicator.
