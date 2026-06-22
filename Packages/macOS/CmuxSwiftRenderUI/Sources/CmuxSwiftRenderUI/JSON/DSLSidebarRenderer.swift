@@ -1,3 +1,4 @@
+import CmuxFoundation
 import SwiftUI
 
 /// Renders a declarative JSON ``DSLNode`` tree as native SwiftUI.
@@ -27,7 +28,7 @@ struct DSLSidebarRenderer: View {
             ZStack { childViews }
         case .text:
             Text(node.text ?? "")
-                .font(resolvedFont)
+                .modifier(OptionalDSLFont(spec: resolvedFontSpec))
                 .fontWeight(dslFontWeight(node.weight))
         case .button:
             Button(node.title ?? "") {
@@ -36,7 +37,7 @@ struct DSLSidebarRenderer: View {
             .reportTapTarget(node.action?.buttonAction)
         case .image:
             Image(systemName: node.systemName ?? "questionmark.square.dashed")
-                .font(resolvedFont)
+                .modifier(OptionalDSLFont(spec: resolvedFontSpec))
         case .spacer:
             Spacer(minLength: node.size.map { CGFloat($0) })
         case .divider:
@@ -51,8 +52,8 @@ struct DSLSidebarRenderer: View {
         }
     }
 
-    private var resolvedFont: Font? {
-        dslFont(named: node.font, size: node.size)
+    private var resolvedFontSpec: DSLFontSpec? {
+        dslFontSpec(named: node.font, size: node.size)
     }
 
     @ViewBuilder
