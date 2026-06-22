@@ -271,7 +271,12 @@ export function forkVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
-    const source = yield* requireUserVm(input.userId, input.providerVmId);
+    const source = yield* ensureUserVmRunning(
+      yield* requireUserVm(input.userId, input.providerVmId),
+      repo,
+      providers,
+      "fork",
+    );
 
     if (source.provider === "freestyle" && providers.fork) {
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
@@ -659,7 +664,7 @@ function ensureUserVmRunning(
   vm: CloudVmRow,
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
-  resumeSource: "attach" | "ssh",
+  resumeSource: "attach" | "ssh" | "fork",
 ): Effect.Effect<CloudVmRow, VmWorkflowError, never> {
   return Effect.gen(function* () {
     if (vm.status !== "paused") return vm;
