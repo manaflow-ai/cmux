@@ -4756,14 +4756,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
               selectedRowCount <= maxEstimatedRows else { return nil }
 
         var text = ghostty_text_s()
-        guard ghostty_surface_read_screen_text(surface, lowerRow, upperRow, &text) else { return nil }
+        guard ghostty_surface_read_screen_clipboard_text(surface, lowerRow, upperRow, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
         guard text.text_len <= Self.keyboardCopyModeVisualLineFallbackMaxBytes,
               let byteCount = Int(exactly: text.text_len) else { return nil }
-        let selectedText = text.text.map {
+        return text.text.map {
             String(decoding: Data(bytes: $0, count: byteCount), as: UTF8.self)
         } ?? ""
-        return TerminalKeyboardCopyModeClipboardFormatter().trimTrailingLinePadding(selectedText)
     }
 
     private func keyboardCopyModeVisualLineSelectionFitsVisibleRange(surface: ghostty_surface_t) -> Bool {
