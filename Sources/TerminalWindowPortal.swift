@@ -18,12 +18,6 @@ final class WindowTerminalHostView: NSView {
         let dividerIndex: Int
     }
 
-    private struct DividerSplitSource {
-        weak var splitView: NSSplitView?
-        let dividerCount: Int
-        let validRegionCount: Int
-    }
-
     private enum DividerCursorKind: Equatable {
         case vertical
         case horizontal
@@ -49,7 +43,8 @@ final class WindowTerminalHostView: NSView {
     private var cachedDividerRegionGeneration: UInt64?
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
-    private var cachedDividerSplitSources: [DividerSplitSource] = []
+    private var cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
+    private var cachedDividerSplitSourceCounts: [ObjectIdentifier: UInt64] = [:]
     var dividerRegionBuildCount = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
@@ -143,7 +138,8 @@ final class WindowTerminalHostView: NSView {
         cachedDividerRegionGeneration = nil
         cachedDividerRegionRootView = nil
         cachedDividerRegions.removeAll(keepingCapacity: true)
-        cachedDividerSplitSources.removeAll(keepingCapacity: true)
+        cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
+        cachedDividerSplitSourceCounts.removeAll(keepingCapacity: true)
         window?.invalidateCursorRects(for: self)
     }
 
@@ -455,10 +451,17 @@ final class WindowTerminalHostView: NSView {
         }
 
         var regions: [DividerRegion] = []
-        var splitSources: [DividerSplitSource] = []
-        Self.collectSplitDividerRegions(in: rootView, into: &regions, splitSources: &splitSources)
+        let splitSourceViews = NSPointerArray.weakObjects()
+        var splitSourceCounts: [ObjectIdentifier: UInt64] = [:]
+        Self.collectSplitDividerRegions(
+            in: rootView,
+            into: &regions,
+            splitSourceViews: splitSourceViews,
+            splitSourceCounts: &splitSourceCounts
+        )
         cachedDividerRegions = regions
-        cachedDividerSplitSources = splitSources
+        cachedDividerSplitSourceViews = splitSourceViews
+        cachedDividerSplitSourceCounts = splitSourceCounts
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
@@ -487,12 +490,18 @@ final class WindowTerminalHostView: NSView {
             }
             cachedDividerRegions[index] = refreshed
         }
-        for source in cachedDividerSplitSources {
-            guard let splitView = source.splitView,
+        for index in 0..<cachedDividerSplitSourceViews.count {
+            guard let splitViewPointer = cachedDividerSplitSourceViews.pointer(at: index) else {
+                return nil
+            }
+            let splitView = Unmanaged<NSSplitView>.fromOpaque(splitViewPointer).takeUnretainedValue()
+            guard
+                  let encodedCounts = cachedDividerSplitSourceCounts[ObjectIdentifier(splitView)],
                   splitView.window === window,
                   (splitView === rootView || splitView.isDescendant(of: rootView)) else {
                 return nil
             }
+            let source = Self.dividerSplitSourceCounts(from: encodedCounts)
             let dividerCount = Self.dividerCount(in: splitView)
             guard dividerCount == source.dividerCount else { return nil }
             guard !Self.isHiddenOrAncestorHidden(splitView) else { continue }
@@ -518,7 +527,8 @@ final class WindowTerminalHostView: NSView {
     private static func collectSplitDividerRegions(
         in view: NSView,
         into result: inout [DividerRegion],
-        splitSources: inout [DividerSplitSource]
+        splitSourceViews: NSPointerArray,
+        splitSourceCounts: inout [ObjectIdentifier: UInt64]
     ) {
         if let splitView = view as? NSSplitView {
             let dividerCount = dividerCount(in: splitView)
@@ -530,16 +540,29 @@ final class WindowTerminalHostView: NSView {
                     result.append(region)
                 }
             }
-            splitSources.append(DividerSplitSource(
-                splitView: splitView,
+            splitSourceViews.addPointer(Unmanaged.passUnretained(splitView).toOpaque())
+            splitSourceCounts[ObjectIdentifier(splitView)] = encodedDividerSplitSourceCounts(
                 dividerCount: dividerCount,
                 validRegionCount: validRegionCount
-            ))
+            )
         }
 
         for subview in view.subviews.reversed() {
-            collectSplitDividerRegions(in: subview, into: &result, splitSources: &splitSources)
+            collectSplitDividerRegions(
+                in: subview,
+                into: &result,
+                splitSourceViews: splitSourceViews,
+                splitSourceCounts: &splitSourceCounts
+            )
         }
+    }
+
+    private static func encodedDividerSplitSourceCounts(dividerCount: Int, validRegionCount: Int) -> UInt64 {
+        (UInt64(UInt32(dividerCount)) << 32) | UInt64(UInt32(validRegionCount))
+    }
+
+    private static func dividerSplitSourceCounts(from encoded: UInt64) -> (dividerCount: Int, validRegionCount: Int) {
+        (dividerCount: Int(encoded >> 32), validRegionCount: Int(encoded & 0xffff_ffff))
     }
 
     private static func dividerCount(in splitView: NSSplitView) -> Int {
