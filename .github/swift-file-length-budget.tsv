@@ -31,7 +31,7 @@
 3734	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
-3449	cmuxTests/TabManagerSessionSnapshotTests.swift
+3451	cmuxTests/TabManagerSessionSnapshotTests.swift
 3068	Sources/Update/UpdateTitlebarAccessory.swift
 2876	cmuxTests/CMUXOpenCommandTests.swift
 2875	Sources/SessionIndexView.swift

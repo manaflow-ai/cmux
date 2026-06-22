@@ -3114,6 +3114,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             ],
             localProxyPort: nil,
             relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: "old raw ssh attach",
             preserveAfterTerminalExit: true,

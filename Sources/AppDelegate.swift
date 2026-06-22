@@ -7504,7 +7504,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return Self.cloudVMId(fromRemoteDestination: destination)
     }
 
-    static func cloudVMId(fromRemoteDestination destination: String) -> String? {
+    nonisolated static func cloudVMId(fromRemoteDestination destination: String) -> String? {
         let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.hasSuffix("@vm-ssh.freestyle.sh") else { return nil }
         let userAndHost = trimmed.split(separator: "@", maxSplits: 1).first.map(String.init) ?? ""
