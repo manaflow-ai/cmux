@@ -7,86 +7,20 @@ extension ContentView {
         workspaceSubtitle: @escaping (CommandPaletteContextSnapshot) -> String,
         panelSubtitle: @escaping (CommandPaletteContextSnapshot) -> String
     ) -> [CommandPaletteCommandContribution] {
-        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
-            { _ in value }
-        }
-
-        var contributions: [CommandPaletteCommandContribution] = []
-
-        let workspaceCommands: [(id: String, title: String, keywords: [String])] = [
-            (
-                "palette.copyWorkspaceID",
-                String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
-                ["copy", "workspace", "id", "identifier"]
+        CommandPaletteIdentifierCopyContributionProvider().build(
+            strings: CommandPaletteIdentifierCopyContributionProvider.Strings(
+                copyWorkspaceID: String(localized: "contextMenu.copyWorkspaceID", defaultValue: "Copy Workspace ID"),
+                copyWorkspaceIDAndRef: String(localized: "command.copyWorkspaceIDAndRef.title", defaultValue: "Copy Workspace ID and Ref"),
+                copyWorkspaceLink: String(localized: "command.copyWorkspaceLink.title", defaultValue: "Copy Workspace Link"),
+                copyPaneID: String(localized: "command.copyPaneID.title", defaultValue: "Copy Pane ID"),
+                copyPaneLink: String(localized: "command.copyPaneLink.title", defaultValue: "Copy Pane Link"),
+                copySurfaceID: String(localized: "command.copySurfaceID.title", defaultValue: "Copy Surface ID"),
+                copySurfaceLink: String(localized: "command.copySurfaceLink.title", defaultValue: "Copy Surface Link"),
+                copyIdentifiers: String(localized: "terminalContextMenu.copyIdentifiers", defaultValue: "Copy IDs")
             ),
-            (
-                "palette.copyWorkspaceIDAndRef",
-                String(localized: "command.copyWorkspaceIDAndRef.title", defaultValue: "Copy Workspace ID and Ref"),
-                ["copy", "workspace", "id", "identifier", "ref", "reference"]
-            ),
-            (
-                "palette.copyWorkspaceLink",
-                String(localized: "command.copyWorkspaceLink.title", defaultValue: "Copy Workspace Link"),
-                ["copy", "workspace", "link", "url", "deeplink", "deep link"]
-            ),
-        ]
-        contributions += workspaceCommands.map { command in
-            CommandPaletteCommandContribution(
-                commandId: command.id,
-                title: constant(command.title),
-                subtitle: workspaceSubtitle,
-                keywords: command.keywords,
-                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
-            )
-        }
-
-        let panelCommands: [(id: String, title: String, keywords: [String], requiresPane: Bool)] = [
-            (
-                "palette.copyPaneID",
-                String(localized: "command.copyPaneID.title", defaultValue: "Copy Pane ID"),
-                ["copy", "pane", "split", "id", "identifier"],
-                true
-            ),
-            (
-                "palette.copyPaneLink",
-                String(localized: "command.copyPaneLink.title", defaultValue: "Copy Pane Link"),
-                ["copy", "pane", "split", "link", "url", "deeplink", "deep link"],
-                true
-            ),
-            (
-                "palette.copySurfaceID",
-                String(localized: "command.copySurfaceID.title", defaultValue: "Copy Surface ID"),
-                ["copy", "surface", "tab", "id", "identifier"],
-                false
-            ),
-            (
-                "palette.copySurfaceLink",
-                String(localized: "command.copySurfaceLink.title", defaultValue: "Copy Surface Link"),
-                ["copy", "surface", "tab", "link", "url", "deeplink", "deep link"],
-                false
-            ),
-            (
-                "palette.copyIdentifiers",
-                String(localized: "terminalContextMenu.copyIdentifiers", defaultValue: "Copy IDs"),
-                ["copy", "ids", "identifiers", "workspace", "pane", "surface", "ref", "reference"],
-                false
-            ),
-        ]
-        contributions += panelCommands.map { command in
-            CommandPaletteCommandContribution(
-                commandId: command.id,
-                title: constant(command.title),
-                subtitle: panelSubtitle,
-                keywords: command.keywords,
-                when: {
-                    command.requiresPane
-                        ? $0.bool(CommandPaletteContextKeys.panelHasPane)
-                        : $0.bool(CommandPaletteContextKeys.hasFocusedPanel)
-                }
-            )
-        }
-
-        return contributions
+            workspaceSubtitle: workspaceSubtitle,
+            panelSubtitle: panelSubtitle
+        )
     }
 
     func registerIdentifierCopyCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
