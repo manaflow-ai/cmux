@@ -4522,16 +4522,12 @@ final class BrowserPanel: Panel, ObservableObject {
             setOmnibarVisible(snapshot.omnibarVisible ?? false)
             currentURL = diffURL
             let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
-            shouldRenderWebView = shouldRenderRestoredWebView
             guard shouldRenderRestoredWebView else {
+                shouldRenderWebView = false
                 refreshNavigationAvailability()
                 return
             }
-            navigateWithoutInsecureHTTPPrompt(
-                to: diffURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: false
-            )
+            deferRestoredWebViewLoadUntilVisible(url: diffURL, reason: "session_restore.diff")
             return
         }
 
@@ -4548,20 +4544,23 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 
         currentURL = restoredURL
-        shouldRenderWebView = shouldRenderRestoredWebView
 
         guard shouldRenderRestoredWebView, let restoredURL else {
+            shouldRenderWebView = false
             refreshNavigationAvailability()
             return
         }
 
-        navigateWithoutInsecureHTTPPrompt(
-            to: restoredURL,
-            recordTypedNavigation: false,
-            preserveRestoredSessionHistory: true
-        )
+        deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
     }
 
+    private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
+        currentURL = url
+        shouldRenderWebView = false
+        hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date())
+        refreshNavigationAvailability()
+        refreshWebViewLifecycleState()
+    }
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
         // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
         // is nil, but they are restorable via their token, so honor their render
@@ -4569,6 +4568,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard preferredURLStringForSessionSnapshot() != nil || diffViewerSessionComponents() != nil else {
             return false
         }
+        // Deferred restore keeps the live WebView hidden while preserving the persisted render intent.
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
