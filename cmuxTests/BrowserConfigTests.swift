@@ -3080,7 +3080,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let deadline = Date().addingTimeInterval(2.2)
+        let productionMaxDuration: TimeInterval = 2.0
+        let productionPollInterval: TimeInterval = 0.35
+        let ciSchedulingMargin: TimeInterval = 0.5
+        let deadline = Date().addingTimeInterval(
+            productionMaxDuration + productionPollInterval + ciSchedulingMargin
+        )
         while Date() < deadline {
             if condition() { return }
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))

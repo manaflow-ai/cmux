@@ -19,7 +19,7 @@
 6163	Sources/TabManager.swift
 6072	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
-5568	cmuxTests/BrowserConfigTests.swift
+5573	cmuxTests/BrowserConfigTests.swift
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4475	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
