@@ -6,9 +6,9 @@
 16112	Sources/ContentView.swift
 13952	Sources/TerminalController.swift
 12822	Sources/Workspace.swift
+12257	Sources/GhosttyTerminalView.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11924	Sources/Panels/BrowserPanel.swift
-11867	Sources/GhosttyTerminalView.swift
 9335	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8017	CLI/cmux_open.swift
 7986	Sources/Panels/BrowserPanelView.swift
