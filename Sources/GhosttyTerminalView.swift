@@ -1447,26 +1447,6 @@ class GhosttyApp {
         return true
     }
 
-    func openConfigurationInTextEdit() {
-        #if os(macOS)
-        let environment = ConfigSourceEnvironment.live()
-        let fileURLs: [URL]
-        do {
-            fileURLs = try environment.materializedGhosttySettingsEditorURLs()
-        } catch {
-            NSSound.beep()
-            return
-        }
-        guard !fileURLs.isEmpty else {
-            NSSound.beep()
-            return
-        }
-        let editorURL = URL(fileURLWithPath: "/System/Applications/TextEdit.app")
-        let configuration = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open(fileURLs, withApplicationAt: editorURL, configuration: configuration)
-        #endif
-    }
-
     private func resetDefaultBackgroundUpdateScope(source: String) {
         let previousScope = defaultBackgroundUpdateScope
         let previousScopeSource = defaultBackgroundScopeSource

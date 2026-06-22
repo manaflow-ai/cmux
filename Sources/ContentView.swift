@@ -4622,7 +4622,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 #if DEBUG
             cmuxDebugLog("palette.openGhosttySettings.invoke")
 #endif
-            GhosttyApp.shared.openConfigurationInTextEdit()
+            ConfigSourceEnvironment.live().openInTextEditor()
         }
         registry.register(commandId: "palette.mobileConnect") {
 #if DEBUG
