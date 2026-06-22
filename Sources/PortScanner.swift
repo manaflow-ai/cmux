@@ -38,7 +38,6 @@ final class PortScanner: @unchecked Sendable {
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
 
-    /// Last delivered agent-owned listening ports per workspace.
     private var lastAgentPortsByWorkspace: [UUID: [Int]] = [:]
 
     /// Panels that requested a scan since the last coalesce snapshot.
@@ -258,6 +257,7 @@ final class PortScanner: @unchecked Sendable {
             trackedAgentWorkspaces.insert(workspaceId)
         }
         updateAgentScanTimerLocked()
+        lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
 
         scanAgentPorts(
             workspaceIds: [workspaceId],
