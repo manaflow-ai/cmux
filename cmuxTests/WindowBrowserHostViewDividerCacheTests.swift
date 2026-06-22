@@ -168,6 +168,52 @@ struct WindowBrowserHostViewDividerCacheTests {
         )
     }
 
+    @Test func hostViewRebuildsEmptyCacheWhenNewNestedSplitIsInserted() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected content view")
+        let container = try #require(contentView.superview, "Expected window content container")
+
+        let nestedContainer = NSView(frame: contentView.bounds.insetBy(dx: 20, dy: 20))
+        nestedContainer.autoresizingMask = [.width, .height]
+        contentView.addSubview(nestedContainer)
+
+        let (host, child) = installHost(in: contentView, container: container)
+        contentView.layoutSubtreeIfNeeded()
+
+        let point = NSPoint(x: host.bounds.midX, y: host.bounds.midY)
+        #expect(host.hitTest(point) === child, "Browser content should receive hits before split dividers exist")
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
+        #expect(buildCountAfterWarmHit > 0)
+
+        #expect(host.hitTest(point) === child, "Browser content should keep receiving cached no-divider hits")
+        #expect(host.dividerRegionBuildCount == buildCountAfterWarmHit)
+
+        let splitView = NSSplitView(frame: nestedContainer.bounds)
+        splitView.autoresizingMask = [.width, .height]
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: nestedContainer.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 121, y: 0, width: 139, height: nestedContainer.bounds.height)))
+        nestedContainer.addSubview(splitView)
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        #expect(
+            host.hitTest(dividerPointInHost) == nil,
+            "Newly inserted nested browser split dividers should invalidate an empty cached scan"
+        )
+        #expect(
+            host.dividerRegionBuildCount > buildCountAfterWarmHit,
+            "Browser divider cache should rebuild when the previously scanned subtree gains a new split branch"
+        )
+    }
+
     @Test func hostViewInvalidatesHostedDividerRegionsWhenSlotHidesAndReveals() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 220),

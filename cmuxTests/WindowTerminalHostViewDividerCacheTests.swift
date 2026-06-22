@@ -155,6 +155,55 @@ struct WindowTerminalHostViewDividerCacheTests {
         )
     }
 
+    @Test func hostViewRebuildsEmptyCacheWhenNewNestedSplitIsInserted() throws {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView, "Expected content view")
+
+        let container = NSView(frame: contentView.bounds.insetBy(dx: 20, dy: 20))
+        container.autoresizingMask = [.width, .height]
+        contentView.addSubview(container)
+
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.autoresizingMask = [.width, .height]
+        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+        contentView.layoutSubtreeIfNeeded()
+
+        let point = NSPoint(x: host.bounds.midX, y: host.bounds.midY)
+        #expect(hitFallsInsideHostedTerminal(host.hitTest(point), hostedView: hostedView))
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
+        #expect(buildCountAfterWarmHit > 0)
+
+        #expect(hitFallsInsideHostedTerminal(host.hitTest(point), hostedView: hostedView))
+        #expect(host.dividerRegionBuildCount == buildCountAfterWarmHit)
+
+        let splitView = NSSplitView(frame: container.bounds)
+        splitView.autoresizingMask = [.width, .height]
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: container.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 121, y: 0, width: 139, height: container.bounds.height)))
+        container.addSubview(splitView)
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+
+        #expect(
+            host.hitTest(dividerPointInHost) == nil,
+            "Newly inserted nested terminal split dividers should invalidate an empty cached scan"
+        )
+        #expect(
+            host.dividerRegionBuildCount > buildCountAfterWarmHit,
+            "Terminal divider cache should rebuild when the previously scanned subtree gains a new split branch"
+        )
+    }
+
     @Test func hostViewInvalidatesCachedDividerRegionsWhenSplitBecomesHidden() throws {
         let window = makeWindow()
         defer { window.orderOut(nil) }
