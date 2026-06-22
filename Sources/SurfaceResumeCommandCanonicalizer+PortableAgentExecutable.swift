@@ -2,7 +2,7 @@ import Foundation
 
 extension SurfaceResumeBindingSnapshot {
     var startupCommand: String {
-        Self.sanitizedStartupCommand(command, cwd: cwd, kind: kind, source: source)
+        command
     }
 
     static func sanitizedStartupCommand(
@@ -86,9 +86,11 @@ extension SurfaceResumeCommandCanonicalizer {
             return false
         }
         let name = word[..<equals]
-        let allowedNameScalars = CharacterSet(
-            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
+        let allowedFirstScalars = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
         )
+        let allowedNameScalars = allowedFirstScalars.union(CharacterSet(charactersIn: "0123456789"))
+        guard let first = name.unicodeScalars.first, allowedFirstScalars.contains(first) else { return false }
         return name.unicodeScalars.allSatisfy { allowedNameScalars.contains($0) }
     }
 }
