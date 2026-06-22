@@ -3184,7 +3184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let prunedSnapshot = SessionPersistencePolicy
                 .pruningCmuxCrashDiagnosticWindows(from: snapshot)
                 .snapshot else {
-                return
+                return sessionSnapshotStore.removeSnapshot(fileURL: backupURL)
             }
             _ = sessionSnapshotStore.save(prunedSnapshot, fileURL: backupURL)
         case .missing:
