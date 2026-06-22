@@ -62,3 +62,8 @@ if [ -n "${GITHUB_ENV:-}" ]; then
 fi
 export DEVELOPER_DIR="$BEST_DIR"
 xcodebuild -version
+# Diagnostic: resolve the SDK with DEVELOPER_DIR set in-process. The workflow
+# step that calls this script gets DEVELOPER_DIR only via GITHUB_ENV, which
+# applies to *later* steps, not the current shell, so a bare `xcrun` on the
+# next line of the same step would still resolve the old xcode-select default.
+xcrun --sdk macosx --show-sdk-path

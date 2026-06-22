@@ -94,7 +94,6 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
-          xcrun --sdk macosx --show-sdk-path
 
       - name: Download pre-built GhosttyKit.xcframework
         env:

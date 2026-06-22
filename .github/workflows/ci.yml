@@ -1298,7 +1298,6 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
-          xcrun --sdk macosx --show-sdk-path
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -1442,7 +1441,6 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
-          xcrun --sdk macosx --show-sdk-path
 
       - name: Prepare isolated DerivedData
         run: |
