@@ -477,7 +477,7 @@ extension Workspace {
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
@@ -1195,7 +1195,7 @@ extension Workspace {
                 resumeBinding: resumeBinding
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
-            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
@@ -2189,8 +2189,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
-    let closeTabWarningDefaults: UserDefaults
-
+    let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
@@ -2966,12 +2965,14 @@ final class Workspace: Identifiable, ObservableObject {
         initialTerminalEnvironment: [String: String] = [:],
         workspaceEnvironment: [String: String] = [:],
         closeTabWarningDefaults: UserDefaults = .standard,
+        agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal

@@ -249,20 +249,12 @@ import Testing
     }
 
     @Test @MainActor func remoteWorkspaceLocalTerminalResumeBindingUsesLocalRepair() throws {
-        let defaults = UserDefaults.standard
-        let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
-        let previousAutoResumeValue = defaults.object(forKey: autoResumeKey)
-        defaults.set(true, forKey: autoResumeKey)
-        defer {
-            if let previousAutoResumeValue {
-                defaults.set(previousAutoResumeValue, forKey: autoResumeKey)
-            } else {
-                defaults.removeObject(forKey: autoResumeKey)
-            }
-        }
+        let suiteName = "cmux-session-resume-binding-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
 
-        let manager = TabManager()
-        let remoteWorkspace = manager.addWorkspace(select: true)
+        let remoteWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
         remoteWorkspace.setCustomTitle("Remote Workspace With Local Resume Binding")
         remoteWorkspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -315,22 +307,15 @@ import Testing
             panelId: localPanel.id
         ))
 
-        let snapshot = manager.sessionSnapshot(includeScrollback: false)
-        let persistedWorkspace = try #require(snapshot.workspaces.first {
-            $0.customTitle == "Remote Workspace With Local Resume Binding"
-        })
-        let persistedLocalPanel = try #require(persistedWorkspace.panels.first {
+        let snapshot = remoteWorkspace.sessionSnapshot(includeScrollback: false)
+        let persistedLocalPanel = try #require(snapshot.panels.first {
             $0.customTitle == "Local Resume Shell"
         })
         #expect(persistedLocalPanel.terminal?.isRemoteTerminal == false)
         #expect(persistedLocalPanel.terminal?.resumeBinding?.command.contains(staleExecutablePath) == true)
 
-        let restored = TabManager()
-        restored.restoreSessionSnapshot(snapshot)
-
-        let restoredWorkspace = try #require(restored.tabs.first {
-            $0.customTitle == "Remote Workspace With Local Resume Binding"
-        })
+        let restoredWorkspace = Workspace(agentSessionAutoResumeDefaults: defaults)
+        restoredWorkspace.restoreSessionSnapshot(snapshot)
         let restoredLocalPanel = try #require(
             restoredWorkspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.customTitle == "Local Resume Shell" }
