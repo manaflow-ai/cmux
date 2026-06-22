@@ -99,4 +99,18 @@ struct BrowserControlServiceInteractionScriptsTests {
         let into = service.scrollIntoViewScript(selectorLiteral: "\"#box\"")
         #expect(into.contains("el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });"))
     }
+
+    @Test("highlight outlines the element and restores the prior styles")
+    func highlightAction() {
+        let highlight = service.highlightScript(selectorLiteral: "\"#box\"")
+        #expect(highlight.hasPrefix("(() => {"))
+        #expect(highlight.contains("const el = document.querySelector(\"#box\");"))
+        #expect(highlight.contains("el.style.outline = '3px solid #ff9f0a';"))
+        #expect(highlight.contains("el.style.outlineOffset = '2px';"))
+        #expect(highlight.contains("el.style.outline = prev;"))
+        #expect(highlight.contains("el.style.outlineOffset = prevOffset;"))
+        #expect(highlight.contains("}, 1200);"))
+        // highlight deliberately omits the input helpers (legacy body had none).
+        #expect(!highlight.contains("function __cmuxClick"))
+    }
 }
