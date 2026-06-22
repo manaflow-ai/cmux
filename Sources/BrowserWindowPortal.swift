@@ -321,6 +321,7 @@ final class WindowBrowserHostView: NSView {
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
     private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
+    private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
@@ -1117,16 +1118,21 @@ final class WindowBrowserHostView: NSView {
         guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
         let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
         if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
-        var regions: [DividerRegion] = []
-        Self.collectSplitDividerRegions(in: rootView, hostView: self, into: &regions)
-        cachedSplitDividerRegions = regions
+        let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
+        cachedSplitDividerRegions = collected.regions
         cachedSplitDividerRootSubviewIds = rootSubviewIds
-        return regions
+        splitDividerCacheInvalidator.observe(collected.observedViews) { [weak self] in
+            guard let self else { return }
+            self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+        return collected.regions
     }
 
     private func invalidateSplitDividerRegionCache() {
         cachedSplitDividerRegions = nil
         cachedSplitDividerRootSubviewIds = nil
+        splitDividerCacheInvalidator.invalidate()
     }
 
     private func updateSplitDividerResizeObserver() {
@@ -1202,50 +1208,6 @@ final class WindowBrowserHostView: NSView {
         !view.isHidden &&
             view.alphaValue > 0 &&
             view.frame.height > 1
-    }
-
-    private static func collectSplitDividerRegions(
-        in view: NSView,
-        hostView: WindowBrowserHostView,
-        into result: inout [DividerRegion]
-    ) {
-        guard !view.isHidden else { return }
-
-        if let splitView = view as? NSSplitView {
-            let splitBoundsInWindow = splitView.convert(splitView.bounds, to: nil)
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                let thickness = splitView.dividerThickness
-                let dividerRect: NSRect
-                if splitView.isVertical {
-                    guard first.width > 1 || second.width > 1 else { continue }
-                    let x = max(0, first.maxX)
-                    dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-                } else {
-                    guard first.height > 1 || second.height > 1 else { continue }
-                    let y = max(0, first.maxY)
-                    dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-                }
-                let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-                guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
-                result.append(
-                    DividerRegion(
-                        splitView: splitView,
-                        dividerIndex: dividerIndex,
-                        rectInWindow: dividerRectInWindow,
-                        boundsInWindow: splitBoundsInWindow,
-                        isVertical: splitView.isVertical,
-                        isInHostedContent: splitView.isDescendant(of: hostView)
-                    )
-                )
-            }
-        }
-
-        for subview in view.subviews {
-            collectSplitDividerRegions(in: subview, hostView: hostView, into: &result)
-        }
     }
 
 }

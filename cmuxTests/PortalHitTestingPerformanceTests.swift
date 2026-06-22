@@ -238,4 +238,44 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
         let insertedEvent = makeMouseEvent(type: .mouseMoved, at: insertedDividerPointInWindow, window: window)
         XCTAssertNil(host.performHitTest(at: host.convert(insertedDividerPointInWindow, from: nil), currentEvent: insertedEvent))
     }
+
+    func testTerminalSplitDividerCacheRefreshesWhenNestedSplitBecomesVisible() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let container = NSView(frame: contentView.bounds)
+        container.isHidden = true
+        let splitView = CountingSplitView(frame: container.bounds)
+        splitView.isVertical = true
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 180, height: container.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 181, y: 0, width: 139, height: container.bounds.height)))
+        splitView.setPosition(180, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        container.addSubview(splitView)
+        contentView.addSubview(container)
+
+        let hostedView = CapturingView(frame: contentView.bounds)
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+
+        let dividerPointInWindow = splitView.convert(
+            NSPoint(x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5), y: splitView.bounds.midY),
+            to: nil
+        )
+        let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
+        XCTAssertTrue(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event) === hostedView)
+
+        container.isHidden = false
+
+        XCTAssertNil(host.performHitTest(at: host.convert(dividerPointInWindow, from: nil), currentEvent: event))
+    }
 }
