@@ -536,38 +536,6 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
         XCTAssertNil(TerminalDefaultFileOpenRequest(fileURL: url, contentType: .plainText))
     }
 
-    func testIgnoresGhosttyCrashReportsInCmuxCrashDirectory() {
-        let crashReport = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/state/cmux/crash/cmux.ghosttycrash", isDirectory: false)
-
-        XCTAssertNil(
-            TerminalDefaultFileOpenRequest(
-                fileURL: crashReport,
-                contentType: .unixExecutable,
-                isExecutable: true
-            )
-        )
-    }
-
-    func testIgnoresSymlinkedGhosttyCrashReportsInCmuxCrashDirectory() throws {
-        let crashReport = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".local/state/cmux/crash/cmux.ghosttycrash", isDirectory: false)
-        let symlink = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-symlinked-crash-\(UUID().uuidString).ghosttycrash", isDirectory: false)
-        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: crashReport)
-        defer {
-            try? FileManager.default.removeItem(at: symlink)
-        }
-
-        XCTAssertNil(
-            TerminalDefaultFileOpenRequest(
-                fileURL: symlink,
-                contentType: .unixExecutable,
-                isExecutable: true
-            )
-        )
-    }
-
     func testBuildsLaunchInputForExtensionlessUnixExecutable() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-terminal-default-executable-\(UUID().uuidString)", isDirectory: true)

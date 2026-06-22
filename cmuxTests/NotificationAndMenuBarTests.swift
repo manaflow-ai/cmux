@@ -557,34 +557,6 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         )
     }
 
-    func testPendingCrashChoosesLatestReportAcrossCrashDirectories() throws {
-        let xdgCrashDirectoryURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ghostty-crash-breadcrumb-xdg-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: xdgCrashDirectoryURL, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: xdgCrashDirectoryURL)
-        }
-
-        let cleanExit = Date(timeIntervalSince1970: 100)
-        let defaultCrashDate = Date(timeIntervalSince1970: 200)
-        let xdgCrashDate = Date(timeIntervalSince1970: 300)
-        defaults.set(cleanExit, forKey: GhosttyCrashBreadcrumb.lastCleanExitDefaultsKey)
-        _ = try writeCrashFile(named: "default.ghosttycrash", modifiedAt: defaultCrashDate)
-        let xdgCrashURL = try writeCrashFile(
-            named: "xdg.ghosttycrash",
-            modifiedAt: xdgCrashDate,
-            in: xdgCrashDirectoryURL
-        )
-
-        let pending = GhosttyCrashBreadcrumb.pendingCrash(
-            in: [crashDirectoryURL, xdgCrashDirectoryURL],
-            defaults: defaults
-        )
-
-        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), xdgCrashURL.resolvingSymlinksInPath())
-        XCTAssertEqual(pending?.modifiedAt, xdgCrashDate)
-    }
-
     func testPendingCrashIsOneTimeAfterBeingShown() throws {
         let crashDate = Date(timeIntervalSince1970: 300)
         let crashURL = try writeCrashFile(named: "shown.ghosttycrash", modifiedAt: crashDate)
@@ -602,12 +574,8 @@ final class GhosttyCrashBreadcrumbTests: XCTestCase {
         ))
     }
 
-    private func writeCrashFile(
-        named name: String,
-        modifiedAt: Date,
-        in directoryURL: URL? = nil
-    ) throws -> URL {
-        let url = (directoryURL ?? crashDirectoryURL).appendingPathComponent(name)
+    private func writeCrashFile(named name: String, modifiedAt: Date) throws -> URL {
+        let url = crashDirectoryURL.appendingPathComponent(name)
         try Data("MDMP".utf8).write(to: url)
         try FileManager.default.setAttributes(
             [.modificationDate: modifiedAt],

@@ -1,0 +1,194 @@
+import AppKit
+import Foundation
+import Testing
+import UniformTypeIdentifiers
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@Suite(.serialized)
+struct CrashDiagnosticSessionPolicyTests {
+    @Test
+    func terminalDefaultFileOpenIgnoresGhosttyCrashReportsInCmuxCrashDirectory() {
+        let crashReport = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash/cmux.ghosttycrash", isDirectory: false)
+
+        #expect(
+            TerminalDefaultFileOpenRequest(
+                fileURL: crashReport,
+                contentType: .unixExecutable,
+                isExecutable: true
+            ) == nil
+        )
+    }
+
+    @Test
+    func terminalDefaultFileOpenIgnoresSymlinkedGhosttyCrashReportsInCmuxCrashDirectory() throws {
+        let crashReport = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash/cmux.ghosttycrash", isDirectory: false)
+        let symlink = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-symlinked-crash-\(UUID().uuidString).ghosttycrash", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: crashReport)
+        defer {
+            try? FileManager.default.removeItem(at: symlink)
+        }
+
+        #expect(
+            TerminalDefaultFileOpenRequest(
+                fileURL: symlink,
+                contentType: .unixExecutable,
+                isExecutable: true
+            ) == nil
+        )
+    }
+
+    @MainActor
+    @Test
+    func appDelegateSessionSnapshotDropsCrashDiagnosticWindow() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let projectDirectory = "/tmp/cmux-project"
+        let projectManager = TabManager(
+            initialWorkingDirectory: projectDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let projectWindowId = app.registerMainWindowContextForTesting(tabManager: projectManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: projectWindowId)
+        }
+
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let crashManager = TabManager(
+            initialWorkingDirectory: crashDirectory,
+            autoWelcomeIfNeeded: false
+        )
+        let crashWindowId = app.registerMainWindowContextForTesting(tabManager: crashManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: crashWindowId)
+        }
+
+        let snapshot = try #require(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
+        let restoredDirectories = snapshot.windows.flatMap { window in
+            window.tabManager.workspaces.map(\.currentDirectory)
+        }
+
+        #expect(snapshot.windows.count == 1)
+        #expect(restoredDirectories == [projectDirectory])
+    }
+
+    @Test
+    func sessionSnapshotDropsEmptyCrashDiagnosticWorkspace() {
+        let projectDirectory = "/tmp/cmux-project"
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [
+                            emptyWorkspaceSnapshot(currentDirectory: crashDirectory),
+                            emptyWorkspaceSnapshot(currentDirectory: projectDirectory),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        #expect(pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory) == [projectDirectory])
+        #expect(pruned.snapshot?.windows.first?.tabManager.selectedWorkspaceIndex == 0)
+    }
+
+    @Test
+    func pendingCrashChoosesLatestReportAcrossCrashDirectories() throws {
+        let defaultsSuiteName = "CrashDiagnosticSessionPolicyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
+        defer {
+            UserDefaults.standard.removePersistentDomain(forName: defaultsSuiteName)
+        }
+
+        let defaultCrashDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghostty-crash-breadcrumb-default-\(UUID().uuidString)", isDirectory: true)
+        let xdgCrashDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghostty-crash-breadcrumb-xdg-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: defaultCrashDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: xdgCrashDirectoryURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: defaultCrashDirectoryURL)
+            try? FileManager.default.removeItem(at: xdgCrashDirectoryURL)
+        }
+
+        let cleanExit = Date(timeIntervalSince1970: 100)
+        let defaultCrashDate = Date(timeIntervalSince1970: 200)
+        let xdgCrashDate = Date(timeIntervalSince1970: 300)
+        defaults.set(cleanExit, forKey: GhosttyCrashBreadcrumb.lastCleanExitDefaultsKey)
+        _ = try writeCrashFile(
+            named: "default.ghosttycrash",
+            modifiedAt: defaultCrashDate,
+            in: defaultCrashDirectoryURL
+        )
+        let xdgCrashURL = try writeCrashFile(
+            named: "xdg.ghosttycrash",
+            modifiedAt: xdgCrashDate,
+            in: xdgCrashDirectoryURL
+        )
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: [defaultCrashDirectoryURL, xdgCrashDirectoryURL],
+            defaults: defaults
+        )
+
+        #expect(pending?.fileURL.resolvingSymlinksInPath() == xdgCrashURL.resolvingSymlinksInPath())
+        #expect(pending?.modifiedAt == xdgCrashDate)
+    }
+
+    private func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {
+        SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: currentDirectory,
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+    }
+
+    private func writeCrashFile(
+        named name: String,
+        modifiedAt: Date,
+        in directoryURL: URL
+    ) throws -> URL {
+        let url = directoryURL.appendingPathComponent(name)
+        try Data("MDMP".utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modifiedAt],
+            ofItemAtPath: url.path
+        )
+        return url
+    }
+}

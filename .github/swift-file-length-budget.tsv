@@ -14,7 +14,7 @@
 7986	Sources/Panels/BrowserPanelView.swift
 7354	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6405	cmuxTests/SessionPersistenceTests.swift
+6317	cmuxTests/SessionPersistenceTests.swift
 6220	cmuxTests/GhosttyConfigTests.swift
 6165	Sources/TabManager.swift
 6084	Sources/TextBoxInput.swift
@@ -26,8 +26,8 @@
 4401	cmuxTests/BrowserPanelTests.swift
 4225	Sources/BrowserWindowPortal.swift
 3934	Sources/Feed/FeedPanelView.swift
-3928	cmuxTests/WindowAndDragTests.swift
 3926	cmuxTests/TabManagerUnitTests.swift
+3896	cmuxTests/WindowAndDragTests.swift
 3734	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttySurfaceView.swift
 3699	cmuxTests/CLIGenericHookPersistenceTests.swift
 3397	Sources/CmuxConfig.swift
@@ -49,7 +49,7 @@
 1952	Sources/KeyboardShortcutSettingsFileStore.swift
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1945	Sources/RestorableAgentSession.swift
-1932	cmuxTests/NotificationAndMenuBarTests.swift
+1900	cmuxTests/NotificationAndMenuBarTests.swift
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
