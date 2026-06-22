@@ -2284,6 +2284,10 @@ def test_non_codex_post_tool_use_keeps_request_input(cli_path: str, root: Path) 
             "cwd": "/tmp/antigravity-cwd",
             "path": "important.txt",
         },
+        "tool_response": {
+            "stdout": "secret output that must not replace the request input",
+            "exit_code": 0,
+        },
     }
 
     stdout, frame = run_feed_hook(
