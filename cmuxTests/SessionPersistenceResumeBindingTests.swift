@@ -52,6 +52,33 @@ import Testing
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
+    @Test func legacyAgentHookBindingWithoutKindRewritesPersistedPATHManagedAgentExecutable() throws {
+        let executablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let json = """
+        {
+          "command": "'\(executablePath)' 'resume' 'session-legacy-cli'",
+          "checkpointId": "session-legacy-cli",
+          "source": "agent-hook",
+          "autoResume": true,
+          "updatedAt": 123
+        }
+        """
+        let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(binding.kind == nil)
+        #expect(binding.command.contains(executablePath), "\(binding.command)")
+        #expect(startupInput.contains("codex 'resume' 'session-legacy-cli'"), "\(startupInput)")
+        #expect(!startupInput.contains(executablePath), "\(startupInput)")
+    }
+
     @Test func agentHookBindingRewritesSupportedLocalManagedExecutablePaths() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-stale-managed-\(UUID().uuidString)", isDirectory: true)

@@ -100,12 +100,16 @@ extension SurfaceResumeBindingSnapshot {
 
 extension SurfaceResumeCommandCanonicalizer {
     static func replacingPortableAgentExecutable(in command: String, kind: String?) -> String {
-        guard let executableName = portableAgentExecutableName(for: kind) else { return command }
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
         guard let executableIndex = commandExecutableWordIndex(in: words) else { return command }
         let executable = words[executableIndex].value
-        guard executable.hasPrefix("/"),
-              (executable as NSString).lastPathComponent == executableName,
+        guard executable.hasPrefix("/") else { return command }
+        let executableBasename = (executable as NSString).lastPathComponent
+        guard let executableName = portableAgentExecutableName(
+                for: kind,
+                executableBasename: executableBasename
+              ),
+              executableBasename == executableName,
               isPATHManagedAgentExecutablePath(executable, executableName: executableName) else {
             return command
         }
@@ -129,6 +133,14 @@ extension SurfaceResumeCommandCanonicalizer {
         }
     }
 
+    private static func portableAgentExecutableName(for kind: String?, executableBasename: String) -> String? {
+        let normalizedKind = kind?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedKind, !normalizedKind.isEmpty {
+            return portableAgentExecutableName(for: normalizedKind)
+        }
+        return portableAgentExecutableName(forExecutableBasename: executableBasename)
+    }
+
     private static func portableAgentExecutableName(for kind: String?) -> String? {
         switch kind?.trimmingCharacters(in: .whitespacesAndNewlines) {
         case "claude":
@@ -138,6 +150,10 @@ extension SurfaceResumeCommandCanonicalizer {
         default:
             return nil
         }
+    }
+
+    private static func portableAgentExecutableName(forExecutableBasename basename: String) -> String? {
+        portableAgentExecutableName(for: basename)
     }
 
     private static func isPATHManagedAgentExecutablePath(_ path: String, executableName: String) -> Bool {
