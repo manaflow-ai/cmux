@@ -2,6 +2,7 @@ import Foundation
 import OSLog
 
 private let mobileNotificationObserverLog = Logger(subsystem: "dev.cmux", category: "mobile-notification-observer")
+private let mobileNotificationsUpdatedTopic = "notifications.updated"
 
 /// Watches `TerminalNotificationStore.notifications` and emits
 /// `notifications.updated` to subscribed mobile clients whenever the iOS-facing
@@ -14,7 +15,6 @@ private let mobileNotificationObserverLog = Logger(subsystem: "dev.cmux", catego
 /// shape.
 @MainActor
 final class MobileNotificationListObserver {
-    private static let eventTopic = "notifications.updated"
     /// How many recent notifications the Mac sends and the observer hashes. Kept
     /// in sync with the phone-side `MobileNotificationsStore.recentLimit`.
     static let recentLimit = 200
@@ -51,7 +51,7 @@ final class MobileNotificationListObserver {
             queue: .main
         ) { [weak self] notification in
             let topics = notification.userInfo?["topics"] as? [String] ?? []
-            let shouldEmit = topics.isEmpty || topics.contains(Self.eventTopic)
+            let shouldEmit = topics.isEmpty || topics.contains(mobileNotificationsUpdatedTopic)
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard shouldEmit else { return }
@@ -82,7 +82,7 @@ final class MobileNotificationListObserver {
     }
 
     private static var hasSubscribers: Bool {
-        MobileHostService.hasEventSubscribers(topic: eventTopic)
+        MobileHostService.hasEventSubscribers(topic: mobileNotificationsUpdatedTopic)
     }
 
     private func emitCurrentIfSubscribed(force: Bool) {
@@ -111,7 +111,7 @@ final class MobileNotificationListObserver {
         }
         lastSummaryHash = hash
         mobileNotificationObserverLog.debug("emitting notifications.updated (hash=\(hash, privacy: .public))")
-        MobileHostService.shared.emitEvent(topic: Self.eventTopic, payload: [:])
+        MobileHostService.shared.emitEvent(topic: mobileNotificationsUpdatedTopic, payload: [:])
     }
 
     /// Stable hash of the full iOS-facing notification shape. The recent-N cap
