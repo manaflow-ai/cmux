@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 
 #if canImport(cmux_DEV)
@@ -65,6 +66,50 @@ struct RightSidebarDirectoryContextTests {
                 workspaceDirectory: " ",
                 fallbackDirectory: "/local/session"
             ) == "/local/session"
+        )
+    }
+}
+
+@Suite("Right sidebar keyboard navigation")
+struct RightSidebarKeyboardNavigationTests {
+    @Test("Return and keypad Enter open the selected item")
+    func returnAndKeypadEnterOpenSelection() throws {
+        for keyCode in [UInt16(36), UInt16(76)] {
+            let event = try #require(Self.keyEvent(keyCode: keyCode, modifierFlags: []))
+            #expect(RightSidebarKeyboardNavigation.isOpenSelection(event))
+        }
+    }
+
+    @Test("Command Down opens the selected item")
+    func commandDownOpensSelection() throws {
+        let event = try #require(Self.keyEvent(keyCode: 125, modifierFlags: [.command]))
+        #expect(RightSidebarKeyboardNavigation.isOpenSelection(event))
+    }
+
+    @Test("Plain Down and Command Return keep their existing routes")
+    func nonActivationKeysDoNotOpenSelection() throws {
+        let plainDown = try #require(Self.keyEvent(keyCode: 125, modifierFlags: []))
+        let commandReturn = try #require(Self.keyEvent(keyCode: 36, modifierFlags: [.command]))
+
+        #expect(!RightSidebarKeyboardNavigation.isOpenSelection(plainDown))
+        #expect(!RightSidebarKeyboardNavigation.isOpenSelection(commandReturn))
+    }
+
+    private static func keyEvent(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: nil,
+            charactersIgnoringModifiers: nil,
+            isARepeat: false,
+            keyCode: keyCode
         )
     }
 }

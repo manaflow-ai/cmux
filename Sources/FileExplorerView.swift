@@ -450,6 +450,8 @@ struct FileExplorerPanelView: NSViewRepresentable {
             }
         }
 
+        @MainActor func openSelectedItem(in outlineView: NSOutlineView) { openNode(in: outlineView, at: outlineView.selectedRow) }
+
         private func expandSelectedItemOrMoveToChild(in outlineView: NSOutlineView) {
             guard let row = resolvedSelectionRow(in: outlineView),
                   let node = outlineView.item(atRow: row) as? FileExplorerNode,
@@ -628,29 +630,19 @@ struct FileExplorerPanelView: NSViewRepresentable {
             FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
         }
 
-        @MainActor
-        @objc func handleDoubleClick(_ sender: NSOutlineView) {
-            let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
-            guard row >= 0,
-                  let node = sender.item(atRow: row) as? FileExplorerNode else { return }
+        @MainActor @objc func handleDoubleClick(_ sender: NSOutlineView) {
+            openNode(in: sender, at: sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow)
+        }
+
+        @MainActor private func openNode(in outlineView: NSOutlineView, at row: Int) {
+            guard row >= 0, let node = outlineView.item(atRow: row) as? FileExplorerNode else { return }
 
             if node.isDirectory {
-                if sender.isItemExpanded(node) {
-                    sender.collapseItem(node)
-                } else if sender.isExpandable(node) {
-                    sender.expandItem(node)
-                }
+                if outlineView.isItemExpanded(node) { outlineView.collapseItem(node) } else if outlineView.isExpandable(node) { outlineView.expandItem(node) }
                 return
             }
 
-            // Editor/preferred-editor actions operate on local file paths via
-            // NSWorkspace; for non-local providers fall back to the cmux preview
-            // (consistent with the search-results path and the documented
-            // remote-provider behavior).
-            guard store.provider is LocalFileExplorerProvider else {
-                onOpenFilePreview(node.path)
-                return
-            }
+            guard store.provider is LocalFileExplorerProvider else { onOpenFilePreview(node.path); return }
             performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
         }
 
@@ -2199,6 +2191,8 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             return
         }
 
+        if RightSidebarKeyboardNavigation.isOpenSelection(event) { endQuickSearch(); fileExplorerCoordinator?.openSelectedItem(in: self); return }
+
         if RightSidebarKeyboardNavigation.isPlainSlash(event) {
             beginQuickSearch()
             return
@@ -2224,6 +2218,7 @@ final class FileExplorerNSOutlineView: NSOutlineView {
             fileExplorerCoordinator?.performDisclosureAction(action, in: self)
             return true
         }
+        if RightSidebarKeyboardNavigation.isOpenSelection(event) { endQuickSearch(); fileExplorerCoordinator?.openSelectedItem(in: self); return true }
         return super.performKeyEquivalent(with: event)
     }
 
