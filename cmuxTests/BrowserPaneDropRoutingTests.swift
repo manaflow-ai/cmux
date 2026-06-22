@@ -174,7 +174,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         )
     }
 
-    func testPaneDropTargetRequiresPaneDropsEnabled() {
+    func testPaneDropTargetRequiresDropContext() {
         let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 240, height: 180))
         slot.layout()
         let localPoint = NSPoint(x: slot.bounds.midX, y: slot.bounds.midY)
@@ -186,12 +186,7 @@ final class BrowserPaneDropRoutingTests: XCTestCase {
         ))
         XCTAssertNotNil(slot.paneDropTargetForDrop(at: localPoint))
 
-        slot.setPaneDropContext(BrowserPaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: PaneID(id: UUID()),
-            allowsPaneDrops: false
-        ))
+        slot.setPaneDropContext(nil)
         XCTAssertNil(slot.paneDropTargetForDrop(at: localPoint))
     }
 
