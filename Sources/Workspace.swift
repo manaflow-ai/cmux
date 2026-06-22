@@ -646,9 +646,9 @@ extension Workspace {
             project: projectSnapshot
         )
     }
-
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
         guard !suppressClosedPanelHistory else { return nil }
+        owningTabManager?.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
         guard let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tabId }) else {
             return nil
         }
@@ -11935,8 +11935,8 @@ extension Workspace: BonsplitDelegate {
         _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
         let preservesSurfaceForDetach = isDetaching && panel != nil
-
         if isDetaching, let panel {
+            owningTabManager?.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
             let browserPanel = panel as? BrowserPanel
             let cachedTitle = panelTitles[panelId]
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle

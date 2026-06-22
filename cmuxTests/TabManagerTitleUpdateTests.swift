@@ -180,6 +180,9 @@ struct TabManagerTitleUpdateTests {
 
     @Test
     func pendingTitleUpdateIgnoredAfterPanelRemoval() async throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
         let suiteName = "TabManagerTitleRemovedPanel.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
@@ -215,10 +218,18 @@ struct TabManagerTitleUpdateTests {
 
         await drainMainQueue()
         #expect(scheduler.delays == [0.5])
+        workspace.markCloseHistoryEligible(panelId: removedPanelId)
         #expect(workspace.closePanel(removedPanelId, force: true))
         #expect(workspace.panels[removedPanelId] == nil)
         #expect(workspace.panels[remainingPanel.id] != nil)
         #expect(workspace.panelTitles[removedPanelId] == nil)
+        let historyItem = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        let removed = try #require(ClosedItemHistoryStore.shared.removeRecord(id: historyItem.id)?.record)
+        guard case .panel(let entry) = removed.entry else {
+            Issue.record("Expected closed panel history entry")
+            return
+        }
+        #expect(entry.snapshot.title == "Closed Panel - grok")
         let workspaceTitleAfterClose = workspace.title
 
         scheduler.fire(at: 0)

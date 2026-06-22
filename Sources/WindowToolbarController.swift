@@ -55,8 +55,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         ) { [weak self] notification in
             let changedWorkspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
             Task { @MainActor [weak self, changedWorkspaceId] in
-                guard let self,
-                      changedWorkspaceId == self.tabManager?.selectedTabId else { return }
+                guard let self, changedWorkspaceId == self.tabManager?.selectedTabId, self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == false else { return }
                 self.scheduleFocusedCommandTextUpdate()
             }
         })

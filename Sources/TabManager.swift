@@ -3304,7 +3304,7 @@ class TabManager: ObservableObject {
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: title)
         }
     }
-
+    func flushPendingPanelTitleUpdatesForWorkspaceSnapshot() { panelTitleUpdateCoalescer.flushNow() }
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = workspacesById[tabId], tab.panels[panelId] != nil else { return }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
