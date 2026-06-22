@@ -359,6 +359,27 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         #expect(selection.selectedRows == 40 ... 99)
     }
 
+    @Test func visualLineRuntimeRowsPreserveSelectionDirection() {
+        var forward = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: 10,
+            endpointScreenRow: 20
+        )
+        var reverse = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: 20,
+            endpointScreenRow: 10
+        )
+
+        forward.replaceSelectedRows(3 ... 7)
+        reverse.replaceSelectedRows(3 ... 7)
+
+        #expect(forward.anchorScreenRow == 3)
+        #expect(forward.endpointScreenRow == 7)
+        #expect(reverse.anchorScreenRow == 7)
+        #expect(reverse.endpointScreenRow == 3)
+        #expect(forward.selectedRows == 3 ... 7)
+        #expect(reverse.selectedRows == 3 ... 7)
+    }
+
     @Test func visualLineMovementKeepsClippedBottomEndpointAbsolute() {
         var selection = TerminalKeyboardCopyModeVisualLineSelection(
             anchorScreenRow: 40,
