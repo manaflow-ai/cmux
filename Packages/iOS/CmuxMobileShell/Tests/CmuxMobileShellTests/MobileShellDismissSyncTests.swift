@@ -95,6 +95,14 @@ import UserNotifications
         #expect(clearer.badgeCounts == [0])
     }
 
+    @Test func systemClearerNoOpsOutsideAppBundle() async {
+        let clearer = SystemDeliveredNotificationClearer()
+
+        await clearer.removeDelivered(ids: ["n-1"])
+        #expect(await clearer.deliveredIdentifiers() == [])
+        clearer.setBadgeCount(3)
+    }
+
     @Test func reconcileClearsHandledBannersAndSetsBadge() async throws {
         let clearer = RecordingDeliveredNotificationClearer()
         let store = makeStore(clearer: clearer)
