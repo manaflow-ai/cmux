@@ -34,6 +34,12 @@ final class WindowTerminalHostView: NSView {
     private var sidebarDividerMissCount = 0
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
+    private var dividerRegionInvalidationObservers: [NSObjectProtocol] = []
+    private weak var dividerRegionObservedWindow: NSWindow?
+    private var dividerRegionCacheGeneration: UInt64 = 0
+    private var cachedDividerRegionGeneration: UInt64?
+    private weak var cachedDividerRegionRootView: NSView?
+    private var cachedDividerRegions: [DividerRegion] = []
 #if DEBUG
     private(set) var debugDividerRegionBuildCountForTesting = 0
 #endif
@@ -45,32 +51,48 @@ final class WindowTerminalHostView: NSView {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
+        removeDividerRegionInvalidationObservers()
         clearActiveDividerCursor(restoreArrow: false)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        refreshDividerRegionInvalidationObservers()
+        invalidateDividerRegionCache()
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
         }
-        window?.invalidateCursorRects(for: self)
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        invalidateDividerRegionCache()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        window?.invalidateCursorRects(for: self)
+        invalidateDividerRegionCache()
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
-        window?.invalidateCursorRects(for: self)
+        invalidateDividerRegionCache()
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        invalidateDividerRegionCache()
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        invalidateDividerRegionCache()
+        super.willRemoveSubview(subview)
     }
 
     override func resetCursorRects() {
         super.resetCursorRects()
         guard let window, let rootView = window.contentView else { return }
-        var regions: [DividerRegion] = []
-        Self.collectSplitDividerRegions(in: rootView, into: &regions)
+        let regions = dividerRegions(in: rootView)
         let expansion: CGFloat = 4
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
@@ -106,6 +128,57 @@ final class WindowTerminalHostView: NSView {
     override func cursorUpdate(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         updateDividerCursor(at: point)
+    }
+
+    private func invalidateDividerRegionCache() {
+        dividerRegionCacheGeneration &+= 1
+        cachedDividerRegionGeneration = nil
+        cachedDividerRegionRootView = nil
+        cachedDividerRegions.removeAll(keepingCapacity: true)
+        window?.invalidateCursorRects(for: self)
+    }
+
+    private func refreshDividerRegionInvalidationObservers() {
+        guard dividerRegionObservedWindow !== window else { return }
+        removeDividerRegionInvalidationObservers()
+        dividerRegionObservedWindow = window
+        guard let window else { return }
+
+        let center = NotificationCenter.default
+        dividerRegionInvalidationObservers.append(center.addObserver(
+            forName: NSWindow.didResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.invalidateDividerRegionCache()
+        })
+        dividerRegionInvalidationObservers.append(center.addObserver(
+            forName: NSWindow.didEndLiveResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.invalidateDividerRegionCache()
+        })
+        dividerRegionInvalidationObservers.append(center.addObserver(
+            forName: NSSplitView.didResizeSubviewsNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self, weak window] notification in
+            guard let self,
+                  let window,
+                  self.window === window,
+                  let splitView = notification.object as? NSSplitView,
+                  splitView.window === window else { return }
+            self.invalidateDividerRegionCache()
+        })
+    }
+
+    private func removeDividerRegionInvalidationObservers() {
+        for observer in dividerRegionInvalidationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        dividerRegionInvalidationObservers.removeAll()
+        dividerRegionObservedWindow = nil
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -353,74 +426,45 @@ final class WindowTerminalHostView: NSView {
         guard let window else { return nil }
         let windowPoint = convert(point, to: nil)
         guard let rootView = window.contentView else { return nil }
-#if DEBUG
-        debugDividerRegionBuildCountForTesting += 1
-#endif
-        return Self.dividerCursorKind(at: windowPoint, in: rootView)
+        return Self.dividerCursorKind(at: windowPoint, in: dividerRegions(in: rootView))
     }
 
     static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
         guard let rootView = window.contentView else { return false }
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        return dividerCursorKind(at: windowPoint, in: rootView) != nil
+        var regions: [DividerRegion] = []
+        collectSplitDividerRegions(in: rootView, into: &regions)
+        return dividerCursorKind(at: windowPoint, in: regions) != nil
     }
 
     private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
         splitDividerCursorKind(at: point) != nil
     }
 
-    private static func dividerCursorKind(at windowPoint: NSPoint, in view: NSView) -> DividerCursorKind? {
-        guard !view.isHidden else { return nil }
-
-        if let splitView = view as? NSSplitView {
-            let pointInSplit = splitView.convert(windowPoint, from: nil)
-            if splitView.bounds.contains(pointInSplit) {
-                // Keep divider interactions reliable even when portal-hosted terminal frames
-                // temporarily overlap divider edges during rapid layout churn.
-                let expansion: CGFloat = 5
-                let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-                for dividerIndex in 0..<dividerCount {
-                    let first = splitView.arrangedSubviews[dividerIndex].frame
-                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                    let thickness = splitView.dividerThickness
-                    let dividerRect: NSRect
-                    if splitView.isVertical {
-                        // Keep divider hit-testing active even when one side is nearly collapsed,
-                        // so users can drag the divider back out from the border.
-                        // But ignore transient states where both panes are effectively 0-width.
-                        guard first.width > 1 || second.width > 1 else { continue }
-                        let x = max(0, first.maxX)
-                        dividerRect = NSRect(
-                            x: x,
-                            y: 0,
-                            width: thickness,
-                            height: splitView.bounds.height
-                        )
-                    } else {
-                        // Same behavior for horizontal splits with a near-zero-height pane.
-                        guard first.height > 1 || second.height > 1 else { continue }
-                        let y = max(0, first.maxY)
-                        dividerRect = NSRect(
-                            x: 0,
-                            y: y,
-                            width: splitView.bounds.width,
-                            height: thickness
-                        )
-                    }
-                    let expandedDividerRect = dividerRect.insetBy(dx: -expansion, dy: -expansion)
-                    if expandedDividerRect.contains(pointInSplit) {
-                        return splitView.isVertical ? .vertical : .horizontal
-                    }
-                }
-            }
+    private func dividerRegions(in rootView: NSView) -> [DividerRegion] {
+        if cachedDividerRegionGeneration == dividerRegionCacheGeneration,
+           cachedDividerRegionRootView === rootView {
+            return cachedDividerRegions
         }
 
-        for subview in view.subviews.reversed() {
-            if let kind = dividerCursorKind(at: windowPoint, in: subview) {
-                return kind
+        var regions: [DividerRegion] = []
+        Self.collectSplitDividerRegions(in: rootView, into: &regions)
+        cachedDividerRegions = regions
+        cachedDividerRegionRootView = rootView
+        cachedDividerRegionGeneration = dividerRegionCacheGeneration
+#if DEBUG
+        debugDividerRegionBuildCountForTesting += 1
+#endif
+        return regions
+    }
+
+    private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerCursorKind? {
+        let expansion: CGFloat = 5
+        for region in regions {
+            if region.rectInWindow.insetBy(dx: -expansion, dy: -expansion).contains(windowPoint) {
+                return region.isVertical ? .vertical : .horizontal
             }
         }
-
         return nil
     }
 
@@ -435,10 +479,14 @@ final class WindowTerminalHostView: NSView {
                 let thickness = splitView.dividerThickness
                 let dividerRect: NSRect
                 if splitView.isVertical {
+                    // Keep divider hit-testing active even when one side is nearly collapsed,
+                    // so users can drag the divider back out from the border.
+                    // But ignore transient states where both panes are effectively 0-width.
                     guard first.width > 1 || second.width > 1 else { continue }
                     let x = max(0, first.maxX)
                     dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
                 } else {
+                    // Same behavior for horizontal splits with a near-zero-height pane.
                     guard first.height > 1 || second.height > 1 else { continue }
                     let y = max(0, first.maxY)
                     dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
@@ -454,7 +502,7 @@ final class WindowTerminalHostView: NSView {
             }
         }
 
-        for subview in view.subviews {
+        for subview in view.subviews.reversed() {
             collectSplitDividerRegions(in: subview, into: &result)
         }
     }

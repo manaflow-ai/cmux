@@ -1514,6 +1514,32 @@ final class WindowBrowserHostViewTests: XCTestCase {
             buildCountAfterWarmHit,
             "Steady-state browser divider hit-testing should reuse indexed divider regions instead of rebuilding them for every pointer event"
         )
+
+        splitView.setPosition(180, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        NotificationCenter.default.post(name: NSSplitView.didResizeSubviewsNotification, object: splitView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let movedDividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let movedDividerPointInWindow = splitView.convert(movedDividerPointInSplit, to: nil)
+        let movedDividerPointInHost = host.convert(movedDividerPointInWindow, from: nil)
+        XCTAssertNil(host.hitTest(movedDividerPointInHost))
+        let buildCountAfterInvalidation = host.debugDividerRegionBuildCountForTesting
+        XCTAssertGreaterThan(
+            buildCountAfterInvalidation,
+            buildCountAfterWarmHit,
+            "Split resize notifications should invalidate cached browser divider regions"
+        )
+
+        XCTAssertNil(host.hitTest(movedDividerPointInHost))
+        XCTAssertEqual(
+            host.debugDividerRegionBuildCountForTesting,
+            buildCountAfterInvalidation,
+            "Browser divider hit-testing should reuse regions again after the invalidation rebuild"
+        )
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
