@@ -57,4 +57,21 @@ public enum ControlBrowserQueryActionRequest: Sendable {
     /// `browser.is.checked` — `v2BrowserIsChecked`, via the `el.checked` read
     /// script.
     case isChecked(params: [String: JSONValue])
+    /// `browser.eval` — `v2BrowserEval`. Evaluates an arbitrary page script and
+    /// returns the normalized value (flagging an isolated-content-world fallback
+    /// when page-world eval is CSP-blocked). The legacy body re-reads and
+    /// re-validates the required `script` leaf inside `v2BrowserEval` (returning
+    /// `invalid_params`/`Missing script` before resolving the panel), so `params`
+    /// is carried verbatim and the conformer's guard stays the single source of
+    /// truth, exactly as on the base.
+    case eval(params: [String: JSONValue])
+    /// `browser.snapshot` — `v2BrowserSnapshot`. Captures the accessibility/DOM
+    /// snapshot. Every leaf param (`interactive`/`cursor`/`compact`/`max_depth`/
+    /// `selector`) is re-read inside the body, so `params` is carried verbatim.
+    case snapshot(params: [String: JSONValue])
+    /// `browser.wait` — `v2BrowserWait`. Polls a page condition
+    /// (`url_contains`/`text_contains`/`load_state`/`function`/`selector`) until it
+    /// holds or the timeout elapses. Every leaf param is re-read inside the body,
+    /// so `params` is carried verbatim.
+    case wait(params: [String: JSONValue])
 }

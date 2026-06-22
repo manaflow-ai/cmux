@@ -1062,19 +1062,17 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return runBrowserInteractionWorker(request.control)
         case "browser.get.text", "browser.get.html", "browser.get.value", "browser.get.attr",
              "browser.get.count", "browser.get.box", "browser.get.styles",
-             "browser.is.visible", "browser.is.enabled", "browser.is.checked":
-            // The read-only `browser.get.*` / `browser.is.*` getters are owned by
-            // CmuxControlSocket's ``ControlBrowserQueryWorker`` (alongside
-            // `browser.find.*`), reaching the live browser surface through the
-            // ``ControlBrowserQueryReading`` seam (`controlResolveBrowserQuery`).
-            // Refresh refs first like the legacy shared dispatch did for every
-            // JS-eval browser method.
+             "browser.is.visible", "browser.is.enabled", "browser.is.checked",
+             "browser.eval", "browser.snapshot", "browser.wait":
+            // The read-only `browser.get.*` / `browser.is.*` getters and the
+            // eval-result reads `browser.eval` / `browser.snapshot` /
+            // `browser.wait` are owned by CmuxControlSocket's
+            // ``ControlBrowserQueryWorker`` (alongside `browser.find.*`), reaching
+            // the live browser surface through the ``ControlBrowserQueryReading``
+            // seam (`controlResolveBrowserQuery`). Refresh refs first like the
+            // legacy shared dispatch did for every JS-eval browser method.
             v2MainSync { self.v2RefreshKnownRefs() }
             return runBrowserQueryWorker(request.control)
-        case "browser.snapshot", "browser.eval", "browser.wait":
-            // Keep ref payloads fresh like the main-actor dispatch path does.
-            v2MainSync { self.v2RefreshKnownRefs() }
-            return v2Result(id: request.id, v2BrowserJSCommandOnSocketWorker(method: request.method, params: request.params))
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)
@@ -1519,9 +1517,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // ControlCommandCoordinator (handleBrowserReadOnly) via the same seam.
         // browser methods that evaluate page JavaScript run on the socket worker
         // (see ControlCommandExecutionPolicy.socketWorkerMethods); they never reach
-        // this switch. find/navigation/interaction are owned by CmuxControlSocket's
-        // ControlBrowser{Query,Navigation,Interaction}Worker; snapshot/eval/wait/
-        // get/is stay on v2BrowserJSCommandOnSocketWorker.
+        // this switch. find/navigation/interaction and the read-only/eval-result
+        // reads (get/is, eval/snapshot/wait) are owned by CmuxControlSocket's
+        // ControlBrowser{Query,Navigation,Interaction}Worker.
         // browser.dialog.accept/dismiss, browser.import.dialog,
         // browser.cookies.get/set/clear, browser.storage.get/set/clear, and
         // browser.addinitscript/addscript/addstyle handled above by
@@ -4417,23 +4415,29 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    /// Resolves one `browser.get.*` / `browser.is.*` query request by running the
-    /// co-located legacy getter body and carrying its `V2CallResult` pre-shaped.
+    /// Resolves one `browser.get.*` / `browser.is.*` getter or
+    /// `browser.eval` / `browser.snapshot` / `browser.wait` eval-result query
+    /// request by running the co-located legacy body and carrying its
+    /// `V2CallResult` pre-shaped.
     ///
     /// Byte-faithful to the former `v2BrowserJSCommandOnSocketWorker` dispatch for
     /// these methods: each case calls the identical `v2BrowserGet*` / `v2BrowserIs*`
-    /// body with the Foundation-bridged params, and `controlBridge` maps the
-    /// resulting payload to the package's typed `ControlCallResult`. The getter
-    /// bodies stay app-side because they reach the shared `v2BrowserSelectorAction`
-    /// retry loop (still shared with the `browser.*` interaction commands), the
-    /// `v2BrowserWithPanel` panel read (`get.title`), the `v2BrowserWithPanelContext`
-    /// `querySelectorAll` read (`get.count`), and the WebKit evaluation seam, none of
-    /// which this control package may import.
+    /// / `v2BrowserEval` / `v2BrowserSnapshot` / `v2BrowserWait` body with the
+    /// Foundation-bridged params, and `controlBridge` maps the resulting payload to
+    /// the package's typed `ControlCallResult`. The bodies stay app-side because
+    /// they reach the shared `v2BrowserSelectorAction` retry loop (still shared with
+    /// the `browser.*` interaction commands), the `v2BrowserWithPanelContext` panel
+    /// read + `querySelectorAll` read (`get.count`), the `v2RunBrowserJavaScript`
+    /// WebKit evaluation seam (`eval`/`snapshot`/`wait`), and the `v2BrowserControl`
+    /// scripts substrate, none of which this control package may import.
     ///
     /// `get.attr` re-reads and re-validates `attr`/`name` inside `v2BrowserGetAttr`
     /// identically to the worker's guard, so passing the validated request straight
     /// through preserves the legacy missing-param branch exactly (the worker's guard
-    /// and the body's guard are the same trimmed-non-empty check).
+    /// and the body's guard are the same trimmed-non-empty check). `eval` re-reads
+    /// and re-validates its required `script` leaf inside `v2BrowserEval` (the worker
+    /// carries `eval` params verbatim with no pre-check), preserving the
+    /// `Missing script` `invalid_params` branch exactly as the base dispatch did.
     nonisolated func controlResolveBrowserQuery(
         _ request: ControlBrowserQueryActionRequest
     ) -> ControlCallResult {
@@ -4458,6 +4462,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return controlBridge(v2BrowserIsEnabled(params: foundationParams(params)))
         case let .isChecked(params):
             return controlBridge(v2BrowserIsChecked(params: foundationParams(params)))
+        case let .eval(params):
+            return controlBridge(v2BrowserEval(params: foundationParams(params)))
+        case let .snapshot(params):
+            return controlBridge(v2BrowserSnapshot(params: foundationParams(params)))
+        case let .wait(params):
+            return controlBridge(v2BrowserWait(params: foundationParams(params)))
         }
     }
 
@@ -5079,18 +5089,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case ready
         case timeout
         case watcherSetupFailed(errnoCode: Int32)
-    }
-
-    /// Socket-worker router for browser methods that evaluate page JavaScript.
-    /// See ControlCommandExecutionPolicy for why these must not hold the main actor.
-    private nonisolated func v2BrowserJSCommandOnSocketWorker(method: String, params: [String: Any]) -> V2CallResult {
-        switch method {
-        case "browser.snapshot": return v2BrowserSnapshot(params: params)
-        case "browser.eval": return v2BrowserEval(params: params)
-        case "browser.wait": return v2BrowserWait(params: params)
-        default:
-            return .err(code: "invalid_dispatch", message: "Unhandled socket-worker browser method \(method)", data: nil)
-        }
     }
 
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
