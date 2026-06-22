@@ -170,6 +170,27 @@ struct MobileWorkspaceListFidelityTests {
         #expect(before != after, "a pure group-membership move must change the mobile summary hash")
     }
 
+    @Test func reparentingWorkspaceGroupChangesObserverHash() throws {
+        let manager = TabManager()
+        let parentId = try #require(manager.createWorkspaceGroup(name: "Hotels"))
+        let childId = try #require(manager.createWorkspaceGroup(name: "Marriott"))
+
+        let before = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+
+        #expect(manager.setWorkspaceGroupParent(groupId: childId, parentGroupId: parentId))
+
+        let after = MobileWorkspaceListObserver.summaryHashForTesting(
+            tabs: manager.tabs,
+            groups: manager.workspaceGroups,
+            selectedTabID: manager.selectedTabId
+        )
+        #expect(before != after, "a folder reparent must change the mobile summary hash")
+    }
+
     /// A new notification (or clearing the latest one) changes only a workspace's
     /// preview signature, not the tab set, groups, panels, title, or pin state.
     /// The signature must be folded into the summary hash so the observer

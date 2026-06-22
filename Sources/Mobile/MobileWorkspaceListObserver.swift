@@ -254,6 +254,7 @@ final class MobileWorkspaceListObserver {
             hasher.combine(group.name)
             hasher.combine(group.isCollapsed)
             hasher.combine(group.isPinned)
+            hasher.combine(group.parentGroupId)
             hasher.combine(group.anchorWorkspaceId)
         }
         for workspace in tabs {
