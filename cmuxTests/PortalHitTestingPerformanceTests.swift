@@ -188,4 +188,54 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
             "Removed split views must not leave stale cached divider strips that steal portal hits."
         )
     }
+
+    func testTerminalSplitDividerCacheRefreshesAfterRootSubviewInsertion() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let splitView = CountingSplitView(frame: contentView.bounds)
+        splitView.isVertical = true
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 80, height: contentView.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 81, y: 0, width: 239, height: contentView.bounds.height)))
+        contentView.addSubview(splitView)
+        splitView.setPosition(80, ofDividerAt: 0)
+        splitView.adjustSubviews()
+
+        let hostedView = CapturingView(frame: contentView.bounds)
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+
+        let firstDividerPointInWindow = splitView.convert(
+            NSPoint(x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5), y: splitView.bounds.midY),
+            to: nil
+        )
+        let firstEvent = makeMouseEvent(type: .mouseMoved, at: firstDividerPointInWindow, window: window)
+        XCTAssertNil(host.performHitTest(at: host.convert(firstDividerPointInWindow, from: nil), currentEvent: firstEvent))
+
+        let insertedSplitView = CountingSplitView(frame: contentView.bounds)
+        insertedSplitView.isVertical = true
+        let insertedSplitDelegate = SplitDelegate()
+        insertedSplitView.delegate = insertedSplitDelegate
+        insertedSplitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 220, height: contentView.bounds.height)))
+        insertedSplitView.addSubview(NSView(frame: NSRect(x: 221, y: 0, width: 99, height: contentView.bounds.height)))
+        insertedSplitView.setPosition(220, ofDividerAt: 0)
+        insertedSplitView.adjustSubviews()
+        contentView.addSubview(insertedSplitView, positioned: .below, relativeTo: host)
+
+        let insertedDividerPointInWindow = insertedSplitView.convert(
+            NSPoint(x: insertedSplitView.arrangedSubviews[0].frame.maxX + (insertedSplitView.dividerThickness * 0.5), y: insertedSplitView.bounds.midY),
+            to: nil
+        )
+        let insertedEvent = makeMouseEvent(type: .mouseMoved, at: insertedDividerPointInWindow, window: window)
+        XCTAssertNil(host.performHitTest(at: host.convert(insertedDividerPointInWindow, from: nil), currentEvent: insertedEvent))
+    }
 }

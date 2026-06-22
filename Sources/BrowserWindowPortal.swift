@@ -320,6 +320,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
     private var cachedSplitDividerRegions: [DividerRegion]?
+    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
     private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
@@ -1113,17 +1114,19 @@ final class WindowBrowserHostView: NSView {
         return (pageFrame, inspectorFrame)
     }
     private func splitDividerRegions() -> [DividerRegion] {
-        if let regions = cachedSplitDividerRegions, PortalSplitDividerRegion.allLive(regions) { return regions }
-        cachedSplitDividerRegions = nil
-        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; return [] }
+        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
+        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
+        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
         var regions: [DividerRegion] = []
         Self.collectSplitDividerRegions(in: rootView, hostView: self, into: &regions)
         cachedSplitDividerRegions = regions
+        cachedSplitDividerRootSubviewIds = rootSubviewIds
         return regions
     }
 
     private func invalidateSplitDividerRegionCache() {
         cachedSplitDividerRegions = nil
+        cachedSplitDividerRootSubviewIds = nil
     }
 
     private func updateSplitDividerResizeObserver() {
