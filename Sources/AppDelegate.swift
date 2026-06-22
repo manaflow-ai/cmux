@@ -4942,21 +4942,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    func cleanupEmptySourceWorkspaceAfterSurfaceMove(
-        sourceWorkspace: Workspace,
-        sourceManager: TabManager,
-        sourceWindowId: UUID
-    ) {
-        guard sourceWorkspace.panels.isEmpty else { return }
-        guard sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }) else { return }
-
-        if sourceManager.tabs.count > 1 {
-            sourceManager.closeWorkspace(sourceWorkspace, recordHistory: false)
-        } else {
-            _ = closeMainWindow(windowId: sourceWindowId, recordHistory: false)
-        }
-    }
-
     func reassertCrossWindowSurfaceMoveFocusIfNeeded(
         destinationWindowId: UUID,
         sourceWindowId: UUID,
