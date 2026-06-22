@@ -178,7 +178,7 @@ public struct SettingsWindowRoot: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
-            let matches = searchIndex.match(searchText)
+            let matches = sidebarEntries(matching: searchText)
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(.secondary)
@@ -197,6 +197,11 @@ public struct SettingsWindowRoot: View {
         .navigationTitle(String(localized: "settings.title", defaultValue: "Settings"))
         .searchable(text: $searchText, placement: .sidebar, prompt: Text(String(localized: "settings.search.prompt", defaultValue: "Search")))
         .navigationSplitViewColumnWidth(210)
+    }
+
+    /// Returns the entries the settings sidebar displays for `query`.
+    func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] {
+        searchIndex.match(query)
     }
 
     /// Legacy `SettingsSearchEntry` populates `subtitle` with the

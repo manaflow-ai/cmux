@@ -42,20 +42,17 @@ struct SettingsSearchIndexTests {
 
         let firstRoot = SettingsWindowRoot(runtime: runtime)
         let secondRoot = SettingsWindowRoot(runtime: runtime)
-        let firstIndex = try #require(Self.searchIndex(from: firstRoot))
-        let secondIndex = try #require(Self.searchIndex(from: secondRoot))
 
-        #expect(firstIndex.match("issue3384-cache-sentinel").contains { $0.id == expectedID })
-        #expect(secondIndex.match("issue3384-cache-sentinel").contains { $0.id == expectedID })
+        #expect(firstRoot.sidebarEntries(matching: "issue3384-cache-sentinel").contains {
+            $0.id == expectedID
+        })
+        #expect(secondRoot.sidebarEntries(matching: "issue3384-cache-sentinel").contains {
+            $0.id == expectedID
+        })
     }
 
     private static func makeDefaultsStore(suiteName: String) -> UserDefaultsSettingsStore {
         UserDefaultsSettingsStore(defaults: UserDefaults(suiteName: suiteName)!)
-    }
-
-    @MainActor
-    private static func searchIndex(from root: SettingsWindowRoot) -> SettingsSearchIndex? {
-        Mirror(reflecting: root).descendant("searchIndex") as? SettingsSearchIndex
     }
 
     @Test func emptyQueryReturnsAllSectionEntries() {
