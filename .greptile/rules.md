@@ -83,3 +83,11 @@ Pass for `#if DEBUG` blocks that gate real product behavior, scaffolding inside 
 For SwiftPM package, Xcode project, `.gitignore`, workflow, and dependency changes, flag cmux-owned package `.gitignore` files that ignore `Package.resolved`, external dependency resolution changes that omit the relevant package-local `Package.resolved` diff, or Xcode project package-reference changes that omit the root Xcode `Package.resolved` diff.
 
 The root Xcode project lockfile is not sufficient proof for standalone package resolution. Pass for vendored third-party directories preserving upstream policy.
+
+## README and Site Feature Parity
+
+For changes to `README.md`'s "## Features" section, the homepage feature list (`home.feature.*` in `web/messages/en.json`, rendered by `web/app/[locale]/page.tsx`), or the homepage FAQ (`home.faq*`), keep the user-facing feature claims consistent across the README and the marketing site.
+
+Flag a shared feature renamed or relabeled on one surface but not the other (for example README "Scriptable" vs site "Programmable"), and any factual claim that contradicts across surfaces (platform support, price/free, license, supported agents, networking model, built-in vs optional). The README may stay the more detailed superset of the homepage; only the features both surfaces mention need consistent names and non-contradicting claims.
+
+Pass for README-only extra features (SSH, Claude Code Teams, Custom commands, etc.), pure description or length differences where the feature name and factual claim still agree, and localization-only edits that preserve the English source meaning.

@@ -12910,6 +12910,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let pullRequestRows: [PullRequestDisplay]
         let listeningPorts: [Int]
         let finderDirectoryPath: String?
+        let mediaActivity: BrowserMediaActivity
     }
 }
 
@@ -13330,6 +13331,18 @@ struct TabItemView: View, Equatable {
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
             defaultValue: "Pinned workspace. Closing requires confirmation."
         )
+        let audioPlayingTooltip = String(
+            localized: "sidebar.mediaActivity.audio.tooltip",
+            defaultValue: "Playing audio"
+        )
+        let microphoneInUseTooltip = String(
+            localized: "sidebar.mediaActivity.microphone.tooltip",
+            defaultValue: "Microphone in use"
+        )
+        let cameraInUseTooltip = String(
+            localized: "sidebar.mediaActivity.camera.tooltip",
+            defaultValue: "Camera in use"
+        )
         let closeButtonTooltip = workspaceSnapshot.isPinned
             ? protectedWorkspaceTooltip
             : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
@@ -13388,6 +13401,34 @@ struct TabItemView: View, Equatable {
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
+                }
+
+                // Chrome-style media-activity glyphs: a noisy or capturing
+                // background browser pane is surfaced on its workspace row,
+                // styled like the pin indicator. Audio is the must-have signal;
+                // mic/camera follow the macOS orange/green convention.
+                if workspaceSnapshot.mediaActivity.isPlayingAudio {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(activeSecondaryColor(0.8))
+                        .safeHelp(audioPlayingTooltip)
+                        .accessibilityLabel(audioPlayingTooltip)
+                }
+
+                if workspaceSnapshot.mediaActivity.isUsingMicrophone {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(.orange)
+                        .safeHelp(microphoneInUseTooltip)
+                        .accessibilityLabel(microphoneInUseTooltip)
+                }
+
+                if workspaceSnapshot.mediaActivity.isUsingCamera {
+                    Image(systemName: "video.fill")
+                        .font(.system(size: scaledFontSize(9), weight: .semibold))
+                        .foregroundColor(.green)
+                        .safeHelp(cameraInUseTooltip)
+                        .accessibilityLabel(cameraInUseTooltip)
                 }
 
                 if isEditing {
@@ -13694,7 +13735,7 @@ struct TabItemView: View, Equatable {
         // row is always animating, so the sidebar-wide layout re-runs at display
         // refresh rate (#5764 / #5845). Lazy rows must be height-stable after
         // they appear; content changes now apply in one discrete layout pass.
-        .padding(.horizontal, 10)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -13722,7 +13763,7 @@ struct TabItemView: View, Equatable {
             fontSize: scaledFontSize(10)
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-        .padding(.horizontal, 6)
+        .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
         .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
@@ -14491,7 +14532,8 @@ struct TabItemView: View, Equatable {
             branchLinesContainBranch: branchLinesContainBranch,
             pullRequestRows: pullRequestRows,
             listeningPorts: detailVisibility.showsPorts ? tab.listeningPorts : [],
-            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab)
+            finderDirectoryPath: WorkspaceFinderDirectoryResolver.path(for: tab),
+            mediaActivity: tab.browserMediaActivity
         )
     }
 
