@@ -274,7 +274,7 @@ extension CMUXCLI {
     }
 
     private func sessionsListAgentSpecs() -> [SessionListAgentSpec] {
-        var specs = [
+        var specs: [SessionListAgentSpec] = [
             (
                 name: "claude",
                 displayName: "Claude Code",
