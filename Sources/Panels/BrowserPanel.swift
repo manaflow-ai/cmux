@@ -6912,9 +6912,6 @@ extension BrowserPanel {
 
     func noteDeveloperToolsHostAttached() {
         cancelPendingDeveloperToolsVisibilityLossCheck()
-        if developerToolsRevealDeferredUntilWebViewAttached {
-            developerToolsRestoreRetryAttempt = 0
-        }
         // `developerToolsLastAttachedHostAt` anchors the manual-close detection
         // grace (see `consumeAttachedDeveloperToolsManualCloseIfNeeded`). Refresh it
         // only when this attach reflects genuine inspector churn: the inspector is
