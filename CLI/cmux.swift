@@ -28057,13 +28057,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return false
     }
 
-    private static func shouldPrependCmuxHookEntries(def: AgentHookDef, event: String) -> Bool {
-        // Copilot merges permissionRequest outputs with later hooks overriding
-        // earlier hooks. Keep existing policy hooks after cmux so their deny
-        // output cannot be overwritten by a Feed approval.
-        def.name == "copilot" && event == "permissionRequest"
-    }
-
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -28211,9 +28204,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case .flat, .kiroAgentJSON, .copilotJSON:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
-                    if Self.shouldPrependCmuxHookEntries(def: def, event: event) {
-                        entries.insert(contentsOf: newEntries, at: 0)
-                    } else if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
+                    if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
                         Self.insertCmuxHookValues(newEntries, into: &entries, atOriginalIndexes: insertionIndexes)
                     } else {
                         entries.append(contentsOf: newEntries)
@@ -33252,10 +33243,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     defaultValue: "User denied permission via cmux Feed."
                 )
                 if rawEventName == "permissionRequest" || rawEventName == "PermissionRequest" {
-                    if mode == "once" {
-                        return encode(["behavior": "allow"])
+                    if mode == "deny" {
+                        return encode(["behavior": "deny", "message": reason])
                     }
-                    return encode(["behavior": "deny", "message": reason])
+                    return "{}"
                 }
                 if mode == "once" {
                     return encode(["permissionDecision": "allow"])

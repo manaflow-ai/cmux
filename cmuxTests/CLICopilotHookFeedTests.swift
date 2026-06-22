@@ -140,14 +140,12 @@ struct CLICopilotHookFeedTests {
         )
         let permissionRequest = try #require(hooks["permissionRequest"] as? [[String: Any]])
         #expect(
-            (permissionRequest.first?["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true,
-            "Expected cmux permissionRequest hook to run before existing policy hooks, saw \(permissionRequest)"
+            (permissionRequest.first?["bash"] as? String)?.contains("\"behavior\":\"deny\"") == true,
+            "Expected existing permissionRequest policy hook to stay before cmux, saw \(permissionRequest)"
         )
         #expect(
-            permissionRequest.dropFirst().contains {
-                ($0["bash"] as? String)?.contains("\"behavior\":\"deny\"") == true
-            },
-            "Expected existing permissionRequest policy hook to be preserved after cmux, saw \(permissionRequest)"
+            (permissionRequest.last?["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true,
+            "Expected cmux permissionRequest hook to be final within the user hooks file, saw \(permissionRequest)"
         )
         #expect(
             permissionRequest.contains {
@@ -262,7 +260,7 @@ struct CLICopilotHookFeedTests {
         #expect(permissionAllow.status == 0, Comment(rawValue: permissionAllow.stderr))
         #expect(permissionAllowEvent["hook_event_name"] as? String == "PermissionRequest")
         let permissionAllowOutput = try #require(Self.jsonObject(permissionAllow.stdout))
-        #expect(permissionAllowOutput["behavior"] as? String == "allow")
+        #expect(permissionAllowOutput.isEmpty)
         #expect(permissionAllowOutput["permissionDecision"] == nil)
         #expect(permissionAllowOutput["hookSpecificOutput"] == nil)
 
