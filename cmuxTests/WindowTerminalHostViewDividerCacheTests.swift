@@ -17,7 +17,7 @@ struct WindowTerminalHostViewDividerCacheTests {
         defer { window.orderOut(nil) }
         let contentView = try #require(window.contentView, "Expected content view")
 
-        let splitView = NSSplitView(frame: contentView.bounds)
+        let splitView = NSSplitView(frame: contentView.bounds.insetBy(dx: 0, dy: 20))
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin

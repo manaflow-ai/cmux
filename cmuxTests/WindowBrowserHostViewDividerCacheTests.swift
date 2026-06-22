@@ -17,7 +17,7 @@ struct WindowBrowserHostViewDividerCacheTests {
         let contentView = try #require(window.contentView, "Expected content view")
         let container = try #require(contentView.superview, "Expected window content container")
 
-        let splitView = NSSplitView(frame: contentView.bounds)
+        let splitView = NSSplitView(frame: contentView.bounds.insetBy(dx: 0, dy: 20))
         splitView.autoresizingMask = [.width, .height]
         splitView.isVertical = true
         splitView.dividerStyle = .thin
