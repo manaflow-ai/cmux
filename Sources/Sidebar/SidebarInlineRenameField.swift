@@ -8,6 +8,7 @@ import SwiftUI
 struct SidebarInlineRenameField: NSViewRepresentable {
     let initialText: String
     let fontSize: CGFloat
+    let textColor: NSColor
     let accessibilityLabel: String
     let placeholder: String
     let onCommit: (String) -> Void
@@ -30,6 +31,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
         field.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        field.inlineRenameTextColor = textColor
         field.placeholderString = placeholder
         field.setAccessibilityLabel(accessibilityLabel)
         field.delegate = context.coordinator
@@ -45,6 +47,7 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         // convention). initialText/stringValue is intentionally NOT synced here:
         // doing so would reset the cursor and clobber in-progress typing.
         nsView.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        nsView.inlineRenameTextColor = textColor
         nsView.placeholderString = placeholder
         nsView.setAccessibilityLabel(accessibilityLabel)
     }

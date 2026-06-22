@@ -74,6 +74,14 @@ import Testing
         #expect(editor.hasMarkedText())
     }
 
+    @Test func textFieldAppliesDrivenTextColor() {
+        let field = SidebarInlineRenameTextField(string: "compose")
+        let color = NSColor(calibratedRed: 0.25, green: 0.5, blue: 0.75, alpha: 1.0)
+        field.inlineRenameTextColor = color
+
+        #expect(field.textColor == color)
+    }
+
     @Test func normalizeTrimsAndKeepsNonEmpty() {
         #expect(SidebarInlineRenameCommit.normalized("  Renamed  ") == "Renamed")
     }
