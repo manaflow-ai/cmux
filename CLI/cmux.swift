@@ -10148,10 +10148,11 @@ struct CMUXCLI {
         let sshOptionStrings = [
             "StrictHostKeyChecking=no",
             "UserKnownHostsFile=/dev/null",
-            "LogLevel=ERROR",
+            "LogLevel=QUIET",
             "IdentitiesOnly=yes",
             "IdentityFile=/dev/null",
             "PreferredAuthentications=none,password",
+            "NumberOfPasswordPrompts=1",
             "ControlMaster=no",
         ]
         let destination = "\(username)@\(host)"
@@ -10215,26 +10216,13 @@ struct CMUXCLI {
             throw CLIError(message: "Usage: cmux vm ssh-attach --id <vm-id>")
         }
 
-        bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
-
         let attachInfoStartedAt = Date()
-        let response: [String: Any]
-        do {
-            response = try client.sendV2(
-                method: "vm.ssh_info",
-                params: ["id": vmID],
-                responseTimeout: Self.vmAttachResponseTimeoutSeconds
-            )
-        } catch {
-            guard usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) else { throw error }
-            vmID = try recreateDefaultFreestyleSSHDVM(client: client)
-            bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
-            response = try client.sendV2(
-                method: "vm.ssh_info",
-                params: ["id": vmID],
-                responseTimeout: Self.vmAttachResponseTimeoutSeconds
-            )
-        }
+        let response = try defaultFreestyleSSHInfoWithRetryIfNeeded(
+            vmID: &vmID,
+            usesDefaultFreestyleSSHD: usesDefaultFreestyleSSHD,
+            client: client
+        )
+        bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
         logVMTiming("ssh_info", vmID: vmID, transport: "ssh", startedAt: attachInfoStartedAt)
         let options = try vmSSHOptions(
             fromAttachInfo: response,
@@ -10266,6 +10254,67 @@ struct CMUXCLI {
     private static func isVMNotFoundError(_ error: Error) -> Bool {
         let message = String(describing: error).lowercased()
         return message.contains("vm_not_found") || message.contains("was not found")
+    }
+
+    private func defaultFreestyleSSHInfoWithRetryIfNeeded(
+        vmID: inout String,
+        usesDefaultFreestyleSSHD: Bool,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var attempt = 0
+        var printedRetryNotice = false
+        let retryLimit = Self.defaultFreestyleAttachRetryLimit()
+        while true {
+            do {
+                return try client.sendV2(
+                    method: "vm.ssh_info",
+                    params: ["id": vmID],
+                    responseTimeout: Self.vmAttachResponseTimeoutSeconds
+                )
+            } catch {
+                if usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) {
+                    vmID = try recreateDefaultFreestyleSSHDVM(client: client)
+                    attempt = 0
+                    continue
+                }
+                guard usesDefaultFreestyleSSHD,
+                      Self.isRetryableCloudVMServiceError(error),
+                      attempt < retryLimit else {
+                    throw error
+                }
+                if !printedRetryNotice {
+                    Self.writeStderrLine("[cmux] Cloud VM service is temporarily unavailable; retrying...")
+                    printedRetryNotice = true
+                }
+                cliDebugLog(
+                    "cli.vm.ssh_info.retry vm=\(String(vmID.prefix(8))) attempt=\(attempt + 1) error=\(String(describing: error))"
+                )
+                attempt += 1
+                usleep(2_000_000)
+            }
+        }
+    }
+
+    private static func defaultFreestyleAttachRetryLimit() -> Int {
+        let raw = ProcessInfo.processInfo.environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT"] ?? ""
+        guard let parsed = Int(raw), parsed >= 0 else {
+            return 120
+        }
+        return parsed
+    }
+
+    private static func isRetryableCloudVMServiceError(_ error: Error) -> Bool {
+        let message = String(describing: error).lowercased()
+        return message.contains("http 502") ||
+            message.contains("http 503") ||
+            message.contains("service unavailable") ||
+            message.contains("temporarily unavailable") ||
+            message.contains("vm_cloud_state_unavailable") ||
+            message.contains("could not connect to the server")
+    }
+
+    private static func writeStderrLine(_ text: String) {
+        FileHandle.standardError.write(Data((text + "\n").utf8))
     }
 
     private func recreateDefaultFreestyleSSHDVM(client: SocketClient) throws -> String {
@@ -10324,6 +10373,8 @@ struct CMUXCLI {
           export SHELL="$(command -v zsh)"
           autoload -Uz colors 2>/dev/null && colors
           setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
+          PROMPT_EOL_MARK=''
+          unsetopt prompt_sp 2>/dev/null || true
           HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
           HISTSIZE="${HISTSIZE:-50000}"
           SAVEHIST="${SAVEHIST:-50000}"
@@ -10375,6 +10426,8 @@ struct CMUXCLI {
         export SHELL="$(command -v zsh)"
         autoload -Uz colors 2>/dev/null && colors
         setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
+        PROMPT_EOL_MARK=''
+        unsetopt prompt_sp 2>/dev/null || true
         HISTFILE="${HISTFILE:-$HOME/.zsh_history}"
         HISTSIZE="${HISTSIZE:-50000}"
         SAVEHIST="${SAVEHIST:-50000}"

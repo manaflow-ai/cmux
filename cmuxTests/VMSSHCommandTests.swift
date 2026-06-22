@@ -117,6 +117,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(initialScript.contains("cmux_ssh_cleanup_password() { rm -rf"), initialScript)
         XCTAssertTrue(initialScript.contains("cmux_ssh_session_end() {"), initialScript)
         XCTAssertTrue(initialScript.contains("cmux_ssh_cleanup_password;"), initialScript)
+        XCTAssertTrue(initialScript.contains("-o NumberOfPasswordPrompts=1"), initialScript)
+        XCTAssertTrue(initialScript.contains("-o LogLevel=QUIET"), initialScript)
         XCTAssertFalse(initialScript.contains("trap 'rm -rf \"$cmux_ssh_askpass_dir\"'"), initialScript)
         try? FileManager.default.removeItem(atPath: initialScriptPath)
 
