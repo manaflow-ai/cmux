@@ -345,6 +345,44 @@ struct ExtensionWorktreeManagementTests {
         #expect(!FileManager.default.fileExists(atPath: worktree))
     }
 
+    @Test("a managed worktree whose parent repo is a submodule can be removed")
+    func removeSubmoduleParentWorktreeUsesManagedParentPath() async throws {
+        let repo = try GitFixture.makeRepo()
+        defer { GitFixture.cleanUp(repo) }
+        let submoduleRepo = try GitFixture.makeRepo()
+        defer { GitFixture.cleanUp(submoduleRepo) }
+
+        GitFixture.run(
+            ["-c", "protocol.file.allow=always", "submodule", "add", "-q", submoduleRepo, "deps/lib"],
+            in: repo
+        )
+        GitFixture.run(
+            [
+                "-c", "user.email=test@cmux.dev",
+                "-c", "user.name=cmux test",
+                "-c", "commit.gpgsign=false",
+                "commit", "-q", "-m", "add submodule",
+            ],
+            in: repo
+        )
+
+        let submodulePath = repo + "/deps/lib"
+        #expect(FileManager.default.fileExists(atPath: submodulePath + "/.git"))
+        try FileManager.default.createDirectory(
+            atPath: submodulePath + "/.cmux/worktrees",
+            withIntermediateDirectories: true
+        )
+        let worktree = submodulePath + "/.cmux/worktrees/submodule-parent-wt"
+        GitFixture.run(["worktree", "add", "-b", "submodule-parent-wt", worktree, "HEAD"], in: submodulePath)
+        #expect(FileManager.default.fileExists(atPath: worktree))
+
+        try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktree, force: false)
+
+        #expect(!FileManager.default.fileExists(atPath: worktree))
+        let list = GitFixture.run(["worktree", "list"], in: submodulePath).out
+        #expect(!list.contains("submodule-parent-wt"))
+    }
+
     @Test("a sidebar-created worktree round-trips: create then remove")
     func createdWorktreeCanBeRemoved() async throws {
         let repo = try GitFixture.makeRepo()
