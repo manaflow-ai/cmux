@@ -131,4 +131,30 @@ public protocol WorkspaceCloseHosting<Tab>: AnyObject {
     /// Adds a fresh workspace to keep the window non-empty after the last
     /// workspace detaches (legacy `_ = addWorkspace()` in the empty branch).
     func addReplacementWorkspaceForEmptyWindow()
+
+    // MARK: Confirmation-decision effects (legacy TabManager close-with-confirmation paths)
+
+    /// Whether `tab` needs a confirm-close prompt, honouring the DEBUG
+    /// UI-test force flag (legacy `TabManager.workspaceNeedsConfirmClose(_:)`,
+    /// `CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE` + `workspace.needsConfirmClose()`).
+    func needsConfirmClose(_ tab: Tab) -> Bool
+
+    /// Marks the window's pending close as an explicit tab/session close so the
+    /// remote-tmux mirror(s) are KILLED on commit rather than detached (legacy
+    /// `markRemoteTmuxKillOnWindowCloseIfNeeded`: `windowId(for:)` +
+    /// `remoteTmuxController.markKillSessionsOnWindowClose(windowId:)`). The
+    /// coordinator only calls this once it has confirmed the batch includes a
+    /// mirror, so the witness performs the window-id lookup and mark with no
+    /// further gating.
+    func markRemoteTmuxKillOnWindowClose()
+
+    /// Closes the window that contains `workspaceId` via the AppKit window-close
+    /// path, returning whether a window-close was actually dispatched (legacy
+    /// `window.performClose(nil)` -> `true`, else
+    /// `AppDelegate.shared?.closeMainWindowContainingTabId(_:)` -> `true` when an
+    /// `AppDelegate` exists, else `false`). The batch whole-window branch uses
+    /// the `false` result to fall through to the per-workspace loop, matching the
+    /// legacy headless / no-`AppDelegate` fallthrough.
+    @discardableResult
+    func closeWindow(containingWorkspaceId workspaceId: UUID) -> Bool
 }
