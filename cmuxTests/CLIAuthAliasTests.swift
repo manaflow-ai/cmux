@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testTopLevelLoginAliasesAuthLogin() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("auth-login")
@@ -61,7 +63,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected login alias to call auth.begin_sign_in, saw \(state.commands)"
         )
     }
-
+    @Test
     func testTopLevelLogoutAliasesAuthLogout() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("auth-logout")

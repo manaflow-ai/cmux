@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testRovoDevPromptSubmitInfersSessionIdFromWorkspaceMetadataAndPersistsLaunchCommand() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-infer")
@@ -94,7 +96,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Rovo Dev prompt status to target current workspace, saw \(state.commands)"
         )
     }
-
+    @Test
     func testRovoDevPromptSubmitInfersNewestMatchingWorkspaceMetadata() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-newest")
@@ -181,7 +183,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(sessions["rovo-older-session"] as? [String: Any])
         XCTAssertNotNil(sessions["rovo-newer-session"] as? [String: Any])
     }
-
+    @Test
     func testRovoDevPromptSubmitReadsConfiguredPersistenceDirWithCommentsHashAndApostrophePath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-config")
@@ -278,7 +280,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
         XCTAssertNotNil(sessions[sessionId] as? [String: Any])
     }
-
+    @Test
     func testRovoDevPromptSubmitWithoutCwdDoesNotInferUnrelatedSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rovo-nocwd")
@@ -350,7 +352,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertNil(sessions[unrelatedSessionId] as? [String: Any])
         }
     }
-
+    @Test
     func testRovoDevInstallDoesNotReplaceUnreadableConfigPath() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -380,7 +382,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("could not be read"), result.stderr)
         XCTAssertTrue(FileManager.default.fileExists(atPath: sentinelURL.path))
     }
-
+    @Test
     func testRovoAliasCreatesConfigDirAndInstallsRovoDevHooksFromSetup() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -417,7 +419,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(config.contains(#"hooks rovodev prompt-submit"#), config)
         XCTAssertTrue(config.contains(#"CMUX_BUNDLED_CLI_PATH"#), config)
     }
-
+    @Test
     func testSetupHooksRejectsConflictingAgentFilters() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -440,7 +442,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotEqual(result.status, 0)
         XCTAssertTrue(result.stderr.contains("Conflicting hooks target"), result.stderr)
     }
-
+    @Test
     func testSetupHooksRejectsMultiplePositionalTargets() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory

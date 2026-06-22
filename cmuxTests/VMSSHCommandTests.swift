@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testVMSSHOpensManagedWorkspaceThroughSharedSSHPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-ssh")
@@ -120,7 +122,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(configureParams["terminal_startup_command"] as? String)
         XCTAssertNotNil(configureParams["relay_port"] as? Int)
     }
-
+    @Test
     func testSSHCommandGlobalWindowOverridesCallerEnvironment() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-global-window")
@@ -218,7 +220,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             ["window.focus", "workspace.create", "workspace.remote.configure"]
         )
     }
-
+    @Test
     func testVMSSHInfoRemainsPrintOnly() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-info")

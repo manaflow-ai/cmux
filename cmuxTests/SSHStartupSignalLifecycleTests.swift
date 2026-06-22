@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testSSHPaneCloseSignalDoesNotReportSessionEndToSharedTransport() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -64,7 +66,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
     }
-
+    @Test
     func testSSHPaneCloseSignalDoesNotTerminateWrappedSSHChild() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -149,7 +151,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertTrue(sessionEndCalls.isEmpty, recordedCalls)
         }
     }
-
+    @Test
     func testSSHStartupRetriesTransientSSHExitBeforeReportingSessionEnd() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -209,7 +211,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHStartupRemovesStaleCmuxControlSocketBeforeLaunchingPaneSSH() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -290,7 +292,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(sshLog.contains("-G"), sshLog)
         XCTAssertTrue(sshLog.contains("-O check"), sshLog)
     }
-
+    @Test
     func testSSHStartupStopsAtConfiguredReconnectLimit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -346,7 +348,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHStartupDoesNotRetryNonTransientSSHExit() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -401,7 +403,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHSignalDerivedChildExitReportsSessionEnd() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -449,7 +451,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHSignalDuringReconnectDelayDoesNotStartAnotherSSH() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -509,7 +511,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             .filter { $0.contains("ssh-session-end") }
         XCTAssertEqual(sessionEndCalls.count, 1, recordedCalls)
     }
-
+    @Test
     func testSSHStartupPrintsFinalErrorBannerWhenStderrIsCaptured() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -554,7 +556,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(result.stderr.contains("[cmux] ssh exited with status 1."), result.stderr)
         XCTAssertTrue(result.stderr.contains("[cmux] press Enter to close this pane."), result.stderr)
     }
-
+    @Test
     func testSSHStartupForwardsStdinToBackgroundedSSH() throws {
         // Regression test for cmux ssh sessions where output flowed back from
         // the remote (prompt rendered) but typed keystrokes never reached the

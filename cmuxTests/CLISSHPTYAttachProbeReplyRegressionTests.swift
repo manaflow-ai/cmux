@@ -3,6 +3,7 @@ import Foundation
 import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testSSHPTYAttachPreservesPipedProbeLikeInputBeforeForwardingInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyprobe")

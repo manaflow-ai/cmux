@@ -1,5 +1,6 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct GenericHookPersistenceScenario {
@@ -12,7 +13,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let expectedArguments: [String]
         let expectedEnvironment: [String: String]?
     }
-
+    @Test
     func testGenericHookAgentsPersistSanitizedLaunchCommandsForSessionRestore() throws {
         let scenarios: [GenericHookPersistenceScenario] = [
             GenericHookPersistenceScenario(
@@ -279,12 +280,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         ]
 
         for scenario in scenarios {
-            try XCTContext.runActivity(named: scenario.agent) { _ in
+            try runLegacyActivity(named: scenario.agent) {
                 try runGenericHookPersistenceScenario(scenario)
             }
         }
     }
-
+    @Test
     func testAntigravityStopAndNotificationsUseGenericNotificationPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("antigravity-notification")
@@ -552,7 +553,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Antigravity error notifications to mark error status, saw \(errorCommands)"
         )
     }
-
+    @Test
     func testHermesAgentNotificationsUseShellHookExtraPayload() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hermes-notification")
@@ -707,7 +708,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(responseSession["lastNotificationStatus"])
         XCTAssertEqual(responseSession["runtimeStatus"] as? String, "running")
     }
-
+    @Test
     func testHermesAgentSessionEndIsTurnBoundaryButFinalizeTearsDown() throws {
         // Hermes fires the `on_session_end` plugin hook once per conversation turn
         // (end of every run_conversation()), not at the true session boundary, and a
@@ -862,7 +863,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Hermes on_session_finalize is a true teardown and must consume the restore record"
         )
     }
-
+    @Test
     func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -947,7 +948,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["Notification"])
         XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
-
+    @Test
     func testKiroHookInstallUsesAgentConfigShapeAndPreservesDenyExit() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -1002,7 +1003,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(hooks["postToolUse"])
         XCTAssertNotNil(hooks["stop"])
     }
-
+    @Test
     func testKiroFeedDenyUsesPreToolUseExitCodeTwo() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("kiro-feed-deny")
@@ -1083,6 +1084,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// / `bypass`, the WorkstreamPermissionMode raw values) must exit 0 so
     /// Kiro proceeds; an unrecognized/malformed mode must fail closed with
     /// exit 2 rather than silently allowing the tool.
+    @Test
     func testKiroFeedAllowModesProceedAndUnknownModeDenies() throws {
         func runKiroDecision(mode: String) throws -> ProcessRunResult {
             let cliPath = try bundledCLIPath()
@@ -1149,6 +1151,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// tools (`fs_write`) still emit. Guards that suppression keys off the
     /// classified wire name (`PostToolUse`) rather than the raw camelCase hook
     /// event — i.e. the suppression actually triggers for real Kiro events.
+    @Test
     func testKiroStandardLevelSuppressesReadOnlyToolFeedEvents() throws {
         func feedPushCount(forTool tool: String) throws -> Int {
             let cliPath = try bundledCLIPath()
@@ -1193,7 +1196,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             // server to record it (generous timeout to avoid flaking on the
             // socket/process round-trip under CI load). A suppressed event
             // sends nothing, so this wait simply times out silently.
-            _ = XCTWaiter().wait(for: [serverHandled], timeout: 5)
+            _ = waitForLegacyExpectations([serverHandled], timeout: 5, recordFailure: false)
             return state.commands.filter { $0.contains("feed.push") }.count
         }
 
@@ -1202,7 +1205,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertGreaterThan(try feedPushCount(forTool: "fs_write"), 0,
                              "mutating kiro tool at standard level must still emit telemetry")
     }
-
+    @Test
     func testLowercaseGenericFeedToolsStayTelemetryOutsideKiro() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("generic-lowercase-feed-tool")
@@ -1270,7 +1273,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(event["_ppid"] as? Int, 626262)
         XCTAssertEqual(waitTimeout.doubleValue, 0)
     }
-
+    @Test
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("antigravity-feed-stable-session")
@@ -1357,7 +1360,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
         XCTAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
     }
-
+    @Test
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notification")
@@ -1935,7 +1938,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Fallback notifications should preserve the saved needs-input status, saw \(neutralFallbackCommands)"
         )
     }
-
+    @Test
     func testGrokStopFallbackCompletionsFireForTwoConcurrentThreads() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-two-threads")
@@ -2114,7 +2117,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
     }
-
+    @Test
     func testGrokStopNotificationFallsBackWhenTranscriptCwdIsUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stop-without-cwd")
@@ -2215,7 +2218,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Generic Grok completion after Stop fallback must not double-notify, saw \(duplicateCompletionCommands)"
         )
     }
-
+    @Test
     func testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-repeat")
@@ -2313,7 +2316,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             )
         }
     }
-
+    @Test
     func testGrokSessionEndDoesNotDropRoutingForLaterChatMessages() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-turns")
@@ -2491,7 +2494,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected Grok route to remain available after multiple chat-message SessionEnd events"
         )
     }
-
+    @Test
     func testGrokCompletionDoesNotResetStatusWhileSiblingSessionRuns() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-sibling-status")
@@ -2630,7 +2633,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Completing Grok session must not reset the shared Grok status while a sibling session is running, saw \(completionCommands)"
         )
     }
-
+    @Test
     func testGrokCompletionResetsStatusWhenSiblingRunningRecordHasDeadPID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stale-sibling-status")
@@ -2774,7 +2777,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         return encoded
     }
-
+    @Test
     func testGrokHookInstallRoutesNotificationEventToNotificationSubcommand() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -2880,7 +2883,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected setup to remove legacy cmux-owned Grok hook file"
         )
     }
-
+    @Test
     func testGrokHookInstallPinsInstallingCLIAndSocketWithoutCMUXInterpolation() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -2940,7 +2943,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok hook commands must not depend on CMUX environment interpolation, saw \(allCommands)"
         )
     }
-
+    @Test
     func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3006,7 +3009,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Expected setup to remove only exact cmux-owned legacy commands, saw \(commands)"
         )
     }
-
+    @Test
     func testGrokHookInstallPreservesLegacyFileMetadataWhenPruningOwnedHooks() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3057,7 +3060,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(legacyJSON["version"] as? Int, 1)
         XCTAssertNil(legacyJSON["hooks"])
     }
-
+    @Test
     func testCodexHookInstallPrefersLaunchingAppBundledCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3140,7 +3143,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )
     }
-
+    @Test
     func testGrokHookInstallRejectsFileAtHooksDirectory() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -3294,6 +3297,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// drop CODEX_HOME, so the resume/fork binding fell back to a bare `codex resume <id>` against the
     /// default home and failed with "No saved session found". The hook must still carry the captured
     /// CODEX_HOME into the resume binding's environment.
+    @Test
     func testCodexHookPreservesCodexHomeWhenLaunchCommandUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-home")
@@ -3427,6 +3431,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// When the agent process's controlling TTY is bound to a different, accessible surface in the same
     /// workspace, that TTY is ground truth and must override the leaked env surface — otherwise the
     /// session routes to the wrong pane and the no-pid-gate resume binding persists it across reload.
+    @Test
     func testCodexHookOverridesLeakedEnvSurfaceWithProcessTTYBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-surface")
@@ -3522,6 +3527,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// longer resolves to an accessible surface. That must NOT abort hook routing — the agent's own
     /// TTY-bound pane is valid, so the hook recovers and still publishes the resume binding there
     /// instead of no-op'ing (which would silently lose the session across reload).
+    @Test
     func testCodexHookRecoversFromStaleEnvSurfaceViaProcessTTYBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-stale")
@@ -3612,6 +3618,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     /// argv so they never get a resume/fork binding. The CODEX_HOME env-only fallback must NOT bypass
     /// that — a captured-but-rejected argv keeps returning nil even when CODEX_HOME is present, so no
     /// env-only record is persisted for the one-shot command.
+    @Test
     func testCodexHookDoesNotPersistEnvOnlyRecordForNonRestorableExec() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-exec")

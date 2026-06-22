@@ -1,7 +1,9 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 
 extension CLINotifyProcessIntegrationRegressionTests {
+    @Test
     func testLegacyCodexHookAliasReturnsJSONWithoutHelpAndPersistsSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("legacy-codex")
@@ -66,7 +68,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["surfaceId"] as? String, surfaceId)
         XCTAssertNotNil(session["launchCommand"] as? [String: Any])
     }
-
+    @Test
     func testLegacyFeedHookAliasReturnsJSONWithoutHelpOutsideCmuxTerminal() throws {
         let cliPath = try bundledCLIPath()
         var environment = ProcessInfo.processInfo.environment
