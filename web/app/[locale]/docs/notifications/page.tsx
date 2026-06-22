@@ -262,7 +262,7 @@ esac`}</CodeBlock>
       <p>
         {t.rich("copilotCliHooksDesc", {
           link: (chunks) => (
-            <a href="https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks">{chunks}</a>
+            <a href="https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks">{chunks}</a>
           ),
         })}
       </p>
