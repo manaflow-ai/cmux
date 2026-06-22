@@ -828,7 +828,7 @@ final class TabManagerWorkspaceOwnershipTests: XCTestCase {
 
         NotificationCenter.default.post(
             name: .ghosttyDidSetTitle,
-            object: workspace.terminalPanel(for: focusedPanelId)?.surface,
+            object: nil,
             userInfo: [
                 GhosttyNotificationKey.tabId: workspace.id,
                 GhosttyNotificationKey.surfaceId: focusedPanelId,

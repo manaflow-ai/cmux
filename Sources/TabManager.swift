@@ -538,10 +538,10 @@ class TabManager: ObservableObject {
         ) { [weak self] notification in
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
-                guard let sourceSurface = notification.object as? TerminalSurface,
-                      let change = GhosttyTitleChange(notification: notification),
+                guard let change = GhosttyTitleChange(notification: notification),
                       let workspace = workspacesById[change.tabId],
-                      workspace.owningTabManager === self else { return }
+                      workspace.owningTabManager === self,
+                      let sourceSurface = (notification.object as? TerminalSurface) ?? workspace.terminalPanel(for: change.surfaceId)?.surface else { return }
                 enqueuePanelTitleUpdate(change, sourceSurface: sourceSurface)
             }
         })

@@ -453,7 +453,7 @@ struct TabManagerTitleUpdateTests {
         }
     }
 
-    private func titleNotificationObject(_ workspace: Workspace, _ panelId: UUID) -> TerminalSurface? {
+    private func titleNotificationObject(_ workspace: Workspace, _ panelId: UUID) -> Any? {
         workspace.terminalPanel(for: panelId)?.surface
     }
 
