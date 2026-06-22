@@ -10,14 +10,6 @@ private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
-    private struct DividerRegion {
-        let rectInWindow: NSRect
-        let splitBoundsInWindow: NSRect
-        let isVertical: Bool
-        weak var splitView: NSSplitView?
-        let dividerIndex: Int
-    }
-
     private enum DividerCursorKind: Equatable {
         case vertical
         case horizontal
@@ -39,16 +31,8 @@ final class WindowTerminalHostView: NSView {
     private var activeDividerCursorKind: DividerCursorKind?
     private var dividerRegionInvalidationObservers: [NSObjectProtocol] = []
     private weak var dividerRegionObservedWindow: NSWindow?
-    private var dividerRegionCacheGeneration: UInt64 = 0
-    private var cachedDividerRegionGeneration: UInt64?
-    private weak var cachedDividerRegionRootView: NSView?
-    private var cachedDividerRegions: [DividerRegion] = []
-    private var cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
-    private var cachedDividerSplitSourceCounts: [ObjectIdentifier: UInt64] = [:]
-    private var cachedDividerSubviewSnapshotViews = NSPointerArray.weakObjects()
-    private var cachedDividerSubviewSnapshotIDs: [[ObjectIdentifier]] = []
-    private var cachedDividerSubviewSnapshotHiddenStates: [Bool] = []
-    var dividerRegionBuildCount = 0
+    private let dividerRegionCache = WindowSplitDividerRegionCache()
+    var dividerRegionBuildCount: Int { dividerRegionCache.buildCount }
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
@@ -137,15 +121,7 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func invalidateDividerRegionCache() {
-        dividerRegionCacheGeneration &+= 1
-        cachedDividerRegionGeneration = nil
-        cachedDividerRegionRootView = nil
-        cachedDividerRegions.removeAll(keepingCapacity: true)
-        cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
-        cachedDividerSplitSourceCounts.removeAll(keepingCapacity: true)
-        cachedDividerSubviewSnapshotViews = NSPointerArray.weakObjects()
-        cachedDividerSubviewSnapshotIDs.removeAll(keepingCapacity: true)
-        cachedDividerSubviewSnapshotHiddenStates.removeAll(keepingCapacity: true)
+        dividerRegionCache.invalidate()
         window?.invalidateCursorRects(for: self)
     }
 
@@ -451,91 +427,11 @@ final class WindowTerminalHostView: NSView {
         splitDividerCursorKind(at: point) != nil
     }
 
-    private func dividerRegions(in rootView: NSView) -> [DividerRegion] {
-        if let regions = refreshedCachedDividerRegions(in: rootView) {
-            return regions
-        }
-
-        var regions: [DividerRegion] = []
-        let splitSourceViews = NSPointerArray.weakObjects()
-        var splitSourceCounts: [ObjectIdentifier: UInt64] = [:]
-        let subviewSnapshotViews = NSPointerArray.weakObjects()
-        var subviewSnapshotIDs: [[ObjectIdentifier]] = []
-        var subviewSnapshotHiddenStates: [Bool] = []
-        Self.collectSplitDividerRegions(
-            in: rootView,
-            into: &regions,
-            splitSourceViews: splitSourceViews,
-            splitSourceCounts: &splitSourceCounts,
-            subviewSnapshotViews: subviewSnapshotViews,
-            subviewSnapshotIDs: &subviewSnapshotIDs,
-            subviewSnapshotHiddenStates: &subviewSnapshotHiddenStates
-        )
-        cachedDividerRegions = regions
-        cachedDividerSplitSourceViews = splitSourceViews
-        cachedDividerSplitSourceCounts = splitSourceCounts
-        cachedDividerSubviewSnapshotViews = subviewSnapshotViews
-        cachedDividerSubviewSnapshotIDs = subviewSnapshotIDs
-        cachedDividerSubviewSnapshotHiddenStates = subviewSnapshotHiddenStates
-        cachedDividerRegionRootView = rootView
-        cachedDividerRegionGeneration = dividerRegionCacheGeneration
-#if DEBUG
-        dividerRegionBuildCount += 1
-#endif
-        return regions
+    private func dividerRegions(in rootView: NSView) -> [WindowSplitDividerRegion] {
+        dividerRegionCache.regions(in: rootView, window: window)
     }
 
-    private func refreshedCachedDividerRegions(in rootView: NSView) -> [DividerRegion]? {
-        guard cachedDividerRegionGeneration == dividerRegionCacheGeneration,
-              cachedDividerRegionRootView === rootView,
-              let window,
-              rootView.window === window,
-              !Self.isHiddenOrAncestorHidden(rootView) else {
-            return nil
-        }
-        guard Self.subviewSnapshotsAreCurrent(
-            views: cachedDividerSubviewSnapshotViews,
-            subviewIDs: cachedDividerSubviewSnapshotIDs,
-            hiddenStates: cachedDividerSubviewSnapshotHiddenStates
-        ) else {
-            return nil
-        }
-
-        for index in cachedDividerRegions.indices {
-            let cached = cachedDividerRegions[index]
-            guard let splitView = cached.splitView,
-                  splitView.window === window,
-                  (splitView === rootView || splitView.isDescendant(of: rootView)),
-                  !Self.isHiddenOrAncestorHidden(splitView),
-                  let refreshed = Self.dividerRegion(in: splitView, dividerIndex: cached.dividerIndex) else {
-                return nil
-            }
-            cachedDividerRegions[index] = refreshed
-        }
-        for index in 0..<cachedDividerSplitSourceViews.count {
-            guard let splitViewPointer = cachedDividerSplitSourceViews.pointer(at: index) else {
-                return nil
-            }
-            let splitView = Unmanaged<NSSplitView>.fromOpaque(splitViewPointer).takeUnretainedValue()
-            guard
-                  let encodedCounts = cachedDividerSplitSourceCounts[ObjectIdentifier(splitView)],
-                  splitView.window === window,
-                  (splitView === rootView || splitView.isDescendant(of: rootView)) else {
-                return nil
-            }
-            let source = Self.dividerSplitSourceCounts(from: encodedCounts)
-            let dividerCount = Self.dividerCount(in: splitView)
-            guard dividerCount == source.dividerCount else { return nil }
-            guard !Self.isHiddenOrAncestorHidden(splitView) else { continue }
-            if source.validRegionCount < dividerCount,
-               Self.dividerRegionCount(in: splitView) != source.validRegionCount {
-                return nil
-            }
-        }
-        return cachedDividerRegions
-    }
-
-    private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerCursorKind? {
+    private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [WindowSplitDividerRegion]) -> DividerCursorKind? {
         let expansion: CGFloat = 5
         for region in regions {
             if region.splitBoundsInWindow.contains(windowPoint),
@@ -544,148 +440,6 @@ final class WindowTerminalHostView: NSView {
             }
         }
         return nil
-    }
-
-    private static func collectSplitDividerRegions(
-        in view: NSView,
-        into result: inout [DividerRegion],
-        splitSourceViews: NSPointerArray,
-        splitSourceCounts: inout [ObjectIdentifier: UInt64],
-        subviewSnapshotViews: NSPointerArray,
-        subviewSnapshotIDs: inout [[ObjectIdentifier]],
-        subviewSnapshotHiddenStates: inout [Bool]
-    ) {
-        let subviews = view.subviews
-        let isHidden = view.isHidden
-        subviewSnapshotViews.addPointer(Unmanaged.passUnretained(view).toOpaque())
-        subviewSnapshotIDs.append(isHidden ? [] : subviews.map { ObjectIdentifier($0) })
-        subviewSnapshotHiddenStates.append(isHidden)
-
-        if let splitView = view as? NSSplitView {
-            let dividerCount = dividerCount(in: splitView)
-            var validRegionCount = 0
-            if !isHiddenOrAncestorHidden(splitView) {
-                for dividerIndex in 0..<dividerCount {
-                    guard let region = dividerRegion(in: splitView, dividerIndex: dividerIndex) else { continue }
-                    validRegionCount += 1
-                    result.append(region)
-                }
-            }
-            splitSourceViews.addPointer(Unmanaged.passUnretained(splitView).toOpaque())
-            splitSourceCounts[ObjectIdentifier(splitView)] = encodedDividerSplitSourceCounts(
-                dividerCount: dividerCount,
-                validRegionCount: validRegionCount
-            )
-        }
-        guard !isHidden else { return }
-
-        for subview in subviews.reversed() {
-            collectSplitDividerRegions(
-                in: subview,
-                into: &result,
-                splitSourceViews: splitSourceViews,
-                splitSourceCounts: &splitSourceCounts,
-                subviewSnapshotViews: subviewSnapshotViews,
-                subviewSnapshotIDs: &subviewSnapshotIDs,
-                subviewSnapshotHiddenStates: &subviewSnapshotHiddenStates
-            )
-        }
-    }
-
-    private static func subviewSnapshotsAreCurrent(
-        views: NSPointerArray,
-        subviewIDs: [[ObjectIdentifier]],
-        hiddenStates: [Bool]
-    ) -> Bool {
-        guard views.count == subviewIDs.count, views.count == hiddenStates.count else { return false }
-        for index in 0..<views.count {
-            guard let pointer = views.pointer(at: index) else { return false }
-            let view = Unmanaged<NSView>.fromOpaque(pointer).takeUnretainedValue()
-            guard view.isHidden == hiddenStates[index] else { return false }
-            guard !hiddenStates[index] else { continue }
-            guard currentSubviews(in: view, match: subviewIDs[index]) else { return false }
-        }
-        return true
-    }
-
-    private static func currentSubviews(in view: NSView, match subviewIDs: [ObjectIdentifier]) -> Bool {
-        let currentSubviews = view.subviews
-        guard currentSubviews.count == subviewIDs.count else { return false }
-        for index in currentSubviews.indices {
-            guard ObjectIdentifier(currentSubviews[index]) == subviewIDs[index] else { return false }
-        }
-        return true
-    }
-
-    private static func encodedDividerSplitSourceCounts(dividerCount: Int, validRegionCount: Int) -> UInt64 {
-        (UInt64(UInt32(dividerCount)) << 32) | UInt64(UInt32(validRegionCount))
-    }
-
-    private static func dividerSplitSourceCounts(from encoded: UInt64) -> (dividerCount: Int, validRegionCount: Int) {
-        (dividerCount: Int(encoded >> 32), validRegionCount: Int(encoded & 0xffff_ffff))
-    }
-
-    private static func dividerCount(in splitView: NSSplitView) -> Int {
-        max(0, splitView.arrangedSubviews.count - 1)
-    }
-
-    private static func dividerRegionCount(in splitView: NSSplitView) -> Int {
-        var count = 0
-        for dividerIndex in 0..<dividerCount(in: splitView) {
-            if dividerRegion(in: splitView, dividerIndex: dividerIndex) != nil {
-                count += 1
-            }
-        }
-        return count
-    }
-
-    private static func dividerRegion(in splitView: NSSplitView, dividerIndex: Int) -> DividerRegion? {
-        guard dividerIndex >= 0,
-              dividerIndex + 1 < splitView.arrangedSubviews.count else {
-            return nil
-        }
-
-        let first = splitView.arrangedSubviews[dividerIndex].frame
-        let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-        let thickness = splitView.dividerThickness
-        let dividerRect: NSRect
-        if splitView.isVertical {
-            // Keep divider hit-testing active even when one side is nearly collapsed,
-            // so users can drag the divider back out from the border.
-            // But ignore transient states where both panes are effectively 0-width.
-            guard first.width > 1 || second.width > 1 else { return nil }
-            let x = max(0, first.maxX)
-            dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-        } else {
-            // Same behavior for horizontal splits with a near-zero-height pane.
-            guard first.height > 1 || second.height > 1 else { return nil }
-            let y = max(0, first.maxY)
-            dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-        }
-
-        let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-        let splitBoundsInWindow = splitView.convert(splitView.bounds, to: nil)
-        guard dividerRectInWindow.width > 0,
-              dividerRectInWindow.height > 0,
-              splitBoundsInWindow.width > 0,
-              splitBoundsInWindow.height > 0 else { return nil }
-        return DividerRegion(
-            rectInWindow: dividerRectInWindow,
-            splitBoundsInWindow: splitBoundsInWindow,
-            isVertical: splitView.isVertical,
-            splitView: splitView,
-            dividerIndex: dividerIndex
-        )
-    }
-
-    private static func isHiddenOrAncestorHidden(_ view: NSView) -> Bool {
-        if view.isHidden { return true }
-        var current = view.superview
-        while let ancestor = current {
-            if ancestor.isHidden { return true }
-            current = ancestor.superview
-        }
-        return false
     }
 
 #if DEBUG
