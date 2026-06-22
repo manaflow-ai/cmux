@@ -635,6 +635,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// per-frame `set_content_scale` pushes (the screen scale is constant).
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
+    /// Once Ghostty has presented a real frame, never cover it with the lossy
+    /// text fallback during resize/zoom. The fallback drops ANSI color, so a
+    /// colored full-screen TUI can flash white even though the renderer is
+    /// healthy.
+    private var hasPresentedGhosttyRendererFrame: Bool = false
     private var shouldScrollInitialOutputToBottom = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
@@ -2705,6 +2710,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
            !snapshotFallbackView.isHidden {
             snapshotFallbackView.isHidden = true
         }
+        if hasVisibleGhosttyRendererLayer() {
+            hasPresentedGhosttyRendererFrame = true
+        }
     }
 
     /// Drive a full render cycle via `ghostty_surface_render_now`, dispatched
@@ -3423,11 +3431,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private var shouldKeepSnapshotFallbackActive: Bool {
         guard !Self.disablesSnapshotFallback else { return false }
-        return pendingFontSize != nil ||
-            zoomSettleFrames != nil ||
-            pendingRenderFrames > 0 ||
-            !surfaceHasReceivedOutput ||
-            !hasVisibleGhosttyRendererLayer()
+        if !surfaceHasReceivedOutput {
+            return true
+        }
+        if hasPresentedGhosttyRendererFrame {
+            return false
+        }
+        return !hasVisibleGhosttyRendererLayer()
     }
 
     nonisolated private static func handleWrite(

@@ -348,15 +348,33 @@ final class cmuxUITests: XCTestCase {
         let zoomIn = app.buttons["terminal.inputAccessory.zoomIn"]
         XCTAssertTrue(zoomOut.waitForExistence(timeout: 6), "zoom controls should appear")
 
-        for _ in 0..<10 where zoomOut.isEnabled { zoomOut.tap() }
+        for step in 1...10 where zoomOut.isEnabled {
+            zoomOut.tap()
+            assertNoWhiteOrBlankColorBandFrames(
+                of: surface,
+                context: "zoom-out resize tap \(step)"
+            )
+        }
         assertVisibleColorBandPalette(of: surface, context: "after zoom resize")
         var level = 1
         while level < 8 {
             assertCleanColorBands(of: surface, level: level)
+            assertNoWhiteOrBlankColorBandFrames(
+                of: surface,
+                context: "zoom level \(level) before resize tap"
+            )
             level += 1
             guard zoomIn.isEnabled else { break }
             zoomIn.tap()
+            assertNoWhiteOrBlankColorBandFrames(
+                of: surface,
+                context: "zoom level \(level) after first resize tap"
+            )
             zoomIn.tap()
+            assertNoWhiteOrBlankColorBandFrames(
+                of: surface,
+                context: "zoom level \(level) after second resize tap"
+            )
         }
     }
 
@@ -669,6 +687,45 @@ final class cmuxUITests: XCTestCase {
         )
     }
 
+    @MainActor
+    private func assertNoWhiteOrBlankColorBandFrames(
+        of surface: XCUIElement,
+        context: String,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) {
+        for frame in 1...8 {
+            Thread.sleep(forTimeInterval: 0.06)
+            guard let cg = surface.screenshot().image.cgImage else {
+                XCTFail("\(context): frame \(frame) had no screenshot image", file: file, line: line)
+                return
+            }
+            let stats = colorBandFrameStats(in: BitmapPixels(cg))
+            XCTAssertTrue(
+                stats.hasColorBands,
+                "\(context): frame \(frame) lost RGB color bands (blank/stale/fallback). stats=\(stats)",
+                file: file,
+                line: line
+            )
+            XCTAssertFalse(
+                stats.isWhiteout,
+                "\(context): frame \(frame) showed white fallback/flash instead of colored bands. stats=\(stats)",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    private func colorBandFrameStats(in pixels: BitmapPixels) -> ColorBandFrameStats {
+        var stats = ColorBandFrameStats()
+        for y in stride(from: 0.04, through: 0.72, by: 0.018) {
+            for x in stride(from: 0.04, through: 0.96, by: 0.035) {
+                stats.record(pixels.color(xUnit: x, yUnit: y))
+            }
+        }
+        return stats
+    }
+
     /// A sampled pixel.
     private struct RGB: CustomStringConvertible {
         let r: Int, g: Int, b: Int
@@ -690,6 +747,9 @@ final class cmuxUITests: XCTestCase {
         var isTerminalBlue: Bool {
             b >= 120 && b > r + 45 && b > g + 45
         }
+        var isTerminalWhite: Bool {
+            r >= 180 && g >= 180 && b >= 180 && abs(r - g) <= 45 && abs(g - b) <= 45
+        }
         func isClose(to o: RGB, tolerance: Int) -> Bool {
             abs(r - o.r) <= tolerance && abs(g - o.g) <= tolerance && abs(b - o.b) <= tolerance
         }
@@ -700,6 +760,40 @@ final class cmuxUITests: XCTestCase {
                 reps.append(x)
             }
             return reps.count
+        }
+    }
+
+    private struct ColorBandFrameStats: CustomStringConvertible {
+        var red = 0
+        var green = 0
+        var blue = 0
+        var white = 0
+        var total = 0
+
+        var colored: Int { red + green + blue }
+        var hasColorBands: Bool { red >= 3 && green >= 3 && blue >= 3 }
+        var isWhiteout: Bool {
+            white >= 8 && white > colored / 2
+        }
+
+        mutating func record(_ color: RGB) {
+            total += 1
+            if color.isTerminalRed {
+                red += 1
+            }
+            if color.isTerminalGreen {
+                green += 1
+            }
+            if color.isTerminalBlue {
+                blue += 1
+            }
+            if color.isTerminalWhite {
+                white += 1
+            }
+        }
+
+        var description: String {
+            "red=\(red) green=\(green) blue=\(blue) white=\(white) total=\(total)"
         }
     }
 
