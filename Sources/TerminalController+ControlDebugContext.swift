@@ -450,12 +450,30 @@ extension TerminalController: ControlDebugContext {
 
     // MARK: - v1-only synthetic-input / drag-overlay probes
     //
-    // These commands exist only on the v1 line protocol (no v2 method), so the
-    // witnesses carry the whole app-coupled body verbatim from the former
-    // `TerminalController` v1 dispatchers. They return the raw v1 response
-    // string the legacy `processCommand` cases produced. `simulateShortcut`
-    // (a v1-shared body that stays in `TerminalController.swift`) shares
-    // `prepareWindowForSyntheticInput`, which is therefore `internal`.
+    // These commands exist only on the v1 line protocol (no v2 method). Each
+    // witness carries the irreducible app-coupled body (`NSApp`/`NSWindow`/
+    // `NSPasteboard`/`NSView` hit-testing/ghostty surfaces) from the former
+    // `TerminalController` v1 dispatchers.
+    //
+    // The pure halves of five of them — the `[external|local]`,
+    // `[active|inactive]`, `[deferred|direct]` token parsing, the
+    // `"<x 0-1> <y 0-1>"` coordinate parse/validation, the verbatim usage-error
+    // strings, and the response formatting — were drained into the
+    // `CmuxControlSocket` coordinator
+    // (``ControlCommandCoordinator/debugOverlayDropGateV1(_:)`` and its four
+    // siblings), so `controlDebugOverlayDropGate`/`controlDebugSidebarOverlayGate`
+    // /`controlDebugTerminalDropOverlayProbe`/`controlDebugDropHitTest`/
+    // `controlDebugDragHitChain` now take already-parsed typed inputs and do
+    // only the live read. The remaining witnesses (`simulateType`,
+    // `simulateFileDrop`, the `seed_drag_pasteboard_*` family,
+    // `clear_drag_pasteboard`, `overlay_hit_gate`, `portal_hit_gate`) keep their
+    // whole body: the gate pair parses to an AppKit `NSEvent.EventType`, which
+    // the AppKit-free control-plane package cannot host, and the rest are
+    // string-shaped with no separable decision step. They return the raw v1
+    // response string the legacy `processCommand` cases produced.
+    // `simulateShortcut` (a v1-shared body that stays in
+    // `TerminalController.swift`) shares `prepareWindowForSyntheticInput`, which
+    // is therefore `internal`.
 
     func controlDebugSimulateType(arguments: String) -> String {
         let raw = arguments.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -585,18 +603,7 @@ extension TerminalController: ControlDebugContext {
         return shouldCapture ? "true" : "false"
     }
 
-    func controlDebugOverlayDropGate(arguments: String) -> String {
-        let token = arguments.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let hasLocalDraggingSource: Bool
-        switch token {
-        case "", "external":
-            hasLocalDraggingSource = false
-        case "local":
-            hasLocalDraggingSource = true
-        default:
-            return "ERROR: Usage: overlay_drop_gate [external|local]"
-        }
-
+    func controlDebugOverlayDropGate(hasLocalDraggingSource: Bool) -> Bool {
         var shouldCapture = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
@@ -605,7 +612,7 @@ extension TerminalController: ControlDebugContext {
                 hasLocalDraggingSource: hasLocalDraggingSource
             )
         }
-        return shouldCapture ? "true" : "false"
+        return shouldCapture
     }
 
     func controlDebugPortalHitGate(arguments: String) -> String {
@@ -630,18 +637,7 @@ extension TerminalController: ControlDebugContext {
         return shouldPassThrough ? "true" : "false"
     }
 
-    func controlDebugSidebarOverlayGate(arguments: String) -> String {
-        let token = arguments.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let hasSidebarDragState: Bool
-        switch token {
-        case "", "active":
-            hasSidebarDragState = true
-        case "inactive":
-            hasSidebarDragState = false
-        default:
-            return "ERROR: Usage: sidebar_overlay_gate [active|inactive]"
-        }
-
+    func controlDebugSidebarOverlayGate(hasSidebarDragState: Bool) -> Bool {
         var shouldCapture = false
         v2MainSync {
             let pb = NSPasteboard(name: .drag)
@@ -650,24 +646,15 @@ extension TerminalController: ControlDebugContext {
                 pasteboardTypes: pb.types
             )
         }
-        return shouldCapture ? "true" : "false"
+        return shouldCapture
     }
 
-    func controlDebugTerminalDropOverlayProbe(arguments: String) -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    func controlDebugTerminalDropOverlayProbe(
+        useDeferredPath: Bool
+    ) -> ControlDebugTerminalDropOverlayProbeResolution {
+        guard let tabManager = tabManager else { return .tabManagerUnavailable }
 
-        let token = arguments.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let useDeferredPath: Bool
-        switch token {
-        case "", "deferred":
-            useDeferredPath = true
-        case "direct":
-            useDeferredPath = false
-        default:
-            return "ERROR: Usage: terminal_drop_overlay_probe [deferred|direct]"
-        }
-
-        var result = "ERROR: No selected workspace"
+        var result: ControlDebugTerminalDropOverlayProbeResolution = .noWorkspace
         v2MainSync {
             guard let selectedId = tabManager.selectedTabId,
                   let workspace = tabManager.tabs.first(where: { $0.id == selectedId }) else {
@@ -677,23 +664,18 @@ extension TerminalController: ControlDebugContext {
             let terminalPanel = workspace.focusedTerminalPanel
                 ?? orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }.first
             guard let terminalPanel else {
-                result = "ERROR: No terminal panel available"
+                result = .noPanel
                 return
             }
 
             let probe = terminalPanel.hostedView.debugProbeDropOverlayAnimation(
                 useDeferredPath: useDeferredPath
             )
-            let animated = probe.after > probe.before
-            let mode = useDeferredPath ? "deferred" : "direct"
-            result = String(
-                format: "OK mode=%@ animated=%d before=%d after=%d bounds=%.1fx%.1f",
-                mode,
-                animated ? 1 : 0,
-                probe.before,
-                probe.after,
-                probe.bounds.width,
-                probe.bounds.height
+            result = .probed(
+                before: probe.before,
+                after: probe.after,
+                boundsWidth: Double(probe.bounds.width),
+                boundsHeight: Double(probe.bounds.height)
             )
         }
         return result
@@ -703,14 +685,7 @@ extension TerminalController: ControlDebugContext {
     /// Takes normalised (0-1) x,y within the content area where (0,0) is the
     /// top-left corner and (1,1) is the bottom-right corner.  Returns the
     /// surface UUID of the terminal under that point, or "none".
-    func controlDebugDropHitTest(arguments: String) -> String {
-        let parts = arguments.split(separator: " ").map(String.init)
-        guard parts.count == 2,
-              let nx = Double(parts[0]), let ny = Double(parts[1]),
-              (0...1).contains(nx), (0...1).contains(ny) else {
-            return "ERROR: Usage: drop_hit_test <x 0-1> <y 0-1>"
-        }
-
+    func controlDebugDropHitTest(nx: Double, ny: Double) -> String {
         var result = "ERROR: No window"
         v2MainSync {
             guard let window = NSApp.mainWindow
@@ -744,14 +719,7 @@ extension TerminalController: ControlDebugContext {
     /// Return the hit-test chain at normalized (0-1) coordinates in the main window's
     /// content area. Used by regression tests to detect root-level drag destinations
     /// shadowing pane-local Bonsplit drop targets.
-    func controlDebugDragHitChain(arguments: String) -> String {
-        let parts = arguments.split(separator: " ").map(String.init)
-        guard parts.count == 2,
-              let nx = Double(parts[0]), let ny = Double(parts[1]),
-              (0...1).contains(nx), (0...1).contains(ny) else {
-            return "ERROR: Usage: drag_hit_chain <x 0-1> <y 0-1>"
-        }
-
+    func controlDebugDragHitChain(nx: Double, ny: Double) -> String {
         var result = "ERROR: No window"
         v2MainSync {
             guard let window = NSApp.mainWindow

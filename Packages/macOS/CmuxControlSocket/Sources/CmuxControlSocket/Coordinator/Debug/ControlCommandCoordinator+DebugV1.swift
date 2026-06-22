@@ -112,26 +112,21 @@ extension ControlCommandCoordinator {
             return debugContext?.controlDebugClearDragPasteboard()
                 ?? Self.debugContextUnavailableResponse
         case "drop_hit_test":
-            return debugContext?.controlDebugDropHitTest(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugDropHitTestV1(args)
         case "drag_hit_chain":
-            return debugContext?.controlDebugDragHitChain(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugDragHitChainV1(args)
         case "overlay_hit_gate":
             return debugContext?.controlDebugOverlayHitGate(arguments: args)
                 ?? Self.debugContextUnavailableResponse
         case "overlay_drop_gate":
-            return debugContext?.controlDebugOverlayDropGate(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugOverlayDropGateV1(args)
         case "portal_hit_gate":
             return debugContext?.controlDebugPortalHitGate(arguments: args)
                 ?? Self.debugContextUnavailableResponse
         case "sidebar_overlay_gate":
-            return debugContext?.controlDebugSidebarOverlayGate(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugSidebarOverlayGateV1(args)
         case "terminal_drop_overlay_probe":
-            return debugContext?.controlDebugTerminalDropOverlayProbe(arguments: args)
-                ?? Self.debugContextUnavailableResponse
+            return debugTerminalDropOverlayProbeV1(args)
         default:
             return nil
         }
