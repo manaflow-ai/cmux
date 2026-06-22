@@ -38,13 +38,27 @@ extension WorkspacesModel {
     /// Whether assigning `parentGroupId` as `groupId`'s parent would keep the
     /// folder tree valid.
     public func canSetWorkspaceGroupParent(groupId: UUID, parentGroupId: UUID?) -> Bool {
-        guard workspaceGroups.contains(where: { $0.id == groupId }) else { return false }
+        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        return canSetWorkspaceGroupParent(
+            groupId: groupId,
+            parentGroupId: parentGroupId,
+            groupsById: groupsById
+        )
+    }
+
+    /// Whether assigning `parentGroupId` as `groupId`'s parent would keep the
+    /// folder tree valid, using a prebuilt group map for hot normalization paths.
+    func canSetWorkspaceGroupParent(
+        groupId: UUID,
+        parentGroupId: UUID?,
+        groupsById: [UUID: WorkspaceGroup]
+    ) -> Bool {
+        guard groupsById[groupId] != nil else { return false }
         guard let parentGroupId else { return true }
         guard parentGroupId != groupId,
-              workspaceGroups.contains(where: { $0.id == parentGroupId }) else {
+              groupsById[parentGroupId] != nil else {
             return false
         }
-        let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         var visited: Set<UUID> = []
         var cursor: UUID? = parentGroupId
         while let current = cursor {

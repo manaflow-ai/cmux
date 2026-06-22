@@ -89,15 +89,21 @@ extension WorkspacesModel {
         preservingTopLevelIds preferredTopLevelIds: [UUID]? = nil
     ) {
         guard !tabs.isEmpty else { return }
-        let knownGroupIds = Set(workspaceGroups.map(\.id))
+        var groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+        let knownGroupIds = Set(groupsById.keys)
         for tab in tabs where tab.groupId.map({ !knownGroupIds.contains($0) }) ?? false {
             tab.groupId = nil
         }
         for index in workspaceGroups.indices {
             if let parentGroupId = workspaceGroups[index].parentGroupId,
                (!knownGroupIds.contains(parentGroupId) ||
-                !canSetWorkspaceGroupParent(groupId: workspaceGroups[index].id, parentGroupId: parentGroupId)) {
+                !canSetWorkspaceGroupParent(
+                    groupId: workspaceGroups[index].id,
+                    parentGroupId: parentGroupId,
+                    groupsById: groupsById
+                )) {
                 workspaceGroups[index].parentGroupId = nil
+                groupsById[workspaceGroups[index].id]?.parentGroupId = nil
             }
         }
         let topLevelIds = preferredTopLevelIds ?? sidebarTopLevelWorkspaceIds()
