@@ -2343,7 +2343,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     /// Launches `process` and waits with a deadline so a stalled shell (missing
     /// shebang interpreter, prompting profile) fails the test with a clear message
     /// instead of hanging until the CI harness kills the job.
-    private func runWithBoundedWait(
+    func runWithBoundedWait(
         _ process: Process,
         shellDescription: String,
         timeout: TimeInterval = 30

@@ -7,14 +7,31 @@ import XCTest
 #endif
 
 extension SessionPersistenceTests {
+    func testAgentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'/opt/company/bin/codex' 'resume' 'session-custom-cli'",
+            checkpointId: "session-custom-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try XCTUnwrap(binding.startupInput)
+
+        XCTAssertTrue(startupInput.contains("'/opt/company/bin/codex'"), startupInput)
+    }
+
     func testAgentHookSurfaceResumeStartupInputFallsBackWhenRecordedAgentExecutableMoved() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-moved-agent-\(UUID().uuidString)", isDirectory: true)
         let bin = root.appendingPathComponent("bin", isDirectory: true)
         let cwd = root.appendingPathComponent("repo", isDirectory: true)
-        let missingExecutable = root
-            .appendingPathComponent("deleted-node", isDirectory: true)
+        let movedExecutable = root
+            .appendingPathComponent(".nvm", isDirectory: true)
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent("node", isDirectory: true)
+            .appendingPathComponent("v24.2.0", isDirectory: true)
             .appendingPathComponent("bin", isDirectory: true)
             .appendingPathComponent("codex", isDirectory: false)
         let outputURL = root.appendingPathComponent("codex-output.txt", isDirectory: false)
@@ -33,7 +50,7 @@ extension SessionPersistenceTests {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "{ cd -- \(quotedCwd) 2>/dev/null || [ ! -d \(quotedCwd) ]; } && "
-                + "'\(missingExecutable.path)' 'resume' 'session-moved-cli' '--yolo'",
+                + "'\(movedExecutable.path)' 'resume' 'session-moved-cli' '--yolo'",
             cwd: cwd.path,
             checkpointId: "session-moved-cli",
             source: "agent-hook",
@@ -51,8 +68,7 @@ extension SessionPersistenceTests {
         let stderr = Pipe()
         process.standardError = stderr
 
-        try process.run()
-        process.waitUntilExit()
+        try runWithBoundedWait(process, shellDescription: "zsh -fc")
 
         let errorText = String(
             data: stderr.fileHandleForReading.readDataToEndOfFile(),
@@ -62,6 +78,6 @@ extension SessionPersistenceTests {
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
         XCTAssertEqual(output, "\(cwd.path)|resume session-moved-cli --yolo\n")
-        XCTAssertFalse(startupInput.contains(missingExecutable.path), startupInput)
+        XCTAssertFalse(startupInput.contains(movedExecutable.path), startupInput)
     }
 }

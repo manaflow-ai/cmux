@@ -17,7 +17,7 @@ extension SurfaceResumeBindingSnapshot {
             in: trimmed,
             workingDirectory: cwd
         )
-        return SurfaceResumeCommandCanonicalizer.replacingMissingPortableAgentExecutable(
+        return SurfaceResumeCommandCanonicalizer.replacingPortableAgentExecutable(
             in: canonicalCommand,
             kind: kind
         )
@@ -25,18 +25,14 @@ extension SurfaceResumeBindingSnapshot {
 }
 
 extension SurfaceResumeCommandCanonicalizer {
-    static func replacingMissingPortableAgentExecutable(
-        in command: String,
-        kind: String?,
-        fileManager: FileManager = .default
-    ) -> String {
+    static func replacingPortableAgentExecutable(in command: String, kind: String?) -> String {
         guard let executableName = portableAgentExecutableName(for: kind) else { return command }
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
         guard let executableIndex = commandExecutableWordIndex(in: words) else { return command }
         let executable = words[executableIndex].value
         guard executable.hasPrefix("/"),
               (executable as NSString).lastPathComponent == executableName,
-              !fileManager.fileExists(atPath: executable) else {
+              isPATHManagedAgentExecutablePath(executable, executableName: executableName) else {
             return command
         }
 
@@ -54,6 +50,30 @@ extension SurfaceResumeCommandCanonicalizer {
         default:
             return nil
         }
+    }
+
+    private static func isPATHManagedAgentExecutablePath(_ path: String, executableName: String) -> Bool {
+        let standardized = (path as NSString).standardizingPath
+        if standardized == "/usr/local/bin/\(executableName)"
+            || standardized == "/opt/homebrew/bin/\(executableName)" {
+            return true
+        }
+        let components = standardized.split(separator: "/").map(String.init)
+        let lastThree = Array(components.suffix(3))
+        if lastThree == [".local", "bin", executableName]
+            || lastThree == [".bun", "bin", executableName]
+            || lastThree == [".volta", "bin", executableName]
+            || lastThree == [".asdf", "shims", executableName] {
+            return true
+        }
+        if components.count >= 6,
+           Array(components.suffix(2)) == ["bin", executableName],
+           components.contains(".nvm"),
+           components.contains("versions"),
+           components.contains("node") {
+            return true
+        }
+        return components.contains("cmux-cli-shims")
     }
 
     private static func commandExecutableWordIndex(
