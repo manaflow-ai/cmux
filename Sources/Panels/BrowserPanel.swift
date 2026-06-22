@@ -6352,9 +6352,7 @@ extension BrowserPanel {
         if !next {
             developerToolsRevealDeferredUntilWebViewAttached = false
         }
-        DispatchQueue.main.async { [weak self] in
-            self?.objectWillChange.send()
-        }
+        objectWillChange.send()
     }
 
     private func reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden() {

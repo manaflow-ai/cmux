@@ -3889,9 +3889,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         panel.webView.removeFromSuperview()
         XCTAssertNil(panel.webView.window)
 
+        let invalidation = expectation(description: "DevTools visibility intent invalidates BrowserPanelView")
+        invalidation.assertForOverFulfill = false
         var publishCount = 0
         let cancellable = panel.objectWillChange.sink {
             publishCount += 1
+            invalidation.fulfill()
         }
         defer { _ = cancellable }
 
@@ -3904,7 +3907,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "Opening DevTools while the inspected WKWebView is detached must not create a detached about:blank inspector"
         )
 
-        spinRunLoopOneTick()
+        wait(for: [invalidation], timeout: 1.0)
         XCTAssertGreaterThan(
             publishCount,
             0,
