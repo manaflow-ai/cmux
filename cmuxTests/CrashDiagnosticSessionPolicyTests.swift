@@ -119,6 +119,43 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
+    func symlinkedCrashDirectoryIsClassifiedAsCrashDiagnosticStorage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-crash-storage-symlink-\(UUID().uuidString)", isDirectory: true)
+        let homeDirectory = root.appendingPathComponent("home", isDirectory: true)
+        let crashDirectory = homeDirectory
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+        let symlink = root.appendingPathComponent("crash-link", isDirectory: true)
+        try FileManager.default.createDirectory(at: crashDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: crashDirectory)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        #expect(SessionPersistencePolicy.isCmuxCrashStoragePath(
+            symlink.path,
+            homeDirectory: homeDirectory,
+            environment: [:]
+        ))
+
+        let window = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [emptyWorkspaceSnapshot(currentDirectory: symlink.path)]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+        )
+
+        #expect(SessionPersistencePolicy.isCmuxCrashDiagnosticWindow(
+            window,
+            homeDirectory: homeDirectory,
+            environment: [:]
+        ))
+    }
+
+    @Test
     func pendingCrashChoosesLatestReportAcrossCrashDirectories() throws {
         let defaultsSuiteName = "CrashDiagnosticSessionPolicyTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuiteName))
