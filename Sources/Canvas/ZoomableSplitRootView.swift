@@ -9,7 +9,7 @@ import SwiftUI
 final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private weak var workspace: Workspace?
     private var isWorkspaceInputActive: Bool
-    private let scrollView = NSScrollView()
+    private let scrollView = ZoomableSplitScrollView()
     private let documentView = ZoomableSplitDocumentView()
     private let hostingView: NSHostingView<AnyView>
     private var commandScrollEventRouter: CanvasCommandScrollEventRouter?
@@ -193,6 +193,11 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         scrollView.minMagnification = Self.minMagnificationFloor
         scrollView.maxMagnification = Self.maxMagnificationCeiling
         scrollView.drawsBackground = false
+        scrollView.shouldSuppressPlainDocumentScroll = { [weak documentView] event in
+            guard let documentView else { return false }
+            let documentPoint = documentView.convert(event.locationInWindow, from: nil)
+            return documentView.bounds.contains(documentPoint)
+        }
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.documentView = documentView
         addSubview(scrollView)
@@ -426,6 +431,12 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     }
 
     private func pointerHitTargetsDocumentContent(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard !Self.containsSplitDivider(
+            atWindowPoint: event.locationInWindow,
+            in: documentView
+        ) else {
+            return false
+        }
         guard let contentView = window.contentView else { return false }
         let contentPoint = contentView.convert(event.locationInWindow, from: nil)
         guard let hitView = contentView.hitTest(contentPoint) else { return false }

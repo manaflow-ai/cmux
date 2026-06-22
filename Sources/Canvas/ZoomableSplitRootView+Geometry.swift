@@ -46,6 +46,61 @@ extension ZoomableSplitRootView {
         return nil
     }
 
+    static func containsSplitDivider(atWindowPoint windowPoint: NSPoint, in view: NSView) -> Bool {
+        guard !view.isHidden else { return false }
+
+        if let splitView = view as? NSSplitView {
+            let pointInSplit = splitView.convert(windowPoint, from: nil)
+            if splitView.bounds.contains(pointInSplit),
+               splitDividerContains(pointInSplit, in: splitView) {
+                return true
+            }
+        }
+
+        for subview in view.subviews.reversed() {
+            if containsSplitDivider(atWindowPoint: windowPoint, in: subview) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static func splitDividerContains(_ point: NSPoint, in splitView: NSSplitView) -> Bool {
+        let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
+        guard dividerCount > 0 else { return false }
+
+        for dividerIndex in 0..<dividerCount {
+            let first = splitView.arrangedSubviews[dividerIndex].frame
+            let second = splitView.arrangedSubviews[dividerIndex + 1].frame
+            let thickness = splitView.dividerThickness
+            let dividerRect: NSRect
+            if splitView.isVertical {
+                guard first.width > 1 || second.width > 1 else { continue }
+                dividerRect = NSRect(
+                    x: max(0, first.maxX),
+                    y: 0,
+                    width: thickness,
+                    height: splitView.bounds.height
+                )
+            } else {
+                guard first.height > 1 || second.height > 1 else { continue }
+                dividerRect = NSRect(
+                    x: 0,
+                    y: max(0, first.maxY),
+                    width: splitView.bounds.width,
+                    height: thickness
+                )
+            }
+
+            if dividerRect.insetBy(dx: -5, dy: -5).contains(point) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     func focusedPane(in snapshot: LayoutSnapshot) -> PaneGeometry? {
         guard let focusedPaneId = snapshot.focusedPaneId else { return nil }
         return snapshot.panes.first { $0.paneId == focusedPaneId }
