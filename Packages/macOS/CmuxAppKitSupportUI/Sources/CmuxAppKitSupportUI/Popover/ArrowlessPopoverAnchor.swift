@@ -179,9 +179,3 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         }
     }
 }
-
-struct ArrowlessPopoverRootViewUpdatePolicy {
-    func shouldUpdateRootView(isPresented: Bool, popoverIsShown: Bool) -> Bool {
-        isPresented || popoverIsShown
-    }
-}
