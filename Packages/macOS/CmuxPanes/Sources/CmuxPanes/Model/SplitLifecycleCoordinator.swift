@@ -129,4 +129,50 @@ public final class SplitLifecycleCoordinator {
     public func consumePaneClosePanelIds(forClosed paneId: UUID) -> [UUID] {
         pendingPaneClosePanelIds.removeValue(forKey: paneId) ?? []
     }
+
+    /// Resolves the name a close-confirmation dialog should use for a panel,
+    /// from the panel's cached title metadata (legacy `panelName` resolution in
+    /// `Workspace.confirmClosePanel(for:nameOverride:)`).
+    ///
+    /// The precedence is: a non-blank `nameOverride` (the live foreground
+    /// command the mirror-window close path passes so the dialog names the
+    /// process the instant the close fires, before the tab's tmux window-name
+    /// rename catches up), then the panel's custom title, then its cached
+    /// title, then the last path component of its tracked directory; `nil` when
+    /// none is set. Each candidate is treated as absent when it trims to empty,
+    /// matching the legacy whitespace-and-newlines blank check.
+    ///
+    /// This is a pure title/metadata transform: the caller resolves the panel
+    /// id from the closing surface and reads its own title dictionaries, then
+    /// passes the looked-up values in. The dialog string localization and the
+    /// NSAlert presentation stay app-side because they bind to the app bundle's
+    /// `String(localized:)` catalog and AppKit.
+    public func closeConfirmationPanelName(
+        nameOverride: String?,
+        customTitle: String?,
+        title: String?,
+        directory: String?
+    ) -> String? {
+        func nonBlank(_ value: String?) -> String? {
+            guard let value,
+                  !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return nil
+            }
+            return value
+        }
+
+        if let nameOverride = nonBlank(nameOverride) {
+            return nameOverride
+        }
+        if let custom = nonBlank(customTitle) {
+            return custom
+        }
+        if let title = nonBlank(title) {
+            return title
+        }
+        if let dir = nonBlank(directory) {
+            return (dir as NSString).lastPathComponent
+        }
+        return nil
+    }
 }

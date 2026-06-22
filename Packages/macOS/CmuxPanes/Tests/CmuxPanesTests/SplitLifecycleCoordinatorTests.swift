@@ -117,4 +117,67 @@ struct SplitLifecycleCoordinatorTests {
         #expect(model.postCloseClearSplitZoomTabIds.contains(closing))
         #expect(model.consumeShouldClearSplitZoom(forClosed: closing) == true)
     }
+
+    /// A non-blank override wins over every title candidate, naming the live
+    /// foreground command before the tab's own rename catches up (legacy
+    /// `nameOverride` short-circuit in `confirmClosePanel`).
+    @Test("closeConfirmationPanelName prefers a non-blank override")
+    func closeConfirmNameOverrideWins() {
+        let model = SplitLifecycleCoordinator()
+        #expect(
+            model.closeConfirmationPanelName(
+                nameOverride: "sleep",
+                customTitle: "Custom",
+                title: "Title",
+                directory: "/tmp/work"
+            ) == "sleep"
+        )
+    }
+
+    /// A blank override falls through to the custom title, then the cached
+    /// title, then the directory's last path component, in that precedence
+    /// (legacy `confirmClosePanel` candidate ordering).
+    @Test("closeConfirmationPanelName falls through custom, title, directory")
+    func closeConfirmNamePrecedence() {
+        let model = SplitLifecycleCoordinator()
+        #expect(
+            model.closeConfirmationPanelName(
+                nameOverride: "   ",
+                customTitle: "Custom",
+                title: "Title",
+                directory: "/tmp/work"
+            ) == "Custom"
+        )
+        #expect(
+            model.closeConfirmationPanelName(
+                nameOverride: nil,
+                customTitle: "  ",
+                title: "Title",
+                directory: "/tmp/work"
+            ) == "Title"
+        )
+        #expect(
+            model.closeConfirmationPanelName(
+                nameOverride: nil,
+                customTitle: nil,
+                title: "",
+                directory: "/tmp/projects/repo"
+            ) == "repo"
+        )
+    }
+
+    /// Every candidate blank or absent yields no name, so the dialog uses its
+    /// generic message (legacy trailing `return nil`).
+    @Test("closeConfirmationPanelName returns nil when all candidates are blank")
+    func closeConfirmNameNoneSet() {
+        let model = SplitLifecycleCoordinator()
+        #expect(
+            model.closeConfirmationPanelName(
+                nameOverride: nil,
+                customTitle: "   ",
+                title: "",
+                directory: nil
+            ) == nil
+        )
+    }
 }

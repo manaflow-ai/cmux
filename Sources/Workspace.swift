@@ -9921,20 +9921,16 @@ extension Workspace: BonsplitDelegate {
     private func confirmClosePanel(for tabId: TabID, nameOverride: String? = nil) async -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName: String? = {
-            if let nameOverride, !nameOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return nameOverride
-            }
-            guard let panelId = panelIdFromSurfaceId(tabId) else { return nil }
-            if let custom = panelCustomTitles[panelId], !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return custom
-            }
-            if let title = panelTitles[panelId], !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return title
-            }
-            if let dir = panelDirectories[panelId], !dir.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                return (dir as NSString).lastPathComponent
-            }
-            return nil
+            // The panel-id-keyed candidates are read only when an override is
+            // absent; mirror the legacy ordering by resolving the panel id (and
+            // its title metadata) lazily after the override short-circuit.
+            let panelId = panelIdFromSurfaceId(tabId)
+            return splitLifecycle.closeConfirmationPanelName(
+                nameOverride: nameOverride,
+                customTitle: panelId.flatMap { panelCustomTitles[$0] },
+                title: panelId.flatMap { panelTitles[$0] },
+                directory: panelId.flatMap { panelDirectories[$0] }
+            )
         }()
 
         let message: String
