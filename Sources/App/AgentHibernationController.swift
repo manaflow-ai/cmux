@@ -355,14 +355,6 @@ final class AgentHibernationController {
         "scrollback:\(processIdentityFingerprint(processIDs)):\(tail)"
     }
 
-    nonisolated static func processFallbackFingerprint(
-        kind: RestorableAgentKind,
-        sessionId: String,
-        processIDs: Set<Int>
-    ) -> String {
-        "process:\(kind.rawValue):\(sessionId):\(processIdentityFingerprint(processIDs))"
-    }
-
     nonisolated static func tailFingerprintStableSince(
         previousFingerprint: String?,
         previousStableSince: TimeInterval?,
