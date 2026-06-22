@@ -11931,16 +11931,18 @@ struct VerticalTabsSidebar: View {
         let rows = LazyVStack(spacing: tabRowSpacing) {
             ForEach(renderItems, id: \.id) { item in
                 switch item {
-                case .groupHeader(let group, let memberWorkspaceIds):
+                case .groupHeader(let group, let memberWorkspaceIds, let depth):
                     sidebarWorkspaceGroupHeader(
                         group: group,
                         memberWorkspaceIds: memberWorkspaceIds,
+                        depth: depth,
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets, showModifierHoldHints: showModifierHoldHints
                     )
-                case .workspace(let tab):
+                case .workspace(let tab, let depth):
                     workspaceRow(
                         tab,
+                        depth: depth,
                         renderContext: renderContext,
                         shouldCollectWorkspaceDropTargets: shouldCollectWorkspaceDropTargets
                     )
@@ -12058,6 +12060,7 @@ struct VerticalTabsSidebar: View {
     @ViewBuilder
     private func workspaceRow(
         _ tab: Workspace,
+        depth: Int,
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool
     ) -> some View {
@@ -12145,7 +12148,8 @@ struct VerticalTabsSidebar: View {
             )
         }
 
-        let rowSidebarWidth = renderContext.sidebarWidth - (tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+        let leadingIndent = CGFloat(max(depth, 0)) * SidebarWorkspaceGroupingMetrics.memberIndent
+        let rowSidebarWidth = max(0, renderContext.sidebarWidth - leadingIndent)
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12187,7 +12191,7 @@ struct VerticalTabsSidebar: View {
 
         row
             .sidebarWorkspaceFrameAnchor(id: tab.id, isEnabled: shouldCollectWorkspaceDropTargets)
-            .padding(.leading, tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
+            .padding(.leading, leadingIndent)
     }
 
     private func debugShortSidebarTabId(_ id: UUID?) -> String {

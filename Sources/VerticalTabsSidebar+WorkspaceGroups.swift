@@ -9,6 +9,7 @@ extension VerticalTabsSidebar {
     func sidebarWorkspaceGroupHeader(
         group: WorkspaceGroup,
         memberWorkspaceIds: [UUID],
+        depth: Int,
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool,
         showModifierHoldHints: Bool
@@ -148,6 +149,14 @@ extension VerticalTabsSidebar {
                     groupId: groupId
                 )
             },
+            onNewSubfolder: { [weak tabManager, groupId = group.id, anchorCwd] in
+                guard let tabManager else { return }
+                tabManager.createWorkspaceGroup(
+                    name: "",
+                    parentGroupId: groupId,
+                    anchorWorkingDirectory: anchorCwd
+                )
+            },
             onRename: { [weak tabManager, groupId = group.id, currentName = group.name] in
                 guard let tabManager else { return }
                 presentSidebarWorkspaceGroupRenamePrompt(
@@ -173,7 +182,7 @@ extension VerticalTabsSidebar {
                 // Resolve members live at action time: the header is .equatable()
                 // and closures are excluded from ==, so a captured ID list could
                 // go stale across a same-count membership swap.
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
+                let ids = tabManager.workspaceGroupSubtreeWorkspaceIds(groupId: groupId).filter { $0 != anchorId }
                 // Only touch members that are actually unread, so we never run
                 // notification teardown on already-read workspaces.
                 for id in ids where notificationStore.canMarkWorkspaceRead(forTabIds: [id]) {
@@ -182,7 +191,7 @@ extension VerticalTabsSidebar {
             },
             onMarkAllUnread: { [weak tabManager, weak notificationStore, groupId = group.id, anchorId = group.anchorWorkspaceId] in
                 guard let tabManager, let notificationStore else { return }
-                let ids = tabManager.tabs.compactMap { $0.groupId == groupId && $0.id != anchorId ? $0.id : nil }
+                let ids = tabManager.workspaceGroupSubtreeWorkspaceIds(groupId: groupId).filter { $0 != anchorId }
                 // Only mark members that are not already unread. Calling
                 // markUnread on an already-unread member would set its manual
                 // unread flag, which a later notification dismissal cannot
@@ -216,5 +225,6 @@ extension VerticalTabsSidebar {
                 id: group.anchorWorkspaceId,
                 isEnabled: shouldCollectWorkspaceDropTargets
             )
+            .padding(.leading, CGFloat(max(depth, 0)) * SidebarWorkspaceGroupingMetrics.memberIndent)
     }
 }

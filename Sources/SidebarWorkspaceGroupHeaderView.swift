@@ -76,6 +76,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onFocusAnchor: () -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
+    let onNewSubfolder: () -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
     let onMarkRead: () -> Void
@@ -259,6 +260,13 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     defaultValue: "New Workspace in Group"
                 ),
                 action: onTapPlus
+            )
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.newSubfolder",
+                    defaultValue: "New Folder"
+                ),
+                action: onNewSubfolder
             )
             Divider()
             Button(

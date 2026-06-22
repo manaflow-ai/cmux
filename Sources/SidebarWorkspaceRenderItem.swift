@@ -18,24 +18,33 @@ enum SidebarWorkspaceRenderItemID: Hashable {
 /// One drawable item in the workspace sidebar.
 @MainActor
 enum SidebarWorkspaceRenderItem {
-    case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID])
-    case workspace(Workspace)
+    case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID], depth: Int)
+    case workspace(Workspace, depth: Int)
 
     var id: SidebarWorkspaceRenderItemID {
         switch self {
-        case .groupHeader(let group, _):
+        case .groupHeader(let group, _, _):
             return .group(group.id)
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return .workspace(workspace.id)
         }
     }
 
     var rowWorkspaceId: UUID {
         switch self {
-        case .groupHeader(let group, _):
+        case .groupHeader(let group, _, _):
             return group.anchorWorkspaceId
-        case .workspace(let workspace):
+        case .workspace(let workspace, _):
             return workspace.id
+        }
+    }
+
+    var depth: Int {
+        switch self {
+        case .groupHeader(_, _, let depth):
+            return depth
+        case .workspace(_, let depth):
+            return depth
         }
     }
 
@@ -44,43 +53,93 @@ enum SidebarWorkspaceRenderItem {
         groupsById: [UUID: WorkspaceGroup]
     ) -> [SidebarWorkspaceRenderItem] {
         guard !tabs.isEmpty else { return [] }
-        var memberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
+        let groups = Array(groupsById.values)
+        var anchorGroupByWorkspaceId: [UUID: WorkspaceGroup] = [:]
+        for group in groups where anchorGroupByWorkspaceId[group.anchorWorkspaceId] == nil {
+            anchorGroupByWorkspaceId[group.anchorWorkspaceId] = group
+        }
+        let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map { ($0.element.id, $0.offset) })
+        let knownGroupIds = Set(groupsById.keys)
+        var childGroupsByParentId: [UUID?: [WorkspaceGroup]] = [:]
+        var parentGroupIdByGroupId: [UUID: UUID?] = [:]
+        for group in groups {
+            let parentId: UUID? = {
+                guard let parentGroupId = group.parentGroupId,
+                      parentGroupId != group.id,
+                      knownGroupIds.contains(parentGroupId) else {
+                    return nil
+                }
+                return parentGroupId
+            }()
+            parentGroupIdByGroupId[group.id] = parentId
+            childGroupsByParentId[parentId, default: []].append(group)
+        }
+        for parentId in Array(childGroupsByParentId.keys) {
+            childGroupsByParentId[parentId]?.sort {
+                (tabIndexById[$0.anchorWorkspaceId] ?? Int.max) <
+                    (tabIndexById[$1.anchorWorkspaceId] ?? Int.max)
+            }
+        }
+        var directMemberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
         for tab in tabs {
             if let gid = tab.groupId {
-                memberWorkspaceIdsByGroupId[gid, default: []].append(tab.id)
+                directMemberWorkspaceIdsByGroupId[gid, default: []].append(tab.id)
             }
         }
+        var subtreeWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
+        func subtreeWorkspaceIds(for groupId: UUID, visiting: inout Set<UUID>) -> [UUID] {
+            if let cached = subtreeWorkspaceIdsByGroupId[groupId] {
+                return cached
+            }
+            guard visiting.insert(groupId).inserted else { return directMemberWorkspaceIdsByGroupId[groupId] ?? [] }
+            var ids = directMemberWorkspaceIdsByGroupId[groupId] ?? []
+            for childGroup in childGroupsByParentId[Optional(groupId)] ?? [] {
+                ids.append(contentsOf: subtreeWorkspaceIds(for: childGroup.id, visiting: &visiting))
+            }
+            visiting.remove(groupId)
+            var seenIds: Set<UUID> = []
+            let deduped = ids.filter { seenIds.insert($0).inserted }
+            subtreeWorkspaceIdsByGroupId[groupId] = deduped
+            return deduped
+        }
+
         var items: [SidebarWorkspaceRenderItem] = []
         items.reserveCapacity(tabs.count + groupsById.count)
-        var lastEmittedGroupId: UUID? = nil
         var emittedHeaders: Set<UUID> = []
-        var collapsedByGroupId: [UUID: Bool] = [:]
-        var skipChildrenUntilNextGroup = false
-        for tab in tabs {
-            let groupId = tab.groupId
-            if groupId != lastEmittedGroupId {
-                lastEmittedGroupId = groupId
-                skipChildrenUntilNextGroup = false
-                if let groupId, let group = groupsById[groupId] {
-                    if !emittedHeaders.contains(groupId) {
-                        let memberWorkspaceIds = memberWorkspaceIdsByGroupId[groupId] ?? []
-                        items.append(.groupHeader(group, memberWorkspaceIds: memberWorkspaceIds))
-                        emittedHeaders.insert(groupId)
-                        collapsedByGroupId[groupId] = group.isCollapsed
+
+        func normalizedParentGroupId(for groupId: UUID) -> UUID? {
+            parentGroupIdByGroupId[groupId] ?? nil
+        }
+
+        func appendGroup(_ group: WorkspaceGroup, depth: Int) {
+            guard emittedHeaders.insert(group.id).inserted else { return }
+            var visiting: Set<UUID> = []
+            let memberWorkspaceIds = subtreeWorkspaceIds(for: group.id, visiting: &visiting)
+            items.append(.groupHeader(group, memberWorkspaceIds: memberWorkspaceIds, depth: depth))
+            guard !group.isCollapsed else { return }
+            appendChildren(of: group.id, depth: depth + 1)
+        }
+
+        func appendChildren(of parentGroupId: UUID?, depth: Int) {
+            for tab in tabs {
+                if let anchoredGroup = anchorGroupByWorkspaceId[tab.id],
+                   normalizedParentGroupId(for: anchoredGroup.id) == parentGroupId {
+                    appendGroup(anchoredGroup, depth: depth)
+                    continue
+                }
+                if let parentGroupId {
+                    guard tab.groupId == parentGroupId else { continue }
+                    if groupsById[parentGroupId]?.anchorWorkspaceId == tab.id {
+                        continue
                     }
-                    // If legacy reorder paths ever leave a group's members in
-                    // two runs, keep honoring the same collapse decision.
-                    skipChildrenUntilNextGroup = collapsedByGroupId[groupId] ?? false
+                    items.append(.workspace(tab, depth: depth))
+                } else if tab.groupId == nil {
+                    items.append(.workspace(tab, depth: depth))
                 }
             }
-            // Anchor workspaces are represented exclusively by the group header.
-            if let groupId, let group = groupsById[groupId], group.anchorWorkspaceId == tab.id {
-                continue
-            }
-            if groupId == nil || !skipChildrenUntilNextGroup {
-                items.append(.workspace(tab))
-            }
         }
+
+        appendChildren(of: nil, depth: 0)
         return items
     }
 }
