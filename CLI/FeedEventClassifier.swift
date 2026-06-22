@@ -60,8 +60,14 @@ struct FeedEventClassifier {
         case toolStartMaybeApproval
         /// A tool finished. Telemetry only.
         case toolEnd
+        /// The agent is about to compact conversation context. Telemetry only.
+        case preCompact
+        /// The agent finished compacting conversation context. Telemetry only.
+        case postCompact
         /// A new turn / prompt started. Telemetry only.
         case promptSubmit
+        /// A subagent started. Telemetry only.
+        case subagentStart
         /// The agent finished responding. Telemetry only.
         case response
         /// A subagent finished responding. Telemetry only.
@@ -126,8 +132,14 @@ struct FeedEventClassifier {
             return ("PreToolUse", false)
         case .toolEnd:
             return ("PostToolUse", false)
+        case .preCompact:
+            return ("PreCompact", false)
+        case .postCompact:
+            return ("PostCompact", false)
         case .promptSubmit:
             return ("UserPromptSubmit", false)
+        case .subagentStart:
+            return ("SubagentStart", false)
         case .response:
             return ("Stop", false)
         case .subagentResponse:
@@ -161,10 +173,13 @@ struct FeedEventClassifier {
             "PermissionRequest": .approvalRequest,
             "PreToolUse": .toolStart,
             "PostToolUse": .toolEnd,
+            "PreCompact": .preCompact,
+            "PostCompact": .postCompact,
             "UserPromptSubmit": .promptSubmit,
             "SessionStart": .sessionStart,
             "SessionEnd": .sessionEnd,
             "Stop": .response,
+            "SubagentStart": .subagentStart,
             "SubagentStop": .subagentResponse,
             "Notification": .statusNotification,
         ],
@@ -176,10 +191,13 @@ struct FeedEventClassifier {
             "PreToolUse": .toolStart,
             "beforeShellExecution": .toolStart,
             "PostToolUse": .toolEnd,
+            "PreCompact": .preCompact,
+            "PostCompact": .postCompact,
             "UserPromptSubmit": .promptSubmit,
             "SessionStart": .sessionStart,
             "SessionEnd": .sessionEnd,
             "Stop": .response,
+            "SubagentStart": .subagentStart,
             "SubagentStop": .subagentResponse,
             "Notification": .statusNotification,
         ],
@@ -226,10 +244,13 @@ struct FeedEventClassifier {
         "beforeShellExecution": .toolStartMaybeApproval,
         "PermissionRequest": .approvalRequest,
         "PostToolUse": .toolEnd,
+        "PreCompact": .preCompact,
+        "PostCompact": .postCompact,
         "UserPromptSubmit": .promptSubmit,
         "SessionStart": .sessionStart,
         "SessionEnd": .sessionEnd,
         "Stop": .response,
+        "SubagentStart": .subagentStart,
         "SubagentStop": .subagentResponse,
         "Notification": .statusNotification,
     ]
