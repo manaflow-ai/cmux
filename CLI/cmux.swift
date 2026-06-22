@@ -10354,11 +10354,11 @@ struct CMUXCLI {
 
     private static func freestyleInteractiveShellScript() -> String {
         """
-        if ! command -v zsh >/dev/null 2>&1; then
+        if ! command -v zsh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
           if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
             if command -v apt-get >/dev/null 2>&1; then
               sudo -n apt-get update >/dev/null 2>&1 || true
-              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions >/dev/null 2>&1 || true
+              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions htop btop >/dev/null 2>&1 || true
             fi
           fi
         fi
@@ -10383,8 +10383,9 @@ struct CMUXCLI {
             source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
             ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}"
           fi
+          : ${CMUX_PROMPT_USER:=cmux-cloud}
           : ${CMUX_PROMPT_CHAR:=$'\\u03bb'}
-          PROMPT='%F{magenta}%n%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
+          PROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
         fi
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
         CMUX_USER_ZSHRC
@@ -10393,6 +10394,7 @@ struct CMUXCLI {
             cat > "$HOME/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
         # Personal zsh overrides for this Freestyle VM.
         # Examples:
+        #   CMUX_PROMPT_USER='cmux-cloud'
         #   CMUX_PROMPT_CHAR='>'
         #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
         CMUX_LOCAL_ZSHRC
@@ -10413,10 +10415,10 @@ struct CMUXCLI {
           cmux_home="/home/$cmux_user"
         fi
 
-        if [ ! -f /etc/cmux/zsh-bootstrap-v1 ]; then
+        if [ ! -f /etc/cmux/zsh-bootstrap-v2 ] || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
           if command -v apt-get >/dev/null 2>&1; then
             apt-get update >/dev/null 2>&1 || true
-            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions htop btop >/dev/null 2>&1 || true
           fi
         fi
 
@@ -10438,8 +10440,9 @@ struct CMUXCLI {
           ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE="${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}"
         fi
 
+        : ${CMUX_PROMPT_USER:=cmux-cloud}
         : ${CMUX_PROMPT_CHAR:=$'\\u03bb'}
-        PROMPT='%F{magenta}%n%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
+        PROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '
         CMUX_ZSHRC
 
         if [ ! -e "$cmux_home/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$cmux_home/.zshrc" 2>/dev/null; then
@@ -10454,6 +10457,7 @@ struct CMUXCLI {
           cat > "$cmux_home/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
         # Personal zsh overrides for this Freestyle VM.
         # Examples:
+        #   CMUX_PROMPT_USER='cmux-cloud'
         #   CMUX_PROMPT_CHAR='>'
         #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
         CMUX_LOCAL_ZSHRC
@@ -10461,7 +10465,7 @@ struct CMUXCLI {
 
         if command -v zsh >/dev/null 2>&1; then
           chsh -s "$(command -v zsh)" "$cmux_user" >/dev/null 2>&1 || true
-          touch /etc/cmux/zsh-bootstrap-v1 2>/dev/null || true
+          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 2>/dev/null || true
         fi
         touch "$cmux_home/.hushlogin" 2>/dev/null || true
         chown "$cmux_user:$cmux_user" "$cmux_home/.zshrc" "$cmux_home/.zshrc.local" 2>/dev/null || true
