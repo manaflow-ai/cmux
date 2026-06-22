@@ -36,8 +36,33 @@ import Testing
         """
         let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
 
-        #expect(binding.command.contains("claude '--resume' 'session-moved-cli'"), "\(binding.command)")
+        #expect(binding.command.contains("/bin/sh -c"), "\(binding.command)")
+        #expect(binding.command.contains("CMUX_CLAUDE_WRAPPER_SHIM"), "\(binding.command)")
+        #expect(binding.command.contains("--resume"), "\(binding.command)")
         #expect(!binding.command.contains("/Users/me/.nvm/versions/node/v24.2.0/bin/claude"), "\(binding.command)")
+    }
+
+    @Test(
+        "Agent-hook binding rewrites stale executables from supported managed directories",
+        arguments: [
+            "/Users/me/.fnm/current/bin/codex",
+            "/Users/me/Library/Application Support/fnm/node-versions/v24.2.0/installation/bin/codex",
+            "/Users/me/.local/share/fnm/node-versions/v24.2.0/installation/bin/codex",
+            "/Users/me/.local/share/mise/shims/codex",
+        ]
+    )
+    func agentHookBindingRewritesSupportedManagedExecutablePath(_ executablePath: String) throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'\(executablePath)' 'resume' 'session-managed-cli'",
+            checkpointId: "session-managed-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+        #expect(startupInput.contains("codex 'resume' 'session-managed-cli'"), "\(startupInput)")
+        #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {

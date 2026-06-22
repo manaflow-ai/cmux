@@ -1,5 +1,6 @@
-import Foundation
+import CMUXAgentLaunch
 import Darwin
+import Foundation
 
 extension SurfaceResumeBindingSnapshot {
     var startupCommand: String {
@@ -40,9 +41,17 @@ extension SurfaceResumeCommandCanonicalizer {
             return command
         }
 
-        var repaired = command
-        repaired.replaceSubrange(words[executableIndex].range, with: shellQuoted(executableName))
-        return repaired
+        if executableName == "claude" {
+            return replacingStaleClaudeExecutable(
+                in: command,
+                words: words,
+                executableIndex: executableIndex
+            )
+        } else {
+            var repaired = command
+            repaired.replaceSubrange(words[executableIndex].range, with: shellQuoted(executableName))
+            return repaired
+        }
     }
 
     private static func portableAgentExecutableName(for kind: String?) -> String? {
@@ -70,11 +79,26 @@ extension SurfaceResumeCommandCanonicalizer {
             || lastThree == [".asdf", "shims", executableName] {
             return true
         }
+        let lastFour = Array(components.suffix(4))
+        if lastFour == [".nvm", "current", "bin", executableName]
+            || lastFour == [".fnm", "current", "bin", executableName] {
+            return true
+        }
+        let lastFive = Array(components.suffix(5))
+        if lastFive == [".local", "share", "mise", "shims", executableName] {
+            return true
+        }
         if components.count >= 6,
            Array(components.suffix(2)) == ["bin", executableName],
            components.contains(".nvm"),
            components.contains("versions"),
            components.contains("node") {
+            return true
+        }
+        if components.count >= 6,
+           lastThree == ["installation", "bin", executableName],
+           components.contains("fnm"),
+           components.contains("node-versions") {
             return true
         }
         return components.contains("cmux-cli-shims")
@@ -84,13 +108,30 @@ extension SurfaceResumeCommandCanonicalizer {
         path.withCString { access($0, X_OK) == 0 }
     }
 
+    private static func replacingStaleClaudeExecutable(
+        in command: String,
+        words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        executableIndex: Int
+    ) -> String {
+        let commandStartIndex = commandStartWordIndex(in: words)
+        guard commandStartIndex < words.count,
+              executableIndex >= commandStartIndex else {
+            return command
+        }
+        var parts = Array(words[commandStartIndex...].map(\.value))
+        parts[executableIndex - commandStartIndex] = "claude"
+        let renderedCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
+            parts: parts,
+            quote: shellQuoted
+        )
+        let commandStart = words[commandStartIndex].range.lowerBound
+        return String(command[..<commandStart]) + renderedCommand
+    }
+
     private static func commandExecutableWordIndex(
         in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange]
     ) -> Int? {
-        var index = 0
-        if let guardEndIndex = leadingWorkingDirectoryGuardEndIndex(in: words) {
-            index = guardEndIndex + 1
-        }
+        var index = commandStartWordIndex(in: words)
         guard index < words.count else { return nil }
         if words[index].value == "env" || words[index].value == "/usr/bin/env" {
             index += 1
@@ -99,6 +140,15 @@ extension SurfaceResumeCommandCanonicalizer {
             }
         }
         return index < words.count ? index : nil
+    }
+
+    private static func commandStartWordIndex(
+        in words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange]
+    ) -> Int {
+        if let guardEndIndex = leadingWorkingDirectoryGuardEndIndex(in: words) {
+            return guardEndIndex + 1
+        }
+        return 0
     }
 
     private static func leadingWorkingDirectoryGuardEndIndex(
