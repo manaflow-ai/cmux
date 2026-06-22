@@ -1630,6 +1630,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         guard control === searchField else { return false }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
+            guard !textView.hasMarkedText() else { return false }
             openSelectedSearchResult()
             return true
         case #selector(NSResponder.cancelOperation(_:)):

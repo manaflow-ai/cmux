@@ -3477,7 +3477,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func markTabCloseButtonClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
+        markExplicitClose(surfaceId: surfaceId)
         tabCloseButtonCloseTabIds.insert(surfaceId)
     }
 
@@ -11114,7 +11114,7 @@ extension Workspace: BonsplitDelegate {
               manager.tabs.contains(where: { $0.id == id }) else {
             return false
         }
-        return true
+        return manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
     }
 
     @MainActor
