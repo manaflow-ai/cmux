@@ -21,8 +21,8 @@ final class MobileNotificationListObserver {
 
     private let store: TerminalNotificationStore
     private var notificationsTask: Task<Void, Never>?
-    private var subscriptionTask: Task<Void, Never>?
-    private var defaultsTask: Task<Void, Never>?
+    private var subscriptionObserver: NSObjectProtocol?
+    private var defaultsObserver: NSObjectProtocol?
     private var coalescedEmitTask: Task<Void, Never>?
     private var pendingNotifications: [TerminalNotification]?
     private var lastSummaryHash: Int = 0
@@ -45,23 +45,25 @@ final class MobileNotificationListObserver {
                 self.scheduleCoalescedEmit(notifications: notifications)
             }
         }
-        subscriptionTask = Task { @MainActor [weak self] in
-            let changes = NotificationCenter.default.notifications(
-                named: .mobileHostEventSubscriptionsDidChange
-            )
-            for await notification in changes {
+        subscriptionObserver = NotificationCenter.default.addObserver(
+            forName: .mobileHostEventSubscriptionsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let topics = notification.userInfo?["topics"] as? [String] ?? []
+            let shouldEmit = topics.isEmpty || topics.contains(Self.eventTopic)
+            Task { @MainActor [weak self] in
                 guard let self else { return }
-                let topics = notification.userInfo?["topics"] as? [String] ?? []
-                guard topics.isEmpty || topics.contains(Self.eventTopic) else { continue }
+                guard shouldEmit else { return }
                 self.emitCurrentIfSubscribed(force: true)
             }
         }
-        defaultsTask = Task { @MainActor [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: UserDefaults.didChangeNotification,
-                object: UserDefaults.standard
-            )
-            for await _ in notifications {
+        defaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: UserDefaults.standard,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.emitCurrentIfSubscribed(force: false)
             }
@@ -70,8 +72,12 @@ final class MobileNotificationListObserver {
 
     deinit {
         notificationsTask?.cancel()
-        subscriptionTask?.cancel()
-        defaultsTask?.cancel()
+        if let subscriptionObserver {
+            NotificationCenter.default.removeObserver(subscriptionObserver)
+        }
+        if let defaultsObserver {
+            NotificationCenter.default.removeObserver(defaultsObserver)
+        }
         coalescedEmitTask?.cancel()
     }
 

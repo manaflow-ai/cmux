@@ -9,7 +9,7 @@ import Testing
 
 @Suite struct TerminalControllerMobileNotificationsTests {
     @Test
-    func testMobileRecentNotificationsKeepsBoundedStoreOrderWindow() {
+    func testMobileRecentNotificationsKeepsBoundedChronologicalWindow() {
         let notifications = (0..<205).map { index in
             TerminalNotification(
                 id: UUID(),
@@ -26,8 +26,38 @@ import Testing
         let recent = TerminalController.mobileRecentNotifications(notifications, limit: 200)
 
         #expect(recent.count == 200)
-        #expect(Array(recent.map(\.title).prefix(3)) == ["N0", "N1", "N2"])
-        #expect(Array(recent.map(\.title).suffix(3)) == ["N197", "N198", "N199"])
-        #expect(!recent.contains { ["N200", "N201", "N202", "N203", "N204"].contains($0.title) })
+        #expect(Array(recent.map(\.title).prefix(3)) == ["N204", "N203", "N202"])
+        #expect(Array(recent.map(\.title).suffix(3)) == ["N7", "N6", "N5"])
+        #expect(!recent.contains { ["N0", "N1", "N2", "N3", "N4"].contains($0.title) })
+    }
+
+    @Test
+    func testMobileRecentNotificationsIgnoresUnreadPresentationReorder() {
+        let workspaceId = UUID()
+        let older = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: nil,
+            title: "older",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 10),
+            isRead: false
+        )
+        let newestMovedBehindOlderUnread = TerminalNotification(
+            id: UUID(),
+            tabId: workspaceId,
+            surfaceId: nil,
+            title: "newest",
+            subtitle: "",
+            body: "",
+            createdAt: Date(timeIntervalSince1970: 20),
+            isRead: false
+        )
+        let storeOrderedForMenu = [older, newestMovedBehindOlderUnread]
+
+        let recent = TerminalController.mobileRecentNotifications(storeOrderedForMenu, limit: 1)
+
+        #expect(recent.map(\.title) == ["newest"])
     }
 }

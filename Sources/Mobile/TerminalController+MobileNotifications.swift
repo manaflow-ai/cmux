@@ -17,14 +17,43 @@ extension TerminalController {
     /// Recent-notification window kept in sync with the iOS feed store.
     nonisolated static let mobileNotificationRecentLimit = 200
 
-    /// Select the recent visible feed window from the store's newest-first order
-    /// without scanning or sorting the entire store.
+    /// Select the recent visible feed window by notification timestamp.
+    ///
+    /// `TerminalNotificationStore.notifications` is presentation ordered, not
+    /// strictly chronological: read-state actions can move unread items for menu
+    /// behavior. Keep the mobile feed independent from that ordering by scanning
+    /// the store once and retaining only the bounded top-N chronological window.
     nonisolated static func mobileRecentNotifications(
         _ notifications: [TerminalNotification],
         limit: Int = mobileNotificationRecentLimit
     ) -> [TerminalNotification] {
         guard limit > 0 else { return [] }
-        return Array(notifications.prefix(limit))
+        var recent: [TerminalNotification] = []
+        recent.reserveCapacity(min(limit, notifications.count))
+
+        for notification in notifications {
+            let insertionIndex = recent.firstIndex { isMobileNotificationMoreRecent(notification, than: $0) } ?? recent.endIndex
+            if insertionIndex < limit {
+                recent.insert(notification, at: insertionIndex)
+                if recent.count > limit {
+                    recent.removeLast()
+                }
+            } else if recent.count < limit {
+                recent.append(notification)
+            }
+        }
+
+        return recent
+    }
+
+    private nonisolated static func isMobileNotificationMoreRecent(
+        _ lhs: TerminalNotification,
+        than rhs: TerminalNotification
+    ) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     nonisolated static func mobileNotificationListItem(_ notification: TerminalNotification, hideContent: Bool) -> [String: Any] {
