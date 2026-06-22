@@ -1583,6 +1583,52 @@ final class WindowBrowserHostViewTests: XCTestCase {
 #endif
     }
 
+    func testHostViewReusesEmptyDividerRegionCacheForSteadyStatePointerHits() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return
+        }
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+        contentView.layoutSubtreeIfNeeded()
+
+        let point = NSPoint(x: host.bounds.midX, y: host.bounds.midY)
+        XCTAssertTrue(
+            host.hitTest(point) === child,
+            "Browser content should receive hits when no split divider exists"
+        )
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
+        XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
+
+        XCTAssertTrue(
+            host.hitTest(point) === child,
+            "Browser content should keep receiving hits when the cached divider list is empty"
+        )
+        XCTAssertEqual(
+            host.dividerRegionBuildCount,
+            buildCountAfterWarmHit,
+            "Steady-state browser hit-testing should reuse an empty divider-region cache instead of rescanning every pointer event"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testHostViewInvalidatesHostedDividerRegionsWhenSlotHidesAndReveals() throws {
 #if DEBUG
         let window = NSWindow(

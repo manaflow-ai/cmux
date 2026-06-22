@@ -3916,6 +3916,51 @@ final class WindowTerminalHostViewTests: XCTestCase {
 #endif
     }
 
+    func testHostViewReusesEmptyDividerRegionCacheForSteadyStatePointerHits() throws {
+#if DEBUG
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.autoresizingMask = [.width, .height]
+        let hostedView = makeHostedTerminalView(frame: host.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+        contentView.layoutSubtreeIfNeeded()
+
+        let point = NSPoint(x: host.bounds.midX, y: host.bounds.midY)
+        assertHitFallsInsideHostedTerminal(
+            host.hitTest(point),
+            hostedView: hostedView,
+            message: "Terminal content should receive hits when no split divider exists"
+        )
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
+        XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
+
+        assertHitFallsInsideHostedTerminal(
+            host.hitTest(point),
+            hostedView: hostedView,
+            message: "Terminal content should keep receiving hits when the cached divider list is empty"
+        )
+        XCTAssertEqual(
+            host.dividerRegionBuildCount,
+            buildCountAfterWarmHit,
+            "Steady-state terminal hit-testing should reuse an empty divider-region cache instead of rescanning every pointer event"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testHostViewInvalidatesCachedDividerRegionsWhenSplitBecomesHidden() throws {
 #if DEBUG
         let window = NSWindow(
