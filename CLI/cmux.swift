@@ -33000,7 +33000,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let toolInput {
-            eventDict["tool_input"] = toolInput
+            eventDict["tool_input"] = hookEventName == "PostToolUse"
+                ? Self.boundedPostToolUseFeedValue(toolInput)
+                : toolInput
         }
         if let context = feedContextForEvent(
             source: source,
@@ -33125,6 +33127,188 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         print("{}")
+    }
+
+    private static let feedPostToolUsePayloadLimitBytes = 64 * 1024
+    private static let feedPostToolUseTextPreviewLimitBytes = 8 * 1024
+    private static let feedPostToolUseScalarStringLimitBytes = 512
+    private static let feedPostToolUseMetadataKeys: Set<String> = [
+        "exitcode",
+        "status",
+        "signal",
+        "durationms",
+        "timedout",
+        "success",
+    ]
+    private static let feedPostToolUseTextPreviewKeys: Set<String> = [
+        "stdout",
+        "stderr",
+        "output",
+        "text",
+        "result",
+        "message",
+        "error",
+    ]
+
+    private static func boundedPostToolUseFeedValue(_ value: Any) -> Any {
+        guard let originalByteCount = feedJSONByteCount(value),
+              originalByteCount > feedPostToolUsePayloadLimitBytes
+        else {
+            return value
+        }
+
+        var summary: [String: Any] = [
+            "_cmux_truncated": true,
+            "_cmux_original_json_bytes": originalByteCount,
+            "_cmux_limit_json_bytes": feedPostToolUsePayloadLimitBytes,
+        ]
+
+        if let dictionary = value as? [String: Any] {
+            summary["_cmux_original_key_count"] = dictionary.count
+            var summarizedKeys = Set<String>()
+
+            for (key, rawValue) in dictionary {
+                let normalizedKey = normalizedPostToolUseSummaryKey(key)
+                if feedPostToolUseMetadataKeys.contains(normalizedKey),
+                   let scalarValue = boundedPostToolUseScalarValue(rawValue) {
+                    summary[key] = scalarValue.value
+                    if scalarValue.truncatedBytes > 0 {
+                        summary["\(key)_truncated_bytes"] = scalarValue.truncatedBytes
+                    }
+                    summarizedKeys.insert(key)
+                }
+                if feedPostToolUseTextPreviewKeys.contains(normalizedKey) {
+                    summarizePostToolUsePreviewField(
+                        key: key,
+                        rawValue: rawValue,
+                        into: &summary
+                    )
+                    summarizedKeys.insert(key)
+                }
+            }
+
+            let omittedKeys = dictionary.keys.filter { !summarizedKeys.contains($0) }.count
+            if omittedKeys > 0 {
+                summary["_cmux_omitted_key_count"] = omittedKeys
+            }
+        } else if let array = value as? [Any] {
+            summary["_cmux_array_count"] = array.count
+        } else if let string = value as? String {
+            let preview = feedUTF8Prefix(
+                string,
+                maxBytes: feedPostToolUseTextPreviewLimitBytes
+            )
+            summary["_cmux_preview"] = preview.value
+            if preview.truncatedBytes > 0 {
+                summary["_cmux_preview_truncated_bytes"] = preview.truncatedBytes
+            }
+        } else if let scalarValue = boundedPostToolUseScalarValue(value) {
+            summary["_cmux_value"] = scalarValue.value
+            if scalarValue.truncatedBytes > 0 {
+                summary["_cmux_value_truncated_bytes"] = scalarValue.truncatedBytes
+            }
+        }
+
+        return summary
+    }
+
+    private static func feedJSONByteCount(_ value: Any) -> Int? {
+        let topLevelObject: Any
+        if let dictionary = value as? [String: Any] {
+            topLevelObject = dictionary
+        } else if let array = value as? [Any] {
+            topLevelObject = array
+        } else {
+            topLevelObject = ["value": value]
+        }
+        guard JSONSerialization.isValidJSONObject(topLevelObject),
+              let data = try? JSONSerialization.data(withJSONObject: topLevelObject)
+        else {
+            return nil
+        }
+        return data.count
+    }
+
+    private static func normalizedPostToolUseSummaryKey(_ key: String) -> String {
+        key
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    private static func summarizePostToolUsePreviewField(
+        key: String,
+        rawValue: Any,
+        into summary: inout [String: Any]
+    ) {
+        if let string = rawValue as? String {
+            let preview = feedUTF8Prefix(
+                string,
+                maxBytes: feedPostToolUseTextPreviewLimitBytes
+            )
+            summary[key] = preview.value
+            if preview.truncatedBytes > 0 {
+                summary["\(key)_truncated_bytes"] = preview.truncatedBytes
+            }
+            return
+        }
+        if let array = rawValue as? [Any] {
+            summary["\(key)_array_count"] = array.count
+            return
+        }
+        if let dictionary = rawValue as? [String: Any] {
+            summary["\(key)_object_key_count"] = dictionary.count
+            return
+        }
+        if let scalarValue = boundedPostToolUseScalarValue(rawValue) {
+            summary[key] = scalarValue.value
+            if scalarValue.truncatedBytes > 0 {
+                summary["\(key)_truncated_bytes"] = scalarValue.truncatedBytes
+            }
+        }
+    }
+
+    private static func boundedPostToolUseScalarValue(_ rawValue: Any) -> (value: Any, truncatedBytes: Int)? {
+        if rawValue is NSNull {
+            return (NSNull(), 0)
+        }
+        if let bool = rawValue as? Bool {
+            return (bool, 0)
+        }
+        if let number = rawValue as? NSNumber {
+            return (number, 0)
+        }
+        if let string = rawValue as? String {
+            let preview = feedUTF8Prefix(
+                string,
+                maxBytes: feedPostToolUseScalarStringLimitBytes
+            )
+            return (preview.value, preview.truncatedBytes)
+        }
+        return nil
+    }
+
+    private static func feedUTF8Prefix(
+        _ value: String,
+        maxBytes: Int
+    ) -> (value: String, truncatedBytes: Int) {
+        let totalBytes = value.utf8.count
+        guard totalBytes > maxBytes else {
+            return (value, 0)
+        }
+
+        var usedBytes = 0
+        var endIndex = value.startIndex
+        while endIndex < value.endIndex {
+            let nextIndex = value.index(after: endIndex)
+            let characterBytes = value[endIndex..<nextIndex].utf8.count
+            if usedBytes + characterBytes > maxBytes {
+                break
+            }
+            usedBytes += characterBytes
+            endIndex = nextIndex
+        }
+        return (String(value[..<endIndex]), totalBytes - usedBytes)
     }
 
     private static func shouldSuppressKiroFeedEvent(

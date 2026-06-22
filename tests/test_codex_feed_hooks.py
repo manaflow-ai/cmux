@@ -2118,6 +2118,58 @@ def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, 
             raise AssertionError(f"Codex PostToolUse should forward tool_response, got {event!r}")
 
 
+def test_codex_post_tool_use_bounds_large_tool_response(cli_path: str, root: Path) -> None:
+    large_stdout = "x" * (80 * 1024)
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-large-post-tool",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "python3 noisy.py"},
+        "tool_response": {
+            "exit_code": 42,
+            "status": "failed",
+            "stdout": large_stdout,
+            "stderr": "short stderr",
+            "private_blob": "y" * (80 * 1024),
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-large-posttool.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"Codex PostToolUse telemetry should not emit a decision: {stdout!r}")
+    params = frame["params"]
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(f"Codex PostToolUse should not wait for Feed reply: {frame!r}")
+    event = params["event"]
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        raise AssertionError(f"Codex PostToolUse should forward summarized tool_input: {event!r}")
+    if tool_input.get("_cmux_truncated") is not True:
+        raise AssertionError(f"large PostToolUse response was not marked truncated: {tool_input!r}")
+    if tool_input.get("exit_code") != 42 or tool_input.get("status") != "failed":
+        raise AssertionError(f"large PostToolUse response did not preserve metadata: {tool_input!r}")
+    stdout_preview = tool_input.get("stdout")
+    if not isinstance(stdout_preview, str):
+        raise AssertionError(f"large PostToolUse response did not keep a stdout preview: {tool_input!r}")
+    if len(stdout_preview.encode("utf-8")) > 8 * 1024:
+        raise AssertionError(f"stdout preview exceeded the byte cap: {len(stdout_preview.encode('utf-8'))}")
+    if tool_input.get("stdout_truncated_bytes", 0) <= 0:
+        raise AssertionError(f"stdout truncation byte count was not recorded: {tool_input!r}")
+    if tool_input.get("stderr") != "short stderr":
+        raise AssertionError(f"small stderr preview should be preserved: {tool_input!r}")
+    if "private_blob" in tool_input:
+        raise AssertionError(f"unrecognized large PostToolUse fields should be omitted: {tool_input!r}")
+    if tool_input.get("_cmux_original_json_bytes", 0) <= 64 * 1024:
+        raise AssertionError(f"original oversized payload byte count was not recorded: {tool_input!r}")
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -2186,6 +2238,7 @@ def main() -> int:
             test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
+            test_codex_post_tool_use_bounds_large_tool_response(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
