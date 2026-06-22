@@ -12,9 +12,9 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `8d6ac6e07`, which adds
+Current cmux pinned fork head: `46bd03a7d`, which adds
 `ghostty_surface_read_screen_text` for bounded copy-mode reads from absolute
-screen rows on top of `05c3e2908`. The prior `05c3e2908` head adds the
+screen rows on top of Ghostty fork `main`. The prior `05c3e2908` head adds the
 Darwin-only `ghostty_surface_set_renderer_realized` C API (a
 `display_realized` renderer-thread mailbox message that drives
 `displayUnrealized()`/`displayRealized()`) on top of `5697db81`. cmux uses it to
@@ -24,10 +24,11 @@ returns whether the message was enqueued so the embedder only advances its
 realize/unrealize mirror state on success. The push is `.instant`
 (non-blocking) so it never stalls the embedder's main thread waiting on the
 renderer. See manaflow-ai/ghostty branch `feat-renderer-realized-offscreen`,
-the copy-mode read branch `issue-6170-surface-read-screen-text`, and
-https://github.com/manaflow-ai/cmux/issues/4607. No prebuilt archive is pinned
-yet for `8d6ac6e07`; `scripts/ensure-ghosttykit.sh` builds GhosttyKit locally
-with ReleaseFast until a reviewed archive and checksum are published.
+the copy-mode read branch `issue-6170-surface-read-screen-text-main`, and
+https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
+archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-46bd03a7dafb28302090c6f2a8e42513d2fed54c-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The prior head was refreshed from upstream `main` on May 1, 2026.
 Earlier cmux pinned fork head: `34cbf180d`, merging the surface registry
