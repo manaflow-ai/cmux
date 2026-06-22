@@ -1,6 +1,6 @@
 import Foundation
 
-enum WorkspaceGroupRunChildRow {
+enum WorkspaceGroupRunChildRow<Tab: WorkspaceTabRepresenting> {
     case group(WorkspaceGroup)
     case workspace(Tab)
 

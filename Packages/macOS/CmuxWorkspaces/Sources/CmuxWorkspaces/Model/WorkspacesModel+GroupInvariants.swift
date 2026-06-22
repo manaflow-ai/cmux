@@ -52,7 +52,7 @@ extension WorkspacesModel {
             workspaceRankMap(preferredIds: $0)
         }
 
-        var childRowsByParentId: [UUID?: [WorkspaceGroupRunChildRow]] = [:]
+        var childRowsByParentId: [UUID?: [WorkspaceGroupRunChildRow<Tab>]] = [:]
         for tab in tabs {
             if let anchoredGroup = anchorGroupByWorkspaceId[tab.id] {
                 childRowsByParentId[anchoredGroup.parentGroupId, default: []].append(.group(anchoredGroup))
@@ -64,7 +64,7 @@ extension WorkspacesModel {
             }
         }
 
-        func rowRank(_ row: WorkspaceGroupRunChildRow, parentGroupId: UUID?) -> Int {
+        func rowRank(_ row: WorkspaceGroupRunChildRow<Tab>, parentGroupId: UUID?) -> Int {
             if parentGroupId == nil,
                let topLevelRankByWorkspaceId,
                let rank = topLevelRankByWorkspaceId[row.workspaceId] {
@@ -94,8 +94,8 @@ extension WorkspacesModel {
         var reordered: [Tab] = []
         reordered.reserveCapacity(tabs.count)
 
-        func appendRows(_ rows: [WorkspaceGroupRunChildRow]) {
-            var stack: [(rows: [WorkspaceGroupRunChildRow], nextIndex: Int)] = [(rows, 0)]
+        func appendRows(_ rows: [WorkspaceGroupRunChildRow<Tab>]) {
+            var stack: [(rows: [WorkspaceGroupRunChildRow<Tab>], nextIndex: Int)] = [(rows, 0)]
             while var frame = stack.popLast() {
                 guard frame.nextIndex < frame.rows.count else { continue }
                 let row = frame.rows[frame.nextIndex]
