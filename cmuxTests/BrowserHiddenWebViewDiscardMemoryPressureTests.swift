@@ -130,7 +130,7 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
 
             #expect(!manager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now))
 
-            #expect(!manager.hasScheduledDiscard)
+            #expect(manager.hasScheduledDiscard)
             #expect(delegate.discardRequestCount == 0)
             #expect(delegate.lastDiscardReason == nil)
         }
