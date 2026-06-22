@@ -6,6 +6,7 @@ const runVmWorkflow = mock(async () => {
 });
 const createVm = mock(() => ({ workflow: "create" }));
 const listUserVms = mock(() => ({ workflow: "list" }));
+const getVm = mock(() => ({ workflow: "get" }));
 const destroyVm = mock(() => ({ workflow: "destroy" }));
 const execVm = mock(() => ({ workflow: "exec" }));
 const openAttachEndpoint = mock(() => ({ workflow: "attach" }));
@@ -37,6 +38,7 @@ mock.module("../services/vms/workflows", () => ({
   createVm,
   destroyVm,
   execVm,
+  getVm,
   listUserVms,
   openAttachEndpoint,
   openSshEndpoint,
@@ -60,6 +62,7 @@ beforeEach(() => {
   createVm.mockClear();
   destroyVm.mockClear();
   execVm.mockClear();
+  getVm.mockClear();
   listUserVms.mockClear();
   openAttachEndpoint.mockClear();
   openSshEndpoint.mockClear();
