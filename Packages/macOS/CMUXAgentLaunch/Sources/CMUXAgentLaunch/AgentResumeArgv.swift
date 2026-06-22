@@ -313,9 +313,35 @@ public struct AgentResumeArgv: Sendable, Equatable {
         guard preferPathExecutableName, executable.contains("/") else {
             return executable
         }
-        return (executable as NSString).lastPathComponent == fallbackExecutable
-            ? fallbackExecutable
-            : executable
+        guard (executable as NSString).lastPathComponent == fallbackExecutable,
+              isPATHManagedExecutablePath(executable, executableName: fallbackExecutable) else {
+            return executable
+        }
+        return fallbackExecutable
+    }
+
+    private func isPATHManagedExecutablePath(_ path: String, executableName: String) -> Bool {
+        let standardized = (path as NSString).standardizingPath
+        if standardized == "/usr/local/bin/\(executableName)"
+            || standardized == "/opt/homebrew/bin/\(executableName)" {
+            return true
+        }
+        let components = standardized.split(separator: "/").map(String.init)
+        let lastThree = Array(components.suffix(3))
+        if lastThree == [".local", "bin", executableName]
+            || lastThree == [".bun", "bin", executableName]
+            || lastThree == [".volta", "bin", executableName]
+            || lastThree == [".asdf", "shims", executableName] {
+            return true
+        }
+        if components.count >= 6,
+           Array(components.suffix(2)) == ["bin", executableName],
+           components.contains(".nvm"),
+           components.contains("versions"),
+           components.contains("node") {
+            return true
+        }
+        return components.contains("cmux-cli-shims")
     }
 
     private func normalized(_ value: String?) -> String? {

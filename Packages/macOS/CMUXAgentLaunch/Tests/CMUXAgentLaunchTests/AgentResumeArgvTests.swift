@@ -130,6 +130,14 @@ struct AgentResumeArgvTests {
                 arguments: ["/opt/bin/codex-beta"]
             ) == ["/opt/bin/codex-beta", "resume", "SID"]
         )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/company/bin/codex",
+                arguments: ["/opt/company/bin/codex"]
+            ) == ["/opt/company/bin/codex", "resume", "SID"]
+        )
     }
 
     @Test("cmux wrapper launchers resolve before per-kind verbs")
