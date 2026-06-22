@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — 專為多工處理打造的終端",
-    "description": "基於 Ghostty 的原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直分頁、通知環、分割面板和 socket API。",
-    "ogDescription": "面向 AI 程式 agent 的原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
+    "description": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。垂直分頁、通知環、分割面板和 socket API。",
+    "ogDescription": "面向 AI 編程代理的免費開源 macOS 終端。支援 Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider 及任何 CLI 工具。"
   },
   "common": {
     "downloadForMac": "下載 Mac 版",
@@ -40,13 +40,14 @@
     "nightly": "每夜建置",
     "copyright": "© {year} Manaflow",
     "language": "語言",
-    "assets": "素材"
+    "assets": "素材",
+    "openSource": "開源"
   },
   "home": {
     "taglinePrefix": "開源終端，專為 ",
     "typingCodingAgents": "程式 agent",
     "typingMultitasking": "多工處理",
-    "subtitle": "基於 Ghostty 的原生 macOS 終端應用程式。開源免費。垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
+    "subtitle": "基於 Ghostty 構建的免費開源原生 macOS 終端。支援垂直分頁、代理需要注意時的通知環、分割窗格，以及用於可程式化的 <cliLink>CLI</cliLink>。",
     "features": "功能",
     "faq": "常見問題",
     "communitySection": "社群",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": "：在終端機旁分割一個瀏覽器，並提供可編寫腳本的 API",
       "splitPanes": "分割窗格",
       "splitPanesDesc": "：每個分頁內支援水平和垂直分割",
-      "scriptable": "可編寫腳本",
+      "scriptable": "可程式化",
       "scriptableDesc": "：提供 CLI 和 socket API，用於自動化和腳本編寫",
       "gpuAccelerated": "GPU 加速",
       "gpuAcceleratedDesc": "：由 libghostty 驅動，提供流暢的渲染效果",
       "lightweight": "輕量化",
       "lightweightDesc": "：原生 Swift + AppKit，無 Electron",
       "keyboardShortcuts": "鍵盤快捷鍵",
-      "keyboardShortcutsDesc": "：<link>豐富的快捷鍵</link>，涵蓋工作區、分割、瀏覽器等功能"
+      "keyboardShortcutsDesc": "：<link>豐富的快捷鍵</link>，涵蓋工作區、分割、瀏覽器等功能",
+      "openSource": "開源",
+      "openSourceDesc": "：免費且採用 GPL 授權"
     },
     "faqGhosttyQ": "cmux 和 Ghostty 有什麼關係？",
     "faqGhosttyA": "cmux 不是 Ghostty 的分支。它使用 <link>libghostty</link> 作為終端機渲染的函式庫，就像應用程式使用 WebKit 來顯示網頁一樣。Ghostty 是一個獨立的終端機；cmux 是建立在其渲染引擎之上的不同應用程式。",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "cmux 支援哪些程式碼代理？",
     "faqAgentsA": "全部都支援。cmux 是一個終端機，所以任何在終端機中執行的代理都能直接使用：Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、Goose、Amp、Cline、Cursor Agent，以及任何你能從命令列啟動的工具。",
     "faqNotificationsQ": "通知是如何運作的？",
-    "faqNotificationsA": "當程序需要注意時，cmux 會在窗格周圍顯示通知環、在側邊欄顯示未讀徽章、顯示通知彈出視窗，以及 macOS 桌面通知。這些通知會透過標準終端機跳脫序列（OSC 9/99/777）自動觸發，你也可以透過 <cliLink>cmux CLI</cliLink> 和 <hooksLink>Claude Code hooks</hooksLink> 手動觸發。",
+    "faqNotificationsA": "當程序需要注意時，cmux 會在窗格周圍顯示通知環、在側邊欄顯示未讀徽章、顯示通知彈出視窗，以及 macOS 桌面通知。這些會透過標準終端機跳脫序列（OSC 9/99/777）自動觸發，你也可以透過 <cliLink>cmux CLI</cliLink> 和 <hooksLink>agent hooks</hooksLink> 手動觸發。任何支援 hooks 或 OSC 的代理都可以使用，包括 Claude Code、Codex、OpenCode 和 pi。",
     "faqShortcutsQ": "可以自訂鍵盤快捷鍵嗎？",
     "faqShortcutsA": "終端機按鍵綁定從你的 Ghostty 設定檔（<configPath>~/.config/ghostty/config</configPath>）讀取。cmux 專屬的快捷鍵（工作區、分割、瀏覽器、通知）可以在「設定」中自訂。請參閱<link>預設快捷鍵</link>以獲取完整列表。",
     "faqTmuxQ": "和 tmux 相比如何？",
-    "faqTmuxA": "tmux 是一個在任何終端機內執行的終端機多工器。cmux 是一個帶有圖形介面的原生 macOS 應用程式：垂直分頁、分割窗格、內建瀏覽器和 socket API 全部內建。不需要設定檔或前綴鍵。",
+    "faqTmuxA": "tmux 是在任何終端機內執行的終端機多工器。cmux 是一個帶有圖形介面的原生 macOS 應用程式：垂直分頁、分割窗格、內建瀏覽器和 socket API 全部內建，不需要設定檔或前綴鍵。話雖如此，很多人也樂於把 cmux 與 SSH 和 tmux 搭配使用，而且 cmux 可以原生連接到你的遠端 tmux 工作階段（<link>beta</link>）。",
     "faqFreeQ": "cmux 是免費的嗎？",
-    "faqFreeA": "是的，cmux 可以免費使用。原始碼可在 <link>GitHub</link> 上取得。"
+    "faqFreeA": "是的，cmux 可以免費使用。原始碼可在 <link>GitHub</link> 上取得。",
+    "faqSessionsQ": "我的工作階段會被保存嗎？",
+    "faqSessionsA": "會的。重新啟動時，cmux 會還原你的視窗、工作區、窗格、工作目錄和回捲內容，而且這些狀態在整機重啟後也能保留，不只是退出應用程式時。Claude Code、Codex 和 OpenCode 等代理工作階段也會一併還原。請參閱<link>工作階段還原</link>。",
+    "faqScriptableQ": "cmux 可程式化嗎？",
+    "faqScriptableA": "可以。每個操作都能透過 cmux CLI 和一個 Unix socket 進行：建立工作區、開啟分割窗格、傳送輸入、讀取畫面內容、截圖，以及驅動內建瀏覽器。請參閱 <cliLink>CLI 參考</cliLink>和<browserLink>瀏覽器自動化</browserLink>文件。",
+    "faqRemoteQ": "可以將 cmux 用於遠端機器嗎？",
+    "faqRemoteA": "可以。透過 SSH 開啟工作區並連接到遠端 tmux 工作階段，這樣代理就能在遠端主機上執行，同時你從 cmux 來驅動它們。請參閱 <link>SSH 與遠端</link>。",
+    "faqOrchestrationQ": "cmux 可以編排多個代理和子代理嗎？",
+    "faqOrchestrationA": "可以。當一個代理衍生出子代理或協作者時，cmux 會把它們變成原生窗格和分割，而不是隱藏的背景程序。它支援 <teamsLink>Claude Code teams</teamsLink> 和 <omoLink>oh-my-opencode</omoLink> 多模型編排，讓一次執行中的每個代理都可見、可控。",
+    "faqCustomizeQ": "可以自訂 cmux 嗎？",
+    "faqCustomizeA": "可以。終端機渲染使用你的 Ghostty 設定，因此主題、字型、色彩和游標會直接沿用。cmux 本身的設定位於 <path>~/.config/cmux/cmux.json</path>，用於控制側邊欄、分頁列、分割窗格和行為，每個<shortcutsLink>鍵盤快捷鍵</shortcutsLink>都可編輯。請參閱<link>設定</link>。",
+    "faqIosQ": "有 iOS 應用程式嗎？",
+    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 視窗中將你的 iPhone 與 Mac 配對，即可從手機連接到你的終端機，並可選擇轉發終端機通知。它透過 TestFlight 以 cmux BETA 的形式發布。",
+    "faqSkillsQ": "cmux 有 skills 嗎？",
+    "faqSkillsA": "有。skills 是可重複使用的工作流程，你可以把它交給任何在 cmux 中執行的 agent，用於 CLI 控制、工作區自動化、設定和瀏覽器介面等情境。在 <skillsLink>cmux-skills</skillsLink> 瀏覽開放的集合，或閱讀 <link>skills 文件</link>。",
+    "faqBrowserQ": "內建瀏覽器能做什麼？",
+    "faqBrowserA": "cmux 可以在終端機旁分割一個真正的瀏覽器窗格，而且完全可程式化：導覽、對 DOM 截照、點擊、輸入、執行 JavaScript，以及透過同一個 socket API 讀取主控台和網路活動。agent 用它來驗證自己的 web 變更，無需離開 cmux。請參閱<link>瀏覽器自動化</link>。",
+    "faqSupportQ": "我該如何支持 cmux？",
+    "faqSupportA": "cmux 免費且開源，而且永遠都會如此。如果你想支持開發並搶先體驗後續內容，包括 cmux AI、iOS 應用程式和 Cloud VMs，請了解 <foundersLink>cmux Founders Edition</foundersLink>。",
+    "faqFeatureQ": "我有功能請求或發現了一個 bug",
+    "faqFeatureA": "我們很想聽到你的回饋。在 GitHub 上提交一個 <issuesLink>issue</issuesLink> 或 <prLink>pull request</prLink>，或者 <mailLink>寄電子郵件給我們</mailLink>。"
   },
   "community": {
     "title": "社群",
@@ -770,7 +793,8 @@
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
-          "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。"
+          "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。",
+          "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
         "terminal": {
           "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
@@ -1237,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox（測試版）"
+      "textBox": "TextBox（測試版）",
+      "ios": "iOS 應用程式"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1386,6 +1411,46 @@
       "configTitle": "cmux.json",
       "configDesc": "也可以在 ~/.config/cmux/cmux.json 的 terminal 下設定相同預設值：",
       "focusNote": "還原的工作階段會保留已儲存的 TextBox 顯示和焦點狀態。這些預設值只會套用到新建的終端機介面。"
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode：在 cmux 中執行 OpenCode 多代理",
+      "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。"
+    },
+    "ios": {
+      "metaTitle": "iOS 應用程式",
+      "metaDescription": "設定 cmux iOS 配套應用程式：TestFlight 存取權限、使用 Tailscale 或 WireGuard 自帶網路、配對、通知，以及 cmux 儲存哪些資料。",
+      "title": "iOS 應用程式",
+      "intro": "cmux iOS 應用程式是你 Mac 的配套應用程式。將 iPhone 或 iPad 與執行 cmux 的 Mac 配對，即可從手機連線到你的終端，並可選擇轉發終端通知。",
+      "betaNote": "iOS 應用程式處於測試版階段。它透過 TestFlight 以 cmux BETA 的形式發布。",
+      "accessTitle": "取得存取權限",
+      "accessDesc": "該應用程式透過 TestFlight 發布。<foundersLink>cmux Founders Edition</foundersLink> 包含搶先存取權限，以及其他早期功能。",
+      "prereqTitle": "先決條件",
+      "prereqIntro": "開始之前，你需要：",
+      "prereq1": "一台執行 cmux 並已登入的 Mac。",
+      "prereq2": "一台已從 TestFlight 安裝 cmux BETA 應用程式的 iPhone 或 iPad。",
+      "prereq3": "從手機到 Mac 的網路路徑（參見下方的自帶網路）。",
+      "networkingTitle": "自帶網路",
+      "networkingDesc": "cmux 不提供開箱即用的網路。終端串流在你的手機和 Mac 之間直接傳輸，因此你的手機必須能夠在網路上連線到你的 Mac。最簡單的方式是使用私有覆蓋網路。",
+      "tailscaleTitle": "Tailscale（建議）",
+      "tailscaleDesc": "在你的 Mac 和手機上都安裝 <link>Tailscale</link>，並登入到同一個 tailnet。這樣你的手機就可以從任何地方透過 Mac 的 tailnet 位址連線到它，無需連接埠轉發。",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "如果你已經在執行 <link>WireGuard</link>，將你的 Mac 和手機置於同一網路，並使用 Mac 的 WireGuard 位址。",
+      "networkingNote": "無論你選擇哪種方式，連線都歸你所有。cmux 不會在你的裝置之間代理或中繼終端流量。",
+      "pairTitle": "配對與連線",
+      "pairStep1": "在 Mac 上，開啟 cmux 中的 Mobile Connect 視窗。",
+      "pairStep2": "在你的手機上，開啟 cmux BETA 應用程式並確認 Mobile Connect 中顯示的配對。",
+      "pairStep3": "配對完成後，你的工作區和終端會透過你的網路出現在手機上。",
+      "pairNote": "配對是按裝置進行的。新裝置或重新安裝的應用程式需要再次配對。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "你可以選擇將終端通知轉發到手機，這樣需要關注的面板就會推送到你的裝置。開啟轉發後，通知文字（標題和內文，取自終端輸出）會透過 cmux 伺服器傳送到 Apple 的推送服務以進行投遞。在通知設定中開啟 Hide content，即可改為傳送通用訊息，並將終端文字保留在你的裝置上。請參閱 <link>通知</link> 了解 cmux 如何觸發它們。",
+      "dataTitle": "儲存哪些資料",
+      "dataIntro": "cmux 的設計讓你的終端只在你的裝置之間流轉。在 cmux 伺服器上，我們只儲存登入你的帳戶和連線你的裝置所需的內容：",
+      "data1": "你登入時的帳戶（電子郵件），用於在各裝置間識別你。",
+      "data2": "你裝置的推送權杖，用於投遞轉發的終端通知。",
+      "data3": "配對和裝置中繼資料，用於將你的手機連線到你的 Mac。",
+      "dataNot": "你的互動式終端工作階段、其內容和按鍵，透過你自己的網路在手機和 Mac 之間直接傳輸，不會經由 cmux 伺服器中繼或儲存在其上。唯一的例外是轉發的通知文字，它會經過 cmux 和 Apple 的推送服務到達你的手機，除非你啟用 Hide content（參見上方的通知）。",
+      "enterpriseTitle": "企業與自架",
+      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@manaflow.com</link>。"
     }
   },
   "legal": {
