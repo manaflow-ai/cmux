@@ -3,26 +3,6 @@ import Bonsplit
 import CmuxCanvas
 
 extension ZoomableSplitRootView {
-    struct SplitActionButtonHit {
-        let paneId: PaneID
-        let button: BonsplitConfiguration.SplitActionButton
-    }
-
-    private enum SplitActionLaneMetrics {
-        static let reservedButtonWidth: CGFloat = 22
-        static let spacing: CGFloat = 4
-        static let leadingPadding: CGFloat = 6
-        static let trailingPadding: CGFloat = 8
-
-        static func laneWidth(buttonCount: Int) -> CGFloat {
-            guard buttonCount > 0 else { return 0 }
-            return leadingPadding
-                + trailingPadding
-                + CGFloat(buttonCount) * reservedButtonWidth
-                + CGFloat(max(0, buttonCount - 1)) * spacing
-        }
-    }
-
     func canvasRect(from rect: CGRect) -> CanvasRect {
         CanvasRect(
             x: Double(rect.origin.x),
@@ -90,11 +70,11 @@ extension ZoomableSplitRootView {
         atDocumentPoint point: CGPoint,
         in snapshot: LayoutSnapshot,
         appearance: BonsplitConfiguration.Appearance
-    ) -> SplitActionButtonHit? {
+    ) -> ZoomableSplitActionButtonHit? {
         let buttons = appearance.splitButtons
         guard !buttons.isEmpty else { return nil }
         let tabBarHeight = appearance.tabBarHeight
-        let laneWidth = SplitActionLaneMetrics.laneWidth(buttonCount: buttons.count)
+            let laneWidth = ZoomableSplitActionLaneMetrics.laneWidth(buttonCount: buttons.count)
         guard laneWidth > 0 else { return nil }
 
         for pane in snapshot.panes.reversed() {
@@ -115,18 +95,18 @@ extension ZoomableSplitRootView {
             guard point.x >= laneMinX, point.x <= paneFrame.maxX else { return nil }
 
             let localPoint = CGPoint(x: point.x - laneMinX, y: point.y - paneFrame.minY)
-            var buttonX = SplitActionLaneMetrics.leadingPadding
+            var buttonX = ZoomableSplitActionLaneMetrics.leadingPadding
             for button in buttons {
                 let buttonRect = CGRect(
                     x: buttonX,
                     y: 0,
-                    width: SplitActionLaneMetrics.reservedButtonWidth,
+                    width: ZoomableSplitActionLaneMetrics.reservedButtonWidth,
                     height: tabBarHeight
                 )
                 if buttonRect.contains(localPoint) {
-                    return SplitActionButtonHit(paneId: PaneID(id: paneUUID), button: button)
+                    return ZoomableSplitActionButtonHit(paneId: PaneID(id: paneUUID), button: button)
                 }
-                buttonX += SplitActionLaneMetrics.reservedButtonWidth + SplitActionLaneMetrics.spacing
+                buttonX += ZoomableSplitActionLaneMetrics.reservedButtonWidth + ZoomableSplitActionLaneMetrics.spacing
             }
             return nil
         }
