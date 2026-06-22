@@ -10,29 +10,7 @@ private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
 final class WindowTerminalHostView: NSView {
-    private final class DividerRegion {
-        weak var splitView: NSSplitView?
-        weak var window: NSWindow?
-        let dividerIndex: Int
-        let rectInWindow: NSRect
-        let boundsInWindow: NSRect
-        let isVertical: Bool
-
-        init(
-            splitView: NSSplitView,
-            dividerIndex: Int,
-            rectInWindow: NSRect,
-            boundsInWindow: NSRect,
-            isVertical: Bool
-        ) {
-            self.splitView = splitView
-            self.window = splitView.window
-            self.dividerIndex = dividerIndex
-            self.rectInWindow = rectInWindow
-            self.boundsInWindow = boundsInWindow
-            self.isVertical = isVertical
-        }
-    }
+    private typealias DividerRegion = PortalSplitDividerRegion
 
     private enum DividerCursorKind: Equatable {
         case vertical
@@ -398,12 +376,8 @@ final class WindowTerminalHostView: NSView {
     }
 
     private func splitDividerRegions() -> [DividerRegion] {
-        if let cachedSplitDividerRegions {
-            if Self.dividerRegionsAreLive(cachedSplitDividerRegions) {
-                return cachedSplitDividerRegions
-            }
-            self.cachedSplitDividerRegions = nil
-        }
+        if let regions = cachedSplitDividerRegions, PortalSplitDividerRegion.allLive(regions) { return regions }
+        cachedSplitDividerRegions = nil
         guard let window, let rootView = window.contentView else { cachedSplitDividerRegions = []; return [] }
         var regions: [DividerRegion] = []
         Self.collectSplitDividerRegions(in: rootView, into: &regions)
@@ -434,7 +408,7 @@ final class WindowTerminalHostView: NSView {
     private static func dividerCursorKind(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerCursorKind? {
         let expansion: CGFloat = 5
         for region in regions.reversed() {
-            guard dividerRegionIsLive(region) else { continue }
+            guard region.isLive else { continue }
             let hitRect = region.rectInWindow.insetBy(dx: -expansion, dy: -expansion)
                 .intersection(region.boundsInWindow)
             if !hitRect.isNull, hitRect.contains(windowPoint) {
@@ -442,31 +416,6 @@ final class WindowTerminalHostView: NSView {
             }
         }
         return nil
-    }
-
-    private static func dividerRegionsAreLive(_ regions: [DividerRegion]) -> Bool {
-        regions.allSatisfy(dividerRegionIsLive)
-    }
-
-    private static func dividerRegionIsLive(_ region: DividerRegion) -> Bool {
-        guard let splitView = region.splitView,
-              let window = region.window,
-              splitView.window === window,
-              region.dividerIndex + 1 < splitView.arrangedSubviews.count,
-              splitView.isVertical == region.isVertical else {
-            return false
-        }
-        var current: NSView? = splitView
-        while let view = current {
-            if view.isHidden { return false }
-            current = view.superview
-        }
-        let first = splitView.arrangedSubviews[region.dividerIndex].frame
-        let second = splitView.arrangedSubviews[region.dividerIndex + 1].frame
-        if region.isVertical {
-            return first.width > 1 || second.width > 1
-        }
-        return first.height > 1 || second.height > 1
     }
 
     private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
@@ -491,15 +440,7 @@ final class WindowTerminalHostView: NSView {
                 }
                 let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
                 guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
-                result.append(
-                    DividerRegion(
-                        splitView: splitView,
-                        dividerIndex: dividerIndex,
-                        rectInWindow: dividerRectInWindow,
-                        boundsInWindow: splitBoundsInWindow,
-                        isVertical: splitView.isVertical
-                    )
-                )
+                result.append(DividerRegion(splitView: splitView, dividerIndex: dividerIndex, rectInWindow: dividerRectInWindow, boundsInWindow: splitBoundsInWindow, isVertical: splitView.isVertical))
             }
         }
 
