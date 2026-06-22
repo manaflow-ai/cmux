@@ -4743,10 +4743,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
         guard text.text_len <= Self.keyboardCopyModeVisualLineFallbackMaxBytes,
-              let byteCount = Int(exactly: text.text_len) else { return nil }
-        return text.text.map {
-            String(decoding: Data(bytes: $0, count: byteCount), as: UTF8.self)
-        } ?? ""
+              let byteCount = Int(exactly: text.text_len),
+              let rawText = text.text else { return nil }
+        return String(decoding: Data(bytes: rawText, count: byteCount), as: UTF8.self)
     }
 
     private func keyboardCopyModeVisualLineSelectionFitsVisibleRange(surface: ghostty_surface_t) -> Bool {
@@ -4788,7 +4787,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
 
             guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
-            if !selectedText.isEmpty { GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD) }
+            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
             return true
         }
 
