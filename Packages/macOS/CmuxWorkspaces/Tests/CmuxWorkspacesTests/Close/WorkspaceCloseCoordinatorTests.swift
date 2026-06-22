@@ -34,11 +34,16 @@ private final class StubTab: WorkspaceTabRepresenting {
 }
 
 /// Records the strings the coordinator asks for so the plan assembly can be
-/// asserted without the app bundle's real localized catalog.
+/// asserted without the app bundle's real localized catalog, and records every
+/// presented ``CloseConfirmationPrompt`` so the decision flow can be asserted
+/// without AppKit.
 @MainActor
 private final class StubConfirming: CloseConfirming {
+    /// What `present` reports as the user's answer.
     var confirmResult = true
-    private(set) var confirmCalls: [(title: String, message: String, acceptCmdD: Bool)] = []
+    /// What `present` reports for the suppression checkbox on confirm.
+    var suppressionChecked = false
+    private(set) var presentedPrompts: [CloseConfirmationPrompt] = []
 
     func closeWorkspacesTitle(willCloseWindow: Bool) -> String {
         willCloseWindow ? "WINDOW_TITLE" : "WORKSPACES_TITLE"
@@ -53,10 +58,21 @@ private final class StubConfirming: CloseConfirming {
     }
 
     var workspaceDisplayTitleFallback: String { "FALLBACK" }
+    var closeWorkspaceTitle: String { "WS_TITLE" }
+    var closeWorkspaceMessage: String { "WS_MSG" }
+    var closePinnedWorkspaceTitle: String { "PINNED_TITLE" }
+    var closePinnedWorkspaceMessage: String { "PINNED_MSG" }
+    var closeAnchorTitle: String { "ANCHOR_TITLE" }
+    var closeAnchorMessageLoneFormat: String { "LONE|%@" }
+    var closeAnchorMessageOneFormat: String { "ONE|%@" }
+    var closeAnchorMessageManyFormat: String { "MANY|%1$@|%2$lld" }
 
-    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
-        confirmCalls.append((title, message, acceptCmdD))
-        return confirmResult
+    func present(_ prompt: CloseConfirmationPrompt) -> CloseConfirmationOutcome {
+        presentedPrompts.append(prompt)
+        return CloseConfirmationOutcome(
+            confirmed: confirmResult,
+            suppressionChecked: confirmResult && suppressionChecked
+        )
     }
 }
 
@@ -71,6 +87,10 @@ private final class StubCloseHost: WorkspaceCloseHosting {
     private(set) var events: [String] = []
     var remoteTmuxMirrorIds: Set<UUID> = []
     var restorableIds: Set<UUID> = []
+    /// Workspace ids that report needing a confirm-close prompt.
+    var needsConfirmIds: Set<UUID> = []
+    /// What `closeWindow` reports (true = a window-close was dispatched).
+    var closeWindowResult = true
 
     func recordWorkspaceCloseBreadcrumb(remainingTabCount: Int) {
         events.append("breadcrumb(\(remainingTabCount))")
@@ -97,6 +117,21 @@ private final class StubCloseHost: WorkspaceCloseHosting {
     func clearGroupMembership(_ tab: StubTab) { events.append("clearGroup") }
     func forgetRememberedFocus(workspaceId: UUID) { events.append("forgetFocus") }
     func addReplacementWorkspaceForEmptyWindow() { events.append("addReplacement") }
+    func needsConfirmClose(_ tab: StubTab) -> Bool { needsConfirmIds.contains(tab.id) }
+    func markRemoteTmuxKillOnWindowClose() { events.append("markRemoteKill") }
+    @discardableResult
+    func closeWindow(containingWorkspaceId workspaceId: UUID) -> Bool {
+        events.append("closeWindow")
+        return closeWindowResult
+    }
+}
+
+/// A scoped, empty `UserDefaults`-backed settings client + catalog for the
+/// close coordinator's anchor-suppression flag.
+@MainActor
+private func makeCloseSettings() -> (UserDefaultsSettingsClient, SettingCatalog) {
+    let defaults = UserDefaults(suiteName: "WorkspaceCloseCoordinatorTests-\(UUID().uuidString)")!
+    return (UserDefaultsSettingsClient(defaults: defaults), SettingCatalog())
 }
 
 @MainActor
@@ -107,7 +142,8 @@ private func makeCoordinator(
     let model = WorkspacesModel<StubTab>()
     model.tabs = tabs
     model.selectedTabId = selected
-    let coordinator = WorkspaceCloseCoordinator(model: model)
+    let (settings, catalog) = makeCloseSettings()
+    let coordinator = WorkspaceCloseCoordinator(model: model, settings: settings, catalog: catalog)
     let confirming = StubConfirming()
     coordinator.attach(confirming: confirming)
     return (coordinator, confirming)
@@ -121,7 +157,8 @@ private func makeExecutionCoordinator(
     let model = WorkspacesModel<StubTab>()
     model.tabs = tabs
     model.selectedTabId = selected
-    let coordinator = WorkspaceCloseCoordinator(model: model)
+    let (settings, catalog) = makeCloseSettings()
+    let coordinator = WorkspaceCloseCoordinator(model: model, settings: settings, catalog: catalog)
     let host = StubCloseHost()
     coordinator.attach(host: host)
     return (coordinator, model, host)
@@ -218,7 +255,8 @@ struct WorkspaceCloseCoordinatorTests {
         let model = WorkspacesModel<StubTab>()
         let a = StubTab(title: "a")
         model.tabs = [a]
-        let coordinator = WorkspaceCloseCoordinator(model: model)
+        let (settings, catalog) = makeCloseSettings()
+        let coordinator = WorkspaceCloseCoordinator(model: model, settings: settings, catalog: catalog)
         #expect(coordinator.closeWorkspacesPlan(for: [a]) == nil)
     }
 
@@ -369,7 +407,12 @@ struct WorkspaceCloseConfirmationDecisionTests {
     private func makeCoordinator(
         closeTabWarning: FakeCloseTabWarning
     ) -> WorkspaceCloseCoordinator<StubTab> {
-        let coordinator = WorkspaceCloseCoordinator<StubTab>(model: WorkspacesModel<StubTab>())
+        let (settings, catalog) = makeCloseSettings()
+        let coordinator = WorkspaceCloseCoordinator<StubTab>(
+            model: WorkspacesModel<StubTab>(),
+            settings: settings,
+            catalog: catalog
+        )
         coordinator.attach(closeTabWarning: closeTabWarning)
         return coordinator
     }
@@ -431,5 +474,215 @@ struct WorkspaceCloseConfirmationDecisionTests {
         // X off but shortcut on + requiresConfirmation still warns (the OR arm).
         #expect(bothOff.shouldConfirmClose(requiresConfirmation: true, source: .tabCloseButton) == true)
         #expect(bothOff.shouldConfirmClose(requiresConfirmation: false, source: .tabCloseButton) == false)
+    }
+}
+
+/// Covers the close-confirmation decision flow moved off the per-window
+/// `TabManager` god object: the in-flight session re-entrancy, the test-override
+/// handler, the anchor-suppression flag read/write + which-message choice, and
+/// the pinned-close gate.
+@MainActor
+@Suite
+struct WorkspaceCloseConfirmationFlowTests {
+    @Test
+    func confirmCloseHandlerOverridesPresentationWhenSet() {
+        let (coordinator, confirming) = makeCoordinator(tabs: [])
+        coordinator.confirmCloseHandler = { _, _, _ in false }
+        #expect(coordinator.confirmClose(title: "T", message: "M", acceptCmdD: false) == false)
+        // The handler short-circuits before the witness is asked to present.
+        #expect(confirming.presentedPrompts.isEmpty)
+    }
+
+    @Test
+    func confirmClosePresentsWhenNoHandlerAndReportsConfirmation() {
+        let (coordinator, confirming) = makeCoordinator(tabs: [])
+        confirming.confirmResult = true
+        #expect(coordinator.confirmClose(title: "T", message: "M", acceptCmdD: true) == true)
+        #expect(confirming.presentedPrompts.count == 1)
+        let prompt = confirming.presentedPrompts[0]
+        #expect(prompt.title == "T")
+        #expect(prompt.message == "M")
+        #expect(prompt.acceptCmdD == true)
+        #expect(prompt.showsSuppressionCheckbox == false)
+    }
+
+    @Test
+    func confirmCloseSelfGatesWhileSessionInFlight() {
+        let (coordinator, confirming) = makeCoordinator(tabs: [])
+        // Simulate an outer session already up (e.g. the anchor dialog path).
+        #expect(coordinator.beginCloseConfirmationSession() == true)
+        #expect(coordinator.isCloseConfirmationInFlight == true)
+        // A nested confirmClose refuses (returns false) without presenting.
+        #expect(coordinator.confirmClose(title: "T", message: "M", acceptCmdD: false) == false)
+        #expect(confirming.presentedPrompts.isEmpty)
+    }
+
+    @Test
+    func confirmAnchorReturnsTrueWhenSuppressedWithoutPresenting() {
+        let model = WorkspacesModel<StubTab>()
+        let (settings, catalog) = makeCloseSettings()
+        settings.set(true, for: catalog.workspaceGroups.anchorCloseSuppressed)
+        let coordinator = WorkspaceCloseCoordinator(model: model, settings: settings, catalog: catalog)
+        let confirming = StubConfirming()
+        coordinator.attach(confirming: confirming)
+        #expect(coordinator.confirmAnchorWorkspaceClose(groupName: "G", otherMemberCount: 3) == true)
+        #expect(confirming.presentedPrompts.isEmpty)
+    }
+
+    @Test
+    func confirmAnchorAssemblesMessageVariantsAndShowsSuppressionCheckbox() {
+        let (coordinator, confirming) = makeCoordinator(tabs: [])
+
+        _ = coordinator.confirmAnchorWorkspaceClose(groupName: "G", otherMemberCount: 0)
+        _ = coordinator.confirmAnchorWorkspaceClose(groupName: "G", otherMemberCount: 1)
+        _ = coordinator.confirmAnchorWorkspaceClose(groupName: "G", otherMemberCount: 5)
+
+        #expect(confirming.presentedPrompts.count == 3)
+        #expect(confirming.presentedPrompts.allSatisfy { $0.title == "ANCHOR_TITLE" })
+        #expect(confirming.presentedPrompts.allSatisfy { $0.showsSuppressionCheckbox })
+        #expect(confirming.presentedPrompts.allSatisfy { $0.acceptCmdD == false })
+        #expect(confirming.presentedPrompts[0].message == "LONE|G")
+        #expect(confirming.presentedPrompts[1].message == "ONE|G")
+        #expect(confirming.presentedPrompts[2].message == "MANY|G|5")
+    }
+
+    @Test
+    func confirmAnchorPersistsSuppressionOnlyWhenCheckedAndConfirmed() {
+        let model = WorkspacesModel<StubTab>()
+        let (settings, catalog) = makeCloseSettings()
+        let coordinator = WorkspaceCloseCoordinator(model: model, settings: settings, catalog: catalog)
+        let confirming = StubConfirming()
+        coordinator.attach(confirming: confirming)
+
+        // Confirmed but checkbox off → no persistence.
+        confirming.confirmResult = true
+        confirming.suppressionChecked = false
+        #expect(coordinator.confirmAnchorWorkspaceClose(groupName: "G", otherMemberCount: 0) == true)
+        #expect(settings.value(for: catalog.workspaceGroups.anchorCloseSuppressed) == false)
+
+        // Confirmed with checkbox on → persists the flag.
+        confirming.suppressionChecked = true
+        #expect(coordinator.confirmAnchorWorkspaceClose(groupName: "G", otherMemberCount: 0) == true)
+        #expect(settings.value(for: catalog.workspaceGroups.anchorCloseSuppressed) == true)
+    }
+
+    @Test
+    func confirmPinnedSkipsConfirmationWhenNotWarned() {
+        let (coordinator, confirming) = makeCoordinator(tabs: [])
+        coordinator.attach(closeTabWarning: FakeCloseTabWarning(
+            warnsBeforeClosingTab: false,
+            warnsBeforeClosingTabXButton: false
+        ))
+        // .tabClose source with both warnings off → no prompt, allow close.
+        #expect(coordinator.confirmPinnedWorkspaceClose(source: .tabClose) == true)
+        #expect(confirming.presentedPrompts.isEmpty)
+    }
+
+    @Test
+    func confirmPinnedPresentsPinnedStringsWhenWarned() {
+        let (coordinator, confirming) = makeCoordinator(tabs: [])
+        coordinator.attach(closeTabWarning: FakeCloseTabWarning(
+            warnsBeforeClosingTab: true,
+            warnsBeforeClosingTabXButton: false
+        ))
+        confirming.confirmResult = true
+        #expect(coordinator.confirmPinnedWorkspaceClose(source: .tabClose) == true)
+        #expect(confirming.presentedPrompts.count == 1)
+        #expect(confirming.presentedPrompts[0].title == "PINNED_TITLE")
+        #expect(confirming.presentedPrompts[0].message == "PINNED_MSG")
+    }
+}
+
+/// A fully wired close coordinator (model + host + confirming + warning) for the
+/// moved single/batch close-with-confirmation orchestration.
+@MainActor
+private func makeWiredCoordinator(
+    tabs: [StubTab],
+    selected: UUID? = nil,
+    warnsBeforeClosingTab: Bool = false
+) -> (WorkspaceCloseCoordinator<StubTab>, WorkspacesModel<StubTab>, StubCloseHost, StubConfirming) {
+    let model = WorkspacesModel<StubTab>()
+    model.tabs = tabs
+    model.selectedTabId = selected
+    let (settings, catalog) = makeCloseSettings()
+    let coordinator = WorkspaceCloseCoordinator(model: model, settings: settings, catalog: catalog)
+    let host = StubCloseHost()
+    let confirming = StubConfirming()
+    coordinator.attach(host: host)
+    coordinator.attach(confirming: confirming)
+    coordinator.attach(closeTabWarning: FakeCloseTabWarning(
+        warnsBeforeClosingTab: warnsBeforeClosingTab,
+        warnsBeforeClosingTabXButton: false
+    ))
+    return (coordinator, model, host, confirming)
+}
+
+@MainActor
+@Suite
+struct WorkspaceCloseOrchestrationTests {
+    @Test
+    func lastWorkspaceClosesWindowAndMarksRemoteKill() {
+        let a = StubTab(title: "a")
+        let (coordinator, _, host, _) = makeWiredCoordinator(tabs: [a], selected: a.id)
+        host.remoteTmuxMirrorIds = [a.id]
+        // .workspace source with requiresConfirmation default true but the tab
+        // does not need confirm and .workspace honours that verbatim → no prompt.
+        coordinator.closeWorkspaceIfRunningProcess(a)
+        #expect(host.events == ["markRemoteKill", "closeWindow"])
+    }
+
+    @Test
+    func nonLastWorkspaceRoutesThroughCloseWorkspace() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let (coordinator, model, host, _) = makeWiredCoordinator(tabs: [a, b], selected: a.id)
+        coordinator.closeWorkspaceIfRunningProcess(a)
+        // Goes through the full closeWorkspace teardown, not the window-close path.
+        #expect(!host.events.contains("closeWindow"))
+        #expect(host.events.contains("publishClosed"))
+        #expect(model.tabs.map(\.id) == [b.id])
+    }
+
+    @Test
+    func confirmationCancelAbortsClose() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let (coordinator, model, host, confirming) = makeWiredCoordinator(
+            tabs: [a, b], selected: a.id, warnsBeforeClosingTab: true
+        )
+        host.needsConfirmIds = [a.id]
+        confirming.confirmResult = false
+        coordinator.closeWorkspaceIfRunningProcess(a, source: .tabClose)
+        // User cancelled → nothing closed.
+        #expect(model.tabs.map(\.id) == [a.id, b.id])
+        #expect(!host.events.contains("publishClosed"))
+    }
+
+    @Test
+    func batchClosingEveryWorkspaceClosesWindowOnce() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let (coordinator, _, host, confirming) = makeWiredCoordinator(
+            tabs: [a, b], selected: a.id, warnsBeforeClosingTab: true
+        )
+        confirming.confirmResult = true
+        coordinator.closeWorkspacesWithConfirmation([a.id, b.id], allowPinned: true)
+        // Whole-window close: one batch confirm, one window-close, no per-tab loop.
+        #expect(host.events == ["closeWindow"])
+        #expect(confirming.presentedPrompts.count == 1)
+    }
+
+    @Test
+    func batchSubsetClosesEachNonWindowWorkspace() {
+        let a = StubTab(title: "a")
+        let b = StubTab(title: "b")
+        let c = StubTab(title: "c")
+        let (coordinator, model, host, confirming) = makeWiredCoordinator(tabs: [a, b, c], selected: a.id)
+        confirming.confirmResult = true
+        coordinator.closeWorkspacesWithConfirmation([a.id, b.id], allowPinned: true)
+        // Not the whole window → loop closes a and b via closeWorkspace teardown.
+        #expect(model.tabs.map(\.id) == [c.id])
+        #expect(host.events.filter { $0 == "publishClosed" }.count == 2)
+        #expect(!host.events.contains("closeWindow"))
     }
 }

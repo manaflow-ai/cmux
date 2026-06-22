@@ -547,8 +547,6 @@ class TabManager {
     private var selectionSideEffectsGeneration: UInt64 = 0
     var sidebarSelectedWorkspaceIds: Set<UUID> { sidebarMultiSelection.selectedWorkspaceIds }
     private var currentWindowTabBarLeadingInset: CGFloat?
-    private var closeConfirmationInFlight = false
-    var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     /// Periodic agent-PID liveness sweep (extracted to CmuxWorkspaces).
     /// TabManager constructs the service, implements
     /// `AgentPIDLivenessSweepHosting` (see
@@ -612,7 +610,11 @@ class TabManager {
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceCommands = WorkspaceCommandCoordinator(model: workspaces, reordering: workspaceReordering)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
-        workspaceClosing = WorkspaceCloseCoordinator(model: workspaces)
+        workspaceClosing = WorkspaceCloseCoordinator(
+            model: workspaces,
+            settings: settings,
+            catalog: settingsCatalog
+        )
 #if DEBUG
         let workspaceCreationDebugLog: @Sendable (String) -> Void = { cmuxDebugLog($0) }
 #else
@@ -1877,7 +1879,7 @@ class TabManager {
 #if DEBUG
         UITestRecorder.incrementInt("closePanelInvocations")
 #endif
-        guard !closeConfirmationInFlight else { return }
+        guard !workspaceClosing.isCloseConfirmationInFlight else { return }
         guard let selectedId = selectedTabId,
               let tab = tabs.first(where: { $0.id == selectedId }) else { return }
         reconcileFocusedPanelFromFirstResponderForKeyboard()
@@ -1890,12 +1892,12 @@ class TabManager {
     }
 
     func closeOtherTabsInFocusedPaneWithConfirmation() {
-        guard !closeConfirmationInFlight else { return }
+        guard !workspaceClosing.isCloseConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
         if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(requiresConfirmation: true, source: .shortcut) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
-            guard confirmClose(
+            guard workspaceClosing.confirmClose(
                 title: prompt.title,
                 message: prompt.message,
                 acceptCmdD: false
@@ -1912,7 +1914,7 @@ class TabManager {
 #if DEBUG
         UITestRecorder.incrementInt("closeTabInvocations")
 #endif
-        guard !closeConfirmationInFlight else { return }
+        guard !workspaceClosing.isCloseConfirmationInFlight else { return }
         let sidebarSelectionIds = workspaceClosing.orderedSidebarSelectedWorkspaceIds(
             sidebarSelectedWorkspaceIds: sidebarSelectedWorkspaceIds
         )
@@ -1929,37 +1931,25 @@ class TabManager {
         allowPinned || !workspace.isPinned
     }
 
+    // The single/batch close-with-confirmation decision flow lives in
+    // WorkspaceCloseCoordinator (Close/WorkspaceCloseCoordinator+Confirmation.swift);
+    // it drives the whole decision over the model + CloseConfirming seam and
+    // inverts the AppKit window-close / remote-tmux-mark effects through this
+    // window's WorkspaceCloseHosting witnesses. These entrypoints forward.
+
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
-        if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
-        }
-        closeWorkspaceIfRunningProcess(workspace)
-        return true
+        workspaceClosing.closeWorkspaceWithConfirmation(workspace)
     }
 
     @discardableResult
     func closeWorkspaceFromCloseTabGesture(_ workspace: Workspace) -> Bool {
-        if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabClose) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
-        }
-        closeWorkspaceIfRunningProcess(workspace, source: .tabClose)
-        return true
+        workspaceClosing.closeWorkspaceFromCloseTabGesture(workspace)
     }
 
     @discardableResult
     func closeWorkspaceFromTabCloseButton(_ workspace: Workspace) -> Bool {
-        if workspace.isPinned {
-            guard confirmPinnedWorkspaceClose(source: .tabCloseButton) else { return false }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-            return true
-        }
-        closeWorkspaceIfRunningProcess(workspace, source: .tabCloseButton)
-        return true
+        workspaceClosing.closeWorkspaceFromTabCloseButton(workspace)
     }
 
     @discardableResult
@@ -1973,85 +1963,8 @@ class TabManager {
         sidebarMultiSelection.replaceSelection(with: workspaceIds.intersection(existingIds))
     }
 
-    /// Marks the window's pending close as a tab/session close so a remote-tmux
-    /// mirror among `workspaces` is KILLED (synced with tmux) on the close commit
-    /// rather than detached. The single decision point for every close path that
-    /// closes the whole window directly — the last-workspace branch of
-    /// ``closeWorkspaceIfRunningProcess`` and the batch/anchor paths in
-    /// ``closeWorkspacesWithConfirmation`` — so every explicit tab-close intent kills
-    /// consistently. ``AppDelegate``'s `shouldClose`/`onClose` consume or clear the
-    /// marker (veto vs commit).
-    private func markRemoteTmuxKillOnWindowCloseIfNeeded(for workspaces: [Workspace]) {
-        guard workspaces.contains(where: { $0.isRemoteTmuxMirror }),
-              let windowId = AppDelegate.shared?.windowId(for: self) else { return }
-        AppDelegate.shared?.remoteTmuxController.markKillSessionsOnWindowClose(windowId: windowId)
-    }
-
     func closeWorkspacesWithConfirmation(_ workspaceIds: [UUID], allowPinned: Bool) {
-        let workspaces = workspaceClosing.orderedClosableWorkspaces(workspaceIds, allowPinned: allowPinned)
-        guard !workspaces.isEmpty else { return }
-        guard workspaces.count > 1 else {
-            closeWorkspaceFromCloseTabGesture(workspaces[0])
-            return
-        }
-
-        guard let plan = workspaceClosing.closeWorkspacesPlan(for: workspaces) else { return }
-        if workspaceClosing.shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
-            guard confirmClose(
-                title: plan.title,
-                message: plan.message,
-                acceptCmdD: plan.acceptCmdD
-            ) else { return }
-        }
-
-        if workspaces.count == tabs.count,
-           let firstWorkspace = workspaces.first {
-            // Closing every tab is still an explicit tab/session close: kill the
-            // remote-tmux session(s) on commit, not detach.
-            markRemoteTmuxKillOnWindowCloseIfNeeded(for: workspaces)
-            if let window {
-                window.performClose(nil)
-                return
-            }
-            if AppDelegate.shared != nil {
-                AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id)
-                return
-            }
-        }
-
-        for workspace in workspaces {
-            guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
-            // Anchor-close confirms inside closeWorkspaceIfRunningProcess.
-            // If the user cancels that dialog during a batch, abort the
-            // whole batch — otherwise the loop keeps closing later items
-            // even though the user said "no" to the dialog that was up.
-            if let groupId = workspace.groupId,
-               let group = workspaceGroups.first(where: { $0.id == groupId }),
-               group.anchorWorkspaceId == workspace.id,
-               !settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
-                let otherMemberCount = tabs.reduce(0) { partial, tab in
-                    tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
-                }
-                if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
-                    return
-                }
-                // Anchor confirmed (or suppressed); skip the inner re-prompt
-                // by closing without going through closeWorkspaceIfRunningProcess.
-                if tabs.count <= 1 {
-                    // Still a tab/session close → kill the remote session on commit.
-                    markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-                    if let window {
-                        window.performClose(nil)
-                    } else {
-                        AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-                    }
-                } else {
-                    closeWorkspace(workspace)
-                }
-                continue
-            }
-            closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
-        }
+        workspaceClosing.closeWorkspacesWithConfirmation(workspaceIds, allowPinned: allowPinned)
     }
 
     func selectWorkspace(_ workspace: Workspace) {
@@ -2064,35 +1977,44 @@ class TabManager {
     // Keep selectTab as convenience alias
     func selectTab(_ tab: Workspace) { selectWorkspace(tab) }
 
-    var isCloseConfirmationInFlight: Bool { closeConfirmationInFlight }
+    // MARK: - CloseConfirming (WorkspaceCloseCoordinator's app-side seam)
+    //
+    // The decision flow (re-entrancy session flag, test-override handler,
+    // anchor-suppression read/write, which-dialog / which-message choice, and
+    // the String(format:) assembly) lives in WorkspaceCloseCoordinator. These
+    // witnesses do the two halves that must stay app-side: resolving the
+    // localized strings (a `String(localized:)` resolved inside CmuxWorkspaces
+    // would bind to the package bundle, which lacks these keys, and silently
+    // drop non-English translations) and building + running the NSAlert through
+    // the shared `runCmuxModalAlert` presenter. Lifted verbatim from the legacy
+    // `confirmClose` / `confirmAnchorWorkspaceClose` alert construction.
 
-    func beginCloseConfirmationSession() -> Bool {
-        guard !closeConfirmationInFlight else { return false }
-        closeConfirmationInFlight = true
-        return true
-    }
-
-    func endCloseConfirmationSession() {
-        DispatchQueue.main.async { [weak self] in
-            self?.closeConfirmationInFlight = false
-        }
-    }
-
-    func confirmClose(title: String, message: String, acceptCmdD: Bool) -> Bool {
-        guard beginCloseConfirmationSession() else { return false }
-        defer { endCloseConfirmationSession() }
-
-        if let confirmCloseHandler {
-            return confirmCloseHandler(title, message, acceptCmdD)
-        }
-        _ = acceptCmdD
+    func present(_ prompt: CloseConfirmationPrompt) -> CloseConfirmationOutcome {
+        _ = prompt.acceptCmdD
 
         let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
+        alert.messageText = prompt.title
+        alert.informativeText = prompt.message
         alert.alertStyle = .warning
         alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
         alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
+
+        let suppressionButton: NSButton?
+        if prompt.showsSuppressionCheckbox {
+            let button = NSButton(
+                checkboxWithTitle: String(
+                    localized: "dialog.dontAskAgain",
+                    defaultValue: "Don\u{2019}t ask again"
+                ),
+                target: nil,
+                action: nil
+            )
+            button.state = .off
+            alert.accessoryView = button
+            suppressionButton = button
+        } else {
+            suppressionButton = nil
+        }
 
         if let closeButton = alert.buttons.first {
             closeButton.keyEquivalent = "\r"
@@ -2106,22 +2028,17 @@ class TabManager {
 
         #if DEBUG
         UITestRecorder.record([
-            "closeConfirmationTitle": title,
-            "closeConfirmationMessage": message,
+            "closeConfirmationTitle": prompt.title,
+            "closeConfirmationMessage": prompt.message,
         ])
         #endif
 
-        return runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+        let confirmed = runCloseConfirmationAlert(alert) == .alertFirstButtonReturn
+        return CloseConfirmationOutcome(
+            confirmed: confirmed,
+            suppressionChecked: confirmed && (suppressionButton?.state == .on)
+        )
     }
-
-    // MARK: - CloseConfirming (WorkspaceCloseCoordinator's app-side seam)
-    //
-    // The localized confirmation strings stay in the app bundle: a
-    // `String(localized:)` resolved inside CmuxWorkspaces would bind to the
-    // package bundle (which lacks these keys) and silently drop non-English
-    // translations. The coordinator computes the plan shape; these witnesses
-    // supply the catalog strings, lifted verbatim from the legacy
-    // `closeWorkspacesPlan(for:)` / `closeWorkspaceDisplayTitle(_:)` bodies.
 
     func closeWorkspacesTitle(willCloseWindow: Bool) -> String {
         willCloseWindow
@@ -2148,6 +2065,53 @@ class TabManager {
 
     var workspaceDisplayTitleFallback: String {
         String(localized: "workspace.displayName.fallback", defaultValue: "Workspace")
+    }
+
+    var closeWorkspaceTitle: String {
+        String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?")
+    }
+
+    var closeWorkspaceMessage: String {
+        String(
+            localized: "dialog.closeWorkspace.message",
+            defaultValue: "This will close the workspace and all of its panels."
+        )
+    }
+
+    var closePinnedWorkspaceTitle: String {
+        String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?")
+    }
+
+    var closePinnedWorkspaceMessage: String {
+        String(
+            localized: "dialog.closePinnedWorkspace.message",
+            defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
+        )
+    }
+
+    var closeAnchorTitle: String {
+        String(localized: "dialog.closeAnchor.title", defaultValue: "Close this workspace?")
+    }
+
+    var closeAnchorMessageLoneFormat: String {
+        String(
+            localized: "dialog.closeAnchor.message.lone",
+            defaultValue: "Closing this workspace will remove the group \u{201C}%@\u{201D}."
+        )
+    }
+
+    var closeAnchorMessageOneFormat: String {
+        String(
+            localized: "dialog.closeAnchor.message.one",
+            defaultValue: "Closing this workspace will ungroup \u{201C}%@\u{201D} and release 1 other workspace."
+        )
+    }
+
+    var closeAnchorMessageManyFormat: String {
+        String(
+            localized: "dialog.closeAnchor.message.many",
+            defaultValue: "Closing this workspace will ungroup \u{201C}%1$@\u{201D} and release %2$lld other workspaces."
+        )
     }
 
     // MARK: - WorkspaceCloseHosting (WorkspaceCloseCoordinator's teardown seam)
@@ -2257,6 +2221,28 @@ class TabManager {
 
     func addReplacementWorkspaceForEmptyWindow() {
         _ = addWorkspace()
+    }
+
+    func needsConfirmClose(_ tab: Workspace) -> Bool {
+        workspaceNeedsConfirmClose(tab)
+    }
+
+    func markRemoteTmuxKillOnWindowClose() {
+        guard let windowId = AppDelegate.shared?.windowId(for: self) else { return }
+        AppDelegate.shared?.remoteTmuxController.markKillSessionsOnWindowClose(windowId: windowId)
+    }
+
+    @discardableResult
+    func closeWindow(containingWorkspaceId workspaceId: UUID) -> Bool {
+        if let window {
+            window.performClose(nil)
+            return true
+        }
+        if AppDelegate.shared != nil {
+            AppDelegate.shared?.closeMainWindowContainingTabId(workspaceId)
+            return true
+        }
+        return false
     }
 
     // MARK: - WorkspaceCreationHosting (WorkspaceCreationCoordinator's effect seam)
@@ -2474,147 +2460,6 @@ class TabManager {
         )
     }
 
-    private func closeWorkspaceIfRunningProcess(
-        _ workspace: Workspace,
-        requiresConfirmation: Bool = true,
-        source: CloseConfirmationSource = .workspace
-    ) {
-        // Anchor-close ALWAYS prompts (subject to its own
-        // workspaceGroups.anchorCloseSuppressed flag), regardless of
-        // requiresConfirmation. Batch-close paths set requiresConfirmation=false
-        // after their own generic prompt, but that generic prompt doesn't
-        // mention group dissolution — silently ungrouping members during a
-        // multi-close would be surprising. The "Don't ask again" toggle on
-        // the anchor dialog is the user's opt-out.
-        if let groupId = workspace.groupId,
-           let group = workspaceGroups.first(where: { $0.id == groupId }),
-           group.anchorWorkspaceId == workspace.id {
-            let otherMemberCount = tabs.reduce(0) { partial, tab in
-                tab.groupId == groupId && tab.id != workspace.id ? partial + 1 : partial
-            }
-            if !confirmAnchorWorkspaceClose(groupName: group.name, otherMemberCount: otherMemberCount) {
-                return
-            }
-        }
-        let willCloseWindow = tabs.count <= 1
-        let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
-        if requiresConfirmation,
-           workspaceClosing.shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
-           !confirmClose(
-               title: String(localized: "dialog.closeWorkspace.title", defaultValue: "Close workspace?"),
-               message: String(localized: "dialog.closeWorkspace.message", defaultValue: "This will close the workspace and all of its panels."),
-               acceptCmdD: willCloseWindow
-           ) {
-            return
-        }
-        if tabs.count <= 1 {
-            // Last workspace in this window closes via the window-close path, but it
-            // is still an explicit TAB/session close: for a remote-tmux mirror, mark
-            // the close to KILL the session on commit (synced with tmux), even though
-            // it also closes the app window. The marker is consumed on the (non-vetoed)
-            // close commit, or cleared if the close is vetoed (single-window quit
-            // warning) so a cancelled close never kills. A plain window/quit close
-            // never sets it, so it detaches. Non-last workspaces kill via closeWorkspace.
-            markRemoteTmuxKillOnWindowCloseIfNeeded(for: [workspace])
-            if let window {
-                window.performClose(nil)
-            } else {
-                AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
-            }
-        } else {
-            closeWorkspace(workspace)
-        }
-    }
-
-    /// Confirm before closing a workspace that is its group's anchor. Closing
-    /// the anchor dissolves the group (other members survive ungrouped).
-    /// "Don't ask again" sets the `workspaceGroups.anchorCloseSuppressed` flag.
-    private func confirmAnchorWorkspaceClose(groupName: String, otherMemberCount: Int) -> Bool {
-        if settings.value(for: settingsCatalog.workspaceGroups.anchorCloseSuppressed) {
-            return true
-        }
-        // Do NOT acquire beginCloseConfirmationSession here. The standard
-        // close confirmation path that runs immediately after (confirmClose())
-        // gates itself with the same flag, and endCloseConfirmationSession
-        // releases the flag asynchronously on the next main-queue turn — so
-        // wrapping this dialog with begin/end would leave the flag set when
-        // the inner confirmClose runs, causing it to return false and silently
-        // refuse the close even after the user accepted both prompts.
-        let title = String(
-            localized: "dialog.closeAnchor.title",
-            defaultValue: "Close this workspace?"
-        )
-        // Use printf-style format specifiers and String(format:) so the
-        // catalog entry can substitute the group name and member count at
-        // runtime. Embedding Swift `\(groupName)` interpolation in the
-        // catalog `value` would render literal `\(groupName)` on lookup.
-        let message: String
-        if otherMemberCount == 0 {
-            let format = String(
-                localized: "dialog.closeAnchor.message.lone",
-                defaultValue: "Closing this workspace will remove the group \u{201C}%@\u{201D}."
-            )
-            message = String.localizedStringWithFormat(format, groupName)
-        } else if otherMemberCount == 1 {
-            let format = String(
-                localized: "dialog.closeAnchor.message.one",
-                defaultValue: "Closing this workspace will ungroup \u{201C}%@\u{201D} and release 1 other workspace."
-            )
-            message = String.localizedStringWithFormat(format, groupName)
-        } else {
-            let format = String(
-                localized: "dialog.closeAnchor.message.many",
-                defaultValue: "Closing this workspace will ungroup \u{201C}%1$@\u{201D} and release %2$lld other workspaces."
-            )
-            message = String.localizedStringWithFormat(format, groupName, otherMemberCount)
-        }
-
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = message
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.close", defaultValue: "Close"))
-        alert.addButton(withTitle: String(localized: "dialog.closeTab.cancel", defaultValue: "Cancel"))
-        let suppressionButton = NSButton(
-            checkboxWithTitle: String(
-                localized: "dialog.dontAskAgain",
-                defaultValue: "Don\u{2019}t ask again"
-            ),
-            target: nil,
-            action: nil
-        )
-        suppressionButton.state = .off
-        alert.accessoryView = suppressionButton
-        if let closeButton = alert.buttons.first {
-            closeButton.keyEquivalent = "\r"
-            closeButton.keyEquivalentModifierMask = []
-            alert.window.defaultButtonCell = closeButton.cell as? NSButtonCell
-            alert.window.initialFirstResponder = closeButton
-        }
-        if let cancelButton = alert.buttons.dropFirst().first {
-            cancelButton.keyEquivalent = "\u{1b}"
-        }
-
-        let response = runCloseConfirmationAlert(alert)
-        guard response == .alertFirstButtonReturn else { return false }
-        if suppressionButton.state == .on {
-            settings.set(true, for: settingsCatalog.workspaceGroups.anchorCloseSuppressed)
-        }
-        return true
-    }
-
-    private func confirmPinnedWorkspaceClose(source: CloseConfirmationSource) -> Bool {
-        guard workspaceClosing.shouldConfirmClose(requiresConfirmation: true, source: source) else { return true }
-        return confirmClose(
-            title: String(localized: "dialog.closePinnedWorkspace.title", defaultValue: "Close pinned workspace?"),
-            message: String(
-                localized: "dialog.closePinnedWorkspace.message",
-                defaultValue: "This workspace is pinned. Closing it will close the workspace and all of its panels."
-            ),
-            acceptCmdD: tabs.count <= 1
-        )
-    }
-
     private func shouldCloseWorkspaceOnLastSurfaceShortcut(_ workspace: Workspace, panelId: UUID) -> Bool {
         // Stored under the legacy closeWorkspaceOnLastSurfaceShortcut key:
         // true means the Close shortcut closes the workspace on its last surface.
@@ -2716,7 +2561,7 @@ class TabManager {
             requiresConfirmation: requiresConfirmation,
             source: .shortcut
         ) {
-            guard confirmClose(
+            guard workspaceClosing.confirmClose(
                 title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                 message: String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab."),
                 acceptCmdD: false

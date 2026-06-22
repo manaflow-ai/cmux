@@ -27,14 +27,41 @@ public import CmuxSettings
 /// bodies.
 @MainActor
 public final class WorkspaceCloseCoordinator<Tab: WorkspaceTabRepresenting> {
-    private let model: WorkspacesModel<Tab>
-    private weak var confirming: (any CloseConfirming)?
-    private weak var host: (any WorkspaceCloseHosting<Tab>)?
+    let model: WorkspacesModel<Tab>
+    private(set) weak var confirming: (any CloseConfirming)?
+    private(set) weak var host: (any WorkspaceCloseHosting<Tab>)?
     private var closeTabWarning: (any CloseTabWarningReading)?
+    let settings: any SettingsWriting
+    let settingsCatalog: SettingCatalog
+
+    /// The single in-flight confirmation-session flag (legacy
+    /// `TabManager.closeConfirmationInFlight`). One modal close confirmation may
+    /// be up at a time; every confirmation entry self-gates on it through
+    /// ``beginCloseConfirmationSession()`` so a queued shortcut cannot stack a
+    /// second dialog. Moved off the god object so the re-entrancy contract lives
+    /// next to the decision flow it guards.
+    var closeConfirmationInFlight = false
+
+    /// Optional test override for the modal confirmation (legacy
+    /// `TabManager.confirmCloseHandler`). When set, ``confirmClose`` returns its
+    /// answer instead of presenting an `NSAlert`, so unit tests can drive the
+    /// confirm/cancel branch without AppKit. Production leaves it `nil`.
+    public var confirmCloseHandler: ((String, String, Bool) -> Bool)?
 
     /// Creates the coordinator over the window's workspace model.
-    public init(model: WorkspacesModel<Tab>) {
+    ///
+    /// `settings` / `catalog` back the anchor-close suppression flag
+    /// (`workspaceGroups.anchorCloseSuppressed`) the confirmation decision reads
+    /// and the "Don't ask again" checkbox writes, matching the legacy
+    /// `TabManager.settings` / `SettingCatalog` reach.
+    public init(
+        model: WorkspacesModel<Tab>,
+        settings: any SettingsWriting,
+        catalog: SettingCatalog
+    ) {
         self.model = model
+        self.settings = settings
+        self.settingsCatalog = catalog
     }
 
     /// Attaches the window-side confirmation seam (the localized-string and

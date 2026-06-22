@@ -6750,7 +6750,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
                     } else {
                         message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
                     }
-                    guard manager.confirmClose(
+                    guard manager.workspaceClosing.confirmClose(
                         title: String(localized: "dialog.closeTab.title", defaultValue: "Close tab?"),
                         message: message,
                         acceptCmdD: false
@@ -9898,7 +9898,7 @@ extension Workspace: BonsplitDelegate {
             owningTabManager
             ?? hostEnvironment?.tabManagerFor(tabId: id)
             ?? hostEnvironment?.tabManager
-        )?.confirmCloseHandler {
+        )?.workspaceClosing.confirmCloseHandler {
             return confirmCloseHandler(title, message, false)
         }
 
@@ -10364,7 +10364,7 @@ extension Workspace: BonsplitDelegate {
                 let confirmationManager = owningTabManager
                     ?? hostEnvironment?.tabManagerFor(tabId: id)
                     ?? hostEnvironment?.tabManager
-                if let confirmationManager, confirmationManager.isCloseConfirmationInFlight {
+                if let confirmationManager, confirmationManager.workspaceClosing.isCloseConfirmationInFlight {
                     return false
                 }
                 pendingCloseConfirmTabIds.insert(tab.id)
@@ -10377,14 +10377,14 @@ extension Workspace: BonsplitDelegate {
                 // pendingCloseConfirmTabIds on every exit.
                 let presentConfirmation: @MainActor (String?) -> Void = { [weak self] commandName in
                     guard let self else { return }
-                    if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
+                    if let confirmationManager, !confirmationManager.workspaceClosing.beginCloseConfirmationSession() {
                         self.pendingCloseConfirmTabIds.remove(tabId)
                         return
                     }
                     Task { @MainActor in
                         defer {
                             self.pendingCloseConfirmTabIds.remove(tabId)
-                            confirmationManager?.endCloseConfirmationSession()
+                            confirmationManager?.workspaceClosing.endCloseConfirmationSession()
                         }
 
                         // If the tab disappeared while we were scheduling (e.g. the
@@ -10450,7 +10450,7 @@ extension Workspace: BonsplitDelegate {
         let closeConfirmationManager = owningTabManager
             ?? hostEnvironment?.tabManagerFor(tabId: id)
             ?? hostEnvironment?.tabManager
-        if let closeConfirmationManager, closeConfirmationManager.isCloseConfirmationInFlight {
+        if let closeConfirmationManager, closeConfirmationManager.workspaceClosing.isCloseConfirmationInFlight {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
                 return false
@@ -10499,7 +10499,7 @@ extension Workspace: BonsplitDelegate {
             }
 
             let confirmationManager = owningTabManager ?? hostEnvironment?.tabManagerFor(tabId: id) ?? hostEnvironment?.tabManager
-            if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
+            if let confirmationManager, !confirmationManager.workspaceClosing.beginCloseConfirmationSession() {
                 return false
             }
 
@@ -10507,13 +10507,13 @@ extension Workspace: BonsplitDelegate {
             let tabId = tab.id
             DispatchQueue.main.async { [weak self] in
                 guard let self else {
-                    confirmationManager?.endCloseConfirmationSession()
+                    confirmationManager?.workspaceClosing.endCloseConfirmationSession()
                     return
                 }
                 Task { @MainActor in
                     defer {
                         self.pendingCloseConfirmTabIds.remove(tabId)
-                        confirmationManager?.endCloseConfirmationSession()
+                        confirmationManager?.workspaceClosing.endCloseConfirmationSession()
                     }
 
                     // If the tab disappeared while we were scheduling, do nothing.

@@ -44,7 +44,7 @@ extension Workspace {
             ?? AppDelegate.shared?.tabManagerFor(tabId: id)
             ?? AppDelegate.shared?.tabManager
 
-        guard confirmationManager?.isCloseConfirmationInFlight != true else { return }
+        guard confirmationManager?.workspaceClosing.isCloseConfirmationInFlight != true else { return }
 
         let candidates = tabIds.compactMap { tabId -> (tabId: TabID, panelId: UUID?)? in
             let panelId = panelIdFromSurfaceId(tabId)
@@ -72,7 +72,7 @@ extension Workspace {
                     )
                 }
             )
-            guard confirmationManager.confirmClose(
+            guard confirmationManager.workspaceClosing.confirmClose(
                 title: prompt.title,
                 message: prompt.message,
                 acceptCmdD: false

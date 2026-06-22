@@ -75,7 +75,7 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
 
         var promptCount = 0
         var repeatedCloseAttempted = false
-        fixture.manager.confirmCloseHandler = { _, _, _ in
+        fixture.manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             if !repeatedCloseAttempted {
                 repeatedCloseAttempted = true
@@ -130,7 +130,7 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
 
     private func invoke(_ action: TabContextAction, anchorTabId: TabID, fixture: Fixture) throws {
         var promptCount = 0
-        fixture.manager.confirmCloseHandler = { _, _, _ in
+        fixture.manager.workspaceClosing.confirmCloseHandler = { _, _, _ in
             promptCount += 1
             return true
         }
