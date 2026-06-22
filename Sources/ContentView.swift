@@ -7347,302 +7347,37 @@ struct VerticalTabsSidebar: View {
         workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
     }
 
+    /// Host-side action bundle handed to the extracted browser-stack column
+    /// views (`CmuxSidebarUI.ExtensionBrowserStackColumnView` and its children).
+    /// Inverts every reach back into app-target state (selection, reorder
+    /// mutations, new-tab, provider-text resolution) so the package views hold
+    /// only value snapshots.
+    private var extensionBrowserStackActions: ExtensionBrowserStackActions {
+        ExtensionBrowserStackActions(
+            selectWorkspace: { selectExtensionSidebarWorkspace($0) },
+            commitMutation: { handleExtensionSidebarMutation($0) },
+            moveWorkspace: { workspaceId, delta in
+                moveExtensionBrowserStackWorkspace(workspaceId, by: delta)
+            },
+            newTab: onNewTab,
+            renderText: { text, now in extensionSidebarRenderedText(text, now: now) }
+        )
+    }
+
     private func extensionBrowserStackSidebar(
         model: CmuxSidebarProviderRenderModel,
         now: Date
     ) -> some View {
-        let rows = model.sections.flatMap(\.rows)
-        let tileRows = model.sections.first { $0.id == "tiles" }?.rows ?? Array(rows.prefix(3))
-        let looseRows = model.sections.first { $0.id == "loose" }?.rows ?? Array(rows.dropFirst(3).prefix(5))
-        let groupedSections = model.sections.filter { $0.id != "tiles" && $0.id != "loose" && !$0.rows.isEmpty }
-        let dropRows = extensionBrowserStackDropRows(for: model)
-
-        return VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(stride(from: 0, to: tileRows.count, by: 3)), id: \.self) { rowStart in
-                    HStack(spacing: 8) {
-                        ForEach(Array(tileRows[rowStart..<min(rowStart + 3, tileRows.count)].enumerated()), id: \.element.id) { offset, row in
-                            let index = rowStart + offset
-                            extensionBrowserStackTile(
-                                row: row,
-                                isSelected: row.workspaceId == tabManager.selectedTabId
-                                    || (tabManager.selectedTabId == nil && index == 0),
-                                dropRows: dropRows
-                            )
-                        }
-                        if tileRows.count - rowStart < 3 {
-                            ForEach(0..<(3 - (tileRows.count - rowStart)), id: \.self) { _ in
-                                Color.clear
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 54)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.top, 10)
-
-            VStack(alignment: .leading, spacing: 5) {
-                ForEach(looseRows) { row in
-                    extensionBrowserStackRow(
-                        row: row,
-                        now: now,
-                        isSelected: row.workspaceId == tabManager.selectedTabId,
-                        dropRows: dropRows
-                    )
-                }
-            }
-            .padding(.horizontal, 8)
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(groupedSections) { section in
-                    extensionBrowserStackGroup(section: section, now: now, dropRows: dropRows)
-                }
-            }
-
-            Button(action: onNewTab) {
-                HStack(spacing: 9) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 15, weight: .regular))
-                        .frame(width: 22, height: 22)
-                    Text(String(localized: "sidebar.browserStack.newTab", defaultValue: "New Tab"))
-                        .font(.system(size: 13, weight: .regular))
-                    Spacer(minLength: 0)
-                }
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 7)
-            }
-            .buttonStyle(.plain)
-            .safeHelp(String(localized: "sidebar.browserStack.newTab", defaultValue: "New Tab"))
-
-            ExtensionSidebarBrowserStackEmptyArea(
-                rowSpacing: tabRowSpacing,
-                orderedRows: dropRows,
-                dragAutoScrollController: dragAutoScrollController,
-                draggedTabId: draggedTabIdBinding,
-                dropIndicator: dropIndicatorBinding,
-                accent: cmuxAccentColor(),
-                onNewTab: onNewTab,
-                onMove: { move in
-                    handleExtensionSidebarMutation(.moveWorkspace(move))
-                }
-            )
-            .frame(maxWidth: .infinity, minHeight: 48)
-        }
-        .padding(.bottom, SidebarWorkspaceListMetrics.rowVerticalPadding + 40)
-    }
-
-    private func extensionBrowserStackGroup(
-        section: CmuxSidebarProviderSection,
-        now: Date,
-        dropRows: [ExtensionSidebarBrowserStackDropRow]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Image(systemName: "folder.fill")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(.secondary)
-                Text(extensionSidebarTreeSectionTitle(section.treeSection))
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.primary.opacity(0.86))
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 9)
-
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(section.rows) { row in
-                    extensionBrowserStackRow(
-                        row: row,
-                        now: now,
-                        compact: true,
-                        isSelected: row.workspaceId == tabManager.selectedTabId,
-                        dropRows: dropRows
-                    )
-                        .padding(.horizontal, 8)
-                }
-            }
-        }
-        .padding(.bottom, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.primary.opacity(0.09))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-        )
-        .padding(.horizontal, 8)
-    }
-
-    private func extensionBrowserStackTile(
-        row: CmuxSidebarProviderRow,
-        isSelected: Bool,
-        dropRows: [ExtensionSidebarBrowserStackDropRow]
-    ) -> some View {
-        let targetRowHeight: CGFloat = 54
-
-        return Button {
-            selectExtensionSidebarWorkspace(row.workspaceId)
-        } label: {
-            extensionBrowserStackIcon(row.leadingIcon, size: 28)
-                .frame(maxWidth: .infinity)
-                .frame(height: 54)
-                .background(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(
-                            isSelected
-                                ? Color(red: 0.44, green: 0.29, blue: 0.23).opacity(0.9)
-                                : Color.primary.opacity(0.10)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 13, style: .continuous)
-                                .stroke(
-                                    isSelected ? Color.red.opacity(0.85) : Color.primary.opacity(0.08),
-                                    lineWidth: isSelected ? 2 : 1
-                                )
-                        )
-                )
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-        .safeHelp(row.title)
-        .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload.provider(for: row.workspaceId)
-        }
-        .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
-            targetWorkspaceId: row.workspaceId,
-            orderedRows: dropRows,
-            draggedTabId: draggedTabIdBinding,
-            targetRowHeight: targetRowHeight,
+        ExtensionBrowserStackColumnView(
+            model: model,
+            now: now,
+            selectedWorkspaceId: tabManager.selectedTabId,
+            tabRowSpacing: tabRowSpacing,
+            bottomPadding: SidebarWorkspaceListMetrics.rowVerticalPadding + 40,
+            accent: cmuxAccentColor(),
+            dragState: dragState,
             dragAutoScrollController: dragAutoScrollController,
-            dropIndicator: dropIndicatorBinding,
-            onMove: { move in
-                handleExtensionSidebarMutation(.moveWorkspace(move))
-            }
-        ))
-        .overlay(alignment: .top) {
-            extensionBrowserStackDropIndicator(row: row, edge: .top)
-        }
-        .overlay(alignment: .bottom) {
-            extensionBrowserStackDropIndicator(row: row, edge: .bottom)
-        }
-        .contextMenu {
-            extensionBrowserStackReorderMenu(row: row)
-        }
-        .accessibilityHint(Text(String(
-            localized: "sidebar.workspace.accessibilityHint",
-            defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions."
-        )))
-        .accessibilityAction(named: Text(String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up"))) {
-            moveExtensionBrowserStackWorkspace(row.workspaceId, by: -1)
-        }
-        .accessibilityAction(named: Text(String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down"))) {
-            moveExtensionBrowserStackWorkspace(row.workspaceId, by: 1)
-        }
-    }
-
-    private func extensionBrowserStackRow(
-        row: CmuxSidebarProviderRow,
-        now: Date,
-        compact: Bool = false,
-        isSelected: Bool,
-        dropRows: [ExtensionSidebarBrowserStackDropRow]
-    ) -> some View {
-        let targetRowHeight: CGFloat = compact ? 34 : 38
-
-        return Button {
-            selectExtensionSidebarWorkspace(row.workspaceId)
-        } label: {
-            HStack(spacing: 9) {
-                extensionBrowserStackIcon(row.leadingIcon, size: compact ? 22 : 24)
-                Text(row.title)
-                    .font(.system(size: compact ? 12.5 : 13, weight: .medium))
-                    .foregroundColor(isSelected ? .primary : .primary.opacity(0.82))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Spacer(minLength: 0)
-                if let trailing = extensionSidebarRenderedText(row.trailingText, now: now) {
-                    Text(trailing)
-                        .font(.system(size: 11, weight: .regular))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, compact ? 7 : 10)
-            .padding(.vertical, compact ? 6 : 7)
-            .background(
-                RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
-                    .fill(isSelected ? Color.primary.opacity(0.12) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: compact ? 8 : 10, style: .continuous)
-                    .stroke(isSelected ? cmuxAccentColor().opacity(0.55) : Color.clear, lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .opacity(dragState.draggedTabId == row.workspaceId ? 0.55 : 1)
-        .onDrag {
-            dragState.beginDragging(tabId: row.workspaceId)
-            return SidebarTabDragPayload.provider(for: row.workspaceId)
-        }
-        .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: ExtensionSidebarBrowserStackDropDelegate(
-            targetWorkspaceId: row.workspaceId,
-            orderedRows: dropRows,
-            draggedTabId: draggedTabIdBinding,
-            targetRowHeight: targetRowHeight,
-            dragAutoScrollController: dragAutoScrollController,
-            dropIndicator: dropIndicatorBinding,
-            onMove: { move in
-                handleExtensionSidebarMutation(.moveWorkspace(move))
-            }
-        ))
-        .overlay(alignment: .top) {
-            extensionBrowserStackDropIndicator(row: row, edge: .top)
-        }
-        .overlay(alignment: .bottom) {
-            extensionBrowserStackDropIndicator(row: row, edge: .bottom)
-        }
-        .contextMenu {
-            extensionBrowserStackReorderMenu(row: row)
-        }
-        .accessibilityHint(Text(String(
-            localized: "sidebar.workspace.accessibilityHint",
-            defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions."
-        )))
-        .accessibilityAction(named: Text(String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up"))) {
-            moveExtensionBrowserStackWorkspace(row.workspaceId, by: -1)
-        }
-        .accessibilityAction(named: Text(String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down"))) {
-            moveExtensionBrowserStackWorkspace(row.workspaceId, by: 1)
-        }
-    }
-
-    private func extensionBrowserStackDropIndicator(
-        row: CmuxSidebarProviderRow,
-        edge: SidebarDropEdge
-    ) -> some View {
-        ExtensionBrowserStackDropIndicator(
-            isActive: dragState.dropIndicator == SidebarDropIndicator(tabId: row.workspaceId, edge: edge),
-            accent: cmuxAccentColor()
-        )
-    }
-
-    private func extensionBrowserStackReorderMenu(row: CmuxSidebarProviderRow) -> some View {
-        ExtensionBrowserStackReorderMenu(
-            onMoveUp: { moveExtensionBrowserStackWorkspace(row.workspaceId, by: -1) },
-            onMoveDown: { moveExtensionBrowserStackWorkspace(row.workspaceId, by: 1) }
+            actions: extensionBrowserStackActions
         )
     }
 
@@ -7719,13 +7454,6 @@ struct VerticalTabsSidebar: View {
             snapshotsById[row.workspaceId] = extensionWorkspaceSnapshot(for: row.workspaceId)
         }
         return snapshotsById
-    }
-
-    private func extensionBrowserStackIcon(
-        _ icon: CmuxSidebarProviderIcon?,
-        size: CGFloat
-    ) -> some View {
-        ExtensionBrowserStackIcon(icon: icon, size: size)
     }
 
     private func extensionSidebarRenderedText(_ text: CmuxSidebarProviderText?, now: Date) -> String? {
