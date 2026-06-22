@@ -783,6 +783,7 @@ final class CodexAppServerSession {
             pendingTerminalNotificationShouldIgnoreFutureCompletion = false
             shouldIgnoreNextLegacyTurnCompletion = false
             turnStartRequestIDs.remove(requestID)
+            failQueuedInputs(error)
             throw error
         }
     }

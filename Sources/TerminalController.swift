@@ -4287,8 +4287,8 @@ class TerminalController {
                     .react,
                     .err(
                         code: "invalid_params",
-                        message: "Invalid provider (codex|claude|opencode)",
-                        data: ["provider": providerRaw]
+                        message: "Invalid provider selection",
+                        data: ["field": "provider_id"]
                     )
                 )
             }
@@ -4309,8 +4309,8 @@ class TerminalController {
                     .react,
                     .err(
                         code: "invalid_params",
-                        message: "Invalid renderer (react|solid)",
-                        data: ["renderer": rendererRaw]
+                        message: "Invalid renderer selection",
+                        data: ["field": "renderer_kind"]
                     )
                 )
             }

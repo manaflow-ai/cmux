@@ -145,8 +145,8 @@ extension CMUXCLI {
         return formatter.string(from: resetDate)
     }
 
-    func openChatModelOptions(labels: OpenChatLabels) -> [[String: Any]] {
-        let defaultModelLabel = labels.values["approvalDefault"] ?? "Default"
+    private func openChatModelOptions(labels: OpenChatLabels) -> [[String: Any]] {
+        let defaultModelLabel = labels.values["modelDefault"] ?? "Default"
         return OpenChatModelOptionCatalog(defaultModelLabel: defaultModelLabel)
             .options()
             .map { option in

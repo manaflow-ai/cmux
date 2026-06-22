@@ -262,23 +262,23 @@ extension ControlCommandCoordinator {
                 message: "Missing or invalid direction (left|right|up|down)",
                 data: nil
             )
-        case .invalidProvider(let rawValue):
+        case .invalidProvider:
             return .err(
                 code: "invalid_params",
-                message: "Invalid provider (codex|claude|opencode)",
-                data: .object(["provider": .string(rawValue)])
+                message: "Invalid provider selection",
+                data: .object(["field": .string("provider_id")])
             )
-        case .invalidRenderer(let rawValue):
+        case .invalidRenderer:
             return .err(
                 code: "invalid_params",
-                message: "Invalid renderer (react|solid)",
-                data: .object(["renderer": .string(rawValue)])
+                message: "Invalid renderer selection",
+                data: .object(["field": .string("renderer_kind")])
             )
-        case .invalidOpenCodeModel(let rawValue):
+        case .invalidOpenCodeModel:
             return .err(
                 code: "invalid_params",
-                message: "OpenCode model must be provider/model or include opencode_provider_id",
-                data: .object(["model": .string(rawValue)])
+                message: "Invalid model selection",
+                data: .object(["field": .string("model")])
             )
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
@@ -420,23 +420,23 @@ extension ControlCommandCoordinator {
         switch resolution {
         case .tabManagerUnavailable:
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .invalidProvider(let rawValue):
+        case .invalidProvider:
             return .err(
                 code: "invalid_params",
-                message: "Invalid provider (codex|claude|opencode)",
-                data: .object(["provider": .string(rawValue)])
+                message: "Invalid provider selection",
+                data: .object(["field": .string("provider_id")])
             )
-        case .invalidRenderer(let rawValue):
+        case .invalidRenderer:
             return .err(
                 code: "invalid_params",
-                message: "Invalid renderer (react|solid)",
-                data: .object(["renderer": .string(rawValue)])
+                message: "Invalid renderer selection",
+                data: .object(["field": .string("renderer_kind")])
             )
-        case .invalidOpenCodeModel(let rawValue):
+        case .invalidOpenCodeModel:
             return .err(
                 code: "invalid_params",
-                message: "OpenCode model must be provider/model or include opencode_provider_id",
-                data: .object(["model": .string(rawValue)])
+                message: "Invalid model selection",
+                data: .object(["field": .string("model")])
             )
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)

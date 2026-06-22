@@ -26,6 +26,7 @@ extension CMUXCLI {
                 "exampleSuggestion": CMUXDiffViewerLocalization.string("openChat.exampleSuggestion", defaultValue: "Plan and build a polished feature from this workspace"),
                 "headingFormat": CMUXDiffViewerLocalization.string("openChat.headingFormat", defaultValue: "What should we build in %@?"),
                 "model": CMUXDiffViewerLocalization.string("openChat.model", defaultValue: "Model"),
+                "modelDefault": CMUXDiffViewerLocalization.string("agentSession.web.modelDefault", defaultValue: "Default"),
                 "modelEffort": CMUXDiffViewerLocalization.string("openChat.modelEffort", defaultValue: "Model and reasoning"),
                 "reasoning": CMUXDiffViewerLocalization.string("openChat.reasoning", defaultValue: "Reasoning"),
                 "noBranch": CMUXDiffViewerLocalization.string("openChat.noBranch", defaultValue: "No branch"),

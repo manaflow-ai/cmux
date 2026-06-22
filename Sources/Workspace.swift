@@ -8438,6 +8438,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) else {
             panels.removeValue(forKey: agentPanel.id)
             panelTitles.removeValue(forKey: agentPanel.id)
+            panelDirectories.removeValue(forKey: agentPanel.id)
             return nil
         }
 

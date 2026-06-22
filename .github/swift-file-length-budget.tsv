@@ -5,7 +5,7 @@
 17882	Sources/AppDelegate.swift
 16142	Sources/ContentView.swift
 13946	Sources/TerminalController.swift
-12900	Sources/Workspace.swift
+12901	Sources/Workspace.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11930	Sources/Panels/BrowserPanel.swift
 11867	Sources/GhosttyTerminalView.swift
@@ -55,9 +55,9 @@
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
+1677	cmuxTests/CodexAppServerSessionTests.swift
 1656	Sources/FileExplorerView.swift
 1652	cmuxTests/CMUXCLIErrorOutputRegressionTests.swift
-1610	cmuxTests/CodexAppServerSessionTests.swift
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
@@ -102,8 +102,8 @@
 885	Sources/Panels/TerminalPanel.swift
 877	Packages/Shared/CmuxAgentChat/Tests/CmuxAgentChatTests/ChatConversationStoreTests.swift
 871	cmuxTests/ClaudeHookSurfaceResolutionSwiftTests.swift
+869	Sources/Panels/CodexAppServerSession.swift
 868	Sources/Panels/BrowserScreenshotSnapshotter.swift
-868	Sources/Panels/CodexAppServerSession.swift
 865	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/WorkspaceDetailView.swift
 859	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Workspace/ControlCommandCoordinator+Workspace.swift
 852	Sources/WorkspaceContentView.swift
