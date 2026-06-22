@@ -3291,8 +3291,8 @@ final class Workspace: Identifiable, ObservableObject {
         paneTree.removeSurfaceMapping(forSurfaceId: surfaceId)
     }
 
-    func removeSurfaceMappings(forPanelId panelId: UUID, includingSurfaceId surfaceId: TabID? = nil) {
-        paneTree.removeSurfaceMappings(forPanelId: panelId, includingSurfaceId: surfaceId)
+    func removeSurfaceMappings(forPanelId panelId: UUID) {
+        paneTree.removeSurfaceMappings(forPanelId: panelId)
     }
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.

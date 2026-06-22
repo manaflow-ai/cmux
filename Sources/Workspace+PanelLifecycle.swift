@@ -335,7 +335,7 @@ extension Workspace {
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
-        removeSurfaceMappings(forPanelId: panelId, includingSurfaceId: tabId)
+        removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)

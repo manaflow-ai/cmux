@@ -130,7 +130,7 @@ struct PaneTreeModelTests {
         model.bindSurface(closedPanelTabId, toPanelId: closedPanelId)
         model.bindSurface(reboundTabId, toPanelId: livePanelId)
 
-        model.removeSurfaceMappings(forPanelId: closedPanelId, includingSurfaceId: reboundTabId)
+        model.removeSurfaceMappings(forPanelId: closedPanelId)
 
         #expect(model.panelId(forSurfaceId: closedPanelTabId) == nil)
         #expect(model.panelId(forSurfaceId: reboundTabId) == livePanelId)
