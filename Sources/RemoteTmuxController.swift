@@ -125,7 +125,8 @@ final class RemoteTmuxController {
         removeCachedConnection(forKey: key)?.stop()
     }
 
-    private func cacheConnection(_ connection: RemoteTmuxControlConnection, key: String) {
+    func cacheConnection(_ connection: RemoteTmuxControlConnection, key: String? = nil) {
+        let key = key ?? Self.connectionKey(host: connection.host, sessionName: connection.sessionName)
         connectionsByHostSession[key] = connection
         connectionObserverTokensByHostSession[key] = connection.addObserver(
             onSessionChanged: { [weak self, weak connection] oldName, newName in
@@ -255,13 +256,6 @@ final class RemoteTmuxController {
 
     func unbindDedicatedWindowForTesting(windowId: UUID) {
         windowRegistry.unbind(windowId: windowId)
-    }
-
-    func cacheConnectionForTesting(_ connection: RemoteTmuxControlConnection) {
-        cacheConnection(
-            connection,
-            key: Self.connectionKey(host: connection.host, sessionName: connection.sessionName)
-        )
     }
 #endif
 

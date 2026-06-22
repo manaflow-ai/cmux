@@ -264,7 +264,7 @@ import Testing
         let controller = RemoteTmuxController()
         let host = RemoteTmuxHost(destination: "user@host")
         let connection = RemoteTmuxControlConnection(host: host, sessionName: "old")
-        controller.cacheConnectionForTesting(connection)
+        controller.cacheConnection(connection)
 
         #expect(controller.connection(host: host, sessionName: "old") === connection)
 
