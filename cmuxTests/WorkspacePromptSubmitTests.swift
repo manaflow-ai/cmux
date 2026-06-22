@@ -253,6 +253,18 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertEqual(event.assistantFinalMessage, "done from extra fields")
     }
 
+    func testFeedSubagentStopDoesNotExtractParentAssistantFinalMessage() {
+        let event = WorkstreamEvent(
+            sessionId: "agent-session",
+            hookEventName: .subagentStop,
+            source: "codex",
+            workspaceId: UUID().uuidString,
+            context: WorkstreamContext(assistantPreamble: "subagent finished")
+        )
+
+        XCTAssertNil(event.assistantFinalMessage)
+    }
+
     func testBlankSubmittedMessageDoesNotClearRecordedPreview() {
         let workspace = Workspace()
 
