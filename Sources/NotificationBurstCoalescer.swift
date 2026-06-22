@@ -2,6 +2,7 @@ import Foundation
 
 /// Coalesces repeated main-thread signals into one callback after a short delay.
 /// Useful for notification storms where only the latest update matters.
+@MainActor
 final class NotificationBurstCoalescer {
     typealias Cancellation = @MainActor () -> Void
     typealias Scheduler = @MainActor (TimeInterval, @escaping @MainActor () -> Void) -> Cancellation
@@ -11,18 +12,26 @@ final class NotificationBurstCoalescer {
     private var cancelScheduledFlush: Cancellation?
     private var pendingAction: (@MainActor () -> Void)?
 
+    @MainActor
     init(
         delay: TimeInterval = 1.0 / 30.0,
         schedule: @escaping Scheduler = { delay, action in
-            let timer = Timer(timeInterval: max(0, delay), repeats: false) { timer in
-                timer.invalidate()
-                MainActor.assumeIsolated {
-                    action()
+            let boundedDelay = max(0, delay)
+            let maximumDelay = Double(UInt64.max) / 1_000_000_000.0
+            let nanoseconds = UInt64(min(boundedDelay, maximumDelay) * 1_000_000_000.0)
+            let task = Task { @MainActor in
+                if nanoseconds > 0 {
+                    do {
+                        try await Task.sleep(nanoseconds: nanoseconds)
+                    } catch {
+                        return
+                    }
                 }
+                guard !Task.isCancelled else { return }
+                action()
             }
-            RunLoop.main.add(timer, forMode: .common)
             return {
-                timer.invalidate()
+                task.cancel()
             }
         }
     ) {
@@ -30,9 +39,7 @@ final class NotificationBurstCoalescer {
         self.schedule = schedule
     }
 
-    @MainActor
     func signal(delay newDelay: TimeInterval? = nil, _ action: @escaping @MainActor () -> Void) {
-        precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
         let previousDelay = delay
         if let newDelay {
             delay = max(0, newDelay)
@@ -45,27 +52,21 @@ final class NotificationBurstCoalescer {
         scheduleFlushIfNeeded()
     }
 
-    @MainActor
     func flushNow() {
         cancelScheduledFlush?()
         cancelScheduledFlush = nil
         flush()
     }
 
-    @MainActor
     private func scheduleFlushIfNeeded() {
         guard cancelScheduledFlush == nil else { return }
         let scheduledDelay = delay
-        // The timer is the intended bounded coalescing delay; storing the
-        // cancellation closure lets delay changes and deinit discard stale work.
         cancelScheduledFlush = schedule(scheduledDelay) { [weak self] in
             self?.flush()
         }
     }
 
-    @MainActor
     private func flush() {
-        precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
         cancelScheduledFlush = nil
         guard let action = pendingAction else { return }
         pendingAction = nil
