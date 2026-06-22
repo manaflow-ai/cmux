@@ -1260,7 +1260,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (bêta)"
+      "textBox": "TextBox (bêta)",
+      "ios": "App iOS"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1413,6 +1414,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode : OpenCode multi-agent dans cmux",
       "metaDescription": "oh-my-opencode (cmux omo) exécute la CLI OpenCode avec le plugin oh-my-openagent à l'intérieur de cmux. Orchestrez Claude, GPT, Gemini et Grok comme agents parallèles, chacun dans une division native de cmux."
+    },
+    "ios": {
+      "metaTitle": "App iOS",
+      "metaDescription": "Configurez l'app compagnon cmux pour iOS : accès via TestFlight, votre propre réseau avec Tailscale ou WireGuard, appairage, notifications et les données que cmux stocke.",
+      "title": "App iOS",
+      "intro": "L'app cmux pour iOS est un compagnon de votre Mac. Appairez votre iPhone ou iPad avec un Mac exécutant cmux et connectez-vous à vos terminaux depuis votre téléphone, avec transfert optionnel des notifications du terminal.",
+      "betaNote": "L'app iOS est en bêta. Elle est distribuée sur TestFlight sous le nom cmux BETA.",
+      "accessTitle": "Obtenir l'accès",
+      "accessDesc": "L'app est distribuée via TestFlight. L'accès anticipé est inclus avec <foundersLink>cmux Founders Edition</foundersLink>, ainsi que d'autres fonctionnalités en avant-première.",
+      "prereqTitle": "Prérequis",
+      "prereqIntro": "Avant de commencer, vous avez besoin de :",
+      "prereq1": "Un Mac exécutant cmux et connecté.",
+      "prereq2": "Un iPhone ou iPad avec l'app cmux BETA installée depuis TestFlight.",
+      "prereq3": "Un chemin réseau de votre téléphone vers votre Mac (voir Utilisez votre propre réseau ci-dessous).",
+      "networkingTitle": "Utilisez votre propre réseau",
+      "networkingDesc": "cmux ne fournit pas de réseau par défaut. Le flux du terminal circule directement entre votre téléphone et votre Mac, donc votre téléphone doit pouvoir joindre votre Mac sur le réseau. Le plus simple est un réseau superposé privé.",
+      "tailscaleTitle": "Tailscale (recommandé)",
+      "tailscaleDesc": "Installez <link>Tailscale</link> sur votre Mac et votre téléphone et connectez-vous au même tailnet. Votre téléphone peut alors joindre votre Mac par son adresse tailnet depuis n'importe où, sans redirection de ports.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Si vous utilisez déjà <link>WireGuard</link>, placez votre Mac et votre téléphone sur le même réseau et utilisez l'adresse WireGuard du Mac.",
+      "networkingNote": "Quel que soit votre choix, la connexion vous appartient. cmux ne fait pas office de proxy et ne relaie pas le trafic du terminal entre vos appareils.",
+      "pairTitle": "Appairer et connecter",
+      "pairStep1": "Sur le Mac, ouvrez la fenêtre Mobile Connect dans cmux.",
+      "pairStep2": "Sur votre téléphone, ouvrez l'app cmux BETA et confirmez l'appairage affiché dans Mobile Connect.",
+      "pairStep3": "Une fois appairés, vos espaces de travail et vos terminaux apparaissent sur le téléphone via votre réseau.",
+      "pairNote": "L'appairage se fait par appareil. Un nouvel appareil, ou une app réinstallée, s'appaire à nouveau.",
+      "notificationsTitle": "Notifications",
+      "notificationsDesc": "Vous pouvez choisir de transférer les notifications du terminal vers votre téléphone, afin qu'un panneau nécessitant votre attention envoie une notification à votre appareil. Lorsque le transfert est activé, le texte de la notification (titre et corps, tirés de la sortie du terminal) est envoyé via les serveurs de cmux au service de notifications d'Apple pour être délivré. Activez Hide content dans les réglages de notifications pour envoyer un message générique à la place et garder le texte du terminal sur vos appareils. Consultez <link>notifications</link> pour savoir comment cmux les déclenche.",
+      "dataTitle": "Quelles données sont stockées",
+      "dataIntro": "cmux est conçu pour que votre terminal reste entre vos appareils. Sur les serveurs de cmux, nous ne stockons que ce qui est nécessaire pour vous connecter et relier vos appareils :",
+      "data1": "Votre compte issu de la connexion (e-mail), pour vous identifier sur tous vos appareils.",
+      "data2": "Un jeton de notification pour votre appareil, afin de délivrer les notifications transférées du terminal.",
+      "data3": "Les métadonnées d'appairage et d'appareil, pour relier votre téléphone à votre Mac.",
+      "dataNot": "Votre session de terminal interactive, son contenu et vos frappes circulent directement entre votre téléphone et votre Mac via votre propre réseau, et ne sont ni relayés ni stockés sur les serveurs de cmux. La seule exception est le texte des notifications transférées, qui transite par cmux et le service de notifications d'Apple pour atteindre votre téléphone, sauf si vous activez Hide content (voir Notifications ci-dessus).",
+      "enterpriseTitle": "Entreprise et auto-hébergement",
+      "enterpriseDesc": "Pour un déploiement auto-hébergé ou isolé du réseau, contactez <link>founders@manaflow.com</link>."
     }
   },
   "legal": {

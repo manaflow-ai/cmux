@@ -1260,7 +1260,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (beta)"
+      "textBox": "TextBox (beta)",
+      "ios": "iOS-app"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1413,6 +1414,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",
       "metaDescription": "oh-my-opencode (cmux omo) kører OpenCode CLI med oh-my-openagent-pluginet inde i cmux. Orkestrer Claude, GPT, Gemini og Grok som parallelle agenter, hver i sit eget native cmux-split."
+    },
+    "ios": {
+      "metaTitle": "iOS-app",
+      "metaDescription": "Konfigurer cmux-følgeappen til iOS: TestFlight-adgang, dit eget netværk med Tailscale eller WireGuard, parring, notifikationer og hvilke data cmux gemmer.",
+      "title": "iOS-app",
+      "intro": "cmux-appen til iOS er en følgesvend til din Mac. Par din iPhone eller iPad med en Mac, der kører cmux, og tilslut dig dine terminaler fra telefonen, med valgfri videresendelse af terminalnotifikationer.",
+      "betaNote": "iOS-appen er i beta. Den udgives på TestFlight som cmux BETA.",
+      "accessTitle": "Få adgang",
+      "accessDesc": "Appen distribueres via TestFlight. Tidlig adgang er inkluderet i <foundersLink>cmux Founders Edition</foundersLink> sammen med andre tidlige funktioner.",
+      "prereqTitle": "Forudsætninger",
+      "prereqIntro": "Før du går i gang, skal du bruge:",
+      "prereq1": "En Mac, der kører cmux og er logget ind.",
+      "prereq2": "En iPhone eller iPad med cmux BETA-appen installeret fra TestFlight.",
+      "prereq3": "En netværkssti fra din telefon til din Mac (se Medbring dit eget netværk nedenfor).",
+      "networkingTitle": "Medbring dit eget netværk",
+      "networkingDesc": "cmux leverer ikke netværk ud af boksen. Terminalstrømmen går direkte mellem din telefon og din Mac, så din telefon skal kunne nå din Mac på netværket. Den enkleste måde er et privat overlay-netværk.",
+      "tailscaleTitle": "Tailscale (anbefales)",
+      "tailscaleDesc": "Installer <link>Tailscale</link> på både din Mac og din telefon, og log ind på det samme tailnet. Din telefon kan derefter nå din Mac via dens tailnet-adresse hvor som helst fra, uden portvideresendelse.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Hvis du allerede kører <link>WireGuard</link>, så placer din Mac og telefon på samme netværk og brug Mac'ens WireGuard-adresse.",
+      "networkingNote": "Uanset hvad du vælger, er forbindelsen din. cmux fungerer ikke som proxy og videresender ikke terminaltrafik mellem dine enheder.",
+      "pairTitle": "Par og tilslut",
+      "pairStep1": "Åbn vinduet Mobile Connect i cmux på Mac'en.",
+      "pairStep2": "Åbn cmux BETA-appen på din telefon, og bekræft parringen, der vises i Mobile Connect.",
+      "pairStep3": "Når I er parret, vises dine arbejdsområder og terminaler på telefonen via dit netværk.",
+      "pairNote": "Parring sker pr. enhed. En ny enhed eller en geninstalleret app parres igen.",
+      "notificationsTitle": "Notifikationer",
+      "notificationsDesc": "Du kan vælge at videresende terminalnotifikationer til din telefon, så et panel, der kræver opmærksomhed, sender en notifikation til din enhed. Når videresendelse er slået til, sendes notifikationsteksten (titel og brødtekst, hentet fra terminaloutput) gennem cmux-serverne til Apple's push service for at levere den. Slå Hide content til i notifikationsindstillingerne for at sende en generisk besked i stedet og holde terminalteksten på dine enheder. Se <link>notifikationer</link> for, hvordan cmux udløser dem.",
+      "dataTitle": "Hvilke data gemmes",
+      "dataIntro": "cmux er bygget, så din terminal bliver mellem dine enheder. På cmux-serverne gemmer vi kun det, der skal til for at logge dig ind og forbinde dine enheder:",
+      "data1": "Din konto fra login (e-mail) for at identificere dig på tværs af enheder.",
+      "data2": "Et push-token til din enhed for at levere videresendte terminalnotifikationer.",
+      "data3": "Parrings- og enhedsmetadata for at forbinde din telefon med din Mac.",
+      "dataNot": "Din interaktive terminalsession, dens indhold og tastetryk går direkte mellem din telefon og din Mac over dit eget netværk og videresendes ikke gennem eller gemmes på cmux-serverne. Den eneste undtagelse er videresendt notifikationstekst, som passerer gennem cmux og Apple's push service for at nå din telefon, medmindre du aktiverer Hide content (se Notifikationer ovenfor).",
+      "enterpriseTitle": "Enterprise og selvhostet",
+      "enterpriseDesc": "For en selvhostet eller air-gapped udrulning, kontakt <link>founders@manaflow.com</link>."
     }
   },
   "legal": {

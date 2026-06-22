@@ -265,6 +265,76 @@ cmux surface resume clear --checkpoint work
 
 binding នេះនៅតែភ្ជាប់ទៅ cmux surface។ binding ដែលបង្កើតដោយ public CLI ឬ socket ត្រូវបានរក្សាទុកសម្រាប់ពិនិត្យ និង resume ដោយដៃ។ cmux ដំណើរការ resume binding ដោយស្វ័យប្រវត្តិ តែ binding ដែលវាសម្គាល់ថា trusted ប៉ុណ្ណោះ ដូចជា tmux binding ដែលរកឃើញពី live process។ environment key ដែលមានភាពរសើប ដូចជា token, password, secret និង API key នឹងត្រូវបានដកចេញ មុនពេលរក្សាទុក resume binding។
 
+## សំណួរ​ដែល​សួរ​ញឹកញាប់
+
+### តើ cmux ទាក់ទង​នឹង Ghostty យ៉ាង​ដូចម្ដេច?
+
+cmux មិន​មែន​ជា fork របស់ Ghostty ទេ។ វា​ប្រើ [libghostty](https://github.com/ghostty-org/ghostty) ជា library សម្រាប់​ការ​បង្ហាញ​ terminal ដូចគ្នា​នឹង​របៀប​ដែល​កម្មវិធី​ផ្សេងៗ​ប្រើ WebKit សម្រាប់ web views។ Ghostty គឺ​ជា terminal ឯករាជ្យ​មួយ ឯ cmux គឺ​ជា​កម្មវិធី​ផ្សេង​មួយ​ដែល​សាងសង់​នៅ​លើ engine បង្ហាញ​របស់​វា។
+
+### តើ​វា​គាំទ្រ platform អ្វីខ្លះ?
+
+បច្ចុប្បន្ន​មាន​តែ macOS ប៉ុណ្ណោះ។ cmux គឺ​ជា​កម្មវិធី native Swift + AppKit។
+
+### តើ​មាន​កម្មវិធី iOS ដែរ​ឬ​ទេ?
+
+មាន ប៉ុន្តែ​នៅ​ក្នុង​ដំណាក់​កាល beta។ ផ្គូផ្គង iPhone របស់​អ្នក​ជាមួយ Mac របស់​អ្នក​ពី​បង្អួច Mobile Connect រួច​ភ្ជាប់​ទៅ terminals របស់​អ្នក​ពី​ទូរស័ព្ទ​របស់​អ្នក ដោយ​មាន​ជម្រើស​បញ្ជូន​បន្ត​ការ​ជូន​ដំណឹង​របស់ terminal។ វា​ត្រូវ​បាន​ផ្ដល់​ជូន​នៅ​លើ TestFlight ជា cmux BETA។ សូម​មើល [ឯកសារ iOS](https://cmux.com/docs/ios)។
+
+### តើ cmux ដំណើរ​ការ​ជាមួយ coding agents អ្វីខ្លះ?
+
+ទាំងអស់។ cmux គឺ​ជា terminal ដូច្នេះ agent ណាមួយ​ដែល​ដំណើរ​ការ​នៅ​ក្នុង terminal ដំណើរ​ការ​បាន​ភ្លាមៗ៖ Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent និង​អ្វី​ផ្សេង​ទៀត​ដែល​អ្នក​អាច​ចាប់​ផ្ដើម​ពី command line។
+
+### តើ cmux អាច​រៀបចំ agents និង subagents ច្រើន​បាន​ឬ​ទេ?
+
+បាន។ នៅ​ពេល​ដែល agent មួយ​បង្កើត subagents ឬ​សមាជិក​ក្រុម cmux បំប្លែង​ពួក​វា​ទៅ​ជា native panes និង splits ជំនួស​ឱ្យ​ដំណើរ​ការ​ផ្ទៃ​ខាង​ក្រោយ​ដែល​លាក់​បាំង។ វា​គាំទ្រ [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams) និង​ការ​រៀបចំ​ multi-model របស់ [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode) ដូច្នេះ agent ទាំងអស់​នៅ​ក្នុង​ការ​ដំណើរ​ការ​មួយ​អាច​មើល​ឃើញ​និង​គ្រប់​គ្រង​បាន។
+
+### តើ​ខ្ញុំ​អាច​ប្រើ cmux ជាមួយ​ម៉ាស៊ីន​ពី​ចម្ងាយ​បាន​ឬ​ទេ?
+
+បាន។ បើក workspaces តាម​រយៈ SSH ហើយ​ភ្ជាប់​ទៅ​សម័យ tmux ពី​ចម្ងាយ ដូច្នេះ agents អាច​ដំណើរ​ការ​នៅ​លើ​ម៉ាស៊ីន​ពី​ចម្ងាយ​ខណៈ​ដែល​អ្នក​បញ្ជា​ពួក​វា​ពី cmux។ សូម​មើល [SSH និង​ពី​ចម្ងាយ](https://cmux.com/docs/ssh)។
+
+### តើ​ការ​ជូន​ដំណឹង​ដំណើរ​ការ​យ៉ាង​ដូចម្ដេច?
+
+នៅ​ពេល​ដែល​ដំណើរ​ការ​មួយ​ត្រូវ​ការ​ការ​យក​ចិត្ត​ទុក​ដាក់ cmux បង្ហាញ​រង្វង់​ជូន​ដំណឹង​ជុំ​វិញ panes ស្លាក​មិន​ទាន់​អាន​នៅ​ក្នុង sidebar popover ជូន​ដំណឹង និង​ការ​ជូន​ដំណឹង desktop macOS។ ការ​ទាំង​នេះ​បញ្ចេញ​ដោយ​ស្វ័យ​ប្រវត្តិ​តាម​រយៈ escape sequences ស្ដង់ដារ​របស់ terminal (OSC 9/99/777) ឬ​អ្នក​អាច​ធ្វើ​ឱ្យ​ពួក​វា​ដំណើរ​ការ​ជាមួយ [cmux CLI](https://cmux.com/docs/notifications#cli-usage) និង [agent hooks](https://cmux.com/docs/notifications#integration-examples)។ agent ណាមួយ​ដែល​គាំទ្រ hooks ឬ OSC ដំណើរ​ការ​បាន រួម​ទាំង Claude Code, Codex, OpenCode និង pi។
+
+### តើ cmux អាច​សរសេរ​កម្មវិធី​បាន​ឬ​ទេ?
+
+បាន។ រាល់​សកម្មភាព​ទាំងអស់​មាន​តាម​រយៈ cmux CLI និង Unix socket មួយ៖ បង្កើត workspaces បើក split panes ផ្ញើ input អាន​មាតិកា​អេក្រង់ ថត​រូប​អេក្រង់ និង​បញ្ជា​ browser ក្នុង​កម្មវិធី។ សូម​មើល [ឯកសារ​យោង CLI](https://cmux.com/docs/api) និង​ឯកសារ [browser automation](https://cmux.com/docs/browser-automation)។
+
+### តើ browser ដែល​មាន​ស្រាប់​អាច​ធ្វើ​អ្វី​បាន​ខ្លះ?
+
+cmux អាច​ បំបែក​ browser pane ពិត​ប្រាកដ​មួយ​នៅ​ជាប់​នឹង terminal របស់​អ្នក ហើយ​វា​អាច​សរសេរ​កម្មវិធី​បាន​ពេញលេញ៖ រុករក ថត snapshot នៃ DOM ចុច វាយ​អក្សរ វាយ​តម្លៃ JavaScript និង​អាន console និង​សកម្មភាព network តាម​រយៈ socket API ដូចគ្នា។ agents ប្រើ​វា​ដើម្បី​ផ្ទៀង​ផ្ទាត់​ការ​ផ្លាស់​ប្ដូរ web ផ្ទាល់​ខ្លួន​របស់​ពួក​វា​ដោយ​មិន​ចាំ​បាច់​ចេញ​ពី cmux។ សូម​មើល [browser automation](https://cmux.com/docs/browser-automation)។
+
+### តើ cmux មាន skills ឬ​ទេ?
+
+មាន។ Skills គឺ​ជា workflows ដែល​អាច​ប្រើ​ឡើង​វិញ​ដែល​អ្នក​អាច​ផ្ដល់​ឱ្យ agent ណាមួយ​ដែល​ដំណើរ​ការ​នៅ​ក្នុង cmux សម្រាប់​ការងារ​ដូច​ជា​ការ​បញ្ជា CLI ការ​ស្វ័យ​ប្រវត្តិ​កម្ម workspace ការ​កំណត់ និង browser surfaces។ រុករក​ការ​ប្រមូល​ផ្ដុំ​ដែល​បើក​ចំហ​នៅ [cmux-skills](https://github.com/manaflow-ai/cmux-skills) ឬ​អាន [ឯកសារ skills](https://cmux.com/docs/skills)។
+
+### តើ​ខ្ញុំ​អាច​កែ​សម្រួល keyboard shortcuts បាន​ឬ​ទេ?
+
+keybindings របស់ terminal ត្រូវ​បាន​អាន​ពី​ឯកសារ config របស់ Ghostty (`~/.config/ghostty/config`)។ shortcuts ជាក់​លាក់​របស់ cmux (workspaces, splits, browser, notifications) អាច​កែ​សម្រួល​បាន​នៅ​ក្នុង Settings។ សូម​មើល [shortcuts លំនាំ​ដើម](https://cmux.com/docs/keyboard-shortcuts) សម្រាប់​បញ្ជី​ពេញលេញ។
+
+### តើ​ខ្ញុំ​អាច​កែ​សម្រួល cmux បាន​ឬ​ទេ?
+
+បាន។ ការ​បង្ហាញ terminal ប្រើ config របស់ Ghostty របស់​អ្នក ដូច្នេះ themes, fonts, ពណ៌ និង cursor ត្រូវ​បាន​បន្ត​ដោយ​ផ្ទាល់។ ការ​កំណត់​ផ្ទាល់​ខ្លួន​របស់ cmux នៅ​ក្នុង `~/.config/cmux/cmux.json` គ្រប់​គ្រង sidebar, tab bar, split panes និង​ឥរិយាបថ ហើយ​រាល់ [keyboard shortcut](https://cmux.com/docs/keyboard-shortcuts) អាច​កែ​សម្រួល​បាន។ សូម​មើល [configuration](https://cmux.com/docs/configuration)។
+
+### តើ​សម័យ​របស់​ខ្ញុំ​ត្រូវ​បាន​រក្សា​ទុក​ឬ​ទេ?
+
+រក្សា​ទុក។ cmux ស្ដារ បង្អួច workspaces panes ថត​ការងារ និង scrollback របស់​អ្នក​នៅ​ពេល​អ្នក​បើក​ឡើង​វិញ ហើយ​ស្ថានភាព​នៅ​រស់​រាន​បន្ទាប់​ពី​ការ​បើក​កុំព្យូទ័រ​ឡើង​វិញ​ពេញលេញ មិន​មែន​គ្រាន់​តែ​ការ​បិទ​កម្មវិធី​ប៉ុណ្ណោះ​ទេ។ សម័យ agent ដូច​ជា Claude Code, Codex និង OpenCode ត្រឡប់​មក​វិញ​ផង​ដែរ។ សូម​មើល [session restore](https://cmux.com/docs/session-restore)។
+
+### តើ​វា​ប្រៀប​ធៀប​នឹង tmux យ៉ាង​ដូចម្ដេច?
+
+tmux គឺ​ជា terminal multiplexer ដែល​ដំណើរ​ការ​នៅ​ក្នុង terminal ណាមួយ។ cmux គឺ​ជា​កម្មវិធី native macOS ដែល​មាន GUI៖ vertical tabs, split panes, browser ដែល​បង្កប់ និង socket API ទាំងអស់​មាន​ស្រាប់ ដោយ​មិន​ចាំ​បាច់​មាន​ឯកសារ config ឬ prefix keys។ ទោះ​ជា​យ៉ាង​ណា​ក៏​ដោយ មនុស្ស​ជា​ច្រើន​ដំណើរ​ការ cmux ជាមួយ SSH និង tmux រួម​គ្នា​ដោយ​សប្បាយ​រីករាយ ហើយ cmux អាច​ភ្ជាប់​ទៅ​សម័យ tmux ពី​ចម្ងាយ​របស់​អ្នក​ដោយ native ([beta](https://cmux.com/docs/remote-tmux))។
+
+### តើ cmux ឥត​គិត​ថ្លៃ​ឬ​ទេ?
+
+មែន cmux ឥត​គិត​ថ្លៃ​ក្នុង​ការ​ប្រើ​ប្រាស់។ កូដ​ប្រភព​មាន​នៅ​លើ [GitHub](https://github.com/manaflow-ai/cmux)។
+
+### តើ​ខ្ញុំ​អាច​គាំទ្រ cmux យ៉ាង​ដូចម្ដេច?
+
+cmux ឥត​គិត​ថ្លៃ​និង open source ហើយ​នឹង​នៅ​តែ​បែប​នេះ​ជានិច្ច។ ប្រសិន​បើ​អ្នក​ចង់​គាំទ្រ​ការ​អភិវឌ្ឍ​និង​ទទួល​បាន​ការ​ចូល​ដំណើរ​ការ​មុន​គេ​ចំពោះ​អ្វី​ដែល​នឹង​មក​ដល់ រួម​ទាំង cmux AI, កម្មវិធី iOS និង Cloud VMs សូម​មើល [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)។
+
+### ខ្ញុំ​មាន​សំណើ​មុខងារ ឬ​រក​ឃើញ​កំហុស?
+
+យើង​ចង់​ស្ដាប់​វា។ បើក [issue](https://github.com/manaflow-ai/cmux/issues) ឬ [pull request](https://github.com/manaflow-ai/cmux/pulls) នៅ​លើ GitHub ឬ [អ៊ីមែល​មក​យើង](mailto:founders@manaflow.com?subject=cmux%20feature%20request)។
+
 ## Star History
 
 <a href="https://star-history.com/#manaflow-ai/cmux&Date">

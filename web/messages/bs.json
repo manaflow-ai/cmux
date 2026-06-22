@@ -1260,7 +1260,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "iOS aplikacija"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1413,6 +1414,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",
       "metaDescription": "oh-my-opencode (cmux omo) pokreće OpenCode CLI s dodatkom oh-my-openagent unutar cmux-a. Orkestrirajte Claude, GPT, Gemini i Grok kao paralelne agente, svaki u nativnoj cmux podjeli."
+    },
+    "ios": {
+      "metaTitle": "iOS aplikacija",
+      "metaDescription": "Postavite cmux iOS prateću aplikaciju: TestFlight pristup, vlastito umrežavanje s Tailscale ili WireGuard, uparivanje, notifikacije i koje podatke cmux pohranjuje.",
+      "title": "iOS aplikacija",
+      "intro": "cmux iOS aplikacija je pratilac vašeg Mac-a. Uparite svoj iPhone ili iPad s Mac-om koji koristi cmux i povežite se sa svojim terminalima s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija.",
+      "betaNote": "iOS aplikacija je u beta verziji. Distribuira se putem TestFlight-a kao cmux BETA.",
+      "accessTitle": "Dobivanje pristupa",
+      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>, zajedno s drugim ranim funkcijama.",
+      "prereqTitle": "Preduvjeti",
+      "prereqIntro": "Prije nego što počnete, potrebno vam je:",
+      "prereq1": "Mac koji koristi cmux i na kojem ste prijavljeni.",
+      "prereq2": "iPhone ili iPad s instaliranom cmux BETA aplikacijom putem TestFlight-a.",
+      "prereq3": "Mrežni put od vašeg telefona do vašeg Mac-a (pogledajte Vlastito umrežavanje ispod).",
+      "networkingTitle": "Vlastito umrežavanje",
+      "networkingDesc": "cmux ne pruža umrežavanje odmah po instalaciji. Terminalski tok teče direktno između vašeg telefona i vašeg Mac-a, pa vaš telefon mora moći doseći vaš Mac na mreži. Najjednostavniji način je privatna overlay mreža.",
+      "tailscaleTitle": "Tailscale (preporučeno)",
+      "tailscaleDesc": "Instalirajte <link>Tailscale</link> i na svoj Mac i na svoj telefon i prijavite se na isti tailnet. Vaš telefon tada može doseći vaš Mac putem njegove tailnet adrese s bilo kojeg mjesta, bez prosljeđivanja portova.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Ako već koristite <link>WireGuard</link>, stavite svoj Mac i telefon na istu mrežu i koristite WireGuard adresu Mac-a.",
+      "networkingNote": "Šta god odaberete, veza je vaša. cmux ne posreduje niti prenosi terminalski promet između vaših uređaja.",
+      "pairTitle": "Uparite i povežite se",
+      "pairStep1": "Na Mac-u otvorite prozor Mobile Connect u cmux-u.",
+      "pairStep2": "Na telefonu otvorite cmux BETA aplikaciju i potvrdite uparivanje prikazano u Mobile Connect.",
+      "pairStep3": "Nakon uparivanja, vaši radni prostori i terminali pojavljuju se na telefonu putem vaše mreže.",
+      "pairNote": "Uparivanje je po uređaju. Novi uređaj ili ponovno instalirana aplikacija ponovo se uparuje.",
+      "notificationsTitle": "Notifikacije",
+      "notificationsDesc": "Možete se odlučiti za prosljeđivanje terminalskih notifikacija na svoj telefon, tako da panel kojem je potrebna pažnja šalje obavještenje na vaš uređaj. Kada je prosljeđivanje uključeno, tekst notifikacije (naslov i tijelo, izvučeni iz terminalskog izlaza) šalje se putem cmux servera Appleovom push servisu radi isporuke. Uključite Hide content u postavkama notifikacija da biste umjesto toga slali generičku poruku i zadržali terminalski tekst na svojim uređajima. Pogledajte <link>notifikacije</link> za to kako ih cmux pokreće.",
+      "dataTitle": "Koji podaci se pohranjuju",
+      "dataIntro": "cmux je napravljen tako da vaš terminal ostaje između vaših uređaja. Na cmux serverima pohranjujemo samo ono što je potrebno da vas prijavimo i povežemo vaše uređaje:",
+      "data1": "Vaš nalog iz prijave (e-pošta), da vas identifikujemo na svim uređajima.",
+      "data2": "Push token za vaš uređaj, za isporuku proslijeđenih terminalskih notifikacija.",
+      "data3": "Metapodaci o uparivanju i uređaju, za povezivanje vašeg telefona s vašim Mac-om.",
+      "dataNot": "Vaša interaktivna terminalska sesija, njen sadržaj i pritisci tipki teku direktno između vašeg telefona i vašeg Mac-a putem vaše vlastite mreže i ne prenose se kroz cmux servere niti se na njima pohranjuju. Jedini izuzetak je proslijeđeni tekst notifikacije, koji prolazi kroz cmux i Appleov push servis da bi stigao do vašeg telefona, osim ako ne omogućite Hide content (pogledajte Notifikacije iznad).",
+      "enterpriseTitle": "Enterprise i samostalno hostovanje",
+      "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@manaflow.com</link>."
     }
   },
   "legal": {
