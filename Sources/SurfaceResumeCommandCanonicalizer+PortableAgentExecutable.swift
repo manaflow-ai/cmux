@@ -224,7 +224,12 @@ extension SurfaceResumeCommandCanonicalizer {
         }
         var parts = Array(words[commandStartIndex...].map(\.value))
         guard !containsShellControlSyntax(parts) else {
-            return command
+            return replacingExecutableOnly(
+                in: command,
+                words: words,
+                executableIndex: executableIndex,
+                executableName: "claude"
+            )
         }
         guard canRenderStaleClaudeCommandAsPortableArgv(
             words: words,

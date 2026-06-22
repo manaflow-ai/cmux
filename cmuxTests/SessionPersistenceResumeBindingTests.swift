@@ -192,9 +192,12 @@ import Testing
             source: "agent-hook",
             autoResume: true
         )
+        let startupInput = try #require(binding.startupInput)
 
         #expect(binding.command.contains("&& echo done"), "\(binding.command)")
         #expect(binding.command.contains(staleExecutablePath), "\(binding.command)")
+        #expect(startupInput.contains("claude '--resume' 'session-operator-cli' && echo done"), "\(startupInput)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
     }
 
     @Test func agentHookBindingPreservesRemoteManagedExecutablePath() throws {
@@ -242,6 +245,102 @@ import Testing
                 "\(startupInput)"
             )
         }
+    }
+
+    @Test @MainActor func remoteWorkspaceLocalTerminalResumeBindingUsesLocalRepair() throws {
+        let defaults = UserDefaults.standard
+        let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        let previousAutoResumeValue = defaults.object(forKey: autoResumeKey)
+        defaults.set(true, forKey: autoResumeKey)
+        defer {
+            if let previousAutoResumeValue {
+                defaults.set(previousAutoResumeValue, forKey: autoResumeKey)
+            } else {
+                defaults.removeObject(forKey: autoResumeKey)
+            }
+        }
+
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Remote Workspace With Local Resume Binding")
+        remoteWorkspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: [
+                    "StrictHostKeyChecking=accept-new",
+                ],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                terminalStartupCommand: "ssh -p 2222 dev@example.com",
+                preserveAfterTerminalExit: false
+            ),
+            autoConnect: false
+        )
+        let paneId = try #require(remoteWorkspace.bonsplitController.allPaneIds.first)
+        let localDirectory = "/tmp/cmux-local-resume-binding"
+        let localPanel = try #require(remoteWorkspace.newTerminalSurface(
+            inPane: paneId,
+            focus: true,
+            workingDirectory: localDirectory,
+            suppressWorkspaceRemoteStartupCommand: true
+        ))
+        remoteWorkspace.setPanelCustomTitle(panelId: localPanel.id, title: "Local Resume Shell")
+        let staleExecutablePath = Self.homeManagedExecutablePath(
+            executableName: "codex",
+            ".nvm",
+            "versions",
+            "node",
+            "cmux-missing-\(UUID().uuidString)",
+            "bin"
+        )
+        let quotedDirectory = "'\(localDirectory)'"
+        #expect(remoteWorkspace.setSurfaceResumeBinding(
+            SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "{ cd -- \(quotedDirectory) 2>/dev/null || [ ! -d \(quotedDirectory) ]; } && "
+                    + "'\(staleExecutablePath)' 'resume' 'session-local-resume'",
+                cwd: localDirectory,
+                checkpointId: "session-local-resume",
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 10
+            ),
+            panelId: localPanel.id
+        ))
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let persistedWorkspace = try #require(snapshot.workspaces.first {
+            $0.customTitle == "Remote Workspace With Local Resume Binding"
+        })
+        let persistedLocalPanel = try #require(persistedWorkspace.panels.first {
+            $0.customTitle == "Local Resume Shell"
+        })
+        #expect(persistedLocalPanel.terminal?.isRemoteTerminal == false)
+        #expect(persistedLocalPanel.terminal?.resumeBinding?.command.contains(staleExecutablePath) == true)
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredWorkspace = try #require(restored.tabs.first {
+            $0.customTitle == "Remote Workspace With Local Resume Binding"
+        })
+        let restoredLocalPanel = try #require(
+            restoredWorkspace.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.customTitle == "Local Resume Shell" }
+        )
+        let restoredPanel = try #require(restoredWorkspace.terminalPanel(for: restoredLocalPanel.id))
+        let restoredInput = try #require(restoredPanel.surface.debugInitialInputForTesting())
+        #expect(restoredPanel.surface.debugInitialCommand() == nil)
+        #expect(restoredPanel.requestedWorkingDirectory == nil)
+        #expect(restoredInput.contains("codex 'resume' 'session-local-resume'"), "\(restoredInput)")
+        #expect(restoredInput.contains(localDirectory), "\(restoredInput)")
+        #expect(!restoredInput.contains(staleExecutablePath), "\(restoredInput)")
     }
 
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {

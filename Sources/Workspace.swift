@@ -1212,7 +1212,9 @@ extension Workspace {
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
             let remoteStartupCommand = remoteTerminalStartupCommand()
-            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if remoteStartupCommand != nil {
+            let restoresRemoteWorkspaceTerminalSnapshot =
+                remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal == true
+            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
                 effectiveResumeBindingForStartup?
                     .remoteStartupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
@@ -1244,7 +1246,7 @@ extension Workspace {
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
-                    if remoteStartupCommand != nil {
+                    if restoresRemoteWorkspaceTerminalSnapshot {
                         restorableAgent?.resumeStartupInput(
                             allowLauncherScript: false,
                             allowOversizedInlineInput: true
@@ -1297,8 +1299,6 @@ extension Workspace {
                 snapshot.terminal?.isRemoteTerminal == false &&
                 restoredRemotePTYAttachCommand == nil
             let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
-            let restoresRemoteWorkspaceTerminalSnapshot =
-                remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal == true
             let localWorkingDirectory = effectiveRemoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
