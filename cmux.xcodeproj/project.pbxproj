@@ -70,6 +70,7 @@
 		2907B1032907B1032907B103 /* AppDelegate+TerminalTextSendTracing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2907B1042907B1042907B104 /* AppDelegate+TerminalTextSendTracing.swift */; };
 		604500100000000000000005 /* AppDelegate+WindowIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000006 /* AppDelegate+WindowIdentity.swift */; };
 		C4160AA00000000000000001 /* AppDelegate+WorkspaceCreationActionHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160AA00000000000000002 /* AppDelegate+WorkspaceCreationActionHosting.swift */; };
+		C0DE32490000000000000003 /* AppDelegate+WorkspaceHostEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32490000000000000004 /* AppDelegate+WorkspaceHostEnvironment.swift */; };
 		E7B3A0010000000000000001 /* AppDelegate+WorkspaceResolving.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7B3A0010000000000000002 /* AppDelegate+WorkspaceResolving.swift */; };
 		A5001093 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001090 /* AppDelegate.swift */; };
 		725746692D9647948561044D /* AppDelegateBareSpaceShortcutRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */; };
@@ -993,6 +994,7 @@
 		C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */; };
 		C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */; };
 		C9A57001C9A57001C9A57001 /* WorkspaceGroupTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */; };
+		C0DE32490000000000000001 /* WorkspaceHostEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32490000000000000002 /* WorkspaceHostEnvironment.swift */; };
 		E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */; };
 		CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */; };
 		0F2C25F9170130F8DC09DD1B /* WorkspaceManualUnreadTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */; };
@@ -1161,6 +1163,7 @@
 		2907B1042907B1042907B104 /* AppDelegate+TerminalTextSendTracing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+TerminalTextSendTracing.swift"; sourceTree = "<group>"; };
 		604500100000000000000006 /* AppDelegate+WindowIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WindowIdentity.swift"; sourceTree = "<group>"; };
 		C4160AA00000000000000002 /* AppDelegate+WorkspaceCreationActionHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WorkspaceCreationActionHosting.swift"; sourceTree = "<group>"; };
+		C0DE32490000000000000004 /* AppDelegate+WorkspaceHostEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WorkspaceHostEnvironment.swift"; sourceTree = "<group>"; };
 		E7B3A0010000000000000002 /* AppDelegate+WorkspaceResolving.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+WorkspaceResolving.swift"; sourceTree = "<group>"; };
 		A5001090 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		17FCD4CC61D54A2F8F2F463D /* AppDelegateBareSpaceShortcutRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegateBareSpaceShortcutRoutingTests.swift; sourceTree = "<group>"; };
@@ -2020,6 +2023,7 @@
 		C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFinderDirectoryResolver.swift; sourceTree = "<group>"; };
 		C9A57204C9A57204C9A57204 /* WorkspaceGroupMenuSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupMenuSnapshot.swift; sourceTree = "<group>"; };
 		C9A57002C9A57002C9A57002 /* WorkspaceGroupTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceGroupTests.swift; sourceTree = "<group>"; };
+		C0DE32490000000000000002 /* WorkspaceHostEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceHostEnvironment.swift; sourceTree = "<group>"; };
 		E3B7A4000000000000000008 /* WorkspaceIndicatorStyle+Display.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceIndicatorStyle+Display.swift"; sourceTree = "<group>"; };
 		CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "WorkspaceLayoutMode.swift"; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
@@ -2490,6 +2494,8 @@
 				A5001511 /* UITestRecorder.swift */,
 				A5001520 /* PostHogAnalytics.swift */,
 				A5001416 /* Workspace.swift */,
+				C0DE32490000000000000002 /* WorkspaceHostEnvironment.swift */,
+				C0DE32490000000000000004 /* AppDelegate+WorkspaceHostEnvironment.swift */,
 				5659A0025659A0025659A002 /* WorkspaceSidebarObservation.swift */,
 				5659B0025659B0025659B002 /* WorkspaceSidebarLogEntryLimitProvider.swift */,
 				D7AB3605C10DEF0000000004 /* WorkspaceCloseTabsBatching.swift */,
@@ -3696,6 +3702,7 @@
 				2907B1032907B1032907B103 /* AppDelegate+TerminalTextSendTracing.swift in Sources */,
 				604500100000000000000005 /* AppDelegate+WindowIdentity.swift in Sources */,
 				C4160AA00000000000000001 /* AppDelegate+WorkspaceCreationActionHosting.swift in Sources */,
+				C0DE32490000000000000003 /* AppDelegate+WorkspaceHostEnvironment.swift in Sources */,
 				E7B3A0010000000000000001 /* AppDelegate+WorkspaceResolving.swift in Sources */,
 				A5001093 /* AppDelegate.swift in Sources */,
 				C0DE32480000000000000001 /* AppDelegateDebugStressWorkspaceHosting.swift in Sources */,
@@ -4238,6 +4245,7 @@
 				A5001407 /* WorkspaceContentView.swift in Sources */,
 				C0DE36230000000000000001 /* WorkspaceFinderDirectoryResolver.swift in Sources */,
 				C9A57203C9A57203C9A57203 /* WorkspaceGroupMenuSnapshot.swift in Sources */,
+				C0DE32490000000000000001 /* WorkspaceHostEnvironment.swift in Sources */,
 				E3B7A4000000000000000007 /* WorkspaceIndicatorStyle+Display.swift in Sources */,
 				CA52B0180000000000000000 /* WorkspaceLayoutMode.swift in Sources */,
 				D0B10004A1B2C3D4E5F60001 /* WorkspacePortalPaneDrop.swift in Sources */,

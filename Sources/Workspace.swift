@@ -114,7 +114,7 @@ extension Workspace {
         let gitBranchSnapshot = gitBranch.map { branch in
             SessionGitBranchSnapshot(branch: branch.branch, isDirty: branch.isDirty)
         }
-        let notificationStore = AppDelegate.shared?.notificationStore
+        let notificationStore = hostEnvironment?.notificationStore
         let isWorkspaceManuallyUnread = notificationStore?.hasManualUnread(forTabId: id) ?? false
         let hasWorkspaceUnreadIndicator =
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
@@ -264,11 +264,11 @@ extension Workspace {
         )
         let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
         if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
-            AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
+            hostEnvironment?.notificationStore?.restoreUnreadIndicator(forTabId: id)
         } else {
-            AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
+            hostEnvironment?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
-        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        hostEnvironment?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
         syncUnreadBadgeStateForAllPanels()
         return oldToNewPanelIds
     }
@@ -1408,7 +1408,7 @@ extension Workspace {
     }
 
     private func restoreWorkspaceManualUnread(_ isManuallyUnread: Bool) {
-        guard let notificationStore = AppDelegate.shared?.notificationStore else { return }
+        guard let notificationStore = hostEnvironment?.notificationStore else { return }
         if isManuallyUnread {
             notificationStore.markUnread(forTabId: id)
         } else {
@@ -1418,7 +1418,7 @@ extension Workspace {
     }
 
     private func notificationSnapshots(surfaceId: UUID?) -> [SessionNotificationSnapshot] {
-        AppDelegate.shared?.notificationStore?
+        hostEnvironment?.notificationStore?
             .notifications(forTabId: id, surfaceId: surfaceId)
             .map(SessionNotificationSnapshot.init(notification:)) ?? []
     }
@@ -1778,6 +1778,16 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     )
 
     let id: UUID
+    /// The injected app-level seam this workspace reaches for cross-window
+    /// services it does not own (notification store, remote-tmux mirror
+    /// controller, tab-manager resolution, focus log, and the app-level
+    /// cloud-VM-create / move-to-new-workspace actions). Replaces the former
+    /// direct `hostEnvironment?.X` reach-ups: every call site now routes
+    /// through `self.hostEnvironment?.X`, so behavior is byte-identical (a nil
+    /// `hostEnvironment` matches a nil `AppDelegate.shared`). Constructor-injected
+    /// at the composition root; defaults to the running delegate so existing
+    /// construction sites need no change.
+    private let hostEnvironment: (any WorkspaceHostEnvironment)?
     /// When this workspace instance came into existence in this app session
     /// (creation, or restore at launch). The mobile list's last-activity
     /// fallback: a workspace that never fired a notification still carries a
@@ -2874,9 +2884,11 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         initialTerminalEnvironment: [String: String] = [:],
         workspaceEnvironment: [String: String] = [:],
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
-        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
+        sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil,
+        hostEnvironment: (any WorkspaceHostEnvironment)? = AppDelegate.shared
     ) {
         self.id = UUID()
+        self.hostEnvironment = hostEnvironment
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
@@ -3390,7 +3402,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> WorkspaceRemoteTmuxNonInteractiveCloseRoute {
         guard isRemoteTmuxMirror,
               let panelId = panelIdFromSurfaceId(tabId),
-              let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+              let remoteTmuxController = hostEnvironment?.remoteTmuxController,
               remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId)
         else {
             return .notMirrorTab
@@ -3981,7 +3993,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func surfaceRegistryHandleMirrorWindowRenamed(panelId: UUID, title: String) {
-        AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
+        hostEnvironment?.remoteTmuxController.handleMirrorWindowRenamed(
             workspaceId: id, panelId: panelId, title: title
         )
     }
@@ -4001,15 +4013,15 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func workspaceUnreadHasVisibleNotificationIndicator(panelId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
+        hostEnvironment?.notificationStore?.hasVisibleNotificationIndicator(forTabId: id, surfaceId: panelId) ?? false
     }
 
     func workspaceUnreadHasUnreadNotification(panelId: UUID) -> Bool {
-        AppDelegate.shared?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
+        hostEnvironment?.notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: panelId) ?? false
     }
 
     func workspaceUnreadFocusedReadPanelId() -> UUID? {
-        AppDelegate.shared?.notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id)
+        hostEnvironment?.notificationStore?.focusedReadIndicatorSurfaceId(forTabId: id)
     }
 
     func workspaceUnreadTriggerPanelFlash(panelId: UUID, reason: WorkspaceAttentionFlashReason) {
@@ -4017,7 +4029,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func workspaceUnreadNotificationHasManualUnread() -> Bool {
-        AppDelegate.shared?.notificationStore?.hasManualUnread(forTabId: id) ?? false
+        hostEnvironment?.notificationStore?.hasManualUnread(forTabId: id) ?? false
     }
 
     func workspaceUnreadRepresentativePanelId() -> UUID? {
@@ -4033,19 +4045,19 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     func workspaceUnreadSetPanelDerivedUnread(_ isUnread: Bool) {
-        AppDelegate.shared?.notificationStore?.setPanelDerivedUnread(isUnread, forTabId: id)
+        hostEnvironment?.notificationStore?.setPanelDerivedUnread(isUnread, forTabId: id)
     }
 
     func workspaceUnreadNotificationMarkRead(panelId: UUID) {
-        AppDelegate.shared?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
+        hostEnvironment?.notificationStore?.markRead(forTabId: id, surfaceId: panelId)
     }
 
     func workspaceUnreadNotificationMarkReadWorkspace() {
-        AppDelegate.shared?.notificationStore?.markRead(forTabId: id)
+        hostEnvironment?.notificationStore?.markRead(forTabId: id)
     }
 
     func workspaceUnreadNotificationClearRestoredUnreadIndicator() {
-        _ = AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
+        _ = hostEnvironment?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
     }
 
     // MARK: - SurfaceMetadataHosting (live seam for WorkspaceSurfaceMetadataModel)
@@ -4439,7 +4451,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         // marked prompt — i.e. always, for a mirror). Ask the control connection
         // whether any of the window's panes is running an active command instead.
         if isRemoteTmuxMirror,
-           let activity = AppDelegate.shared?.remoteTmuxController
+           let activity = hostEnvironment?.remoteTmuxController
                .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
             return activity.hasActiveCommand
         }
@@ -5760,7 +5772,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
             if remoteLastErrorFingerprint != fingerprint {
                 remoteLastErrorFingerprint = fingerprint
                 appendSidebarLog(message: entryValue, level: .warning, source: "remote")
-                AppDelegate.shared?.notificationStore?.addNotification(
+                hostEnvironment?.notificationStore?.addNotification(
                     tabId: id,
                     surfaceId: nil,
                     title: String(
@@ -5797,7 +5809,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
                     level: .error,
                     source: logSource
                 )
-                AppDelegate.shared?.notificationStore?.addNotification(
+                hostEnvironment?.notificationStore?.addNotification(
                     tabId: id,
                     surfaceId: nil,
                     title: notificationTitle,
@@ -6090,7 +6102,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         // veto in splitTabBar(_:shouldSplitPane:orientation:) can see — keeps
         // programmatic splits aimed at a background window-tab precise.
         if isRemoteTmuxMirror {
-            let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+            let routed = hostEnvironment?.remoteTmuxController.handleMirrorTabSplitRequested(
                 workspaceId: id,
                 panelId: panelId,
                 vertical: orientation == .vertical
@@ -6354,7 +6366,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         // breaking the 1:1 invariant (symmetric with newBrowserSurface). A dead
         // mirror workspace is torn down separately via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
-            let routed = AppDelegate.shared?.remoteTmuxController
+            let routed = hostEnvironment?.remoteTmuxController
                 .handleMirrorNewTabRequested(workspaceId: id) ?? false
             return routed ? .routedToRemote : .failed
         }
@@ -6624,8 +6636,8 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
                     // than falling through to an unconfirmed one (only reachable in
                     // teardown states where the pane header shouldn't be clickable).
                     guard let manager = self.owningTabManager
-                        ?? AppDelegate.shared?.tabManagerFor(tabId: self.id)
-                        ?? AppDelegate.shared?.tabManager else { return }
+                        ?? hostEnvironment?.tabManagerFor(tabId: self.id)
+                        ?? hostEnvironment?.tabManager else { return }
                     let message: String
                     if let command = state?.command, state?.hasActiveCommand == true, !command.isEmpty {
                         message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(command)\".")
@@ -7938,7 +7950,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         }
-        AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
+        hostEnvironment?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
             toTabId: id,
             surfaceId: detached.panelId
@@ -8137,7 +8149,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
         let pane = bonsplitController.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
         let triggerLabel = trigger == .terminalFirstResponder ? "firstResponder" : "standard"
         cmuxDebugLog("focus.panel panel=\(panelId.uuidString.prefix(5)) pane=\(pane) trigger=\(triggerLabel)")
-        AppDelegate.shared?.focusLog.append(
+        hostEnvironment?.focusLog.append(
             "Workspace.focusPanel panelId=\(panelId.uuidString) focusedPane=\(pane) trigger=\(triggerLabel)"
         )
 #endif
@@ -8271,7 +8283,7 @@ final class Workspace: Identifiable, ObservableObject, WorkspaceUnreadHosting, S
     }
 
     private func isCommandPaletteVisibleForWorkspaceWindow() -> Bool {
-        guard let app = AppDelegate.shared else {
+        guard let app = hostEnvironment else {
             return false
         }
 
@@ -9736,7 +9748,7 @@ extension Workspace: PaneTreeHosting {
 extension Workspace: BonsplitDelegate {
     @MainActor
     private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
-        let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+        let manager = owningTabManager ?? hostEnvironment?.tabManagerFor(tabId: id) ?? hostEnvironment?.tabManager
         guard panels.count <= 1,
               panelIdFromSurfaceId(tabId) != nil,
               let manager,
@@ -9781,8 +9793,8 @@ extension Workspace: BonsplitDelegate {
 
         if let confirmCloseHandler = (
             owningTabManager
-            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-            ?? AppDelegate.shared?.tabManager
+            ?? hostEnvironment?.tabManagerFor(tabId: id)
+            ?? hostEnvironment?.tabManager
         )?.confirmCloseHandler {
             return confirmCloseHandler(title, message, false)
         }
@@ -10232,7 +10244,7 @@ extension Workspace: BonsplitDelegate {
         // directly (see closeTabsFromContextMenu), bypassing this delegate.
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
-           let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+           let remoteTmuxController = hostEnvironment?.remoteTmuxController,
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
             let confirmationSource: CloseTabCloseSource =
                 tabCloseButtonClose ? .tabCloseButton : .shortcut
@@ -10251,8 +10263,8 @@ extension Workspace: BonsplitDelegate {
                     return false
                 }
                 let confirmationManager = owningTabManager
-                    ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-                    ?? AppDelegate.shared?.tabManager
+                    ?? hostEnvironment?.tabManagerFor(tabId: id)
+                    ?? hostEnvironment?.tabManager
                 if let confirmationManager, confirmationManager.isCloseConfirmationInFlight {
                     return false
                 }
@@ -10337,8 +10349,8 @@ extension Workspace: BonsplitDelegate {
         }
 
         let closeConfirmationManager = owningTabManager
-            ?? AppDelegate.shared?.tabManagerFor(tabId: id)
-            ?? AppDelegate.shared?.tabManager
+            ?? hostEnvironment?.tabManagerFor(tabId: id)
+            ?? hostEnvironment?.tabManager
         if let closeConfirmationManager, closeConfirmationManager.isCloseConfirmationInFlight {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             if pendingCloseConfirmTabIds.contains(tab.id) {
@@ -10387,7 +10399,7 @@ extension Workspace: BonsplitDelegate {
                 return false
             }
 
-            let confirmationManager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+            let confirmationManager = owningTabManager ?? hostEnvironment?.tabManagerFor(tabId: id) ?? hostEnvironment?.tabManager
             if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
                 return false
             }
@@ -10606,7 +10618,7 @@ extension Workspace: BonsplitDelegate {
         guard isRemoteTmuxMirror else { return true }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {
-            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+            _ = hostEnvironment?.remoteTmuxController.handleMirrorTabSplitRequested(
                 workspaceId: id, panelId: panelId, vertical: orientation == .vertical
             )
         }
@@ -10618,7 +10630,7 @@ extension Workspace: BonsplitDelegate {
         guard isRemoteTmuxMirror else { return }
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }
-        AppDelegate.shared?.remoteTmuxController.handleMirrorWindowsReordered(
+        hostEnvironment?.remoteTmuxController.handleMirrorWindowsReordered(
             workspaceId: id, orderedPanelIds: orderedPanelIds
         )
     }
@@ -10684,7 +10696,7 @@ extension Workspace: BonsplitDelegate {
         // When a pane is focused, focus its selected tab's panel
         guard let tab = controller.selectedTab(inPane: pane) else { return }
 #if DEBUG
-        AppDelegate.shared?.focusLog.append(
+        hostEnvironment?.focusLog.append(
             "Workspace.didFocusPane paneId=\(pane.id.uuidString) tabId=\(tab.id) focusedPane=\(controller.focusedPaneId?.id.uuidString ?? "nil")"
         )
 #endif
@@ -11001,10 +11013,11 @@ extension Workspace: BonsplitDelegate {
             case .newWorkspace:
                 owningTabManager?.addWorkspace()
             case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(
+                _ = hostEnvironment?.performCloudVMAction(
                     tabManager: owningTabManager,
                     preferredWindow: presentingWindow,
-                    debugSource: "surfaceTabBar.cloudVM"
+                    debugSource: "surfaceTabBar.cloudVM",
+                    onCompletion: nil
                 )
             case .newTerminal, .newBrowser, .splitRight, .splitDown:
                 break
@@ -11124,7 +11137,15 @@ extension Workspace: BonsplitDelegate {
                 _ = contextMenuCoordinator.moveTab(tab.id, toMoveDestination: destination.id)
             }
         case .moveToNewWorkspace:
-            _ = AppDelegate.shared?.moveBonsplitTabToNewWorkspace(tabId: tab.id.uuid, focus: true, focusWindow: false)
+            _ = hostEnvironment?.moveBonsplitTabToNewWorkspace(
+                tabId: tab.id.uuid,
+                destinationManager: nil,
+                title: nil,
+                focus: true,
+                focusWindow: false,
+                placementOverride: nil,
+                insertionIndexOverride: nil
+            )
         case .moveToLeftPane:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             _ = moveSurfaceToAdjacentPane(panelId: panelId, direction: .left)
