@@ -80,4 +80,35 @@ struct RemoteTmuxSessionRenameTitleTests {
 
         #expect(window.title == "dev")
     }
+
+    @Test func remoteRenameUsesCurrentManagerAfterWorkspaceMove() throws {
+        let (mirror, workspace, sourceManager) = makeMirror(sessionName: "old", title: "old")
+        let destinationManager = TabManager()
+        let movedWorkspace = try #require(sourceManager.detachWorkspace(tabId: workspace.id))
+        #expect(movedWorkspace === workspace)
+
+        destinationManager.attachWorkspace(movedWorkspace, select: true)
+        #expect(workspace.owningTabManager === destinationManager)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        destinationManager.window = window
+        defer {
+            destinationManager.window = nil
+            window.close()
+        }
+
+        destinationManager.refreshWindowTitle()
+        #expect(window.title == "old")
+
+        mirror.applySessionNameToWorkspaceTitle("dev")
+
+        #expect(workspace.title == "dev")
+        #expect(workspace.customTitle == "dev")
+        #expect(window.title == "dev")
+    }
 }
