@@ -90,6 +90,8 @@ Sidebar shows git branch, linked PR status/number, working directory, listening 
 - **Native macOS app** — Built with Swift and AppKit, not Electron. Fast startup, low memory.
 - **Ghostty compatible** — Reads your existing `~/.config/ghostty/config` for themes, fonts, and colors
 - **GPU-accelerated** — Powered by libghostty for smooth rendering
+- **Keyboard shortcuts** — [Extensive shortcuts](https://cmux.com/docs/keyboard-shortcuts) for workspaces, splits, browser, and more
+- **Open source** — Free and GPL-licensed
 
 ## Install
 
@@ -381,7 +383,7 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 ### How can I support cmux?
 
-cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](#founders-edition).
+cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
 
 ### I have a feature request or found a bug?
 
