@@ -402,6 +402,28 @@ struct PaneMemoryGuardrailTests {
 
     @MainActor
     @Test
+    func appDelegateGuardrailDescriptorsKeepBackgroundWorkspacesLive() throws {
+        let app = AppDelegate()
+        let manager = TabManager()
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let firstWorkspace = try #require(manager.selectedWorkspace)
+        let backgroundWorkspace = manager.addWorkspace(title: "Background", select: false)
+
+        let initialWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
+        #expect(initialWorkspaceIds.contains(firstWorkspace.id))
+        #expect(initialWorkspaceIds.contains(backgroundWorkspace.id))
+
+        manager.selectWorkspace(backgroundWorkspace)
+
+        let selectedWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
+        #expect(selectedWorkspaceIds.contains(firstWorkspace.id))
+        #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
+    }
+
+    @MainActor
+    @Test
     func appDelegateGuardrailCloseRoutesThroughOwningWindowManager() throws {
         let app = AppDelegate()
         let bootstrapManager = TabManager()
