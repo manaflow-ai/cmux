@@ -3523,7 +3523,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript
         )
         XCTAssertTrue(initialScript.contains("254|255"), initialScript)
-        assertSSHPTYAttachUsesComposedSessionID(initialScript)
+        XCTAssertFalse(initialScript.contains("-surface"), initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             initialScript
@@ -3550,7 +3550,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
-        assertSSHPTYAttachUsesComposedSessionID(terminalStartupScript)
+        XCTAssertFalse(terminalStartupScript.contains("-surface"), terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript

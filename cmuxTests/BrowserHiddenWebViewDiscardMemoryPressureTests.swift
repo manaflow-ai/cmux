@@ -92,8 +92,7 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
         withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let now = Date(timeIntervalSince1970: 1_000)
             let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
-            let manager = BrowserHiddenWebViewDiscardManager()
-            manager.policyDefaults = defaults
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
             let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
                 snapshot: snapshot,
                 hiddenAt: now.addingTimeInterval(-10)
@@ -112,8 +111,7 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
         withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let now = Date(timeIntervalSince1970: 1_500)
             let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
-            let manager = BrowserHiddenWebViewDiscardManager()
-            manager.policyDefaults = defaults
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
             let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
                 snapshot: snapshot,
                 hiddenAt: nil
@@ -133,8 +131,7 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
             let wakeAt = Date(timeIntervalSince1970: 2_000)
             let pressureAt = wakeAt.addingTimeInterval(1)
             let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
-            let manager = BrowserHiddenWebViewDiscardManager()
-            manager.policyDefaults = defaults
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
             let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
                 snapshot: snapshot,
                 hiddenAt: wakeAt.addingTimeInterval(-7_200)

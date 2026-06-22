@@ -496,7 +496,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
         } catch {
             return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
-        let outputDrainer = ProcessOutputDrainer(stdoutPipe: stdoutPipe, stderrPipe: stderrPipe)
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
             try? stdinPipe.fileHandleForWriting.close()
@@ -517,11 +516,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        let output = outputDrainer.output(timeout: 1)
+        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.isRunning ? SIGKILL : process.terminationStatus,
-            stdout: output.stdout,
-            stderr: output.stderr,
+            stdout: stdout,
+            stderr: stderr,
             timedOut: timedOut
         )
     }
