@@ -3564,7 +3564,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
             }
             let script = scriptBuilder(v2JSONLiteral(selector))
             let retryAttempts = max(1, v2Int(params, "retry_attempts") ?? 3)
-            let selectorCondition = "document.querySelector(\(v2JSONLiteral(selector))) !== null"
+            // Pure script assembly lives in `BrowserControlService` (CmuxBrowser),
+            // shared with the `v2BrowserWait` resolved-selector branch; the WebKit
+            // evaluation in `v2WaitForBrowserCondition` below stays on the worker lane.
+            let selectorCondition = v2BrowserControl.waitSelectorPresentScript(selector: selector)
 
             for attempt in 1...retryAttempts {
                 switch v2RunBrowserJavaScript(ctx.webView, surfaceId: surfaceId, script: script, useEval: false) {
@@ -4416,21 +4419,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             }
         case let .highlight(params):
             return controlBridgeSelectorAction(foundationParams(params), actionName: "highlight") { selectorLiteral in
-                """
-                (() => {
-                  const el = document.querySelector(\(selectorLiteral));
-                  if (!el) return { ok: false, error: 'not_found' };
-                  const prev = el.style.outline;
-                  const prevOffset = el.style.outlineOffset;
-                  el.style.outline = '3px solid #ff9f0a';
-                  el.style.outlineOffset = '2px';
-                  setTimeout(() => {
-                    el.style.outline = prev;
-                    el.style.outlineOffset = prevOffset;
-                  }, 1200);
-                  return { ok: true };
-                })()
-                """
+                v2BrowserControl.highlightScript(selectorLiteral: selectorLiteral)
             }
         case let .press(params, key):
             return controlResolveBrowserKeyEvent(foundationParams(params), script: v2BrowserControl.pressScript(keyLiteral: v2JSONLiteral(key)))

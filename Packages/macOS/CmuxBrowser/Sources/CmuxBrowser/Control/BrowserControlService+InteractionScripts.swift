@@ -289,6 +289,26 @@ extension BrowserControlService {
         """
     }
 
+    /// `browser.highlight` action body. Outlines the matched element for ~1.2s,
+    /// then restores its prior `outline`/`outlineOffset` styles.
+    public func highlightScript(selectorLiteral: String) -> String {
+        """
+        (() => {
+          const el = document.querySelector(\(selectorLiteral));
+          if (!el) return { ok: false, error: 'not_found' };
+          const prev = el.style.outline;
+          const prevOffset = el.style.outlineOffset;
+          el.style.outline = '3px solid #ff9f0a';
+          el.style.outlineOffset = '2px';
+          setTimeout(() => {
+            el.style.outline = prev;
+            el.style.outlineOffset = prevOffset;
+          }, 1200);
+          return { ok: true };
+        })()
+        """
+    }
+
     // MARK: - Press / keydown / keyup scripts (run on the active element)
 
     /// `browser.press` script. `keyLiteral` is the already-encoded JavaScript
