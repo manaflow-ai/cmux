@@ -318,7 +318,7 @@ final class AgentHibernationController {
         now: TimeInterval
     ) -> TimeInterval? {
         guard !record.terminalPanel.isAgentHibernated,
-              record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess,
+              record.terminalPanel.surface.hasLiveSurface,
               let fingerprint = hibernationFingerprint(for: record) else {
             tailFingerprintSamples.removeValue(forKey: record.key)
             confirmations.removeValue(forKey: record.key)
