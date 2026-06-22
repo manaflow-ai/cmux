@@ -118,6 +118,22 @@ struct PaneTreeModelTests {
         #expect(model.surfaceId(forPanelId: panelId) == newTabId)
     }
 
+    /// Reusing one bonsplit surface for a different panel must also clear the
+    /// old panel's reverse lookup.
+    @Test func rebindingSurfaceToNewPanelInvalidatesOldPanelMapping() {
+        let model = PaneTreeModel<String>()
+        let tabId = TabID()
+        let oldPanelId = UUID()
+        let newPanelId = UUID()
+
+        model.bindSurface(tabId, toPanelId: oldPanelId)
+        model.bindSurface(tabId, toPanelId: newPanelId)
+
+        #expect(model.panelId(forSurfaceId: tabId) == newPanelId)
+        #expect(model.surfaceId(forPanelId: oldPanelId) == nil)
+        #expect(model.surfaceId(forPanelId: newPanelId) == tabId)
+    }
+
     /// Close cleanup removes stale aliases for the closed panel without using
     /// a stale tab id to drop a surface that has already moved to another panel.
     @Test func closedPanelCleanupKeepsReboundSurfaceMapping() {

@@ -46,6 +46,10 @@ public final class PaneTreeModel<Panel> {
     /// reorder events (legacy `Workspace.lastOrderedPanelIds`).
     public var lastOrderedPanelIds: [UUID] = []
 
+    /// Reverse index for targeted panel lookups and stale-surface removal.
+    @ObservationIgnored
+    private var panelIdToSurfaceId: [UUID: TabID] = [:]
+
     @ObservationIgnored
     private weak var host: (any PaneTreeHosting<Panel>)?
 
@@ -66,22 +70,32 @@ public final class PaneTreeModel<Panel> {
     /// only one surface at a time, so rebinding the panel removes stale surface
     /// entries before installing the new owner.
     public func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
-        var updatedMappings = surfaceIdToPanelId.filter { existingSurfaceId, existingPanelId in
-            existingSurfaceId == surfaceId || existingPanelId != panelId
+        if let previousSurfaceId = panelIdToSurfaceId[panelId],
+           previousSurfaceId != surfaceId {
+            surfaceIdToPanelId.removeValue(forKey: previousSurfaceId)
         }
-        updatedMappings[surfaceId] = panelId
-        surfaceIdToPanelId = updatedMappings
+        if let previousPanelId = surfaceIdToPanelId[surfaceId],
+           previousPanelId != panelId,
+           panelIdToSurfaceId[previousPanelId] == surfaceId {
+            panelIdToSurfaceId.removeValue(forKey: previousPanelId)
+        }
+
+        surfaceIdToPanelId[surfaceId] = panelId
+        panelIdToSurfaceId[panelId] = surfaceId
     }
 
     /// Removes the mapping for one bonsplit surface id.
     public func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
-        surfaceIdToPanelId.removeValue(forKey: surfaceId)
+        if let panelId = surfaceIdToPanelId.removeValue(forKey: surfaceId),
+           panelIdToSurfaceId[panelId] == surfaceId {
+            panelIdToSurfaceId.removeValue(forKey: panelId)
+        }
     }
 
     /// Removes every mapping that can still resolve to a closed panel.
     public func removeSurfaceMappings(forPanelId panelId: UUID) {
-        surfaceIdToPanelId = surfaceIdToPanelId.filter { _, existingPanelId in
-            existingPanelId != panelId
+        if let surfaceId = panelIdToSurfaceId.removeValue(forKey: panelId) {
+            surfaceIdToPanelId.removeValue(forKey: surfaceId)
         }
     }
 
@@ -94,6 +108,6 @@ public final class PaneTreeModel<Panel> {
     /// Resolves the bonsplit surface id currently mapped to a panel id
     /// (legacy `Workspace.surfaceIdFromPanelId`).
     public func surfaceId(forPanelId panelId: UUID) -> TabID? {
-        surfaceIdToPanelId.first { $0.value == panelId }?.key
+        panelIdToSurfaceId[panelId]
     }
 }
