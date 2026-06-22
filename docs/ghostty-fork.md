@@ -141,9 +141,10 @@ tend to conflict together during rebases.
 
 - Commits:
   - `0b231db94` (Re-export cmux selection APIs removed from upstream)
-  - `8d6ac6e07` (surface: add absolute screen row text read)
+  - `46bd03a7` (surface: add absolute screen row text read)
   - `edad0cfec` (surface: format screen row clipboard text)
   - `e81fb65f` (surface: bound screen clipboard text formatting)
+  - `301e0791` (surface: remove unbounded screen text export)
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
@@ -151,8 +152,8 @@ tend to conflict together during rebases.
 - Summary:
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
-  - Adds `ghostty_surface_read_screen_text`, which reads inclusive full-width absolute screen rows without mutating the active selection or routing through the embedded `ghostty_point_s` wrapper. cmux uses this for bounded visual-line copy-mode fallbacks that may include scrollback rows outside the visible viewport.
-  - Adds `ghostty_surface_read_screen_clipboard_text`, which applies Ghostty's plain clipboard formatter to those absolute screen-row selections so cmux's fallback copy path preserves Ghostty's trim, unwrap, and codepoint-map behavior. The API takes a maximum byte count and formats into a fixed writer before returning an allocated result, so codepoint-map expansion cannot grow memory past the caller's cap.
+  - Adds `ghostty_surface_read_screen_clipboard_text`, which applies Ghostty's plain clipboard formatter to inclusive absolute screen-row selections so cmux's fallback copy path can include scrollback rows outside the visible viewport while preserving Ghostty's trim, unwrap, and codepoint-map behavior.
+  - Removes the intermediate raw `ghostty_surface_read_screen_text` export. The retained clipboard API takes a maximum byte count and formats into a fixed writer before returning an allocated result, so codepoint-map expansion cannot grow memory past the caller's cap.
 
 ### 7) macos-background-from-layer config flag
 

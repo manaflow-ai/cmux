@@ -4787,9 +4787,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return copyCurrentGhosttySelectionToClipboard(surface: surface)
             }
 
-            guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface), !selectedText.isEmpty else { return false }
-
-            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+            guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
+            if !selectedText.isEmpty { GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD) }
             return true
         }
 
