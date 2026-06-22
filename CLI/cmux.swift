@@ -28149,11 +28149,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 var rewrittenEntries: [[String: Any]] = []
                 for entry in entries {
                     if Self.jsonHookValueContainsCmuxOwnedCommand(entry, for: def) {
-                        Self.appendCmuxHookInsertionIndex(
-                            rewrittenEntries.count,
-                            for: event,
-                            to: &cmuxInsertionIndexes
-                        )
+                        if Self.shouldPreserveCmuxHookInsertionIndex(def: def, event: event) {
+                            Self.appendCmuxHookInsertionIndex(
+                                rewrittenEntries.count,
+                                for: event,
+                                to: &cmuxInsertionIndexes
+                            )
+                        }
                         continue
                     }
                     rewrittenEntries.append(entry)
@@ -28173,7 +28175,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         rewrittenGroups.append(group)
                         continue
                     }
-                    if hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }) {
+                    if Self.shouldPreserveCmuxHookInsertionIndex(def: def, event: event),
+                       hookList.contains(where: { isCmuxOwnedCommand($0["command"] as? String ?? "") }) {
                         Self.appendCmuxHookInsertionIndex(
                             rewrittenGroups.count,
                             for: event,
@@ -28206,6 +28209,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 if let newEntries = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
                         Self.insertCmuxHookValues(newEntries, into: &entries, atOriginalIndexes: insertionIndexes)
+                    } else if Self.shouldPrependNewCmuxHookValues(def: def, event: event) {
+                        entries.insert(contentsOf: newEntries, at: 0)
                     } else {
                         entries.append(contentsOf: newEntries)
                     }
@@ -28216,6 +28221,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 if let newGroups = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
                         Self.insertCmuxHookValues(newGroups, into: &groups, atOriginalIndexes: insertionIndexes)
+                    } else if Self.shouldPrependNewCmuxHookValues(def: def, event: event) {
+                        groups.insert(contentsOf: newGroups, at: 0)
                     } else {
                         groups.append(contentsOf: newGroups)
                     }
@@ -28557,6 +28564,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) {
         if indexes[event]?.isEmpty == false { return }
         indexes[event, default: []].append(index)
+    }
+
+    private static func shouldPreserveCmuxHookInsertionIndex(def: AgentHookDef, event: String) -> Bool {
+        !(def.name == "copilot" && event == "permissionRequest")
+    }
+
+    private static func shouldPrependNewCmuxHookValues(def: AgentHookDef, event: String) -> Bool {
+        def.name == "copilot" && event == "permissionRequest"
     }
 
     private static func insertCmuxHookValues<T>(_ values: [T], into target: inout [T], atOriginalIndexes indexes: [Int]) {
@@ -33246,7 +33261,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     if mode == "deny" {
                         return encode(["behavior": "deny", "message": reason])
                     }
-                    return "{}"
+                    if mode == "once" {
+                        return encode(["behavior": "allow"])
+                    }
+                    return encode(["behavior": "deny", "message": reason])
                 }
                 if mode == "once" {
                     return encode(["permissionDecision": "allow"])

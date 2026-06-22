@@ -140,12 +140,12 @@ struct CLICopilotHookFeedTests {
         )
         let permissionRequest = try #require(hooks["permissionRequest"] as? [[String: Any]])
         #expect(
-            (permissionRequest.first?["bash"] as? String)?.contains("\"behavior\":\"deny\"") == true,
-            "Expected existing permissionRequest policy hook to stay before cmux, saw \(permissionRequest)"
+            (permissionRequest.first?["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true,
+            "Expected cmux permissionRequest hook to run before preserved policy hooks, saw \(permissionRequest)"
         )
         #expect(
-            (permissionRequest.last?["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true,
-            "Expected cmux permissionRequest hook to be final within the user hooks file, saw \(permissionRequest)"
+            (permissionRequest.last?["bash"] as? String)?.contains("\"behavior\":\"deny\"") == true,
+            "Expected existing permissionRequest policy hook to stay after cmux so Copilot can merge it later, saw \(permissionRequest)"
         )
         #expect(
             permissionRequest.contains {
@@ -260,7 +260,7 @@ struct CLICopilotHookFeedTests {
         #expect(permissionAllow.status == 0, Comment(rawValue: permissionAllow.stderr))
         #expect(permissionAllowEvent["hook_event_name"] as? String == "PermissionRequest")
         let permissionAllowOutput = try #require(Self.jsonObject(permissionAllow.stdout))
-        #expect(permissionAllowOutput.isEmpty)
+        #expect(permissionAllowOutput["behavior"] as? String == "allow")
         #expect(permissionAllowOutput["permissionDecision"] == nil)
         #expect(permissionAllowOutput["hookSpecificOutput"] == nil)
 
@@ -272,6 +272,15 @@ struct CLICopilotHookFeedTests {
         #expect(permissionDenyOutput["message"] as? String == "User denied permission via cmux Feed.")
         #expect(permissionDenyOutput["permissionDecision"] == nil)
         #expect(permissionDenyOutput["hookSpecificOutput"] == nil)
+
+        let (permissionUnsupported, _) = try runCopilotDecision(mode: "always", event: "permissionRequest")
+        #expect(!permissionUnsupported.timedOut, Comment(rawValue: permissionUnsupported.stderr))
+        #expect(permissionUnsupported.status == 0, Comment(rawValue: permissionUnsupported.stderr))
+        let permissionUnsupportedOutput = try #require(Self.jsonObject(permissionUnsupported.stdout))
+        #expect(permissionUnsupportedOutput["behavior"] as? String == "deny")
+        #expect(permissionUnsupportedOutput["message"] as? String == "User denied permission via cmux Feed.")
+        #expect(permissionUnsupportedOutput["permissionDecision"] == nil)
+        #expect(permissionUnsupportedOutput["hookSpecificOutput"] == nil)
     }
 
     @Test func copilotErrorNotificationUsesStructuredErrorPayload() throws {
