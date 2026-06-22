@@ -152,6 +152,31 @@ extension AppDelegate {
         )
     }
 
+    func cleanupEmptySourceWorkspaceAfterSurfaceMove(
+        sourceWorkspace: Workspace,
+        sourceManager: TabManager,
+        sourceWindowId: UUID
+    ) {
+        // The branch between leave-alone / close-workspace / close-window is the
+        // windowing-domain ``DetachedSourceWorkspaceCleanupPolicy``; this shim
+        // resolves the app-coupled inputs (live `Workspace`/`TabManager` state)
+        // and applies the chosen effect (which reaches `NSWindow` via
+        // ``closeMainWindow(windowId:recordHistory:)``).
+        let outcome = DetachedSourceWorkspaceCleanupPolicy().outcome(
+            sourceWorkspaceIsEmpty: sourceWorkspace.panels.isEmpty,
+            sourceWorkspaceStillInManager: sourceManager.tabs.contains(where: { $0.id == sourceWorkspace.id }),
+            sourceManagerWorkspaceCount: sourceManager.tabs.count
+        )
+        switch outcome {
+        case .none:
+            return
+        case .closeWorkspace:
+            sourceManager.closeWorkspace(sourceWorkspace, recordHistory: false)
+        case .closeWindow:
+            _ = closeMainWindow(windowId: sourceWindowId, recordHistory: false)
+        }
+    }
+
     private func focusIntentForNewWorkspaceMove(panel: any Panel) -> PanelFocusIntent {
         if panel is BrowserPanel {
             // Moving a browser tab into a standalone workspace should expose browser chrome,
