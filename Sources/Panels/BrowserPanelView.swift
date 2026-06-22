@@ -1588,7 +1588,7 @@ struct BrowserPanelView: View {
             Image(systemName: "ellipsis")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .cmuxFont(size: devToolsButtonIconSize, weight: .medium)
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }

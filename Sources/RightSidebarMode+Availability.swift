@@ -94,22 +94,6 @@ enum RightSidebarKeyboardNavigation {
         }
     }
 
-    static func isOpenSelection(_ event: NSEvent) -> Bool {
-        guard event.type == .keyDown else { return false }
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .intersection([.command, .control, .option, .shift])
-
-        switch event.keyCode {
-        case 36, 76: // Return, keypad Enter
-            return flags.intersection([.command, .control, .option]).isEmpty
-        case 125: // Finder-style Cmd+Down
-            return flags == .command
-        default:
-            return false
-        }
-    }
-
     static func isPlainSlash(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

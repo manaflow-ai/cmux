@@ -70,29 +70,32 @@ struct RightSidebarDirectoryContextTests {
     }
 }
 
+@MainActor
 @Suite("Right sidebar keyboard navigation")
 struct RightSidebarKeyboardNavigationTests {
     @Test("Return and keypad Enter open the selected item")
     func returnAndKeypadEnterOpenSelection() throws {
         for keyCode in [UInt16(36), UInt16(76)] {
             let event = try #require(Self.keyEvent(keyCode: keyCode, modifierFlags: []))
-            #expect(RightSidebarKeyboardNavigation.isOpenSelection(event))
+            #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
         }
     }
 
     @Test("Command Down opens the selected item")
     func commandDownOpensSelection() throws {
         let event = try #require(Self.keyEvent(keyCode: 125, modifierFlags: [.command]))
-        #expect(RightSidebarKeyboardNavigation.isOpenSelection(event))
+        #expect(event.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
     }
 
-    @Test("Plain Down and Command Return keep their existing routes")
+    @Test("Plain Down, Shift Return, and Command Return keep their existing routes")
     func nonActivationKeysDoNotOpenSelection() throws {
         let plainDown = try #require(Self.keyEvent(keyCode: 125, modifierFlags: []))
+        let shiftReturn = try #require(Self.keyEvent(keyCode: 36, modifierFlags: [.shift]))
         let commandReturn = try #require(Self.keyEvent(keyCode: 36, modifierFlags: [.command]))
 
-        #expect(!RightSidebarKeyboardNavigation.isOpenSelection(plainDown))
-        #expect(!RightSidebarKeyboardNavigation.isOpenSelection(commandReturn))
+        #expect(!plainDown.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        #expect(!shiftReturn.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
+        #expect(!commandReturn.isFileExplorerOpenSelectionShortcut(in: FileExplorerPanelPlacement.rightSidebar))
     }
 
     private static func keyEvent(
