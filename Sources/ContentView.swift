@@ -2238,189 +2238,150 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var commandPaletteOverlay: some View {
-        GeometryReader { proxy in
-            let maxAllowedWidth = max(340, proxy.size.width - 260)
-            let targetWidth = min(560, maxAllowedWidth)
-            let workspaceDescriptionMaxEditorHeight = max(
-                CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight,
-                proxy.size.height - 120
-            )
-
-            ZStack(alignment: .top) {
-                Color.clear
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onEnded { value in
-                                handleCommandPaletteBackdropClick(atContentPoint: value.location)
-                            }
-                    )
-
-                Color.clear
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .allowsHitTesting(false)
-                    .accessibilityIdentifier("CommandPaletteBackdrop")
-
-                VStack(spacing: 0) {
-                    switch commandPalettePresentation.mode {
-                    case .commands:
-                        commandPaletteCommandListView
-                    case .renameInput(let target):
-                        CommandPaletteRenameInputView(
-                            target: target,
-                            presentation: commandPalettePresentation,
-                            renameFocus: $isCommandPaletteRenameFocused,
-                            onDeleteBackward: handleCommandPaletteRenameDeleteBackward(modifiers:),
-                            onContinueRename: continueRenameFlow(target:),
-                            onDismiss: { dismissCommandPalette() },
-                            onInteraction: handleCommandPaletteRenameInputInteraction,
-                            onAppearResetFocus: resetCommandPaletteRenameFocus
-                        )
-                    case let .renameConfirm(target, proposedName):
-                        CommandPaletteRenameConfirmView(
-                            target: target,
-                            proposedName: proposedName,
-                            onApplyRename: applyRenameFlow(target:proposedName:)
-                        )
-                    case .workspaceDescriptionInput(let target):
-                        CommandPaletteWorkspaceDescriptionInputView(
-                            target: target,
-                            maxEditorHeight: workspaceDescriptionMaxEditorHeight,
-                            presentation: commandPalettePresentation,
-                            shouldFocusEditor: $commandPaletteShouldFocusWorkspaceDescriptionEditor,
-                            observedWindow: observedWindow,
-                            onApplyWorkspaceDescription: applyWorkspaceDescriptionFlow(target:proposedDescription:),
-                            onDismiss: { dismissCommandPalette() },
-                            onAppearResetFocus: resetCommandPaletteWorkspaceDescriptionFocus
-                        )
-                    }
-                }
-                .frame(width: targetWidth)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.98))
+        CommandPaletteOverlayView(
+            presentation: commandPalettePresentation,
+            onBackdropClick: { point in handleCommandPaletteBackdropClick(atContentPoint: point) },
+            onDismiss: { dismissCommandPalette() },
+            commandsContent: { commandPaletteCommandListView },
+            renameInputContent: { target in
+                CommandPaletteRenameInputView(
+                    target: target,
+                    presentation: commandPalettePresentation,
+                    renameFocus: $isCommandPaletteRenameFocused,
+                    onDeleteBackward: handleCommandPaletteRenameDeleteBackward(modifiers:),
+                    onContinueRename: continueRenameFlow(target:),
+                    onDismiss: { dismissCommandPalette() },
+                    onInteraction: handleCommandPaletteRenameInputInteraction,
+                    onAppearResetFocus: resetCommandPaletteRenameFocus
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.7), lineWidth: 1)
+            },
+            renameConfirmContent: { target, proposedName in
+                CommandPaletteRenameConfirmView(
+                    target: target,
+                    proposedName: proposedName,
+                    onApplyRename: applyRenameFlow(target:proposedName:)
                 )
-                .shadow(color: Color.black.opacity(0.24), radius: 10, x: 0, y: 5)
-                .padding(.top, 40)
+            },
+            workspaceDescriptionContent: { target, maxEditorHeight in
+                CommandPaletteWorkspaceDescriptionInputView(
+                    target: target,
+                    maxEditorHeight: maxEditorHeight,
+                    presentation: commandPalettePresentation,
+                    shouldFocusEditor: $commandPaletteShouldFocusWorkspaceDescriptionEditor,
+                    observedWindow: observedWindow,
+                    onApplyWorkspaceDescription: applyWorkspaceDescriptionFlow(target:proposedDescription:),
+                    onDismiss: { dismissCommandPalette() },
+                    onAppearResetFocus: resetCommandPaletteWorkspaceDescriptionFocus
+                )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .onExitCommand {
-            dismissCommandPalette()
-        }
-        .zIndex(2000)
+        )
     }
 
     private var commandPaletteCommandListView: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                CommandPaletteSearchFieldRepresentable(
-                    placeholder: commandPaletteSearchPlaceholder,
-                    text: $commandPalettePresentation.query,
-                    isFocused: Binding(get: { isCommandPaletteSearchFocused }, set: { isCommandPaletteSearchFocused = $0 }),
-                    onSubmit: runSelectedCommandPaletteResult,
-                    onEscape: { dismissCommandPalette() },
-                    onMoveSelection: moveCommandPaletteSelection(by:),
-                    onUnhandledNavigationKey: forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal,
-                    fieldEditorNavigationDelta: { commandSelector, event in
-                        commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: event)
-                    },
-                    keyEventNavigationDelta: { event in
-                        commandPaletteSelectionDeltaForKeyboardNavigation(
-                            flags: event.modifierFlags,
-                            chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
-                            keyCode: event.keyCode,
-                            nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
-                            previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious)
-                        )
-                    },
-                    shouldSubmitWithReturn: { event in
-                        CommandPaletteKeystroke(
-                            keyCode: event.keyCode,
-                            modifierFlags: event.modifierFlags,
-                            characters: event.characters ?? event.charactersIgnoringModifiers ?? ""
-                        ).shouldSubmitWithReturn(mode: "single_line")
-                    }
+        CommandPaletteCommandListView(
+            presentation: commandPalettePresentation,
+            isSearchFocused: Binding(get: { isCommandPaletteSearchFocused }, set: { isCommandPaletteSearchFocused = $0 }),
+            placeholder: commandPaletteSearchPlaceholder,
+            searchFingerprint: commandPaletteCurrentSearchFingerprint,
+            onSubmit: runSelectedCommandPaletteResult,
+            onEscape: { dismissCommandPalette() },
+            onMoveSelection: moveCommandPaletteSelection(by:),
+            onUnhandledNavigationKey: forwardCommandPaletteUnhandledNavigationKeyToFocusedTerminal,
+            fieldEditorNavigationDelta: { commandSelector, event in
+                commandPaletteSelectionDeltaForFieldEditorCommand(commandSelector, event: event)
+            },
+            keyEventNavigationDelta: { event in
+                commandPaletteSelectionDeltaForKeyboardNavigation(
+                    flags: event.modifierFlags,
+                    chars: event.characters ?? event.charactersIgnoringModifiers ?? "",
+                    keyCode: event.keyCode,
+                    nextShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPaletteNext),
+                    previousShortcut: KeyboardShortcutSettings.shortcutIfBound(for: .commandPalettePrevious)
                 )
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 7)
-
-            Divider()
-
-            CommandPaletteCommandListRenderView(
-                coordinator: commandPaletteCoordinator,
-                onRunResult: runCommandPaletteResult(commandID:)
-            )
-
-            // Keep Esc-to-close behavior without showing footer controls.
-            Button(action: { dismissCommandPalette() }) {
-                EmptyView()
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.cancelAction)
-            .frame(width: 0, height: 0)
-            .opacity(0)
-            .accessibilityHidden(true)
-        }
-        .onAppear {
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: false)
-            resetCommandPaletteSearchFocus()
-        }
-        .onChange(of: commandPalettePresentation.query) { oldValue, newValue in
-            commandPalettePresentation.selectedResultIndex = 0
-            commandPalettePresentation.selectionAnchorCommandID = nil
-            commandPalettePresentation.scrollTargetIndex = nil
-            commandPalettePresentation.scrollTargetAnchor = nil
-            if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
-                oldQuery: oldValue,
-                newQuery: newValue,
-                hasVisibleResults: commandPaletteCoordinator.visibleResultsScope != nil
-            ) {
-                commandPaletteCoordinator.resetResultsPipeline()
-            }
-            scheduleCommandPaletteResultsRefresh(query: newValue)
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: false)
-            syncCommandPaletteDebugStateForObservedWindow()
-        }
-        .onChange(of: commandPaletteCurrentSearchFingerprint) { _ in
-            Task { @MainActor in
-                // Let the query-state transition settle first so the forced corpus refresh
-                // cannot rebuild the old command list after deleting the ">" prefix.
-                await Task.yield()
-                scheduleCommandPaletteResultsRefresh(
-                    query: commandPalettePresentation.query,
-                    forceSearchCorpusRefresh: true
-                )
+            },
+            shouldSubmitWithReturn: { event in
+                CommandPaletteKeystroke(
+                    keyCode: event.keyCode,
+                    modifierFlags: event.modifierFlags,
+                    characters: event.characters ?? event.charactersIgnoringModifiers ?? ""
+                ).shouldSubmitWithReturn(mode: "single_line")
+            },
+            onAppearUpdateScrollTarget: {
                 updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: false)
-                syncCommandPaletteDebugStateForObservedWindow()
+            },
+            onAppearResetSearchFocus: resetCommandPaletteSearchFocus,
+            onQueryChange: handleCommandPaletteQueryChange(oldQuery:newQuery:),
+            onSearchFingerprintChange: handleCommandPaletteSearchFingerprintChange,
+            onResultsRevisionChange: handleCommandPaletteResultsRevisionChange,
+            onSelectedResultIndexChange: handleCommandPaletteSelectedResultIndexChange,
+            listContent: {
+                CommandPaletteCommandListRenderView(
+                    coordinator: commandPaletteCoordinator,
+                    selectedRowBackground: cmuxAccentColor().opacity(0.12),
+                    onRunResult: runCommandPaletteResult(commandID:)
+                )
             }
+        )
+    }
+
+    /// Applies the query-transition side effects (selection/scroll reset, optional
+    /// results-pipeline reset, refresh scheduling, debug-state sync) when the
+    /// command-list search field's query changes.
+    private func handleCommandPaletteQueryChange(oldQuery: String, newQuery: String) {
+        commandPalettePresentation.selectedResultIndex = 0
+        commandPalettePresentation.selectionAnchorCommandID = nil
+        commandPalettePresentation.scrollTargetIndex = nil
+        commandPalettePresentation.scrollTargetAnchor = nil
+        if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
+            oldQuery: oldQuery,
+            newQuery: newQuery,
+            hasVisibleResults: commandPaletteCoordinator.visibleResultsScope != nil
+        ) {
+            commandPaletteCoordinator.resetResultsPipeline()
         }
-        .onChange(of: commandPalettePresentation.resultsRevision) { _ in
-            let resultIDs = commandPaletteCoordinator.cachedResults.map(\.id)
-            commandPalettePresentation.selectedResultIndex = CommandPalettePendingActivation.resolvedSelectionIndex(
-                preferredCommandID: commandPalettePresentation.selectionAnchorCommandID,
-                fallbackSelectedIndex: commandPalettePresentation.selectedResultIndex,
-                resultIDs: resultIDs
+        scheduleCommandPaletteResultsRefresh(query: newQuery)
+        updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: false)
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    /// Forces a corpus refresh after the search fingerprint changes, yielding one
+    /// turn first so the query-state transition settles (otherwise the forced
+    /// refresh can rebuild the old command list after deleting the ">" prefix).
+    private func handleCommandPaletteSearchFingerprintChange() {
+        Task { @MainActor in
+            await Task.yield()
+            scheduleCommandPaletteResultsRefresh(
+                query: commandPalettePresentation.query,
+                forceSearchCorpusRefresh: true
             )
-            syncCommandPaletteSelectionAnchorFromCurrentResults()
-            let visibleResultCount = commandPaletteCoordinator.visibleResults.count
-            updateCommandPaletteScrollTarget(resultCount: visibleResultCount, animated: false)
-            syncCommandPaletteOverlayCommandListState()
+            updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: false)
             syncCommandPaletteDebugStateForObservedWindow()
         }
-        .onChange(of: commandPalettePresentation.selectedResultIndex) { _ in
-            updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: true)
-            syncCommandPaletteOverlayCommandListState()
-            syncCommandPaletteDebugStateForObservedWindow()
-        }
+    }
+
+    /// Resolves the selected result index against the freshly materialized result
+    /// IDs and re-syncs the selection anchor, scroll target, and debug state when
+    /// the results revision advances.
+    private func handleCommandPaletteResultsRevisionChange() {
+        let resultIDs = commandPaletteCoordinator.cachedResults.map(\.id)
+        commandPalettePresentation.selectedResultIndex = CommandPalettePendingActivation.resolvedSelectionIndex(
+            preferredCommandID: commandPalettePresentation.selectionAnchorCommandID,
+            fallbackSelectedIndex: commandPalettePresentation.selectedResultIndex,
+            resultIDs: resultIDs
+        )
+        syncCommandPaletteSelectionAnchorFromCurrentResults()
+        let visibleResultCount = commandPaletteCoordinator.visibleResults.count
+        updateCommandPaletteScrollTarget(resultCount: visibleResultCount, animated: false)
+        syncCommandPaletteOverlayCommandListState()
+        syncCommandPaletteDebugStateForObservedWindow()
+    }
+
+    /// Retargets the scroll position and re-syncs the overlay command-list and
+    /// debug state when the selected result index changes.
+    private func handleCommandPaletteSelectedResultIndexChange() {
+        updateCommandPaletteScrollTarget(resultCount: commandPaletteCoordinator.visibleResults.count, animated: true)
+        syncCommandPaletteOverlayCommandListState()
+        syncCommandPaletteDebugStateForObservedWindow()
     }
 
     private var commandPaletteListScope: CommandPaletteListScope {
@@ -2971,74 +2932,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return commandPaletteSwitcherEntryBuilder.switcherEntriesFingerprint(
                 includeSurfaces: includeSurfaces
             )
-        }
-    }
-
-    private static func commandPaletteHighlightedTitleText(_ title: String, matchedIndices: Set<Int>) -> Text {
-        guard !matchedIndices.isEmpty else {
-            return Text(title).foregroundColor(.primary)
-        }
-
-        let chars = Array(title)
-        var index = 0
-        var result = Text("")
-
-        while index < chars.count {
-            let isMatched = matchedIndices.contains(index)
-            var end = index + 1
-            while end < chars.count, matchedIndices.contains(end) == isMatched {
-                end += 1
-            }
-
-            let segment = String(chars[index..<end])
-            if isMatched {
-                result = result + Text(segment).foregroundColor(.blue)
-            } else {
-                result = result + Text(segment).foregroundColor(.primary)
-            }
-            index = end
-        }
-
-        return result
-    }
-
-    @ViewBuilder
-    private static func commandPaletteRenderTrailingLabelView(_ trailingLabel: CommandPaletteRenderTrailingLabel?) -> some View {
-        if let trailingLabel {
-            switch trailingLabel.style {
-            case .shortcut:
-                Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(
-                        Color.primary.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    )
-            case .kind:
-                Text(trailingLabel.text)
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    static func commandPaletteRenderResultLabelContent(
-        title: String,
-        matchedIndices: Set<Int>,
-        trailingLabel: CommandPaletteRenderTrailingLabel?
-    ) -> some View {
-        HStack(spacing: 8) {
-            commandPaletteHighlightedTitleText(
-                title,
-                matchedIndices: matchedIndices
-            )
-                .font(.system(size: 13, weight: .regular))
-                .lineLimit(1)
-            Spacer()
-            commandPaletteRenderTrailingLabelView(trailingLabel)
         }
     }
 
