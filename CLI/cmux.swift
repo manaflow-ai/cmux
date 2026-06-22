@@ -33161,8 +33161,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 if feedPostToolUseMetadataKeys.contains(normalizedKey),
                    let scalarValue = boundedPostToolUseScalarValue(rawValue) {
                     summary[key] = scalarValue.value
-                    if scalarValue.truncatedBytes > 0 {
-                        summary["\(key)_truncated_bytes"] = scalarValue.truncatedBytes
+                    if scalarValue.truncated {
+                        summary["\(key)_truncated"] = true
                     }
                     summarizedKeys.insert(key)
                 }
