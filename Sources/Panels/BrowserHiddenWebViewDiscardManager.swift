@@ -65,9 +65,9 @@ final class BrowserHiddenWebViewDiscardManager {
         discardTimer != nil
     }
 
-    func blockers(for snapshot: BlockerSnapshot, includePolicyDisabled: Bool = true) -> [String] {
+    func blockers(for snapshot: BlockerSnapshot) -> [String] {
         var blockers: [String] = []
-        if includePolicyDisabled && !BrowserHiddenWebViewDiscardPolicy.isEnabled { blockers.append("policy_disabled") }
+        if !BrowserHiddenWebViewDiscardPolicy.isEnabled { blockers.append("policy_disabled") }
         if isSystemSleeping { blockers.append("system_sleeping") }
         if snapshot.isClosing { blockers.append("closing") }
         if isDiscardedForMemory { blockers.append("already_discarded") }

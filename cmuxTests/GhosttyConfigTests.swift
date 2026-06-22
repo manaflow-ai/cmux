@@ -2123,7 +2123,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         let pressureAt = Date(timeIntervalSince1970: 250)
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
         defer {
             if let previousEnabled {
                 defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
@@ -2147,7 +2147,6 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: pressureAt)
         let originalWebView = panel.webView
 
-        XCTAssertFalse(panel.discardHiddenWebViewForMemory(reason: "test.regularDiscard", now: pressureAt))
         XCTAssertTrue(panel.discardHiddenWebViewForSystemMemoryPressure(now: pressureAt))
         XCTAssertFalse(panel.webView === originalWebView)
         XCTAssertFalse(panel.shouldRenderWebView)
