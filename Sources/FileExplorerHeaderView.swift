@@ -5,6 +5,7 @@ import CmuxFoundation
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
     private var quickSearchQuery: String?
 
@@ -31,8 +32,11 @@ final class FileExplorerHeaderView: NSView {
         addSubview(iconView)
         addSubview(pathLabel)
 
+        let heightConstraint = heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight)
+        self.heightConstraint = heightConstraint
+
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
+            heightConstraint,
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -48,6 +52,7 @@ final class FileExplorerHeaderView: NSView {
 
     func applyFonts() {
         pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+        heightConstraint?.constant = RightSidebarChromeMetrics.secondaryBarHeight
     }
 
     func update(displayPath: String) {
