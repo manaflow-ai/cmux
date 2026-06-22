@@ -15898,7 +15898,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
         let closingContext = contextForMainTerminalWindow(window, reindex: false)
         let closingWindowIsCrashDiagnostic = closingContext.map { context in
-            closeWindowSnapshotPruningCrashDiagnostics(for: context, includeScrollback: false)
+            closeWindowSnapshotPruningCrashDiagnostics(
+                for: context,
+                includeScrollback: false,
+                restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
+            )
                 .isCrashDiagnostic
         } ?? false
 
@@ -15949,12 +15953,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func closeWindowSnapshotPruningCrashDiagnostics(
         for context: MainWindowContext,
-        includeScrollback: Bool
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex
     ) -> (snapshot: SessionWindowSnapshot?, isCrashDiagnostic: Bool) {
         let windowSnapshot = sessionWindowSnapshot(
             for: context,
             includeScrollback: includeScrollback,
-            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
+            restorableAgentIndex: restorableAgentIndex
         )
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
             from: AppSessionSnapshot(
@@ -15976,9 +15981,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               !isApplyingSessionRestore else {
             return
         }
+        let restorableAgentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+            ?? RestorableAgentSessionIndex.load()
         guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
-            includeScrollback: true
+            includeScrollback: true,
+            restorableAgentIndex: restorableAgentIndex
         ).snapshot else {
             return
         }
