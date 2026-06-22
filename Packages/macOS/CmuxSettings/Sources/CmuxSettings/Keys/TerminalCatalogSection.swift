@@ -80,9 +80,9 @@ public struct TerminalCatalogSection: SettingCatalogSection {
 
     /// Delay used when title-update coalescing is enabled.
     public let titleUpdateCoalescingMilliseconds = DefaultsKey<Int>(
-        id: "terminal.titleUpdates.coalescingMilliseconds",
+        id: "terminal.titleUpdates.coalescing.delayMilliseconds",
         defaultValue: 500,
-        userDefaultsKey: "terminal.titleUpdates.coalescingMilliseconds"
+        userDefaultsKey: "terminal.titleUpdates.coalescing.delayMilliseconds"
     )
 
     /// Enables DEBUG title-update enqueue/flush diagnostics.

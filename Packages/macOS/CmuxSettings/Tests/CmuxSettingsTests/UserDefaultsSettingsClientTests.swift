@@ -67,7 +67,7 @@ struct UserDefaultsSettingsClientTests {
         #expect(client.value(for: catalog.terminal.titleUpdateCoalescingEnabled) == true)
 
         client.set(250, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
-        #expect(defaults.object(forKey: "terminal.titleUpdates.coalescingMilliseconds") as? Int == 250)
+        #expect(defaults.object(forKey: "terminal.titleUpdates.coalescing.delayMilliseconds") as? Int == 250)
         #expect(client.value(for: catalog.terminal.titleUpdateCoalescingMilliseconds) == 250)
 
         client.set(true, for: catalog.terminal.titleUpdateDiagnostics)
