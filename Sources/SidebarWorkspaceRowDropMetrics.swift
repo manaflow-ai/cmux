@@ -9,6 +9,7 @@ struct SidebarWorkspaceRowDropMetrics {
     static let collapsedMetadataBlockLimit = 1
     static let maxWrappedTitleLines = 8
     static let maxDescriptionLines = 12
+    private static let maxDescriptionCharacters = 4096
     static let maxMetadataBlockLines = 12
     private static let maxMetadataBlockCharacters = 4096
     private static let defaultEstimatedCharactersPerLine = 42
@@ -98,7 +99,7 @@ struct SidebarWorkspaceRowDropMetrics {
         let visibleBlocks = isExpanded ? blocks : Array(blocks.prefix(collapsedMetadataBlockLimit))
         return visibleBlocks.map {
             let visibleText = visibleMetadataBlockText($0.markdown)
-            estimatedLineCount(
+            return estimatedLineCount(
                 visibleText,
                 maxLines: maxMetadataBlockLines,
                 textWidth: textWidth,
@@ -131,8 +132,9 @@ struct SidebarWorkspaceRowDropMetrics {
         fontScale: CGFloat = 1
     ) -> Int {
         guard let description else { return 0 }
+        let visibleDescription = visibleWorkspaceDescriptionText(description)
         return estimatedLineCount(
-            description,
+            visibleDescription,
             maxLines: maxDescriptionLines,
             textWidth: textWidth,
             fontSize: 10.5 * max(fontScale, 0.5),
@@ -177,6 +179,15 @@ struct SidebarWorkspaceRowDropMetrics {
         let toggleCount = hasToggle ? 1 : 0
         let blockSpacingCount = max(lineCounts.count + toggleCount - 1, 0)
         return (CGFloat(visibleLineCount) * 13 + CGFloat(toggleCount) * 13 + CGFloat(blockSpacingCount) * 3) * scale
+    }
+
+    private static func visibleWorkspaceDescriptionText(_ markdown: String) -> String {
+        let displayMarkdown = boundedDisplayString(
+            markdown,
+            maxDisplayedLines: maxDescriptionLines,
+            maxDisplayedCharacters: maxDescriptionCharacters
+        )
+        return markdownVisibleTextEstimate(displayMarkdown)
     }
 
     private static func visibleMetadataBlockText(_ markdown: String) -> String {

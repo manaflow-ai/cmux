@@ -119,6 +119,16 @@ import Testing
         #expect(tall > short)
     }
 
+    @Test func workspaceDescriptionLineEstimationUsesRenderedMarkdownText() {
+        let longURL = "https://example.com/" + String(repeating: "hidden-url-segment/", count: 24)
+        let lineCount = SidebarWorkspaceRowDropMetrics.estimatedDescriptionLineCount(
+            "[short](\(longURL))",
+            textWidth: 48
+        )
+
+        #expect(lineCount == 1)
+    }
+
     @Test func workspaceRowDropTargetHeightKeepsPointerEdgeMetricsForWrappedAndRichRows() {
         let snapshot = workspaceSnapshot(
             title: String(repeating: "Long workspace title ", count: 12),
