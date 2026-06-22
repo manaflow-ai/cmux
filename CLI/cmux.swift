@@ -33136,7 +33136,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func readBoundedFeedHookStdin(
         handle: FileHandle = .standardInput
     ) -> Data? {
-        let data = (try? handle.read(upToCount: feedHookMaxStdinBytes + 1)) ?? Data()
+        var data = Data()
+        while data.count <= feedHookMaxStdinBytes {
+            let remainingBytes = feedHookMaxStdinBytes + 1 - data.count
+            let chunkSize = min(64 * 1024, remainingBytes)
+            let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+            guard !chunk.isEmpty else { return data }
+            data.append(chunk)
+        }
         guard data.count <= feedHookMaxStdinBytes else { return nil }
         return data
     }
