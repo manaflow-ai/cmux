@@ -3067,13 +3067,35 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var isPlayingMedia: Bool = false {
         didSet {
             guard oldValue != isPlayingMedia else { return }
-            reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
+            setMediaActivity(isPlayingAudio: isPlayingMedia, reason: "media_playback_changed")
         }
     }
+    /// Live media activity. ``Workspace`` publishes it to tab/sidebar surfaces.
+    private(set) var mediaActivity = BrowserMediaActivity()
+    var isPlayingAudio: Bool { mediaActivity.isPlayingAudio }
+    var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
+    var isUsingCamera: Bool { mediaActivity.isUsingCamera }
+    var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
     /// Document ids of the frames currently reporting playing media. The pane is
     /// kept alive while this is non-empty.
     private var playingMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
+
+    private func setMediaActivity(
+        isPlayingAudio: Bool? = nil,
+        isUsingMicrophone: Bool? = nil,
+        isUsingCamera: Bool? = nil,
+        reason: String
+    ) {
+        var next = mediaActivity
+        if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
+        if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
+        if let isUsingCamera { next.isUsingCamera = isUsingCamera }
+        guard next != mediaActivity else { return }
+        mediaActivity = next
+        onMediaActivityChanged?(next)
+        reevaluateHiddenWebViewDiscardScheduling(reason: reason)
+    }
 
     /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
     /// the `private(set)` setter stays confined to this file.
@@ -3330,8 +3352,7 @@ final class BrowserPanel: Panel, ObservableObject {
         loadingGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
@@ -4352,8 +4373,7 @@ final class BrowserPanel: Panel, ObservableObject {
         _ = hideDeveloperTools()
         cancelDeveloperToolsRestoreRetry()
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
@@ -4593,6 +4613,19 @@ final class BrowserPanel: Panel, ObservableObject {
         return nil
     }
 
+    /// Tears down every live web-view observer (Swift key-path KVO + Combine
+    /// subscriptions) and clears the derived
+    /// media-activity flags. Invoked at each point a web view is released or
+    /// replaced, so a discarded/closed pane never shows a stale
+    /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
+    /// from the fresh web view.
+    private func detachWebViewObservers() {
+        webViewObservers.removeAll()
+        resetMediaPlaybackTracking()
+        setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
+        webViewCancellables.removeAll()
+    }
+
     private func setupObservers(for webView: WKWebView) {
         let observedWebViewInstanceID = webViewInstanceID
 
@@ -4694,20 +4727,29 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.append(fullscreenObserver)
 
         let cameraCaptureObserver = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingCamera = webView.cameraCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingCamera: isUsingCamera, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(cameraCaptureObserver)
 
         let microphoneCaptureObserver = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingMicrophone = webView.microphoneCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingMicrophone: isUsingMicrophone, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(microphoneCaptureObserver)
+
+        // The capture observers above fire only on `.new`; seed the freshly
+        // bound web view's current capture state so a pane that rebinds while a
+        // call is live shows the glyph without waiting for the next transition.
+        let initialIsUsingCamera = webView.cameraCaptureState != .none
+        let initialIsUsingMicrophone = webView.microphoneCaptureState != .none
+        setMediaActivity(isUsingMicrophone: initialIsUsingMicrophone, isUsingCamera: initialIsUsingCamera, reason: "media_capture_changed")
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
@@ -4917,8 +4959,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 #endif
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
@@ -5130,8 +5171,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -5791,6 +5831,7 @@ final class BrowserPanel: Panel, ObservableObject {
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
@@ -5937,8 +5978,7 @@ extension BrowserPanel {
         lockedPortalHost = nil
 
         let oldWebView = webView
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)

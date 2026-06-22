@@ -3075,8 +3075,17 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
-    private func waitForDetachedDeveloperToolsCloseResolutionDeadline() {
-        RunLoop.current.run(until: Date().addingTimeInterval(2.2))
+    private func waitForDetachedDeveloperToolsCloseResolutionDeadline(
+        until condition: () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(2.2)
+        while Date() < deadline {
+            if condition() { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTFail("Timed out waiting for detached DevTools close resolution", file: file, line: line)
     }
 
     private func closeBrowserPanel(_ panel: BrowserPanel) {
@@ -3217,7 +3226,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
 
         inspector.close()
-        waitForDetachedDeveloperToolsCloseResolutionDeadline()
+        waitForDetachedDeveloperToolsCloseResolutionDeadline {
+            inspector.closeCount == 1 &&
+                !panel.isDeveloperToolsVisible() &&
+                !panel.preferredDeveloperToolsVisible
+        }
 
         XCTAssertEqual(inspector.closeCount, 1)
         XCTAssertFalse(panel.isDeveloperToolsVisible())
