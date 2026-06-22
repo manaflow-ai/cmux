@@ -33,7 +33,7 @@ import Testing
     @Test func coordinatorReturnPassesThroughDuringMarkedTextComposition() {
         var commitCount = 0
         var cancelCount = 0
-        let coordinator = SidebarInlineRenameField.Coordinator(
+        let coordinator = SidebarInlineRenameCoordinator(
             onCommit: { _ in commitCount += 1 },
             onCancel: { cancelCount += 1 }
         )
@@ -55,7 +55,7 @@ import Testing
     @Test func coordinatorEscapePassesThroughDuringMarkedTextComposition() {
         var commitCount = 0
         var cancelCount = 0
-        let coordinator = SidebarInlineRenameField.Coordinator(
+        let coordinator = SidebarInlineRenameCoordinator(
             onCommit: { _ in commitCount += 1 },
             onCancel: { cancelCount += 1 }
         )
