@@ -191,6 +191,7 @@ struct TerminalDefaultFileOpenRequest: Equatable {
     init?(fileURL: URL, contentType: UTType? = nil, isExecutable: Bool? = nil) {
         guard fileURL.isFileURL else { return nil }
         let standardizedURL = fileURL.standardizedFileURL
+        guard !SessionPersistencePolicy.isCmuxCrashStorageURL(standardizedURL) else { return nil }
         let directoryCheckURL = standardizedURL.resolvingSymlinksInPath()
         let resourceValues = try? directoryCheckURL.resourceValues(forKeys: [.isDirectoryKey])
         guard resourceValues?.isDirectory != true else { return nil }
