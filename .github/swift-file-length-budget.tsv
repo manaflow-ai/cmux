@@ -5,7 +5,7 @@
 13837	Sources/AppDelegate.swift
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11411	Sources/Panels/BrowserPanel.swift
-11386	Sources/Workspace.swift
+11375	Sources/Workspace.swift
 11123	Sources/GhosttyTerminalView.swift
 11050	Sources/ContentView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
@@ -50,8 +50,8 @@
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1880	Sources/RestorableAgentSession.swift
 1848	cmuxTests/NotificationAndMenuBarTests.swift
-1792	Sources/TerminalController+ControlDebugContext.swift
 1810	Sources/SessionIndexStore.swift
+1792	Sources/TerminalController+ControlDebugContext.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
@@ -157,6 +157,7 @@
 649	Sources/CmuxTopSnapshot.swift
 641	cmuxTests/CommandPaletteNucleoFFITests.swift
 637	Sources/TerminalController+ControlPaneContext.swift
+635	Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift
 630	Packages/macOS/CmuxSettings/Sources/CmuxSettings/Values/ShortcutWhenClause.swift
 623	Sources/App/MenuBarExtraController.swift
 621	cmuxUITests/RightSidebarChromeHeightUITests.swift
@@ -183,6 +184,7 @@
 580	Packages/macOS/CmuxExtensionKit/Tests/CmuxExtensionKitTests/CmuxExtensionKitTests.swift
 580	cmuxTests/CLIHookNoResponseTests.swift
 577	cmuxTests/AppearanceSettingsTests.swift
+572	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Core/Model/SurfaceRegistryModel.swift
 571	Sources/Feed/FeedTextEditorDebugWindowController.swift
 568	Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/MobileTerminalRenderGrid.swift
 568	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
@@ -192,7 +194,6 @@
 562	Packages/iOS/CmuxAgentChatUI/Sources/CmuxAgentChatUI/Transcript/ChatTranscriptTableView.swift
 562	cmuxTests/AgentExecutableResolverTests.swift
 562	cmuxTests/GhosttyConfigPathResolverTests.swift
-559	Packages/macOS/CmuxWorkspaces/Tests/CmuxWorkspacesTests/Core/SurfaceRegistryModelTests.swift
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 555	Sources/Panels/BrowserAutomation.swift
 551	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
@@ -229,7 +230,6 @@
 506	Sources/App/MainWindowVisibilityController.swift
 505	Packages/macOS/CmuxSettings/Tests/CmuxSettingsTests/DomainSettingsStoreTests.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
-504	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Core/Model/SurfaceRegistryModel.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift

@@ -110,6 +110,82 @@ struct SurfaceRegistryModelTests {
         #expect(model.pendingNonFocusSplitFocusReassert == nil)
     }
 
+    @Test("begin bumps the generation and records the pending request")
+    func beginFocusReassertBumpsGeneration() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let preferred = UUID()
+        let split = UUID()
+
+        let g1 = model.beginNonFocusSplitFocusReassert(preferredPanelId: preferred, splitPanelId: split)
+        #expect(g1 == 1)
+        #expect(model.nonFocusSplitFocusReassertGeneration == 1)
+        #expect(model.pendingNonFocusSplitFocusReassert
+            == PendingNonFocusSplitFocusReassert(generation: 1, preferredPanelId: preferred, splitPanelId: split))
+
+        let g2 = model.beginNonFocusSplitFocusReassert(preferredPanelId: preferred, splitPanelId: split)
+        #expect(g2 == 2)
+        #expect(model.pendingNonFocusSplitFocusReassert?.generation == 2)
+    }
+
+    @Test("matches only the recorded generation/preferred/split triple")
+    func matchesPendingReassert() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let preferred = UUID()
+        let split = UUID()
+        let other = UUID()
+        let gen = model.beginNonFocusSplitFocusReassert(preferredPanelId: preferred, splitPanelId: split)
+
+        #expect(model.matchesPendingNonFocusSplitFocusReassert(
+            generation: gen, preferredPanelId: preferred, splitPanelId: split))
+        #expect(!model.matchesPendingNonFocusSplitFocusReassert(
+            generation: gen &+ 1, preferredPanelId: preferred, splitPanelId: split))
+        #expect(!model.matchesPendingNonFocusSplitFocusReassert(
+            generation: gen, preferredPanelId: other, splitPanelId: split))
+        #expect(!model.matchesPendingNonFocusSplitFocusReassert(
+            generation: gen, preferredPanelId: preferred, splitPanelId: other))
+    }
+
+    @Test("clear without a generation drops any pending request")
+    func clearReassertUnconditional() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        _ = model.beginNonFocusSplitFocusReassert(preferredPanelId: UUID(), splitPanelId: UUID())
+        model.clearNonFocusSplitFocusReassert()
+        #expect(model.pendingNonFocusSplitFocusReassert == nil)
+    }
+
+    @Test("clear with a stale generation leaves a newer request intact")
+    func clearReassertGenerationGuard() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let stale = model.beginNonFocusSplitFocusReassert(preferredPanelId: UUID(), splitPanelId: UUID())
+        let current = model.beginNonFocusSplitFocusReassert(preferredPanelId: UUID(), splitPanelId: UUID())
+
+        model.clearNonFocusSplitFocusReassert(generation: stale)
+        #expect(model.pendingNonFocusSplitFocusReassert?.generation == current)
+
+        model.clearNonFocusSplitFocusReassert(generation: current)
+        #expect(model.pendingNonFocusSplitFocusReassert == nil)
+    }
+
+    @Test("markExplicitFocusIntent drops the request only for the guarded split panel")
+    func markExplicitFocusIntentClearsGuardedPanel() {
+        let model = SurfaceRegistryModel<StubRequest>()
+        let preferred = UUID()
+        let split = UUID()
+        _ = model.beginNonFocusSplitFocusReassert(preferredPanelId: preferred, splitPanelId: split)
+
+        // A different panel leaves the request alone.
+        model.markExplicitFocusIntent(on: UUID())
+        #expect(model.pendingNonFocusSplitFocusReassert?.splitPanelId == split)
+
+        // The guarded split panel clears it.
+        model.markExplicitFocusIntent(on: split)
+        #expect(model.pendingNonFocusSplitFocusReassert == nil)
+
+        // No-op when nothing is pending.
+        model.markExplicitFocusIntent(on: split)
+        #expect(model.pendingNonFocusSplitFocusReassert == nil)
+    }
+
     @Test("registry maps support the workspace's filter-style pruning")
     func registryMapPruning() {
         let model = SurfaceRegistryModel<StubRequest>()
