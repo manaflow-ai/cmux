@@ -5,16 +5,25 @@ import Testing
 
 @Suite struct ArrowlessPopoverRootViewUpdatePolicyTests {
     @Test func hiddenClosedPopoverDoesNotNeedHostedRootRefresh() {
-        let policy = ArrowlessPopoverRootViewUpdatePolicy()
-
-        #expect(policy.shouldUpdateRootView(isPresented: false, popoverIsShown: false) == false)
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+            isPresented: false,
+            popoverIsShown: false
+        ) == false)
     }
 
     @Test func presentedOrVisiblePopoverKeepsHostedRootFresh() {
-        let policy = ArrowlessPopoverRootViewUpdatePolicy()
-
-        #expect(policy.shouldUpdateRootView(isPresented: true, popoverIsShown: false))
-        #expect(policy.shouldUpdateRootView(isPresented: false, popoverIsShown: true))
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+            isPresented: true,
+            popoverIsShown: false
+        ))
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+            isPresented: false,
+            popoverIsShown: true
+        ))
+        #expect(ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+            isPresented: true,
+            popoverIsShown: true
+        ))
     }
 }
 

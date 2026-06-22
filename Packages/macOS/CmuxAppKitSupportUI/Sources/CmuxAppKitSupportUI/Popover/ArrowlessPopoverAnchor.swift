@@ -39,7 +39,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     public func updateNSView(_ nsView: NSView, context: Context) {
         let coordinator = context.coordinator
         coordinator.anchorView = nsView
-        if ArrowlessPopoverRootViewUpdatePolicy().shouldUpdateRootView(
+        if ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
             isPresented: isPresented,
             popoverIsShown: coordinator.isPopoverShown
         ) {

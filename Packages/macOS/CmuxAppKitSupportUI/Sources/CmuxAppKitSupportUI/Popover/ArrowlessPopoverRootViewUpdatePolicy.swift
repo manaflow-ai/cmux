@@ -1,5 +1,5 @@
 struct ArrowlessPopoverRootViewUpdatePolicy {
-    func shouldUpdateRootView(isPresented: Bool, popoverIsShown: Bool) -> Bool {
+    static func shouldUpdateRootView(isPresented: Bool, popoverIsShown: Bool) -> Bool {
         isPresented || popoverIsShown
     }
 }
