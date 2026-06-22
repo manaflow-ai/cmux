@@ -92,6 +92,8 @@ Bočna traka prikazuje git granu, status/broj povezanog PR-a, radni direktorij, 
 - **Nativna macOS aplikacija** — Izgrađena sa Swift i AppKit, ne Electron. Brzo pokretanje, niska potrošnja memorije.
 - **Kompatibilan sa Ghostty** — Čita vašu postojeću konfiguraciju `~/.config/ghostty/config` za teme, fontove i boje
 - **GPU-ubrzanje** — Pokreće ga libghostty za glatko renderiranje
+- **Prečice na tastaturi** — [Brojne prečice](https://cmux.com/docs/keyboard-shortcuts) za radne prostore, podjele, preglednik i više
+- **Otvoreni kod** — Besplatan i pod GPL licencom
 
 ## Instalacija
 
@@ -157,7 +159,10 @@ Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https
 | ⌃ ⌘ [ | Prethodni radni prostor |
 | ⌘ ⇧ W | Zatvori radni prostor |
 | ⌘ ⇧ R | Preimenuj radni prostor |
+| ⌥ ⌘ E | Uredi opis radnog prostora |
 | ⌘ B | Prikaži/sakrij bočnu traku |
+| ⌥ ⌘ B | Prikaži/sakrij desnu bočnu traku |
+| ⌘ ⇧ E | Prebaci fokus desne bočne trake |
 
 ### Površine
 
@@ -183,7 +188,8 @@ Za više informacija o konfiguraciji cmux, posjetite [našu dokumentaciju](https
 
 ### Preglednik
 
-Prečice razvojnih alata preglednika prate Safari zadane postavke i mogu se prilagoditi u `Postavke → Prečice na tastaturi`.
+Prečice razvojnih alata preglednika prate Safari zadane postavke i mogu se prilagoditi u `Settings → Keyboard Shortcuts`.
+Prečice za navigaciju paletom komandi, uključujući ⌃ P, također se mogu prilagoditi i obrisati tako da pritisak tipke dođe do aktivnog terminala.
 
 | Prečica | Akcija |
 |----------|--------|
@@ -201,14 +207,17 @@ Prečice razvojnih alata preglednika prate Safari zadane postavke i mogu se pril
 |----------|--------|
 | ⌘ I | Prikaži panel obavještenja |
 | ⌘ ⇧ U | Skoči na posljednje nepročitano |
+| ⌥ ⌘ U | Prebaci stanje nepročitanog za trenutnu stavku |
+| ⌃ ⌘ U | Označi trenutnu stavku kao najstarije nepročitano i skoči na sljedeće nepročitano |
 
 ### Pretraga
 
 | Prečica | Akcija |
 |----------|--------|
 | ⌘ F | Pretraži |
-| ⌘ G / ⌘ ⇧ G | Nađi sljedeći / prethodni |
-| ⌘ ⇧ F | Sakrij traku pretrage |
+| ⌘ ⇧ F | Pretraži u direktoriju |
+| ⌘ G / ⌥ ⌘ G | Nađi sljedeći / prethodni |
+| ⌥ ⌘ ⇧ F | Sakrij traku pretrage |
 | ⌘ E | Koristi selekciju za pretragu |
 
 ### Terminal
@@ -226,6 +235,7 @@ Prečice razvojnih alata preglednika prate Safari zadane postavke i mogu se pril
 | Prečica | Akcija |
 |----------|--------|
 | ⌘ ⇧ N | Novi prozor |
+| ⌘ ⇧ O | Ponovo otvori prethodnu sesiju |
 | ⌘ , | Postavke |
 | ⌘ ⇧ , | Ponovo učitaj konfiguraciju |
 | ⌘ Q | Zatvori |
@@ -235,6 +245,8 @@ Prečice razvojnih alata preglednika prate Safari zadane postavke i mogu se pril
 [Preuzmi cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
 
 cmux NIGHTLY je zasebna aplikacija sa vlastitim bundle ID-om, tako da radi uporedo sa stabilnom verzijom. Automatski se gradi iz najnovijeg `main` commita i ažurira se putem vlastitog Sparkle feeda.
+
+Prijavite greške noćnih verzija na [GitHub Issues](https://github.com/manaflow-ai/cmux/issues) ili na [#nightly-bugs na Discordu](https://discord.gg/xsgFEVrWCZ).
 
 ## Vraćanje sesije
 
@@ -246,13 +258,15 @@ Kada zatvorite cmux, trenutna sesija se sprema. Pri ponovnom pokretanju cmux vra
 
 cmux ne pravi checkpoint proizvoljnog stanja živih procesa. tmux, vim, shellovi i nepodržane terminalne aplikacije ponovo se otvaraju kao obični terminali.
 
-Podržane agent sesije mogu se nastaviti kada hooks spreme izvorni ID sesije:
+Podržane agent sesije mogu se nastaviti kada hooks spreme izvorni ID sesije. Instalirajte hooks nakon instalacije agent CLI-ja tako da njegov binarni fajl bude na `PATH`:
 
 ```bash
 cmux hooks setup
 cmux hooks setup codex
 cmux hooks setup --agent opencode
 ```
+
+`cmux hooks setup` instalira podržane agente koje može pronaći i ispisuje sažetak za preskočene agente. Podržane integracije nastavka uključuju Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory i Qoder. Claude Code obrađuje cmux Claude wrapper kada je Claude integracija omogućena u Postavkama.
 
 Napredni korisnici i integracije mogu vezati prilagođenu komandu za nastavak na trenutni terminal surface. To je korisno za alate s vlastitim trajnim stanjem, poput tmux sesija ili prilagođenih agent CLI alata:
 
@@ -262,7 +276,98 @@ cmux surface resume show --json
 cmux surface resume clear --checkpoint work
 ```
 
-Binding ostaje vezan za cmux surface. Bindingi napravljeni javnim CLI-jem ili socketom čuvaju se za pregled i ručni nastavak. cmux automatski pokreće samo resume bindinge koje označi pouzdanim, poput tmux bindinga otkrivenih iz živih procesa. Osjetljivi ključevi okruženja, poput tokena, lozinki, tajni i API ključeva, odbacuju se prije spremanja resume bindinga.
+Binding ostaje vezan za cmux surface. Bindingi napravljeni javnim CLI-jem ili socketom čuvaju se za pregled i ručni nastavak osim ako ne odobrite potpisani prefiks komande za automatski nastavak. Odobreni prefiksi su također vezani za radni direktorij i tačne vrijednosti okruženja, kada su prisutne. Pregledajte ili uredite odobrenja u **Settings > Terminal > Resume Commands**. cmux automatski pokreće samo resume bindinge koje označi pouzdanim, poput tmux bindinga otkrivenih iz živih procesa ili prefiksa koje je korisnik odobrio. Osjetljivi ključevi okruženja, poput tokena, lozinki, tajni i API ključeva, odbacuju se prije spremanja resume bindinga.
+
+Da bi vraćeni agent terminali ostali neaktivni umjesto automatskog pokretanja svojih resume komandi, isključite **Settings > Terminal > Resume Agent Sessions on Reopen** ili postavite ovo u `~/.config/cmux/cmux.json`:
+
+```json
+{
+  "terminal": {
+    "autoResumeAgentSessions": false
+  }
+}
+```
+
+Ovo samo onemogućava automatske agent resume komande. cmux i dalje vraća sačuvani raspored, radne direktorije, scrollback i historiju preglednika.
+
+Ako trebate ručno ponovo primijeniti posljednji sačuvani snimak, koristite:
+- `File > Reopen Previous Session`
+- `⌘ ⇧ O`
+- `cmux restore-session`
+
+Ispod haube, cmux zapisuje verzionirani snimak u `~/Library/Application Support/cmux/`, a agent hooks zapisuju mapiranja sesija u `~/.cmuxterm/`. Pri vraćanju, cmux prvo obnavlja raspored, a zatim pokreće izvornu resume komandu podržanog agenta kada je automatski nastavak agenta omogućen.
+
+Pročitajte cijeli vodič na <https://cmux.com/docs/session-restore>.
+
+## FAQ
+
+### Kako se cmux odnosi prema Ghostty?
+
+cmux nije fork Ghostty. Koristi [libghostty](https://github.com/ghostty-org/ghostty) kao biblioteku za renderiranje terminala, na isti način kao što aplikacije koriste WebKit za web prikaze. Ghostty je samostalni terminal; cmux je drugačija aplikacija izgrađena na vrhu njegovog renderiranja.
+
+### Koje platforme podržava?
+
+Zasad samo macOS. cmux je nativna Swift + AppKit aplikacija.
+
+### Postoji li iOS aplikacija?
+
+Da, u beti. Uparite svoj iPhone sa svojim Mac-om iz prozora Mobile Connect i povežite se na svoje terminale sa telefona, uz opcionalno prosljeđivanje terminalnih obavještenja. Isporučuje se na TestFlight kao cmux BETA. Pogledajte [iOS dokumentaciju](https://cmux.com/docs/ios).
+
+### Sa kojim agentima za programiranje cmux radi?
+
+Sa svima. cmux je terminal, tako da svaki agent koji radi u terminalu radi odmah: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i sve drugo što možete pokrenuti iz komandne linije.
+
+### Može li cmux orkestrirati više agenata i podagenata?
+
+Da. Kada agent stvori podagente ili članove tima, cmux ih pretvara u nativne panele i podjele umjesto skrivenih pozadinskih procesa. Podržava [Claude Code teams](https://cmux.com/docs/agent-integrations/claude-code-teams) i [oh-my-opencode](https://cmux.com/docs/agent-integrations/oh-my-opencode) orkestraciju više modela, tako da je svaki agent u pokretanju vidljiv i kontrolisan.
+
+### Mogu li koristiti cmux sa udaljenim mašinama?
+
+Da. Otvarajte radne prostore preko SSH-a i povezujte se na udaljene tmux sesije, tako da agenti mogu raditi na udaljenom hostu dok ih vi upravljate iz cmux-a. Pogledajte [SSH i udaljeno](https://cmux.com/docs/ssh).
+
+### Kako rade obavještenja?
+
+Kada proces treba pažnju, cmux prikazuje prstenove obavještenja oko panela, značke nepročitanog u bočnoj traci, popover obavještenja i macOS desktop obavještenje. Ona se pokreću automatski putem standardnih terminalnih escape sekvenci (OSC 9/99/777), ili ih možete pokrenuti pomoću [cmux CLI](https://cmux.com/docs/notifications#cli-usage) i [agent hookova](https://cmux.com/docs/notifications#integration-examples). Radi svaki agent koji podržava hooks ili OSC, uključujući Claude Code, Codex, OpenCode i pi.
+
+### Je li cmux programabilan?
+
+Da. Svaka akcija je dostupna putem cmux CLI-ja i Unix socketa: kreirajte radne prostore, otvarajte podijeljene panele, šaljite unos, čitajte sadržaj ekrana, pravite snimke ekrana i upravljajte ugrađenim preglednikom. Pogledajte [CLI referencu](https://cmux.com/docs/api) i dokumentaciju [automatizacije preglednika](https://cmux.com/docs/browser-automation).
+
+### Šta ugrađeni preglednik može?
+
+cmux može podijeliti pravi panel preglednika pored vašeg terminala, i potpuno je programabilan: navigirajte, snimite DOM, kliknite, kucajte, evaluirajte JavaScript i čitajte aktivnost konzole i mreže preko istog socket API-ja. Agenti ga koriste za provjeru vlastitih web promjena bez napuštanja cmux-a. Pogledajte [automatizaciju preglednika](https://cmux.com/docs/browser-automation).
+
+### Ima li cmux vještine (skills)?
+
+Da. Vještine su ponovo upotrebljivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i preglednik površina. Pregledajte otvorenu kolekciju na [cmux-skills](https://github.com/manaflow-ai/cmux-skills), ili pročitajte [dokumentaciju o vještinama](https://cmux.com/docs/skills).
+
+### Mogu li prilagoditi prečice na tastaturi?
+
+Terminalne tastaturne prečice se čitaju iz vašeg Ghostty konfiguracijskog fajla (`~/.config/ghostty/config`). Prečice specifične za cmux (radni prostori, podjele, preglednik, obavještenja) mogu se prilagoditi u Postavkama. Pogledajte [zadane prečice](https://cmux.com/docs/keyboard-shortcuts) za potpunu listu.
+
+### Mogu li prilagoditi cmux?
+
+Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, tako da se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u `~/.config/cmux/cmux.json` kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka [tastaturna prečica](https://cmux.com/docs/keyboard-shortcuts) je uređiva. Pogledajte [konfiguraciju](https://cmux.com/docs/configuration).
+
+### Jesu li moje sesije sačuvane?
+
+Da. cmux vraća vaše prozore, radne prostore, panele, radne direktorije i scrollback kada ponovo pokrenete, a stanje preživljava potpuni restart računara, ne samo zatvaranje aplikacije. Agent sesije poput Claude Code, Codex i OpenCode se također vraćaju. Pogledajte [vraćanje sesije](https://cmux.com/docs/session-restore).
+
+### Kako se poredi sa tmux?
+
+tmux je terminalni multiplekser koji radi unutar bilo kojeg terminala. cmux je nativna macOS aplikacija sa GUI-jem: vertikalni tabovi, podijeljeni paneli, ugrađeni preglednik i socket API, sve ugrađeno, bez konfiguracijskih fajlova ili prefiks tipki. Uz to, mnogo ljudi rado pokreće cmux sa SSH-om i tmux-om zajedno, a cmux se može nativno povezati na vaše udaljene tmux sesije ([beta](https://cmux.com/docs/remote-tmux)).
+
+### Je li cmux besplatan?
+
+Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na [GitHub-u](https://github.com/manaflow-ai/cmux).
+
+### Kako mogu podržati cmux?
+
+cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+
+### Imam zahtjev za funkciju ili sam pronašao grešku?
+
+Želimo to čuti. Otvorite [issue](https://github.com/manaflow-ai/cmux/issues) ili [pull request](https://github.com/manaflow-ai/cmux/pulls) na GitHub-u, ili nam [pošaljite email](mailto:founders@manaflow.com?subject=cmux%20feature%20request).
 
 ## Historija zvjezdica
 
