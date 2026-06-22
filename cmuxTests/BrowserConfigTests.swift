@@ -2993,6 +2993,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         private(set) var attachCount = 0
         private(set) var showCount = 0
+        private(set) var showConsoleCount = 0
         private(set) var hideCount = 0
         private(set) var closeCount = 0
         private let hideBehavior: HideBehavior
@@ -3036,6 +3037,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             guard !requiresAttachmentToShow ||
                 (attached && frontendWebView?.window != nil) else { return }
             visible = true
+        }
+
+        @objc func showConsole() {
+            showConsoleCount += 1
         }
 
         @objc func hide() {
@@ -3931,6 +3936,42 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.showCount, 1)
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+    }
+
+    func testDeferredDeveloperToolsConsoleRequestReplaysAfterHostReattaches() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        defer { closeBrowserPanel(panel) }
+        inspector.setFrontendWebView(panel.webView)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+
+        XCTAssertTrue(panel.showDeveloperToolsConsole())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 0)
+        XCTAssertEqual(
+            inspector.showConsoleCount,
+            0,
+            "Console selection must not fire against a hidden inspector while DevTools reveal is deferred"
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showConsoleCount, 1)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
     }
 
     func testDeferredDeveloperToolsOpenPreservesDetachedPresentationIntent() {

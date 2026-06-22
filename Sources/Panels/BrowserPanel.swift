@@ -3141,6 +3141,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
     private var developerToolsRevealDeferredUntilWebViewAttached = false
+    private var developerToolsConsoleSelectionPending = false
     private var developerToolsTransitionTargetVisible: Bool?
     private var pendingDeveloperToolsTransitionTargetVisible: Bool?
     private var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
@@ -6351,6 +6352,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible = next
         if !next {
             developerToolsRevealDeferredUntilWebViewAttached = false
+            developerToolsConsoleSelectionPending = false
         }
         objectWillChange.send()
     }
@@ -6569,6 +6571,7 @@ extension BrowserPanel {
         if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
             developerToolsDetachedOpenGraceDeadline = nil
             developerToolsLastKnownVisibleAt = Date()
+            applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
             return true
         }
 
@@ -6580,6 +6583,7 @@ extension BrowserPanel {
         let visibleAfterShow = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         if visibleAfterShow {
             developerToolsLastKnownVisibleAt = Date()
+            applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
         }
         if preferredDeveloperToolsPresentation == .detached {
             developerToolsDetachedOpenGraceDeadline = visibleAfterShow
@@ -6749,6 +6753,7 @@ extension BrowserPanel {
             let visibleAfterTransition = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
             if visibleAfterTransition {
                 syncDeveloperToolsPresentationPreferenceFromUI()
+                applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
                 cancelDeveloperToolsRestoreRetry()
                 scheduleDetachedDeveloperToolsWindowDismissal()
             } else {
@@ -6804,8 +6809,21 @@ extension BrowserPanel {
     @discardableResult
     func showDeveloperToolsConsole() -> Bool {
         guard showDeveloperTools() else { return false }
-        guard !isDeveloperToolsTransitionInFlight else { return true }
         guard let inspector = webView.cmuxInspectorObject() else { return true }
+        if isDeveloperToolsVisible() {
+            showDeveloperToolsConsole(in: inspector)
+            return true
+        }
+        guard !developerToolsRevealDeferredUntilWebViewAttached,
+              !isDeveloperToolsTransitionInFlight else {
+            developerToolsConsoleSelectionPending = true
+            return true
+        }
+        developerToolsConsoleSelectionPending = true
+        return true
+    }
+
+    private func showDeveloperToolsConsole(in inspector: NSObject) {
         // WebKit private inspector API differs by OS; try known console selectors.
         let consoleSelectors = [
             "showConsole",
@@ -6819,7 +6837,13 @@ extension BrowserPanel {
                 break
             }
         }
-        return true
+    }
+
+    private func applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: NSObject) {
+        guard developerToolsConsoleSelectionPending else { return }
+        guard isDeveloperToolsVisible() else { return }
+        developerToolsConsoleSelectionPending = false
+        showDeveloperToolsConsole(in: inspector)
     }
 
     @discardableResult
@@ -6986,6 +7010,7 @@ extension BrowserPanel {
             developerToolsRevealDeferredUntilWebViewAttached = false
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
+            applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
             if shouldForceRefresh {
                 refreshAttachedDeveloperToolsFrontend(reason: "restore.visible")
             }
@@ -8089,9 +8114,10 @@ extension BrowserPanel {
         let inWindow = webView.window == nil ? 0 : 1
         let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
         let deferredReveal = developerToolsRevealDeferredUntilWebViewAttached ? 1 : 0
+        let pendingConsole = developerToolsConsoleSelectionPending ? 1 : 0
         let transitionTarget = developerToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
         let pendingTarget = pendingDeveloperToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
-        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) deferredReveal=\(deferredReveal) tx=\(transitionTarget) pending=\(pendingTarget)"
+        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) deferredReveal=\(deferredReveal) pendingConsole=\(pendingConsole) tx=\(transitionTarget) pending=\(pendingTarget)"
     }
 
     func debugDeveloperToolsGeometrySummary() -> String {
