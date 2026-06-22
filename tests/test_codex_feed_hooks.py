@@ -1272,7 +1272,7 @@ def test_install_scans_features_past_bracketed_array(cli_path: str, root: Path) 
         if result.returncode != 0:
             raise AssertionError(
                 f"hooks codex {action} failed exit={result.returncode}\nstdout={result.stdout}\nstderr={result.stderr}"
-        )
+            )
         config_toml = (codex_home / "config.toml").read_text(encoding="utf-8")
         if action == "install" and _toml_line_count(config_toml, "hooks = true") != 1:
             raise AssertionError(f"install wrote duplicate hooks settings: {config_toml!r}")
@@ -2170,6 +2170,37 @@ def test_codex_post_tool_use_bounds_large_tool_response(cli_path: str, root: Pat
         raise AssertionError(f"original oversized payload byte count was not recorded: {tool_input!r}")
 
 
+def test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-post-tool-cwd",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+            "command": "printf hi",
+            "cwd": "/tmp/request-cwd",
+        },
+        "tool_response": {
+            "exit_code": 0,
+            "stdout": "hi",
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-posttool-cwd.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"Codex PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    if event.get("cwd") != "/tmp/request-cwd":
+        raise AssertionError(f"Codex PostToolUse should keep cwd from tool_input: {event!r}")
+    if event.get("tool_input") != payload["tool_response"]:
+        raise AssertionError(f"Codex PostToolUse should still forward tool_response: {event!r}")
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -2239,6 +2270,7 @@ def main() -> int:
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
             test_codex_post_tool_use_bounds_large_tool_response(cli_path, root)
+            test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")

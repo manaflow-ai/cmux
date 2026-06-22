@@ -142,11 +142,13 @@ struct WorkstreamStoreTests {
         #expect(store.items.count == events.count)
         #expect(store.pending.isEmpty)
         #expect(store.items.allSatisfy { $0.status == .telemetry })
-        #expect(store.items.map(\.title).contains("PreCompact"))
-        #expect(store.items.map(\.title).contains("PostCompact"))
-        #expect(store.items.map(\.title).contains("SubagentStart"))
+        #expect(store.items.map(\.title).contains("Compaction"))
+        #expect(store.items.map(\.title).contains("Subagent"))
+        #expect(!store.items.map(\.title).contains("PreCompact"))
+        #expect(!store.items.map(\.title).contains("PostCompact"))
+        #expect(!store.items.map(\.title).contains("SubagentStart"))
         #expect(!store.items.contains { $0.kind == .sessionStart })
-        if let subagentStartItem = store.items.first(where: { $0.title == "SubagentStart" }) {
+        if let subagentStartItem = store.items.first(where: { $0.title == "Subagent" }) {
             #expect(subagentStartItem.kind == .toolUse)
             if case .toolUse(let toolName, _) = subagentStartItem.payload {
                 #expect(toolName == "subagent")

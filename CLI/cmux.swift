@@ -32980,29 +32980,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput: Any? = {
+        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let feedToolInput: Any? = {
             if hookEventName == "PostToolUse" {
                 return stdinObj["tool_response"]
                     ?? stdinObj["toolResponse"]
                     ?? stdinObj["tool_result"]
                     ?? stdinObj["toolResult"]
-                    ?? stdinObj["tool_input"]
-                    ?? stdinObj["toolInput"]
-                    ?? toolCall?["args"]
+                    ?? toolRequestInput
             }
-            return stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+            return toolRequestInput
         }()
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
-            ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
+            ?? (toolRequestInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput {
+        if let feedToolInput {
             eventDict["tool_input"] = hookEventName == "PostToolUse"
-                ? Self.boundedPostToolUseFeedValue(toolInput)
-                : toolInput
+                ? Self.boundedPostToolUseFeedValue(feedToolInput)
+                : feedToolInput
         }
         if let context = feedContextForEvent(
             source: source,

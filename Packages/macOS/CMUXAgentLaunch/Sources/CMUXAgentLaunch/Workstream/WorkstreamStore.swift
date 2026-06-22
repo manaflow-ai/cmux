@@ -334,8 +334,10 @@ public final class WorkstreamStore {
             return tool
         }
         switch event.hookEventName {
-        case .preCompact, .postCompact, .subagentStart:
-            return event.hookEventName.rawValue
+        case .preCompact, .postCompact:
+            return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
+        case .subagentStart:
+            return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
         default:
             break
         }
