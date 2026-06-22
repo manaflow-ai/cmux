@@ -328,6 +328,9 @@ struct FeedEventClassifier {
         "apply_patch",
     ]
 
+    static let copilotPreToolUseApprovalToolMatcher =
+        copilotSideEffectingToolAliases.union(["ask_user"]).sorted().joined(separator: "|")
+
     /// Whether a tool mutates state and deserves an approval prompt. Exact
     /// match against ``sideEffectingTools`` for every source; `copilot` and
     /// `kiro` additionally match their case-insensitive internal aliases.

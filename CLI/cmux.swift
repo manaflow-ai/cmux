@@ -27016,7 +27016,8 @@ struct CMUXCLI {
                 let timeoutSeconds = Self.timeoutSecondsFromMilliseconds(feedTimeoutMs)
                 entries.append(Self.copilotHookEntry(
                     command: feedCmd,
-                    timeoutSeconds: timeoutSeconds + (feedTimeoutMs >= 120_000 ? 5 : 0)
+                    timeoutSeconds: timeoutSeconds + (feedTimeoutMs >= 120_000 ? 5 : 0),
+                    matcher: agentEvent == "preToolUse" ? FeedEventClassifier.copilotPreToolUseApprovalToolMatcher : nil
                 ))
                 result[agentEvent] = entries
             case .antigravityJSON:
@@ -27056,12 +27057,10 @@ struct CMUXCLI {
         return ((positiveTimeoutMs - 1) / 1000) + 1
     }
 
-    private static func copilotHookEntry(command: String, timeoutSeconds: Int) -> [String: Any] {
-        [
-            "type": "command",
-            "bash": command,
-            "timeoutSec": max(timeoutSeconds, 1),
-        ]
+    private static func copilotHookEntry(command: String, timeoutSeconds: Int, matcher: String? = nil) -> [String: Any] {
+        var entry: [String: Any] = ["type": "command", "bash": command, "timeoutSec": max(timeoutSeconds, 1)]
+        if let matcher { entry["matcher"] = matcher }
+        return entry
     }
 
     private static func antigravityHookEntry(
