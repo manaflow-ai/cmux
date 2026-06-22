@@ -109,6 +109,9 @@ struct FeedEventClassifier {
     ) -> (String, Bool) {
         switch semantic {
         case .approvalRequest:
+            // Copilot's hook response schema only understands top-level
+            // permissionDecision values, so keep every Copilot tool on the
+            // generic PermissionRequest wire kind.
             if source == "copilot" {
                 return ("PermissionRequest", true)
             }
