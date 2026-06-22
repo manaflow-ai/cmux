@@ -221,27 +221,19 @@ extension AppDelegate {
         return nil
     }
 
+    private func makeOrderedMainWindowResolver() -> OrderedMainWindowResolver {
+        OrderedMainWindowResolver(
+            keyWindow: { NSApp.keyWindow },
+            mainWindow: { NSApp.mainWindow },
+            orderedWindows: { NSApp.orderedWindows }
+        )
+    }
+
     func currentScriptableMainWindow() -> ScriptableMainWindowState? {
-        var seenWindows = Set<ObjectIdentifier>()
-
-        func resolve(_ window: NSWindow?) -> ScriptableMainWindowState? {
-            guard let window else { return nil }
-            guard seenWindows.insert(ObjectIdentifier(window)).inserted else { return nil }
-            return scriptableMainWindow(for: window)
-        }
-
-        if let state = resolve(NSApp.keyWindow) {
-            return state
-        }
-        if let state = resolve(NSApp.mainWindow) {
-            return state
-        }
-        for window in NSApp.orderedWindows {
-            if let state = resolve(window) {
-                return state
-            }
-        }
-        return scriptableMainWindows().first
+        makeOrderedMainWindowResolver().resolve(
+            project: { scriptableMainWindow(for: $0) },
+            fallback: { scriptableMainWindows().first }
+        )
     }
 
     func scriptableMainWindows() -> [ScriptableMainWindowState] {
