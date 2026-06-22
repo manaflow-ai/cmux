@@ -266,14 +266,26 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             promotingWorkspaceId: promotesGroupedWorkspace ? tabId : nil
         )
         guard let fromIndex = topLevelIds.firstIndex(of: tabId) else { return false }
-        let clampedTarget = model.clampedTopLevelReorderIndex(
-            forWorkspaceId: tabId,
-            targetIndex: targetIndex,
-            topLevelIds: topLevelIds
-        )
         let promotedGroupIndex = promotesGroupedWorkspace
             ? model.workspaceGroups.firstIndex { $0.anchorWorkspaceId == tabId && $0.parentGroupId != nil }
             : nil
+        let promotedTab = promotesGroupedWorkspace
+            ? model.tabs.first { $0.id == tabId }
+            : nil
+        var pinnedTopLevelIds = model.sidebarTopLevelPinnedWorkspaceIds()
+        if let promotedGroupIndex {
+            if model.workspaceGroups[promotedGroupIndex].isPinned {
+                pinnedTopLevelIds.insert(tabId)
+            }
+        } else if promotedTab?.isPinned == true {
+            pinnedTopLevelIds.insert(tabId)
+        }
+        let clampedTarget = model.clampedTopLevelReorderIndex(
+            forWorkspaceId: tabId,
+            targetIndex: targetIndex,
+            topLevelIds: topLevelIds,
+            pinnedTopLevelIds: pinnedTopLevelIds
+        )
         let promotesWorkspaceOutOfGroup = promotesGroupedWorkspace
             && model.tabs.contains { $0.id == tabId && $0.groupId != nil }
             && !model.isWorkspaceGroupAnchor(tabId)

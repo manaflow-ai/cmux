@@ -149,8 +149,9 @@ extension VerticalTabsSidebar {
                     groupId: groupId
                 )
             },
-            onNewSubfolder: { [weak tabManager, groupId = group.id, anchorCwd] in
+            onNewSubfolder: { [weak tabManager, groupId = group.id, anchorId = group.anchorWorkspaceId] in
                 guard let tabManager else { return }
+                let anchorCwd = tabManager.tabs.first(where: { $0.id == anchorId })?.currentDirectory
                 tabManager.createWorkspaceGroup(
                     name: "",
                     parentGroupId: groupId,

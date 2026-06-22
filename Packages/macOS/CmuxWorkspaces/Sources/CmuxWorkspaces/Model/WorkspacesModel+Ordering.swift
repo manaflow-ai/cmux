@@ -199,10 +199,11 @@ extension WorkspacesModel {
     func clampedTopLevelReorderIndex(
         forWorkspaceId workspaceId: UUID,
         targetIndex: Int,
-        topLevelIds: [UUID]
+        topLevelIds: [UUID],
+        pinnedTopLevelIds: Set<UUID>? = nil
     ) -> Int {
         let clamped = max(0, min(targetIndex, max(0, topLevelIds.count - 1)))
-        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds()
+        let pinnedIds = pinnedTopLevelIds ?? sidebarTopLevelPinnedWorkspaceIds()
         let pinnedCount = topLevelIds.reduce(into: 0) { count, id in
             if pinnedIds.contains(id) {
                 count += 1
