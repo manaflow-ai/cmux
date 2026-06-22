@@ -1611,6 +1611,17 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return
         }
 
+        let splitView = NSSplitView(frame: contentView.bounds.insetBy(dx: 20, dy: 20))
+        splitView.autoresizingMask = [.width, .height]
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        let splitDelegate = BonsplitMockSplitDelegate()
+        splitView.delegate = splitDelegate
+        let first = NSView(frame: NSRect(x: 0, y: 0, width: 120, height: splitView.bounds.height))
+        splitView.addSubview(first)
+        contentView.addSubview(splitView)
+        splitView.adjustSubviews()
+
         let hostFrame = container.convert(contentView.bounds, from: contentView)
         let host = WindowBrowserHostView(frame: hostFrame)
         host.autoresizingMask = [.width, .height]
@@ -1636,6 +1647,28 @@ final class WindowBrowserHostViewTests: XCTestCase {
             host.dividerRegionBuildCount,
             buildCountAfterWarmHit,
             "Steady-state browser hit-testing should reuse an empty divider-region cache instead of rescanning every pointer event"
+        )
+
+        let second = NSView(frame: NSRect(x: 121, y: 0, width: 139, height: splitView.bounds.height))
+        splitView.addSubview(second)
+        splitView.setPosition(120, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        contentView.layoutSubtreeIfNeeded()
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        XCTAssertNil(
+            host.hitTest(dividerPointInHost),
+            "Visible browser split views that gain a divider should invalidate an empty cached scan"
+        )
+        XCTAssertGreaterThan(
+            host.dividerRegionBuildCount,
+            buildCountAfterWarmHit,
+            "Regionless browser split views should be tracked so later dividers trigger a cache rebuild"
         )
 #else
         throw XCTSkip("Debug-only regression test")
