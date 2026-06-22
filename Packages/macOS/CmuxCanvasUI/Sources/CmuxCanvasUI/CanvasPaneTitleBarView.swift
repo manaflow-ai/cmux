@@ -154,16 +154,6 @@ private struct CanvasPaneTabItem: View {
                     .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(Color(nsColor: .labelColor))
                     .frame(width: 16, height: 16)
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear.preference(
-                                key: CanvasTabFramesKey.self,
-                                value: CanvasTabHitRegions(
-                                    closeFrames: [tab.id: proxy.frame(in: .named("canvasTabBar")).insetBy(dx: -4, dy: -7)]
-                                )
-                            )
-                        }
-                    )
             } else if let iconSystemName = tab.iconSystemName {
                 Image(systemName: iconSystemName)
                     .font(.system(size: 11, weight: .medium))

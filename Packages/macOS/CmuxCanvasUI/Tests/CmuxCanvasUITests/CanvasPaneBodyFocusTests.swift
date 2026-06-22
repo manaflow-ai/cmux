@@ -230,21 +230,21 @@ struct CanvasPaneBodyFocusTests {
             tabOrder: [panelA, panelB],
             hitRegions: CanvasTabHitRegions(
                 tabFrames: [
-                    panelB: CGRect(x: 100, y: 0, width: 100, height: 30),
+                    panelB: CGRect(x: 50, y: 0, width: 100, height: 30),
                     panelA: CGRect(x: 0, y: 0, width: 100, height: 30),
                 ],
                 closeFrames: [:]
             )
         )
 
-        #expect(tester.tab(at: CGPoint(x: 40, y: 15)) == panelA)
+        #expect(tester.tab(at: CGPoint(x: 75, y: 15)) == panelA)
         #expect(tester.tab(at: CGPoint(x: 140, y: 15)) == panelB)
     }
 
     @Test func closeHitOnlyUsesTheActuallyHoveredTab() {
         let panelA = UUID()
         let panelB = UUID()
-        let point = CGPoint(x: 12, y: 15)
+        let pointInA = CGPoint(x: 12, y: 15)
         let tester = CanvasTabHitTester(
             tabOrder: [panelA, panelB],
             hitRegions: CanvasTabHitRegions(
@@ -254,14 +254,14 @@ struct CanvasPaneBodyFocusTests {
                 ],
                 closeFrames: [
                     panelA: CGRect(x: 0, y: 0, width: 24, height: 30),
-                    panelB: CGRect(x: 0, y: 0, width: 24, height: 30),
+                    panelB: CGRect(x: 100, y: 0, width: 24, height: 30),
                 ]
             )
         )
 
-        #expect(tester.closeTab(at: point, hoveredTabId: nil) == nil)
-        #expect(tester.closeTab(at: point, hoveredTabId: panelB) == panelB)
-        #expect(tester.closeTab(at: point, hoveredTabId: panelA) == panelA)
+        #expect(tester.closeTab(at: pointInA, hoveredTabId: nil) == nil)
+        #expect(tester.closeTab(at: pointInA, hoveredTabId: panelB) == nil)
+        #expect(tester.closeTab(at: pointInA, hoveredTabId: panelA) == panelA)
     }
 
     @discardableResult

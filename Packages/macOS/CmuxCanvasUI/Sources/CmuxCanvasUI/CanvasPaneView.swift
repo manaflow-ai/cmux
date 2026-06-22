@@ -40,6 +40,7 @@ final class CanvasPaneView: NSView {
     private var dragStartDocumentPoint: CGPoint = .zero
     /// Tab/close hit rects in tab-bar coordinates, reported by SwiftUI.
     private var tabHitRegions = CanvasTabHitRegions()
+    private var tabOrder: [UUID] = []
     private var hoveredTabId: UUID?
     private var titleBarTrackingArea: NSTrackingArea?
     /// Pending click target resolved at mouse-down, fired at mouse-up when
@@ -112,8 +113,9 @@ final class CanvasPaneView: NSView {
     func updateChrome(_ chrome: CanvasPaneChrome) {
         guard chrome != self.chrome else { return }
         self.chrome = chrome
+        tabOrder = chrome.tabs.map(\.id)
         if let currentHoveredTabId = hoveredTabId,
-           !chrome.tabs.contains(where: { $0.id == currentHoveredTabId }) {
+           !tabOrder.contains(currentHoveredTabId) {
             hoveredTabId = nil
         }
         // Fewer tabs may make the current offset invalid; clamp on next render.
@@ -141,7 +143,7 @@ final class CanvasPaneView: NSView {
 
     private var tabHitTester: CanvasTabHitTester {
         CanvasTabHitTester(
-            tabOrder: chrome.tabs.map(\.id),
+            tabOrder: tabOrder,
             hitRegions: tabHitRegions
         )
     }
@@ -303,8 +305,9 @@ final class CanvasPaneView: NSView {
             let barPoint = titleBarHost.convert(event.locationInWindow, from: nil)
             let hitTester = tabHitTester
             let tabUnderPointer = hitTester.tab(at: barPoint)
+            let visibleHoveredTabId = hoveredTabId
             setHoveredTab(tabUnderPointer)
-            if let panelId = hitTester.closeTab(at: barPoint, hoveredTabId: tabUnderPointer) {
+            if let panelId = hitTester.closeTab(at: barPoint, hoveredTabId: visibleHoveredTabId) {
                 pendingTabClick = (panelId, true)
             } else if let panelId = tabUnderPointer {
                 pendingTabClick = (panelId, false)
