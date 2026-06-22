@@ -151,6 +151,9 @@
          location = "group:CmuxSettingsUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxShortcuts">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSidebar">
       </FileRef>
       <FileRef
