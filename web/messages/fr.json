@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — Le terminal conçu pour le multitâche",
-    "description": "Terminal macOS natif basé sur Ghostty. Fonctionne avec Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider et tout outil CLI. Onglets verticaux, anneaux de notification, panneaux divisés et une API socket.",
-    "ogDescription": "Terminal macOS natif pour les agents de code IA. Fonctionne avec Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider et tout outil CLI."
+    "description": "Terminal macOS natif open source et gratuit basé sur Ghostty. Fonctionne avec Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider et tout outil CLI. Onglets verticaux, anneaux de notification, panneaux divisés et une socket API.",
+    "ogDescription": "Terminal macOS open source et gratuit pour les agents de programmation IA. Fonctionne avec Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider et tout outil CLI."
   },
   "common": {
     "downloadForMac": "Télécharger pour Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Langue",
-    "assets": "Ressources"
+    "assets": "Ressources",
+    "openSource": "Open source"
   },
   "home": {
     "taglinePrefix": "Le terminal conçu pour ",
     "typingCodingAgents": "agents de code",
     "typingMultitasking": "multitâche",
-    "subtitle": "Application macOS native basée sur Ghostty. Onglets verticaux, notifications quand les agents ont besoin d'attention, panneaux divisés et une <cliLink>CLI</cliLink> pour la programmabilité.",
+    "subtitle": "Terminal macOS natif open source et gratuit basé sur Ghostty. Onglets verticaux, anneaux de notification quand les agents ont besoin d'attention, panneaux divisés et une <cliLink>CLI</cliLink> pour la programmabilité.",
     "features": "Fonctionnalités",
     "faq": "FAQ",
     "communitySection": "Communauté",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": " : ouvrez un navigateur à côté de votre terminal avec une API scriptable",
       "splitPanes": "Panneaux divisés",
       "splitPanesDesc": " : divisions horizontales et verticales dans chaque onglet",
-      "scriptable": "Scriptable",
+      "scriptable": "Programmable",
       "scriptableDesc": " : CLI et API socket pour l'automatisation et le scripting",
       "gpuAccelerated": "Accélération GPU",
       "gpuAcceleratedDesc": " : propulsé par libghostty pour un rendu fluide",
       "lightweight": "Léger",
       "lightweightDesc": " : Swift + AppKit natif, sans Electron",
       "keyboardShortcuts": "Raccourcis clavier",
-      "keyboardShortcutsDesc": " : <link>raccourcis complets</link> pour les espaces de travail, les divisions, le navigateur et plus"
+      "keyboardShortcutsDesc": " : <link>raccourcis complets</link> pour les espaces de travail, les divisions, le navigateur et plus",
+      "openSource": "Open source",
+      "openSourceDesc": " : gratuit et sous licence GPL"
     },
     "faqGhosttyQ": "Quel est le lien entre cmux et Ghostty ?",
     "faqGhosttyA": "cmux n'est pas un fork de Ghostty. Il utilise <link>libghostty</link> comme bibliothèque pour le rendu du terminal, de la même manière que les applications utilisent WebKit pour les vues web. Ghostty est un terminal autonome ; cmux est une application différente construite sur son moteur de rendu.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "Avec quels agents de code cmux fonctionne-t-il ?",
     "faqAgentsA": "Tous. cmux est un terminal, donc tout agent qui fonctionne dans un terminal marche directement : Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, et tout ce que vous pouvez lancer depuis la ligne de commande.",
     "faqNotificationsQ": "Comment fonctionnent les notifications ?",
-    "faqNotificationsA": "Quand un processus a besoin d'attention, cmux affiche des anneaux de notification autour des panneaux, des badges non lus dans la barre latérale, un popover de notification et une notification bureau macOS. Ceux-ci se déclenchent automatiquement via les séquences d'échappement standard du terminal (OSC 9/99/777), ou vous pouvez les déclencher avec le <cliLink>CLI cmux</cliLink> et les <hooksLink>hooks Claude Code</hooksLink>.",
+    "faqNotificationsA": "Quand un processus a besoin d'attention, cmux affiche des anneaux de notification autour des panneaux, des badges non lus dans la barre latérale, un popover de notification et une notification bureau macOS. Ceux-ci se déclenchent automatiquement via les séquences d'échappement standard du terminal (OSC 9/99/777), ou vous pouvez les déclencher avec la <cliLink>CLI cmux</cliLink> et les <hooksLink>hooks d'agents</hooksLink>. Tout agent prenant en charge les hooks ou OSC fonctionne, y compris Claude Code, Codex, OpenCode et pi.",
     "faqShortcutsQ": "Puis-je personnaliser les raccourcis clavier ?",
     "faqShortcutsA": "Les raccourcis du terminal sont lus depuis votre fichier de configuration Ghostty (<configPath>~/.config/ghostty/config</configPath>). Les raccourcis spécifiques à cmux (espaces de travail, divisions, navigateur, notifications) peuvent être personnalisés dans les Réglages. Voir les <link>raccourcis par défaut</link> pour la liste complète.",
     "faqTmuxQ": "Comment se compare-t-il à tmux ?",
-    "faqTmuxA": "tmux est un multiplexeur de terminaux qui fonctionne dans n'importe quel terminal. cmux est une application macOS native avec une interface graphique : onglets verticaux, panneaux divisés, navigateur intégré et API socket sont tous intégrés. Pas besoin de fichiers de configuration ou de touches préfixes.",
+    "faqTmuxA": "tmux est un multiplexeur de terminaux qui fonctionne dans n'importe quel terminal. cmux est une application macOS native avec une interface graphique : onglets verticaux, panneaux divisés, navigateur intégré et socket API, le tout intégré, sans fichiers de configuration ni touches préfixes. Cela dit, beaucoup de gens utilisent volontiers cmux avec SSH et tmux ensemble, et cmux peut s'attacher nativement à vos sessions tmux distantes (<link>bêta</link>).",
     "faqFreeQ": "cmux est-il gratuit ?",
-    "faqFreeA": "Oui, cmux est gratuit. Le code source est disponible sur <link>GitHub</link>."
+    "faqFreeA": "Oui, cmux est gratuit. Le code source est disponible sur <link>GitHub</link>.",
+    "faqSessionsQ": "Mes sessions sont-elles enregistrées ?",
+    "faqSessionsA": "Oui. cmux restaure vos fenêtres, espaces de travail, panneaux, répertoires de travail et l'historique de défilement quand vous le relancez, et l'état survit à un redémarrage complet de l'ordinateur, pas seulement à la fermeture de l'app. Les sessions d'agents comme Claude Code, Codex et OpenCode reviennent aussi. Voir <link>restauration des sessions</link>.",
+    "faqScriptableQ": "cmux est-il programmable ?",
+    "faqScriptableA": "Oui. Chaque action est disponible via la CLI de cmux et une socket Unix : créer des espaces de travail, ouvrir des panneaux divisés, envoyer des entrées, lire le contenu de l'écran, prendre des captures d'écran et piloter le navigateur intégré. Voir la <cliLink>référence de la CLI</cliLink> et la documentation sur l'<browserLink>automatisation du navigateur</browserLink>.",
+    "faqRemoteQ": "Puis-je utiliser cmux avec des machines distantes ?",
+    "faqRemoteA": "Oui. Ouvrez des espaces de travail via SSH et attachez-vous à des sessions tmux distantes, pour que les agents s'exécutent sur un hôte distant pendant que vous les pilotez depuis cmux. Voir <link>SSH et distant</link>.",
+    "faqOrchestrationQ": "cmux peut-il orchestrer plusieurs agents et sous-agents ?",
+    "faqOrchestrationA": "Oui. Quand un agent génère des sous-agents ou des coéquipiers, cmux les transforme en panneaux et divisions natifs au lieu de processus cachés en arrière-plan. Il prend en charge les <teamsLink>équipes Claude Code</teamsLink> et l'orchestration multimodèle <omoLink>oh-my-opencode</omoLink>, de sorte que chaque agent d'une exécution est visible et contrôlable.",
+    "faqCustomizeQ": "Puis-je personnaliser cmux ?",
+    "faqCustomizeA": "Oui. Le rendu du terminal utilise votre configuration Ghostty, donc les thèmes, les polices, les couleurs et le curseur sont repris directement. Les réglages propres à cmux dans <path>~/.config/cmux/cmux.json</path> contrôlent la barre latérale, la barre d'onglets, les panneaux divisés et le comportement, et chaque <shortcutsLink>raccourci clavier</shortcutsLink> est modifiable. Voir <link>configuration</link>.",
+    "faqIosQ": "Existe-t-il une application iOS ?",
+    "faqIosA": "Oui, en bêta. Associez votre iPhone à votre Mac depuis la fenêtre Mobile Connect et connectez-vous à vos terminaux depuis votre téléphone, avec transfert facultatif des notifications du terminal. Elle est distribuée sur TestFlight sous le nom cmux BETA.",
+    "faqSkillsQ": "cmux propose-t-il des skills ?",
+    "faqSkillsA": "Oui. Les skills sont des workflows réutilisables que vous pouvez donner à n'importe quel agent exécuté dans cmux, pour des tâches comme le contrôle de la CLI, l'automatisation de l'espace de travail, les réglages et les surfaces de navigateur. Parcourez la collection ouverte sur <skillsLink>cmux-skills</skillsLink>, ou consultez la <link>documentation des skills</link>.",
+    "faqBrowserQ": "Que peut faire le navigateur intégré ?",
+    "faqBrowserA": "cmux peut ouvrir un véritable panneau de navigateur à côté de votre terminal, et il est entièrement programmable : naviguer, capturer le DOM, cliquer, saisir, évaluer du JavaScript et lire l'activité de la console et du réseau via la même socket API. Les agents l'utilisent pour vérifier leurs propres changements web sans quitter cmux. Voir l'<link>automatisation du navigateur</link>.",
+    "faqSupportQ": "Comment puis-je soutenir cmux ?",
+    "faqSupportA": "cmux est gratuit et open source, et le restera toujours. Si vous souhaitez soutenir le développement et obtenir un accès anticipé aux prochaines nouveautés, dont cmux AI, l'application iOS et les Cloud VMs, découvrez <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "J'ai une demande de fonctionnalité ou j'ai trouvé un bug",
+    "faqFeatureA": "Nous voulons l'entendre. Ouvrez une <issuesLink>issue</issuesLink> ou une <prLink>pull request</prLink> sur GitHub, ou <mailLink>écrivez-nous</mailLink>."
   },
   "community": {
     "title": "Communauté",
@@ -673,7 +696,57 @@
       "automatic": "Automatique",
       "paneIdSocket": "ID du panneau (API socket)",
       "panelIdInternal": "ID du panel (interne)",
-      "metaTitle": "Concepts"
+      "metaTitle": "Concepts",
+      "workspaceGroups": "Groupes d'espaces de travail",
+      "workspaceGroupsDesc": "Regroupez des espaces de travail liés dans des sections nommées et repliables de la barre latérale. Chaque groupe est détenu par un espace de travail d'ancrage et peut être épinglé, renommé et doté de sa propre icône et couleur. De nouveaux espaces de travail peuvent être créés directement à l'intérieur d'un groupe depuis son en-tête.",
+      "workspaceGroupsLink": "Lire le guide complet des groupes d'espaces de travail"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Groupes d'espaces de travail",
+      "metaDescription": "Imbriquez des espaces de travail dans des sections nommées et repliables dans la barre latérale de cmux. Le modèle d'ancrage, la création et la gestion d'un groupe, et la CLI workspace-group.",
+      "title": "Groupes d'espaces de travail",
+      "intro": "Les groupes d'espaces de travail vous permettent d'imbriquer des espaces de travail dans des sections nommées et repliables de la barre latérale. Chaque groupe possède un espace de travail d'ancrage implicite, un bouton + personnalisable pour créer de nouveaux espaces de travail à l'intérieur, et des actions par clic droit pour renommer, épingler, dégrouper et modifier sa configuration.",
+      "concepts": "Concepts",
+      "anchorTitle": "Espace de travail d'ancrage",
+      "anchorDesc": "Chaque groupe est détenu par exactement un espace de travail appelé l'ancrage. L'en-tête du groupe dans la barre latérale est la représentation de l'ancrage — il n'y a pas de ligne distincte pour celui-ci. Cliquer sur la zone du nom de l'en-tête met le focus sur les panneaux de l'ancrage ; cliquer sur le chevron bascule le repliement.",
+      "anchorNew": "Les ancrages sont toujours flambant neufs lorsqu'un groupe est créé. Ils ne sont jamais promus à partir d'un espace de travail existant. Le répertoire de travail de l'ancrage est hérité du premier espace de travail sélectionné lors du regroupement d'une sélection, ou de l'espace de travail actif lors de la création via le CLI sans --cwd.",
+      "anchorClose": "Fermer l'espace de travail d'ancrage dissout le groupe : tous les autres membres deviennent des espaces de travail dégroupés et restent dans la liste des onglets. Rien n'est fermé hormis l'ancrage lui-même. L'application affiche une boîte de dialogue de confirmation avec une bascule « Ne plus demander » avant que cela ne se produise.",
+      "identityTitle": "Identité du groupe",
+      "identityDesc": "Un groupe possède un nom, une icône (un SF Symbol, par défaut folder.fill) et une couleur personnalisée facultative. Ceux-ci sont indépendants des personnalisations propres à l'espace de travail d'ancrage. La couleur et l'icône de l'ancrage sont initialisées à partir du groupe lors de la création, mais elles peuvent ensuite diverger.",
+      "pinningTitle": "Épinglage",
+      "pinningDesc": "Les groupes peuvent être épinglés indépendamment des épinglages d'espaces de travail individuels. Les lignes de premier niveau épinglées, qu'il s'agisse d'espaces de travail individuels ou de groupes, restent au-dessus des lignes non épinglées. Au sein de chaque niveau, les groupes et les espaces de travail conservent l'ordre dans lequel vous les faites glisser.",
+      "layoutIntro": "La barre latérale dispose les lignes de premier niveau de haut en bas :",
+      "layoutItem1": "Lignes de premier niveau épinglées (espaces de travail et groupes).",
+      "layoutItem2": "Lignes de premier niveau non épinglées (espaces de travail et groupes).",
+      "creatingTitle": "Créer un groupe",
+      "creatingIntro": "Un groupe se crée de deux manières : par un raccourci clavier ou par le menu contextuel d’un workspace. Les deux insèrent un nouveau workspace d’ancrage au-dessus de la sélection et déplacent les workspaces sélectionnés dans le groupe. Une fois le groupe créé, vous le gérez et y ajoutez des workspaces depuis l’en-tête du groupe (voir Gérer un groupe ci-dessous).",
+      "keyboardTitle": "Depuis le clavier ({shortcut})",
+      "keyboardDesc": "Sélectionnez deux espaces de travail ou plus dans la barre latérale, puis appuyez sur {shortcut}. Un nouvel espace de travail d'ancrage est inséré au-dessus de la sélection et tous les espaces de travail sélectionnés deviennent des enfants. Le groupe est automatiquement nommé Group 1, Group 2, et ainsi de suite — renommez-le à tout moment via le menu contextuel de l'en-tête.",
+      "keyboardNote": "{shortcut} entre en conflit avec le raccourci par défaut de React Grab. Le gestionnaire de groupe ne consomme l'accord que lorsqu'il existe une multi-sélection explicite d'au moins deux espaces de travail dans la barre latérale, de sorte que React Grab se déclenche toujours en sélection unique et dans les contextes navigateur ou terminal. Réaffectez-le dans Réglages → Clavier si vous préférez que les deux ne partagent pas une touche.",
+      "keyboardSingle": "Les groupes à onglet unique ne sont pas créés depuis le raccourci. Utilisez pour cela l'entrée Nouveau groupe depuis cet espace de travail du menu contextuel de l'espace de travail.",
+      "contextMenuTitle": "Depuis un menu contextuel d'espace de travail",
+      "contextMenuDesc": "Faites un clic droit sur n'importe quel espace de travail dans la barre latérale et choisissez Nouveau groupe depuis cet espace de travail, ou Nouveau groupe depuis la sélection lorsque plusieurs espaces de travail sont sélectionnés. Cela utilise le même comportement de nommage automatique que le raccourci.",
+      "managingTitle": "Gérer un groupe",
+      "managingIntro": "Une fois le groupe créé, le menu contextuel de son en-tête et le bouton + de l’en-tête vous permettent de gérer le groupe et d’y ajouter des workspaces. Aucune de ces actions ne crée de nouveau groupe.",
+      "headerMenuTitle": "Depuis le menu contextuel de l'en-tête de groupe",
+      "headerMenuDesc": "Faites un clic droit sur l'en-tête d'un groupe existant pour Renommer le groupe…, Épingler le groupe / Désépingler le groupe, Modifier la configuration du groupe… (qui ouvre ~/.config/cmux/cmux.json), Ouvrir la documentation des groupes, Dissocier (conserver les espaces de travail), et Supprimer le groupe (fermer les espaces de travail). La suppression est destructive et demande une confirmation ; la dissociation conserve les espaces de travail et supprime simplement le conteneur.",
+      "plusButtonTitle": "Depuis le bouton + sur un en-tête de groupe",
+      "plusButtonDesc": "Survolez l'en-tête d'un groupe pour faire apparaître un bouton + à la fin. Cliquez dessus pour créer un nouvel espace de travail dans le groupe au répertoire de travail d'ancrage. Faites un clic droit dessus pour Nouvel espace de travail dans le groupe, Modifier la configuration du groupe…, et Ouvrir la documentation des groupes.",
+      "plusButtonNote": "Appuyer sur {shortcut} lorsque l'espace de travail actif est un ancrage ou un membre de groupe crée également le nouvel espace de travail à l'intérieur de ce groupe. Le placement par défaut est After current : depuis un membre de groupe ordinaire, le nouvel espace de travail se place juste après le membre actif, et depuis l'ancrage ou l'en-tête, il se place en haut du groupe.",
+      "cliTitle": "CLI",
+      "cliDesc": "Toutes les opérations de groupe sont scriptables avec les sous-commandes cmux workspace-group. La forme avec trait d'union est livrée en premier ; une fois que l'espace de noms de commandes plus large cmux workspace sera disponible, cmux workspace group deviendra la forme canonique, la forme avec trait d'union étant conservée comme alias pour toujours.",
+      "cliSubcommandsTitle": "Sous-commandes",
+      "cliCreateNote": "create renvoie un identifiant de groupe (workspace_group:N par défaut). Passez --json pour la charge utile structurée complète.",
+      "cliFlagsNote": "Passez une valeur vide à set-color ou set-icon pour effacer la couleur ou l'icône du groupe. delete est irréversible : il ferme chaque espace de travail membre.",
+      "cliExamplesTitle": "Exemples",
+      "cliExampleGroup": "Regrouper les espaces de travail actuellement sélectionnés sous un nom :",
+      "cliExampleNew": "Créer un nouvel espace de travail à l'intérieur d'un groupe existant, par exemple connecté à un script de worktree :",
+      "cliExampleList": "Lister les groupes dans la fenêtre active :",
+      "configTitle": "Configuration",
+      "configNote": "La configuration par groupe se trouve sous la clé workspaceGroups dans ~/.config/cmux/cmux.json, indexée par le répertoire de travail du workspace d'ancrage. Consultez la référence de configuration pour connaître les clés prises en charge, y compris le placement global des nouveaux workspaces ainsi que la couleur, l'icône, le placement et les actions du menu contextuel par répertoire.",
+      "configLinkText": "référence de configuration workspaceGroups",
+      "persistenceTitle": "Persistance",
+      "persistenceDesc": "Le nom du groupe, l'ancrage, l'état d'épinglage, l'état de repliement, la couleur et l'icône sont enregistrés avec vos espaces de travail et restaurés entre les lancements. L'appartenance à un groupe est stockée sur chaque espace de travail."
     },
     "configuration": {
       "title": "Configuration",
@@ -710,10 +783,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Active les hooks d’intégration cmux pour Amp. Lorsqu’ils sont désactivés, le plugin fourni reste inactif sans avoir besoin d’être supprimé.",
-          "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed."
+          "suppressSubagentNotifications": "Masque les notifications visibles de fin et les changements d’état des agents enfants Codex ou Claude imbriqués, tout en conservant leurs événements dans la télémétrie Feed.",
+          "workspaceAutoNaming": "Nommage automatique optionnel des espaces de travail et des onglets par IA à partir du contenu des conversations de l'agent. Lorsqu'il est activé, cmux résume les sessions d'agents pris en charge en titres courts à l'aide du binaire propre à chaque agent ; les renommages manuels priment toujours.",
+          "autoNamingAgent": "Quel agent génère les noms automatiques pour chaque session. « auto » (par défaut) nomme chaque session avec son propre agent ; n'importe quel identifiant d'agent (claude, codex, grok, opencode, pi, omp, …) remplace le nommage pour toutes les sessions, même celles d'autres agents. Les agents non pilotables ou non installés se rabattent sur l'agent propre à la session, de sorte que le nommage n'échoue jamais."
         },
         "app": {
           "confirmQuit": "Contrôle quand cmux demande confirmation avant de quitter. Les builds DEV quittent toujours immédiatement, quel que soit ce réglage. L'ancien app.warnBeforeQuit reste accepté comme fallback booléen.",
+          "windowTitleTemplate": "Modèle facultatif pour le titre NSWindow. Vide, il conserve le comportement de titre par défaut existant de cmux, y compris le repli sur le répertoire courant. Espaces réservés pris en charge : '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Fallback booléen hérité pour la confirmation de fermeture. Utilisez app.confirmQuit pour les nouvelles configurations.",
           "warnBeforeClosingTabXButton": "Afficher une confirmation avant de fermer un onglet avec le bouton de fermeture d’onglet.",
           "hideTabCloseButton": "Masquer les boutons de fermeture d’onglet dans la barre d’onglets du volet.",
@@ -721,6 +797,7 @@
         },
         "terminal": {
           "copyOnSelect": "Copie le texte sélectionné dans le terminal dans le presse-papiers système lorsque la sélection est validée, y compris les sélections de mots et de lignes par double ou triple clic.",
+          "scrollSpeed": "Multiplicateur appliqué aux déplacements de la molette de défilement et du pavé tactile dans le terminal. Les valeurs plus élevées font défiler plus vite, les plus basses plus lentement.",
           "showTextBoxOnNewTerminals": "Affiche l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés.",
           "focusTextBoxOnNewTerminals": "Place le focus sur l'entrée TextBox bêta par défaut pour les espaces de travail, onglets et divisions de terminal nouvellement créés. Le focus affiche aussi TextBox."
         },
@@ -740,14 +817,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Largeur maximale en points de la barre latérale droite. Si elle est omise, la limite dynamique intégrée s’applique."
+        },
+        "fileExplorer": {
+          "description": "Paramètres de l’explorateur de fichiers (arborescence) dans la barre latérale droite.",
+          "doubleClickAction": "Ce que fait un double-clic (ou l’appui sur Return dans un résultat de recherche) sur un fichier dans l’explorateur de fichiers. `preview` ouvre l’aperçu de fichier intégré à cmux (comportement par défaut et historique). `defaultEditor` ouvre le fichier avec l’app macOS par défaut pour ce type de fichier. `preferredEditor` ouvre avec la commande `app.preferredEditor`, avec repli vers l’app par défaut lorsqu’aucune commande n’est définie. S’applique uniquement aux fichiers ; les dossiers se développent/se replient toujours, et les explorateurs de fichiers non locaux (distants) ouvrent toujours l’aperçu cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
+          "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Double-clic sur un fichier : preview (par défaut), defaultEditor (app macOS par défaut) ou preferredEditor (commande app.preferredEditor).",
+      "shortcutsWhenIntro": "Prédicats de contexte facultatifs par action (clauses when de style VS Code), indexés par identifiant d'action cmux. Une liaison ne se déclenche — et n'entre en conflit avec une autre liaison sur la même frappe — que lorsque sa clause est vraie. Omettez la clause pour conserver le contexte intégré de l'action. Le vocabulaire des clauses :",
+      "shortcutsWhenBooleanKeys": "clés booléennes. Une clé inconnue ou absente vaut false ; les littéraux true et false sont également acceptés.",
+      "shortcutsWhenTypedKeys": "clés typées pour les comparaisons : le mode actif de la barre latérale droite (chaîne) ainsi que le nombre de panneaux et d'espaces de travail (entiers).",
+      "shortcutsWhenOperators": "opérateurs booléens, comparaisons typées, correspondance par expression régulière et appartenance à une liste. Les comparaisons lient plus fort que && et ||.",
+      "shortcutsWhenExample": "Par exemple, ceci fait que Ctrl+1–9 sélectionne les espaces de travail partout sauf lorsque la barre latérale droite a le focus (laissant Ctrl+1–5 au sélecteur de mode de la barre latérale), et limite la sélection de surface à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux :"
     },
     "customCommands": {
       "title": "Commandes personnalisées",
@@ -864,6 +958,8 @@
         "surfaces": "Surfaces",
         "surfacesBlurb": "Les surfaces sont des onglets à l'intérieur d'un panneau.",
         "splitPanes": "Panneaux divisés",
+        "canvas": "Canevas",
+        "canvasBlurb": "Un mode de disposition 2D libre où les panneaux flottent sur un canevas infini et déplaçable. Les commandes d'alignement et de répartition sont disponibles depuis la palette de commandes.",
         "browser": "Navigateur",
         "notifications": "Notifications",
         "find": "Recherche",
@@ -1148,6 +1244,7 @@
     "navItems": {
       "gettingStarted": "Premiers pas",
       "concepts": "Concepts",
+      "workspaceGroups": "Groupes d'espaces de travail",
       "configuration": "Configuration",
       "sessionRestore": "Restauration de session",
       "customCommands": "Commandes personnalisées",
@@ -1312,6 +1409,10 @@
       "configTitle": "cmux.json",
       "configDesc": "Définissez les mêmes valeurs par défaut dans ~/.config/cmux/cmux.json sous terminal :",
       "focusNote": "Les sessions restaurées conservent leur visibilité TextBox et leur état de focus enregistrés. Ces valeurs par défaut ne s'appliquent qu'aux nouvelles surfaces de terminal."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode : OpenCode multi-agent dans cmux",
+      "metaDescription": "oh-my-opencode (cmux omo) exécute la CLI OpenCode avec le plugin oh-my-openagent à l'intérieur de cmux. Orchestrez Claude, GPT, Gemini et Grok comme agents parallèles, chacun dans une division native de cmux."
     }
   },
   "legal": {
@@ -1429,5 +1530,10 @@
     "downloadLight": "Télécharger l’icône claire",
     "downloadDark": "Télécharger l’icône sombre",
     "brandPage": "Ressources de marque"
+  },
+  "afterSignIn": {
+    "title": "Connecté à cmux",
+    "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
+    "button": "Retourner à cmux"
   }
 }

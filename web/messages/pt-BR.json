@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — O terminal feito para multitarefa",
-    "description": "Terminal nativo macOS baseado no Ghostty. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI. Abas verticais, anéis de notificação, painéis divididos e uma API de socket.",
-    "ogDescription": "Terminal nativo macOS para agentes de código IA. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI."
+    "description": "Terminal nativo macOS gratuito e de código aberto construído sobre o Ghostty. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI. Abas verticais, anéis de notificação, painéis divididos e uma API de socket.",
+    "ogDescription": "Terminal macOS gratuito e de código aberto para agentes de código IA. Funciona com Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider e qualquer ferramenta CLI."
   },
   "common": {
     "downloadForMac": "Baixar para Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Idioma",
-    "assets": "Recursos"
+    "assets": "Recursos",
+    "openSource": "Código aberto"
   },
   "home": {
     "taglinePrefix": "O terminal feito para ",
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarefa",
-    "subtitle": "App nativo para macOS construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma <cliLink>CLI</cliLink> para programabilidade.",
+    "subtitle": "Terminal nativo macOS gratuito e de código aberto construído sobre o Ghostty. Abas verticais, anéis de notificação quando agentes precisam de atenção, painéis divididos e uma <cliLink>CLI</cliLink> para programabilidade.",
     "features": "Recursos",
     "faq": "Perguntas Frequentes",
     "communitySection": "Comunidade",
@@ -66,7 +67,9 @@
       "lightweight": "Leve",
       "lightweightDesc": ": Swift + AppKit nativo, sem Electron",
       "keyboardShortcuts": "Atalhos de teclado",
-      "keyboardShortcutsDesc": ": <link>atalhos abrangentes</link> para workspaces, divisões, navegador e mais"
+      "keyboardShortcutsDesc": ": <link>atalhos abrangentes</link> para workspaces, divisões, navegador e mais",
+      "openSource": "Código aberto",
+      "openSourceDesc": ": gratuito e licenciado sob GPL"
     },
     "faqGhosttyQ": "Qual a relação do cmux com o Ghostty?",
     "faqGhosttyA": "O cmux não é um fork do Ghostty. Ele usa o <link>libghostty</link> como biblioteca para renderização de terminal, da mesma forma que apps usam o WebKit para visualizações web. O Ghostty é um terminal independente; o cmux é um app diferente construído sobre seu motor de renderização.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "Com quais agentes de código o cmux funciona?",
     "faqAgentsA": "Todos eles. O cmux é um terminal, então qualquer agente que roda em um terminal funciona diretamente: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent e qualquer outro que você possa executar pela linha de comando.",
     "faqNotificationsQ": "Como funcionam as notificações?",
-    "faqNotificationsA": "Quando um processo precisa de atenção, o cmux mostra anéis de notificação ao redor dos painéis, badges de não lido na barra lateral, um popover de notificações e uma notificação no desktop do macOS. Elas disparam automaticamente via sequências de terminal padrão (OSC 9/99/777), ou você pode acioná-las com o <cliLink>CLI do cmux</cliLink> e os <hooksLink>hooks do Claude Code</hooksLink>.",
+    "faqNotificationsA": "Quando um processo precisa de atenção, o cmux mostra anéis de notificação ao redor dos painéis, badges de não lido na barra lateral, um popover de notificações e uma notificação no desktop do macOS. Elas disparam automaticamente via sequências de escape de terminal padrão (OSC 9/99/777), ou você pode acioná-las com a <cliLink>CLI do cmux</cliLink> e <hooksLink>hooks de agentes</hooksLink>. Qualquer agente que suporte hooks ou OSC funciona, incluindo Claude Code, Codex, OpenCode e pi.",
     "faqShortcutsQ": "Posso personalizar os atalhos de teclado?",
     "faqShortcutsA": "Os atalhos do terminal são lidos do seu arquivo de configuração do Ghostty (<configPath>~/.config/ghostty/config</configPath>). Atalhos específicos do cmux (workspaces, divisões, navegador, notificações) podem ser personalizados nas Configurações. Veja os <link>atalhos padrão</link> para a lista completa.",
     "faqTmuxQ": "Como ele se compara ao tmux?",
-    "faqTmuxA": "O tmux é um multiplexador de terminal que roda dentro de qualquer terminal. O cmux é um app macOS nativo com interface gráfica: abas verticais, painéis divididos, navegador integrado e uma API de socket são todos embutidos. Sem arquivos de configuração ou teclas de prefixo necessários.",
+    "faqTmuxA": "O tmux é um multiplexador de terminal que roda dentro de qualquer terminal. O cmux é um app macOS nativo com interface gráfica: abas verticais, painéis divididos, um navegador integrado e uma API de socket, todos embutidos, sem arquivos de configuração ou teclas de prefixo necessários. Dito isso, muita gente roda o cmux com SSH e tmux juntos sem problemas, e o cmux pode se conectar nativamente às suas sessões tmux remotas (<link>beta</link>).",
     "faqFreeQ": "O cmux é gratuito?",
-    "faqFreeA": "Sim, o cmux é gratuito. O código-fonte está disponível no <link>GitHub</link>."
+    "faqFreeA": "Sim, o cmux é gratuito. O código-fonte está disponível no <link>GitHub</link>.",
+    "faqSessionsQ": "Minhas sessões são salvas?",
+    "faqSessionsA": "Sim. O cmux restaura suas janelas, workspaces, painéis, diretórios de trabalho e scrollback quando você reabre, e esse estado sobrevive a um reinício completo do computador, não apenas a fechar o app. Sessões de agentes como Claude Code, Codex e OpenCode também voltam. Veja <link>restauração de sessão</link>.",
+    "faqScriptableQ": "O cmux é programável?",
+    "faqScriptableA": "Sim. Toda ação está disponível pela CLI do cmux e por um socket Unix: criar workspaces, abrir painéis divididos, enviar entrada, ler o conteúdo da tela, capturar telas e controlar o navegador integrado. Veja a <cliLink>referência da CLI</cliLink> e a documentação de <browserLink>automação de navegador</browserLink>.",
+    "faqRemoteQ": "Posso usar o cmux com máquinas remotas?",
+    "faqRemoteA": "Sim. Abra workspaces por SSH e conecte-se a sessões tmux remotas, para que agentes possam rodar em um host remoto enquanto você os controla pelo cmux. Veja <link>SSH e remoto</link>.",
+    "faqOrchestrationQ": "O cmux pode orquestrar múltiplos agentes e subagentes?",
+    "faqOrchestrationA": "Sim. Quando um agente gera subagentes ou colegas, o cmux os transforma em painéis e divisões nativos em vez de processos ocultos em segundo plano. Ele suporta a orquestração multimodelo do <teamsLink>Claude Code teams</teamsLink> e do <omoLink>oh-my-opencode</omoLink>, de modo que todo agente em uma execução fica visível e controlável.",
+    "faqCustomizeQ": "Posso personalizar o cmux?",
+    "faqCustomizeA": "Sim. A renderização do terminal usa sua configuração do Ghostty, então temas, fontes, cores e cursor são herdados diretamente. As configurações próprias do cmux em <path>~/.config/cmux/cmux.json</path> controlam a barra lateral, a barra de abas, os painéis divididos e o comportamento, e todo <shortcutsLink>atalho de teclado</shortcutsLink> é editável. Veja <link>configuração</link>.",
+    "faqIosQ": "Existe um app para iOS?",
+    "faqIosA": "Sim, em beta. Pareie seu iPhone com seu Mac pela janela do Mobile Connect e conecte-se aos seus terminais a partir do celular, com encaminhamento opcional das notificações do terminal. É distribuído no TestFlight como cmux BETA.",
+    "faqSkillsQ": "O cmux tem skills?",
+    "faqSkillsA": "Sim. Skills são fluxos de trabalho reutilizáveis que você pode dar a qualquer agente rodando no cmux, para coisas como controle de CLI, automação de workspace, configurações e painéis de navegador. Explore a coleção aberta em <skillsLink>cmux-skills</skillsLink> ou leia a <link>documentação de skills</link>.",
+    "faqBrowserQ": "O que o navegador integrado pode fazer?",
+    "faqBrowserA": "O cmux pode dividir um painel de navegador real ao lado do seu terminal, e ele é totalmente programável: navegue, capture o DOM, clique, digite, execute JavaScript e leia a atividade do console e da rede pela mesma socket API. Agentes o usam para verificar suas próprias mudanças na web sem sair do cmux. Veja <link>automação de navegador</link>.",
+    "faqSupportQ": "Como posso apoiar o cmux?",
+    "faqSupportA": "O cmux é gratuito e de código aberto, e sempre será. Se você quiser apoiar o desenvolvimento e ter acesso antecipado ao que vem por aí, incluindo cmux AI, o app de iOS e Cloud VMs, confira o <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "Tenho uma sugestão de recurso ou encontrei um bug",
+    "faqFeatureA": "Queremos saber. Abra uma <issuesLink>issue</issuesLink> ou um <prLink>pull request</prLink> no GitHub, ou <mailLink>envie um e-mail para nós</mailLink>."
   },
   "community": {
     "title": "Comunidade",
@@ -673,7 +696,57 @@
       "automatic": "Automático",
       "paneIdSocket": "ID do painel (API de socket)",
       "panelIdInternal": "ID do panel (interno)",
-      "metaTitle": "Conceitos"
+      "metaTitle": "Conceitos",
+      "workspaceGroups": "Grupos de Workspaces",
+      "workspaceGroupsDesc": "Agrupe workspaces relacionados em seções nomeadas e recolhíveis na barra lateral. Cada grupo pertence a um workspace âncora e pode ser fixado, renomeado e receber seu próprio ícone e cor. Novos workspaces podem ser criados diretamente dentro de um grupo a partir do seu cabeçalho.",
+      "workspaceGroupsLink": "Leia o guia completo de Grupos de Workspaces"
+    },
+    "workspaceGroups": {
+      "metaTitle": "Grupos de Workspaces",
+      "metaDescription": "Aninhe áreas de trabalho em seções nomeadas recolhíveis na barra lateral do cmux. O modelo de âncora, como criar e gerenciar um grupo e a CLI workspace-group.",
+      "title": "Grupos de Workspaces",
+      "intro": "Os grupos de workspaces permitem aninhar workspaces em seções nomeadas e recolhíveis na barra lateral. Cada grupo tem um workspace âncora implícito, um botão + personalizável para criar novos workspaces dentro dele e ações de clique com o botão direito para renomear, fixar, desagrupar e editar sua configuração.",
+      "concepts": "Conceitos",
+      "anchorTitle": "Workspace âncora",
+      "anchorDesc": "Todo grupo pertence a exatamente um workspace chamado âncora. O cabeçalho do grupo na barra lateral é a representação da âncora — não há uma linha separada para ela. Clicar na área do nome do cabeçalho foca os painéis da âncora; clicar no chevron alterna o recolhimento.",
+      "anchorNew": "As âncoras são sempre totalmente novas quando um grupo é criado. Elas nunca são promovidas a partir de um workspace existente. O diretório de trabalho da âncora é herdado do primeiro workspace selecionado ao agrupar uma seleção, ou do workspace ativo ao criar via CLI sem --cwd.",
+      "anchorClose": "Fechar o workspace âncora dissolve o grupo: todos os outros membros tornam-se workspaces desagrupados e permanecem na lista de abas. Nada é fechado além da própria âncora. O aplicativo exibe uma caixa de diálogo de confirmação com uma opção \"Não perguntar novamente\" antes que isso aconteça.",
+      "identityTitle": "Identidade do grupo",
+      "identityDesc": "Um grupo tem um nome, um ícone (um SF Symbol, por padrão folder.fill) e uma cor personalizada opcional. Esses elementos são independentes das próprias personalizações do workspace âncora. A cor e o ícone da âncora são inicializados a partir do grupo na criação, mas podem divergir depois.",
+      "pinningTitle": "Fixação",
+      "pinningDesc": "Os grupos podem ser fixados de forma independente das fixações de workspaces individuais. As linhas de nível superior fixadas, sejam workspaces individuais ou grupos, permanecem acima das linhas não fixadas. Dentro de cada nível, grupos e workspaces mantêm a ordem na qual você os arrasta.",
+      "layoutIntro": "A barra lateral organiza as linhas de nível superior de cima para baixo:",
+      "layoutItem1": "Linhas de nível superior fixadas (workspaces e grupos).",
+      "layoutItem2": "Linhas de nível superior não fixadas (workspaces e grupos).",
+      "creatingTitle": "Criando um grupo",
+      "creatingIntro": "Um grupo é criado de uma de duas maneiras: por um atalho de teclado ou pelo menu de contexto de um workspace. Ambos inserem um novo workspace âncora acima da seleção e movem os workspaces selecionados para o grupo. Depois que um grupo existe, você o gerencia e adiciona workspaces a ele a partir do cabeçalho do grupo (consulte Gerenciar um grupo abaixo).",
+      "keyboardTitle": "Pelo teclado ({shortcut})",
+      "keyboardDesc": "Selecione dois ou mais workspaces na barra lateral e pressione {shortcut}. Um novo workspace âncora é inserido acima da seleção e todos os workspaces selecionados tornam-se filhos. O grupo é nomeado automaticamente como Group 1, Group 2 e assim por diante — renomeie-o a qualquer momento pelo menu de contexto do cabeçalho.",
+      "keyboardNote": "{shortcut} colide com o padrão do React Grab. O manipulador de grupo só consome o atalho quando há uma multisseleção explícita de pelo menos dois workspaces na barra lateral, então o React Grab ainda é acionado em seleção única e em contextos de navegador ou terminal. Reatribua-o em Configurações → Teclado se preferir que os dois não compartilhem uma tecla.",
+      "keyboardSingle": "Grupos de aba única não são criados pelo atalho. Use a entrada Novo grupo a partir desta área no menu de contexto da área de trabalho para isso.",
+      "contextMenuTitle": "Pelo menu de contexto de um workspace",
+      "contextMenuDesc": "Clique com o botão direito em qualquer área de trabalho na barra lateral e escolha Novo grupo a partir desta área, ou Novo grupo a partir da seleção quando várias áreas de trabalho estiverem selecionadas. Isso usa o mesmo comportamento de nomeação automática do atalho.",
+      "managingTitle": "Gerenciar um grupo",
+      "managingIntro": "Depois que um grupo existe, o menu de contexto do seu cabeçalho e o botão + no cabeçalho permitem gerenciar o grupo e adicionar workspaces a ele. Nenhum dos dois cria um novo grupo.",
+      "headerMenuTitle": "Pelo menu de contexto do cabeçalho do grupo",
+      "headerMenuDesc": "Clique com o botão direito no cabeçalho de um grupo existente para Renomear grupo…, Fixar grupo / Desafixar grupo, Editar configuração do grupo… (que abre ~/.config/cmux/cmux.json), Abrir documentação de grupos, Desagrupar (manter áreas de trabalho) e Excluir grupo (fechar áreas de trabalho). Excluir é destrutivo e pede confirmação; desagrupar mantém as áreas de trabalho e apenas remove o contêiner.",
+      "plusButtonTitle": "Pelo botão + no cabeçalho de um grupo",
+      "plusButtonDesc": "Passe o cursor sobre o cabeçalho de um grupo para revelar um botão + ao final. Clique nele para criar uma nova área de trabalho no grupo no diretório de trabalho da âncora. Clique com o botão direito nele para Nova área de trabalho no grupo, Editar configuração do grupo… e Abrir documentação de grupos.",
+      "plusButtonNote": "Pressionar {shortcut} enquanto o workspace ativo é uma âncora ou membro de um grupo também cria o novo workspace dentro desse grupo. O posicionamento padrão é After current: a partir de um membro comum do grupo, o novo workspace é inserido logo após o membro ativo, e a partir da âncora ou do cabeçalho ele é inserido no topo do grupo.",
+      "cliTitle": "CLI",
+      "cliDesc": "Todas as operações de grupo podem ser automatizadas via script com os subcomandos cmux workspace-group. A forma com hífen é lançada primeiro; assim que o espaço de nomes de comandos mais amplo cmux workspace estiver disponível, cmux workspace group passará a ser a forma canônica, enquanto a forma com hífen é mantida como alias para sempre.",
+      "cliSubcommandsTitle": "Subcomandos",
+      "cliCreateNote": "create retorna um identificador de grupo (workspace_group:N por padrão). Passe --json para o payload estruturado completo.",
+      "cliFlagsNote": "Passe um valor vazio para set-color ou set-icon para limpar a cor ou o ícone do grupo. delete é irreversível: ele fecha todas as áreas de trabalho membros.",
+      "cliExamplesTitle": "Exemplos",
+      "cliExampleGroup": "Agrupe os workspaces atualmente selecionados sob um nome:",
+      "cliExampleNew": "Crie um novo workspace dentro de um grupo existente, por exemplo conectado a um script de worktree:",
+      "cliExampleList": "Liste os grupos na janela em foco:",
+      "configTitle": "Configuração",
+      "configNote": "A configuração por grupo fica sob a chave workspaceGroups em ~/.config/cmux/cmux.json, indexada pelo diretório de trabalho do workspace âncora. Consulte a referência de configuração para conhecer as chaves suportadas, incluindo o posicionamento global de novos workspaces e a cor, o ícone, o posicionamento e as ações do menu de contexto por diretório.",
+      "configLinkText": "referência de configuração de workspaceGroups",
+      "persistenceTitle": "Persistência",
+      "persistenceDesc": "Nome do grupo, âncora, estado de fixação, estado de recolhimento, cor e ícone são salvos junto com seus workspaces e restaurados entre as inicializações. A associação ao grupo é armazenada em cada workspace."
     },
     "configuration": {
       "title": "Configuração",
@@ -710,10 +783,13 @@
       "schemaDescriptions": {
         "automation": {
           "ampIntegration": "Ativa os hooks de integração do cmux para o Amp. Quando desativado, o plugin incluído permanece inativo sem precisar ser removido.",
-          "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed."
+          "suppressSubagentNotifications": "Suprime notificações visíveis de conclusão e alterações de status de agentes filhos aninhados do Codex ou Claude, mantendo seus eventos na telemetria do Feed.",
+          "workspaceAutoNaming": "Nomeação automática opcional de espaços de trabalho e abas por IA a partir do conteúdo das conversas do agente. Quando ativada, o cmux resume as sessões de agentes compatíveis em títulos curtos usando o binário próprio de cada agente; renomeações manuais sempre prevalecem.",
+          "autoNamingAgent": "Qual agente gera os nomes automáticos para cada sessão. \"auto\" (padrão) nomeia cada sessão com o próprio agente; qualquer slug de agente (claude, codex, grok, opencode, pi, omp, …) substitui a nomeação de todas as sessões, mesmo as de outros agentes. Agentes não utilizáveis ou não instalados recorrem ao agente da própria sessão, de modo que a nomeação nunca falha."
         },
         "app": {
           "confirmQuit": "Controla quando o cmux pede confirmação antes de sair. Builds DEV sempre saem imediatamente, independentemente desta configuração. O app.warnBeforeQuit legado ainda é aceito como fallback booleano.",
+          "windowTitleTemplate": "Modelo opcional para o título NSWindow. Em branco preserva o comportamento de título padrão existente do cmux, incluindo o fallback para o diretório atual. Espaços reservados compatíveis: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Fallback booleano legado para confirmação de saída. Use app.confirmQuit em novas configurações.",
           "warnBeforeClosingTabXButton": "Mostrar uma confirmação antes de fechar uma aba com o botão de fechar aba.",
           "hideTabCloseButton": "Ocultar os botões de fechar aba na barra de abas do painel.",
@@ -721,6 +797,7 @@
         },
         "terminal": {
           "copyOnSelect": "Copia o texto selecionado no terminal para a área de transferência do sistema quando a seleção é confirmada, incluindo seleções de palavras e linhas por clique duplo e triplo.",
+          "scrollSpeed": "Multiplicador aplicado aos deslocamentos da roda de rolagem e do trackpad no terminal. Valores mais altos rolam mais rápido e os mais baixos, mais devagar.",
           "showTextBoxOnNewTerminals": "Mostra a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas.",
           "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
         },
@@ -740,14 +817,31 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "sidebar": {
+          "rightMaxWidth": "Largura máxima em pontos para a barra lateral direita. Quando omitida, o limite dinâmico integrado se aplica."
+        },
+        "fileExplorer": {
+          "description": "Configurações do explorador de arquivos (árvore de arquivos) na barra lateral direita.",
+          "doubleClickAction": "Define o que acontece ao clicar duas vezes (ou pressionar Return em um resultado de busca) em um arquivo no explorador de arquivos. `preview` abre a visualização de arquivo integrada do cmux (comportamento padrão e histórico). `defaultEditor` abre com o app padrão do macOS para o tipo de arquivo. `preferredEditor` abre com o comando `app.preferredEditor`, voltando para o app padrão quando nenhum estiver definido. Aplica-se apenas a arquivos; diretórios sempre expandem/recolhem, e exploradores de arquivos não locais (remotos) sempre abrem a visualização do cmux."
+        },
         "diffViewer": {
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
+        },
+        "shortcuts": {
+          "when": "Predicados de contexto opcionais por ação (cláusulas `when` no estilo do VS Code), indexados pelo id da ação do cmux. Cada valor é uma expressão booleana sobre chaves de contexto, combinada com !, &&, || e parênteses. Chaves booleanas: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Chaves tipadas aceitam comparações: a string sidebarMode (files, find, sessions, feed ou dock) e os inteiros paneCount e workspaceCount. Os operadores de comparação são ==, !=, =~ (expressão regular), <, <=, >, >= e `in [a, b]`; uma chave desconhecida ou ausente é avaliada como false. Os literais booleanos true e false também são aceitos; `key == false` equivale a `!key`. O atalho da ação só dispara (e só conflita com outros atalhos) quando a cláusula é verdadeira. Exemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } seleciona workspaces com Ctrl+1–9 em todos os lugares, exceto quando a barra lateral direita está em foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } restringe uma atribuição à barra lateral Localizar quando o workspace tem vários painéis.",
+          "showModifierHoldHints": "Mostra chips de dica de atalhos enquanto Cmd ou Control estiver pressionado."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
       "exampleMarkdownFontSizeZoom": "Zoom a viewer live with Cmd-+ / Cmd-- / Cmd-0.",
       "exampleMarkdownFontFamily": "Default body font family. Empty keeps the system markdown font stack.",
-      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels."
+      "exampleMarkdownMaxWidth": "Default maximum reading column width, in CSS pixels.",
+      "exampleFileExplorerDoubleClickAction": "Clique duas vezes em um arquivo: preview (padrão), defaultEditor (app padrão do macOS) ou preferredEditor (o comando app.preferredEditor).",
+      "shortcutsWhenIntro": "Predicados de contexto opcionais por ação (cláusulas when no estilo do VS Code), indexados pelo id da ação do cmux. Uma atribuição só dispara — e só conflita com outra atribuição na mesma tecla — quando sua cláusula é verdadeira. Omita a cláusula para manter o contexto integrado da ação. O vocabulário das cláusulas:",
+      "shortcutsWhenBooleanKeys": "chaves booleanas. Uma chave desconhecida ou ausente é avaliada como false; os literais true e false também são aceitos.",
+      "shortcutsWhenTypedKeys": "chaves tipadas para comparações: o modo ativo da barra lateral direita (string) e as contagens de painéis e workspaces (inteiros).",
+      "shortcutsWhenOperators": "operadores booleanos, comparações tipadas, correspondência por regex e pertinência a listas. Comparações ligam mais forte que && e ||.",
+      "shortcutsWhenExample": "Por exemplo, isto faz Ctrl+1–9 selecionar workspaces em todos os lugares, exceto quando a barra lateral direita está em foco (deixando Ctrl+1–5 para o seletor de modo da barra lateral), e restringe a seleção de superfície à barra lateral Localizar quando o workspace tem vários painéis:"
     },
     "customCommands": {
       "title": "Comandos personalizados",
@@ -864,6 +958,8 @@
         "surfaces": "Superfícies",
         "surfacesBlurb": "Superfícies são abas dentro de um painel.",
         "splitPanes": "Painéis Divididos",
+        "canvas": "Canvas",
+        "canvasBlurb": "Um modo de layout 2D livre em que os painéis flutuam sobre um canvas infinito e rolável. Comandos de alinhamento e distribuição estão disponíveis na paleta de comandos.",
         "browser": "Navegador",
         "notifications": "Notificações",
         "find": "Buscar",
@@ -1148,6 +1244,7 @@
     "navItems": {
       "gettingStarted": "Primeiros Passos",
       "concepts": "Conceitos",
+      "workspaceGroups": "Grupos de Workspaces",
       "configuration": "Configuração",
       "sessionRestore": "Restauração de sessão",
       "customCommands": "Comandos personalizados",
@@ -1312,6 +1409,10 @@
       "configTitle": "cmux.json",
       "configDesc": "Defina os mesmos padrões em ~/.config/cmux/cmux.json dentro de terminal:",
       "focusNote": "Sessões restauradas mantêm a visibilidade e o estado de foco do TextBox salvos. Esses padrões se aplicam apenas a superfícies de terminal recém-criadas."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: OpenCode multiagente no cmux",
+      "metaDescription": "oh-my-opencode (cmux omo) roda a CLI do OpenCode com o plugin oh-my-openagent dentro do cmux. Orquestre Claude, GPT, Gemini e Grok como agentes paralelos, cada um em uma divisão nativa do cmux."
     }
   },
   "legal": {
@@ -1429,5 +1530,10 @@
     "downloadLight": "Baixar ícone claro",
     "downloadDark": "Baixar ícone escuro",
     "brandPage": "Assets da marca"
+  },
+  "afterSignIn": {
+    "title": "Conectado ao cmux",
+    "body": "Se o cmux não abriu automaticamente, use o botão abaixo.",
+    "button": "Voltar ao cmux"
   }
 }

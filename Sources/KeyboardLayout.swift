@@ -79,6 +79,36 @@ class KeyboardLayout {
         )
     }
 
+    #if DEBUG
+    /// Translate a physical keyCode against a specific keyboard input source
+    /// exactly as text input would (Option/Shift applied, no ASCII fallback).
+    /// Resolves the source from all installed input sources, so layouts that
+    /// are not enabled on the host (e.g. German on a US machine) still
+    /// translate. Test-only seam for Option-composition regression coverage.
+    static func textInputCharacter(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        inputSourceID: String
+    ) -> String? {
+        guard let source = installedInputSource(forID: inputSourceID) else { return nil }
+        return characterFromInputSource(
+            source,
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags,
+            mode: .textInput,
+            lowercased: false
+        )
+    }
+
+    private static func installedInputSource(forID inputSourceID: String) -> TISInputSource? {
+        let filter = [kTISPropertyInputSourceID as String: inputSourceID] as CFDictionary
+        guard let list = TISCreateInputSourceList(filter, true)?.takeRetainedValue() as? [TISInputSource] else {
+            return nil
+        }
+        return list.first
+    }
+    #endif
+
     /// Return the ASCII-normalized equivalent of `event.charactersIgnoringModifiers`,
     /// falling back through the ASCII-capable input source for non-Latin input methods.
     /// Use this wherever code compares raw event characters against Latin shortcut keys.

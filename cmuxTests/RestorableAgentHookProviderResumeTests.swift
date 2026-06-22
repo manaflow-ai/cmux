@@ -386,7 +386,7 @@ extension SocketListenerAcceptPolicyTests {
         )
         XCTAssertEqual(
             kiro.resumeCommand,
-            "cd '/tmp/kiro repo' && 'env' 'KIRO_HOME=/tmp/kiro home' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+            "{ cd -- '/tmp/kiro repo' 2>/dev/null || [ ! -d '/tmp/kiro repo' ]; } && 'env' 'KIRO_HOME=/tmp/kiro home' '/Users/example/.cargo/bin/kiro-cli' 'chat' '--resume-id' 'kiro-session-123' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
         )
         XCTAssertEqual(
             grok.resumeCommand,

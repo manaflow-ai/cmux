@@ -1,4 +1,5 @@
 import XCTest
+import CmuxSettings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -111,7 +112,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let notificationCenter = NotificationCenter()
             var didNotify = false
             let token = notificationCenter.addObserver(
-                forName: CmdClickSupportedFileRouteSettings.didChangeNotification,
+                forName: FileRouteSettingsStore.supportedFileRouteDidChange,
                 object: nil,
                 queue: nil
             ) { _ in
@@ -123,7 +124,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
 
-            XCTAssertEqual(defaults.object(forKey: CmdClickSupportedFileRouteSettings.key) as? Bool, false)
+            XCTAssertEqual(defaults.object(forKey: AppCatalogSection().openSupportedFilesInCmux.userDefaultsKey) as? Bool, false)
             XCTAssertFalse(descriptor.isOn(defaults))
             XCTAssertTrue(didNotify)
         }
@@ -139,7 +140,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             let notificationCenter = NotificationCenter()
             var didNotify = false
             let token = notificationCenter.addObserver(
-                forName: CmdClickMarkdownRouteSettings.didChangeNotification,
+                forName: FileRouteSettingsStore.markdownRouteDidChange,
                 object: nil,
                 queue: nil
             ) { _ in
@@ -151,7 +152,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
 
             descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
 
-            XCTAssertEqual(defaults.object(forKey: CmdClickMarkdownRouteSettings.key) as? Bool, false)
+            XCTAssertEqual(defaults.object(forKey: AppCatalogSection().openMarkdownInCmuxViewer.userDefaultsKey) as? Bool, false)
             XCTAssertFalse(descriptor.isOn(defaults))
             XCTAssertTrue(didNotify)
         }
@@ -193,19 +194,19 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
                 )
             )
 
-            defaults.set(QuitConfirmationMode.dirtyOnly.rawValue, forKey: QuitWarningSettings.confirmQuitKey)
+            defaults.set(ConfirmQuitMode.dirtyOnly.rawValue, forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey)
             XCTAssertTrue(descriptor.isOn(defaults))
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
-            XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.never.rawValue)
-            XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, false)
+            XCTAssertEqual(defaults.string(forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey), ConfirmQuitMode.never.rawValue)
+            XCTAssertEqual(defaults.object(forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey) as? Bool, false)
             XCTAssertFalse(descriptor.isOn(defaults))
 
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
-            XCTAssertEqual(defaults.string(forKey: QuitWarningSettings.confirmQuitKey), QuitConfirmationMode.always.rawValue)
-            XCTAssertEqual(defaults.object(forKey: QuitWarningSettings.warnBeforeQuitKey) as? Bool, true)
+            XCTAssertEqual(defaults.string(forKey: AppCatalogSection().confirmQuitMode.userDefaultsKey), ConfirmQuitMode.always.rawValue)
+            XCTAssertEqual(defaults.object(forKey: AppCatalogSection().warnBeforeQuit.userDefaultsKey) as? Bool, true)
             XCTAssertTrue(descriptor.isOn(defaults))
         }
     }
@@ -239,7 +240,7 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
             descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
 
             XCTAssertEqual(
-                defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+                defaults.object(forKey: IntegrationsCatalogSection().suppressSubagentNotifications.userDefaultsKey) as? Bool,
                 false
             )
             XCTAssertFalse(descriptor.isOn(defaults))

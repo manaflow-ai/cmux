@@ -1,5 +1,5 @@
+import CmuxFoundation
 import AppKit
-import CmuxFileWatch
 import Combine
 import Foundation
 import QuartzCore
@@ -285,7 +285,7 @@ protocol SSHFileExplorerTransport: AnyObject {
 
 enum FileExplorerWorkspaceRoot: Equatable {
     case none
-    case local(path: String)
+    case local(workspaceId: UUID, path: String)
     case remoteSSH(
         workspaceId: UUID,
         connection: SSHFileExplorerConnection,
@@ -515,8 +515,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: outPipe.fileHandleForReading)
-            let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errPipe.fileHandleForReading)
+            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             terminationGate.markFinished()
             lock.lock()
@@ -600,11 +600,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            try ProcessPipeReader.copyDataToEndOfFile(
-                from: outPipe.fileHandleForReading,
-                to: outputHandle
-            )
-            let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errPipe.fileHandleForReading)
+            try outPipe.fileHandleForReading.copyDataToEndOfFile(to: outputHandle)
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             terminationGate.markFinished()
             lock.lock()
@@ -746,6 +743,7 @@ final class FileExplorerStore: ObservableObject {
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
+    private(set) var workspaceRootIdentity: UUID?
 
     var provider: FileExplorerProvider?
 
@@ -802,22 +800,16 @@ final class FileExplorerStore: ObservableObject {
     ) {
         switch request {
         case .none:
-            cancelRemoteHomeResolution()
-            setRootStatusMessage(nil)
-            if provider != nil {
-                setProvider(nil, reloadIfAvailable: false)
-            }
+            cancelRemoteHomeResolution(); setRootStatusMessage(nil); setWorkspaceRootIdentity(nil)
+            if provider != nil { setProvider(nil, reloadIfAvailable: false) }
             setRootPath("")
-
-        case .local(let path):
-            cancelRemoteHomeResolution()
-            setRootStatusMessage(nil)
+        case .local(let workspaceId, let path):
+            cancelRemoteHomeResolution(); setRootStatusMessage(nil); setWorkspaceRootIdentity(workspaceId)
             if !(provider is LocalFileExplorerProvider) {
                 setRootPath("")
                 setProvider(LocalFileExplorerProvider(), reloadIfAvailable: false)
             }
             setRootPath(path)
-
         case .remoteSSH(let workspaceId, let connection, let displayTarget, let rootPath, let isAvailable, let unavailableDetail):
             applyRemoteSSHWorkspaceRoot(
                 workspaceId: workspaceId,
@@ -830,6 +822,7 @@ final class FileExplorerStore: ObservableObject {
             )
         }
     }
+    private func setWorkspaceRootIdentity(_ identity: UUID?) { guard workspaceRootIdentity != identity else { return }; objectWillChange.send(); workspaceRootIdentity = identity }
 
     func setRootPath(_ path: String) {
         guard path != rootPath else {
@@ -1145,6 +1138,8 @@ final class FileExplorerStore: ObservableObject {
         unavailableDetail: String?,
         sshTransport: SSHFileExplorerTransport
     ) {
+        setWorkspaceRootIdentity(workspaceId)
+
         let existingProvider = provider as? SSHFileExplorerProvider
         let sshProvider: SSHFileExplorerProvider
         if let existingProvider,
@@ -1412,7 +1407,7 @@ enum GitStatusProvider {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
             return String(data: data, encoding: .utf8)
@@ -1439,7 +1434,7 @@ enum GitStatusProvider {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
             return String(data: data, encoding: .utf8)

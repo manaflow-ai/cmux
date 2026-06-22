@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import OSLog
 
@@ -11,30 +10,22 @@ private let mobileNotificationObserverLog = Logger(subsystem: "dev.cmux", catego
 /// in response — the same signal-then-refetch contract the workspace list uses
 /// (`MobileWorkspaceListObserver` → `workspace.updated`).
 ///
-/// Observing the `@Published notifications` source of truth means every mutation
-/// surface (a notification firing, the Mac marking read, the phone marking read
-/// via the RPC, mark-all-read) syncs automatically, without per-call emit hooks.
-/// `markRead` replaces the array, so read-state changes are covered by this one
-/// publisher.
-///
-/// Uses Combine (`$notifications` + `throttle`) deliberately, to stay
-/// byte-for-byte consistent with its sibling `MobileWorkspaceListObserver`: the
-/// underlying `TerminalNotificationStore` is a Combine `ObservableObject` whose
-/// `@Published` array is the only change signal, and the throttle/`latest`
-/// burst-collapse behavior is the same one the workspace observer relies on.
+/// Observes the store's coalesced notifications stream, then hashes the wire
+/// shape.
 @MainActor
 final class MobileNotificationListObserver {
+    private static let eventTopic = "notifications.updated"
     /// How many recent notifications the Mac sends and the observer hashes. Kept
     /// in sync with the phone-side `MobileNotificationsStore.recentLimit`.
     static let recentLimit = 200
 
     private let store: TerminalNotificationStore
-    private var cancellable: AnyCancellable?
+    private var notificationsTask: Task<Void, Never>?
+    private var subscriptionTask: Task<Void, Never>?
+    private var defaultsTask: Task<Void, Never>?
+    private var coalescedEmitTask: Task<Void, Never>?
+    private var pendingNotifications: [TerminalNotification]?
     private var lastSummaryHash: Int = 0
-    /// Throttle window with `latest: true`, matching the workspace observer: the
-    /// first event in a burst emits immediately, later events within the window
-    /// collapse to one trailing emit. Hash-diff suppresses no-op rebroadcasts.
-    private let throttleMilliseconds: Int = 80
 
     init(store: TerminalNotificationStore) {
         self.store = store
@@ -45,13 +36,66 @@ final class MobileNotificationListObserver {
         // Unconditional first emit so a freshly-paired client sees the current
         // feed without waiting for the next notification.
         lastSummaryHash = Self.summaryHash(for: store.notifications)
-        MobileHostService.shared.emitEvent(topic: "notifications.updated", payload: [:])
+        emitCurrentIfSubscribed(force: true)
 
-        cancellable = store.$notifications
-            .throttle(for: .milliseconds(throttleMilliseconds), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] notifications in
-                self?.emitIfNeeded(notifications: notifications, force: false)
+        notificationsTask = Task { @MainActor [weak self, store] in
+            for await notifications in store.notificationsStream() {
+                guard let self else { return }
+                guard Self.hasSubscribers else { continue }
+                self.scheduleCoalescedEmit(notifications: notifications)
             }
+        }
+        subscriptionTask = Task { @MainActor [weak self] in
+            let changes = NotificationCenter.default.notifications(
+                named: .mobileHostEventSubscriptionsDidChange
+            )
+            for await notification in changes {
+                guard let self else { return }
+                let topics = notification.userInfo?["topics"] as? [String] ?? []
+                guard topics.isEmpty || topics.contains(Self.eventTopic) else { continue }
+                self.emitCurrentIfSubscribed(force: true)
+            }
+        }
+        defaultsTask = Task { @MainActor [weak self] in
+            let notifications = NotificationCenter.default.notifications(
+                named: UserDefaults.didChangeNotification,
+                object: UserDefaults.standard
+            )
+            for await _ in notifications {
+                guard let self else { return }
+                self.emitCurrentIfSubscribed(force: false)
+            }
+        }
+    }
+
+    deinit {
+        notificationsTask?.cancel()
+        subscriptionTask?.cancel()
+        defaultsTask?.cancel()
+        coalescedEmitTask?.cancel()
+    }
+
+    private static var hasSubscribers: Bool {
+        MobileHostService.hasEventSubscribers(topic: eventTopic)
+    }
+
+    private func emitCurrentIfSubscribed(force: Bool) {
+        guard Self.hasSubscribers else { return }
+        emitIfNeeded(notifications: store.notifications, force: force)
+    }
+
+    private func scheduleCoalescedEmit(notifications: [TerminalNotification]) {
+        pendingNotifications = notifications
+        guard coalescedEmitTask == nil else { return }
+        coalescedEmitTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            let notifications = pendingNotifications ?? store.notifications
+            pendingNotifications = nil
+            coalescedEmitTask = nil
+            guard Self.hasSubscribers else { return }
+            emitIfNeeded(notifications: notifications, force: false)
+        }
     }
 
     private func emitIfNeeded(notifications: [TerminalNotification], force: Bool) {
@@ -61,22 +105,26 @@ final class MobileNotificationListObserver {
         }
         lastSummaryHash = hash
         mobileNotificationObserverLog.debug("emitting notifications.updated (hash=\(hash, privacy: .public))")
-        MobileHostService.shared.emitEvent(topic: "notifications.updated", payload: [:])
+        MobileHostService.shared.emitEvent(topic: Self.eventTopic, payload: [:])
     }
 
-    /// Stable hash of the iOS-facing notification shape: each notification's id
-    /// and read-state, in order. A new notification, a removal, or a read-state
-    /// flip changes the hash and re-emits; content-only mutations (which do not
-    /// happen for an immutable-bodied notification) would not. The recent-N cap
+    /// Stable hash of the full iOS-facing notification shape. The recent-N cap
     /// is applied so the hash matches the window the phone actually fetches.
     static func summaryHash(for notifications: [TerminalNotification]) -> Int {
         var hasher = Hasher()
-        let recent = notifications
-            .sorted { $0.createdAt > $1.createdAt }
-            .prefix(recentLimit)
+        let recent = TerminalController.mobileRecentNotifications(notifications, limit: recentLimit)
+        let hideContent = UserDefaults.standard.bool(forKey: PhonePushSettings.hideContentKey)
+        hasher.combine(hideContent)
         hasher.combine(recent.count)
         for notification in recent {
+            let content = TerminalController.mobileNotificationFeedContent(notification, hideContent: hideContent)
             hasher.combine(notification.id)
+            hasher.combine(notification.tabId)
+            hasher.combine(notification.surfaceId)
+            hasher.combine(content.title)
+            hasher.combine(content.subtitle)
+            hasher.combine(content.body)
+            hasher.combine(notification.createdAt.timeIntervalSince1970)
             hasher.combine(notification.isRead)
         }
         return hasher.finalize()

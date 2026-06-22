@@ -106,4 +106,35 @@ struct MobileHostServiceSettingsTests {
         // Running but the applied port is unknown: restart to reconcile.
         #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
     }
+
+    @Test func mobileNotificationFeedItemBoundsAndRedactsContent() {
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: String(repeating: "t", count: TerminalController.mobilePreviewMaxLength + 20),
+            subtitle: "secret\u{001B}[31m subtitle",
+            body: "token=secret\nnext",
+            createdAt: Date(timeIntervalSince1970: 1_000),
+            isRead: false
+        )
+
+        let visible = TerminalController.mobileNotificationListItem(notification, hideContent: false)
+        let visibleTitle = visible["title"] as? String
+        #expect(visibleTitle?.count == TerminalController.mobilePreviewMaxLength)
+        #expect(visibleTitle?.hasSuffix("\u{2026}") == true)
+        #expect(visible["subtitle"] as? String == "secret subtitle")
+        #expect(visible["body"] as? String == "token=secret next")
+        #expect(visible["is_content_hidden"] as? Bool == false)
+
+        let hidden = TerminalController.mobileNotificationListItem(notification, hideContent: true)
+        #expect(hidden["title"] as? String == "")
+        #expect(hidden["subtitle"] as? String == "")
+        #expect(hidden["body"] as? String == "")
+        #expect(hidden["is_content_hidden"] as? Bool == true)
+        #expect(hidden["id"] as? String == notification.id.uuidString)
+        #expect(hidden["workspace_id"] as? String == notification.tabId.uuidString)
+        #expect(hidden["surface_id"] as? String == notification.surfaceId?.uuidString)
+        #expect(hidden["is_read"] as? Bool == false)
+    }
 }

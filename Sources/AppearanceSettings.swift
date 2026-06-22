@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import CmuxTerminalCore
 
 enum AppearanceMode: String, CaseIterable, Identifiable {
     case system
@@ -63,25 +64,15 @@ enum AppearanceSettings {
         )
     }
 
-    struct SystemAppearance {
-        let interfaceStyle: String?
-
-        var prefersDark: Bool {
-            interfaceStyle?.caseInsensitiveCompare(darkInterfaceStyleValue) == .orderedSame
-        }
-
-        static func current(defaults: UserDefaults = .standard) -> SystemAppearance {
-            let directValue = defaults.string(forKey: appleInterfaceStyleKey)
-            let globalValue = defaults
-                .persistentDomain(forName: UserDefaults.globalDomain)?[appleInterfaceStyleKey] as? String
-            return SystemAppearance(interfaceStyle: directValue ?? globalValue)
-        }
-    }
+    /// The system interface-style snapshot used by terminal color-scheme
+    /// resolution. Lifted to ``TerminalSystemAppearance`` in CmuxTerminalCore so
+    /// the terminal config type no longer reaches up into the app's appearance
+    /// settings; this alias keeps the `AppearanceSettings.SystemAppearance`
+    /// call-site name byte-identical.
+    typealias SystemAppearance = TerminalSystemAppearance
 
     static let appearanceModeKey = "appearanceMode"
     static let defaultMode: AppearanceMode = .system
-    private static let appleInterfaceStyleKey = "AppleInterfaceStyle"
-    private static let darkInterfaceStyleValue = "Dark"
 
     static func mode(for rawValue: String?) -> AppearanceMode {
         guard let rawValue, let mode = AppearanceMode(rawValue: rawValue) else {
@@ -113,14 +104,19 @@ enum AppearanceSettings {
 
     // Ghostty split-theme resolution follows cmux's persisted appearance mode.
     // AppKit view/window appearances can lag during live mode changes.
+    // The resolution itself now lives in CmuxTerminalCore
+    // (TerminalColorSchemePreference.resolve); this forwards the app's
+    // normalized appearance mode into it so both surfaces share one source of
+    // truth.
     static func terminalColorSchemePreference(
         defaults: UserDefaults = .standard,
         systemAppearance: SystemAppearance? = nil
     ) -> GhosttyConfig.ColorSchemePreference {
-        let mode = mode(for: defaults.string(forKey: appearanceModeKey))
-        if mode == .light { return .light }
-        if mode == .dark { return .dark }
-        return (systemAppearance ?? .current(defaults: defaults)).prefersDark ? .dark : .light
+        TerminalColorSchemePreference.resolve(
+            appearanceModeRawValue: mode(for: defaults.string(forKey: appearanceModeKey)).rawValue,
+            systemAppearance: systemAppearance,
+            defaults: defaults
+        )
     }
 
     static func systemNSAppearance(defaults: UserDefaults = .standard) -> NSAppearance? {
