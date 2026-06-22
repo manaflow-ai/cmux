@@ -4025,6 +4025,49 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(inspector.showCount, 2)
     }
 
+    func testDeferredRevealSurvivesManualCloseDetectionGraceBeforeHostIsSized() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        inspector.setFrontendWebView(panel.webView)
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.hideDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        let showCountAfterHide = inspector.showCount
+
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, showCountAfterHide)
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 0, height: window.contentView?.bounds.height ?? 0)
+        window.contentView?.addSubview(panel.webView)
+        panel.noteDeveloperToolsHostAttached()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            panel.preferredDeveloperToolsVisible,
+            "A deferred DevTools open must not be consumed as a manual close while the reattached host is still zero-sized"
+        )
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: window.contentView?.bounds.height ?? 240)
+        window.contentView?.layoutSubtreeIfNeeded()
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertGreaterThan(inspector.showCount, showCountAfterHide)
+    }
+
     func testDeferredDeveloperToolsConsoleRequestReplaysAfterHostReattaches() {
         let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
         defer { closeBrowserPanel(panel) }

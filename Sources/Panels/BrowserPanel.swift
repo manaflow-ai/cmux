@@ -6971,6 +6971,7 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else { return false }
         guard preferredDeveloperToolsPresentation != .detached else { return false }
         guard !isDeveloperToolsTransitionInFlight else { return false }
+        guard !developerToolsRevealDeferredUntilWebViewAttached else { return false }
         guard webView.superview != nil, webView.window != nil else { return false }
         guard let developerToolsLastAttachedHostAt else { return false }
         guard Date().timeIntervalSince(developerToolsLastAttachedHostAt) >= developerToolsAttachedManualCloseDetectionDelay else {
@@ -7061,12 +7062,12 @@ extension BrowserPanel {
             return
         }
 
-        if consumeAttachedDeveloperToolsManualCloseIfNeeded(inspector: inspector) {
+        if shouldDeferDeveloperToolsRevealUntilWebViewAttached() {
+            deferDeveloperToolsRevealUntilWebViewAttached(source: "restore")
             return
         }
 
-        if shouldDeferDeveloperToolsRevealUntilWebViewAttached() {
-            deferDeveloperToolsRevealUntilWebViewAttached(source: "restore")
+        if consumeAttachedDeveloperToolsManualCloseIfNeeded(inspector: inspector) {
             return
         }
 
