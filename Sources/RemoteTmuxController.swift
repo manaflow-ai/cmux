@@ -910,11 +910,9 @@ final class RemoteTmuxController {
                 detach(host: host, sessionName: mirror.sessionName)  // removes the connection too
                 jobs.append((transport, mirror.connection.sessionId.map { "$\($0)" } ?? mirror.sessionName))
             }
-            let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
-            if !stillUsed {
-                windowRegistry.unbind(hostHash: host.connectionHash)
-                transportRegistry.remove(connectionHash: host.connectionHash)
-            }
+            let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+            if !hostHasOtherMirrors { windowRegistry.unbind(hostHash: host.connectionHash) }
+            if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash) }
         }
         await RemoteTmuxSSHTransport.killSessions(jobs, timeout: timeout)
     }
@@ -944,8 +942,9 @@ final class RemoteTmuxController {
     func detachMirrorWorkspaceKeptOpenLocally(workspaceId: UUID) {
         guard let entry = sessionMirrors.first(where: { $0.value.mirroredWorkspaceId == workspaceId }) else { return }
         let host = entry.value.host; sessionMirrors.removeValue(forKey: entry.key); entry.value.detachObserver(); connectionsByHostSession.removeValue(forKey: entry.key)?.stop()
-        let stillUsed = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash } || connectionsByHostSession.values.contains { $0.host.connectionHash == host.connectionHash }
-        if !stillUsed { windowRegistry.unbind(hostHash: host.connectionHash); transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
+        let hostHasOtherMirrors = sessionMirrors.values.contains { $0.host.connectionHash == host.connectionHash }
+        if !hostHasOtherMirrors { windowRegistry.unbind(hostHash: host.connectionHash) }
+        if !hostHasOtherMirrors, !connectionsByHostSession.values.contains(where: { $0.host.connectionHash == host.connectionHash }) { transportRegistry.remove(connectionHash: host.connectionHash); RemoteTmuxSSHTransport.spawnControlMasterExit(host: host) }
     }
 
     /// User-initiated mirrored workspace close detaches locally and kills the remote session.
