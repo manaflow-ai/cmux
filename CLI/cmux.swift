@@ -33000,7 +33000,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let feedToolInput {
             eventDict["tool_input"] = hookEventName == "PostToolUse"
-                ? Self.boundedPostToolUseFeedValue(feedToolInput)
+                ? Self.sanitizedPostToolUseFeedValue(feedToolInput)
                 : feedToolInput
         }
         if let context = feedContextForEvent(
@@ -33128,8 +33128,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         print("{}")
     }
 
-    private static let feedPostToolUsePayloadLimitBytes = 64 * 1024
-    private static let feedPostToolUseTextPreviewLimitBytes = 8 * 1024
     private static let feedPostToolUseScalarStringLimitBytes = 512
     private static let feedPostToolUseMetadataKeys: Set<String> = [
         "exitcode",
@@ -33139,7 +33137,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "timedout",
         "success",
     ]
-    private static let feedPostToolUseTextPreviewKeys: Set<String> = [
+    private static let feedPostToolUseOutputKeys: Set<String> = [
         "stdout",
         "stderr",
         "output",
@@ -33149,17 +33147,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "error",
     ]
 
-    private static func boundedPostToolUseFeedValue(_ value: Any) -> Any {
-        guard let originalByteCount = feedJSONByteCount(value),
-              originalByteCount > feedPostToolUsePayloadLimitBytes
-        else {
-            return value
-        }
-
+    private static func sanitizedPostToolUseFeedValue(_ value: Any) -> Any {
         var summary: [String: Any] = [
-            "_cmux_truncated": true,
-            "_cmux_original_json_bytes": originalByteCount,
-            "_cmux_limit_json_bytes": feedPostToolUsePayloadLimitBytes,
+            "_cmux_sanitized": true,
         ]
 
         if let dictionary = value as? [String: Any] {
@@ -33176,8 +33166,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     }
                     summarizedKeys.insert(key)
                 }
-                if feedPostToolUseTextPreviewKeys.contains(normalizedKey) {
-                    summarizePostToolUsePreviewField(
+                if feedPostToolUseOutputKeys.contains(normalizedKey) {
+                    summarizePostToolUseOmittedField(
                         key: key,
                         rawValue: rawValue,
                         into: &summary
@@ -33193,39 +33183,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         } else if let array = value as? [Any] {
             summary["_cmux_array_count"] = array.count
         } else if let string = value as? String {
-            let preview = feedUTF8Prefix(
-                string,
-                maxBytes: feedPostToolUseTextPreviewLimitBytes
-            )
-            summary["_cmux_preview"] = preview.value
-            if preview.truncatedBytes > 0 {
-                summary["_cmux_preview_truncated_bytes"] = preview.truncatedBytes
-            }
+            _ = string
+            summary["_cmux_text_omitted"] = true
         } else if let scalarValue = boundedPostToolUseScalarValue(value) {
             summary["_cmux_value"] = scalarValue.value
-            if scalarValue.truncatedBytes > 0 {
-                summary["_cmux_value_truncated_bytes"] = scalarValue.truncatedBytes
+            if scalarValue.truncated {
+                summary["_cmux_value_truncated"] = true
             }
         }
 
         return summary
-    }
-
-    private static func feedJSONByteCount(_ value: Any) -> Int? {
-        let topLevelObject: Any
-        if let dictionary = value as? [String: Any] {
-            topLevelObject = dictionary
-        } else if let array = value as? [Any] {
-            topLevelObject = array
-        } else {
-            topLevelObject = ["value": value]
-        }
-        guard JSONSerialization.isValidJSONObject(topLevelObject),
-              let data = try? JSONSerialization.data(withJSONObject: topLevelObject)
-        else {
-            return nil
-        }
-        return data.count
     }
 
     private static func normalizedPostToolUseSummaryKey(_ key: String) -> String {
@@ -33235,54 +33202,45 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             .lowercased()
     }
 
-    private static func summarizePostToolUsePreviewField(
+    private static func summarizePostToolUseOmittedField(
         key: String,
         rawValue: Any,
         into summary: inout [String: Any]
     ) {
         if let string = rawValue as? String {
-            let preview = feedUTF8Prefix(
-                string,
-                maxBytes: feedPostToolUseTextPreviewLimitBytes
-            )
-            summary[key] = preview.value
-            if preview.truncatedBytes > 0 {
-                summary["\(key)_truncated_bytes"] = preview.truncatedBytes
-            }
+            _ = string
+            summary["\(key)_text_omitted"] = true
             return
         }
         if let array = rawValue as? [Any] {
             summary["\(key)_array_count"] = array.count
+            summary["\(key)_omitted"] = true
             return
         }
         if let dictionary = rawValue as? [String: Any] {
             summary["\(key)_object_key_count"] = dictionary.count
+            summary["\(key)_omitted"] = true
             return
         }
-        if let scalarValue = boundedPostToolUseScalarValue(rawValue) {
-            summary[key] = scalarValue.value
-            if scalarValue.truncatedBytes > 0 {
-                summary["\(key)_truncated_bytes"] = scalarValue.truncatedBytes
-            }
-        }
+        summary["\(key)_omitted"] = true
     }
 
-    private static func boundedPostToolUseScalarValue(_ rawValue: Any) -> (value: Any, truncatedBytes: Int)? {
+    private static func boundedPostToolUseScalarValue(_ rawValue: Any) -> (value: Any, truncated: Bool)? {
         if rawValue is NSNull {
-            return (NSNull(), 0)
+            return (NSNull(), false)
         }
         if let bool = rawValue as? Bool {
-            return (bool, 0)
+            return (bool, false)
         }
         if let number = rawValue as? NSNumber {
-            return (number, 0)
+            return (number, false)
         }
         if let string = rawValue as? String {
             let preview = feedUTF8Prefix(
                 string,
                 maxBytes: feedPostToolUseScalarStringLimitBytes
             )
-            return (preview.value, preview.truncatedBytes)
+            return (preview.value, preview.truncated)
         }
         return nil
     }
@@ -33290,24 +33248,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func feedUTF8Prefix(
         _ value: String,
         maxBytes: Int
-    ) -> (value: String, truncatedBytes: Int) {
-        let totalBytes = value.utf8.count
-        guard totalBytes > maxBytes else {
-            return (value, 0)
-        }
-
+    ) -> (value: String, truncated: Bool) {
         var usedBytes = 0
         var endIndex = value.startIndex
         while endIndex < value.endIndex {
             let nextIndex = value.index(after: endIndex)
             let characterBytes = value[endIndex..<nextIndex].utf8.count
             if usedBytes + characterBytes > maxBytes {
-                break
+                return (String(value[..<endIndex]), true)
             }
             usedBytes += characterBytes
             endIndex = nextIndex
         }
-        return (String(value[..<endIndex]), totalBytes - usedBytes)
+        return (value, false)
     }
 
     private static func shouldSuppressKiroFeedEvent(

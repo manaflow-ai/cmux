@@ -2114,11 +2114,17 @@ def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, 
         event = params["event"]
         if event.get("hook_event_name") != event_name or event.get("_source") != "codex":
             raise AssertionError(f"Codex {event_name} should stay distinct in Feed, got {event!r}")
-        if event_name == "PostToolUse" and event.get("tool_input") != payload["tool_response"]:
-            raise AssertionError(f"Codex PostToolUse should forward tool_response, got {event!r}")
+        if event_name == "PostToolUse":
+            tool_input = event.get("tool_input")
+            if not isinstance(tool_input, dict):
+                raise AssertionError(f"Codex PostToolUse should forward tool metadata, got {event!r}")
+            if tool_input.get("exit_code") != payload["tool_response"]["exit_code"]:
+                raise AssertionError(f"Codex PostToolUse should preserve result metadata, got {event!r}")
+            if "stdout" in tool_input or "stderr" in tool_input:
+                raise AssertionError(f"Codex PostToolUse should omit command output, got {event!r}")
 
 
-def test_codex_post_tool_use_bounds_large_tool_response(cli_path: str, root: Path) -> None:
+def test_codex_post_tool_use_redacts_tool_output(cli_path: str, root: Path) -> None:
     large_stdout = "x" * (80 * 1024)
     payload = {
         "session_id": "codex-session",
@@ -2151,23 +2157,16 @@ def test_codex_post_tool_use_bounds_large_tool_response(cli_path: str, root: Pat
     tool_input = event.get("tool_input")
     if not isinstance(tool_input, dict):
         raise AssertionError(f"Codex PostToolUse should forward summarized tool_input: {event!r}")
-    if tool_input.get("_cmux_truncated") is not True:
-        raise AssertionError(f"large PostToolUse response was not marked truncated: {tool_input!r}")
+    if tool_input.get("_cmux_sanitized") is not True:
+        raise AssertionError(f"PostToolUse response was not marked sanitized: {tool_input!r}")
     if tool_input.get("exit_code") != 42 or tool_input.get("status") != "failed":
         raise AssertionError(f"large PostToolUse response did not preserve metadata: {tool_input!r}")
-    stdout_preview = tool_input.get("stdout")
-    if not isinstance(stdout_preview, str):
-        raise AssertionError(f"large PostToolUse response did not keep a stdout preview: {tool_input!r}")
-    if len(stdout_preview.encode("utf-8")) > 8 * 1024:
-        raise AssertionError(f"stdout preview exceeded the byte cap: {len(stdout_preview.encode('utf-8'))}")
-    if tool_input.get("stdout_truncated_bytes", 0) <= 0:
-        raise AssertionError(f"stdout truncation byte count was not recorded: {tool_input!r}")
-    if tool_input.get("stderr") != "short stderr":
-        raise AssertionError(f"small stderr preview should be preserved: {tool_input!r}")
-    if "private_blob" in tool_input:
+    if "stdout" in tool_input or "stderr" in tool_input or "private_blob" in tool_input:
         raise AssertionError(f"unrecognized large PostToolUse fields should be omitted: {tool_input!r}")
-    if tool_input.get("_cmux_original_json_bytes", 0) <= 64 * 1024:
-        raise AssertionError(f"original oversized payload byte count was not recorded: {tool_input!r}")
+    if tool_input.get("stdout_text_omitted") is not True:
+        raise AssertionError(f"stdout omission marker was not recorded: {tool_input!r}")
+    if tool_input.get("stderr_text_omitted") is not True:
+        raise AssertionError(f"stderr omission marker was not recorded: {tool_input!r}")
 
 
 def test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path: str, root: Path) -> None:
@@ -2197,8 +2196,11 @@ def test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path: str, root: Path
     event = frame["params"]["event"]
     if event.get("cwd") != "/tmp/request-cwd":
         raise AssertionError(f"Codex PostToolUse should keep cwd from tool_input: {event!r}")
-    if event.get("tool_input") != payload["tool_response"]:
-        raise AssertionError(f"Codex PostToolUse should still forward tool_response: {event!r}")
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        raise AssertionError(f"Codex PostToolUse should forward sanitized tool_response metadata: {event!r}")
+    if tool_input.get("exit_code") != 0 or "stdout" in tool_input:
+        raise AssertionError(f"Codex PostToolUse should forward metadata without stdout: {event!r}")
 
 
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
@@ -2269,7 +2271,7 @@ def main() -> int:
             test_codex_permission_decisions_do_not_block_approval_reviewer(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
-            test_codex_post_tool_use_bounds_large_tool_response(cli_path, root)
+            test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
