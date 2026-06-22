@@ -15897,14 +15897,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let frame = window.frame
         lastCascadePoint = NSPoint(x: frame.minX, y: frame.maxY)
         let closingContext = contextForMainTerminalWindow(window, reindex: false)
-        let closingWindowSnapshotResult = closingContext.map { closeWindowSnapshotPruningCrashDiagnostics(for: $0) }
-        let closingWindowIsCrashDiagnostic = closingWindowSnapshotResult?.isCrashDiagnostic ?? false
+        let closingWindowIsCrashDiagnostic = closingContext.map { context in
+            closeWindowSnapshotPruningCrashDiagnostics(for: context, includeScrollback: false)
+                .isCrashDiagnostic
+        } ?? false
 
         if let closingContext, !closingWindowIsCrashDiagnostic {
-            recordClosedWindowHistoryIfNeeded(
-                for: closingContext,
-                snapshot: closingWindowSnapshotResult?.snapshot
-            )
+            recordClosedWindowHistoryIfNeeded(for: closingContext)
         }
 
         // Keep geometry available as a fallback for the next window placement.
@@ -15949,14 +15948,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func closeWindowSnapshotPruningCrashDiagnostics(
-        for context: MainWindowContext
+        for context: MainWindowContext,
+        includeScrollback: Bool
     ) -> (snapshot: SessionWindowSnapshot?, isCrashDiagnostic: Bool) {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
         let windowSnapshot = sessionWindowSnapshot(
             for: context,
-            includeScrollback: true,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty
         )
         let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
             from: AppSessionSnapshot(
@@ -15971,26 +15969,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func recordClosedWindowHistoryIfNeeded(
-        for context: MainWindowContext,
-        snapshot suppliedSnapshot: SessionWindowSnapshot? = nil
-    ) {
+    private func recordClosedWindowHistoryIfNeeded(for context: MainWindowContext) {
         let shouldSuppressClosedWindowHistory = closedWindowHistorySuppressedWindowIds.remove(context.windowId) != nil
         guard !shouldSuppressClosedWindowHistory,
               !isTerminatingApp,
               !isApplyingSessionRestore else {
             return
         }
-        // Closing the last tab closes the window, recording undo history. Prefer the warm
-        // cached agent index over a synchronous `RestorableAgentSessionIndex.load()` so the
-        // close does not freeze the main thread; fall back to a fresh load only while the
-        // cache has not loaded yet (see closedPanelHistoryEntry).
-        let snapshot = suppliedSnapshot ?? sessionWindowSnapshot(
+        guard let snapshot = closeWindowSnapshotPruningCrashDiagnostics(
             for: context,
-            includeScrollback: true,
-            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
-                ?? RestorableAgentSessionIndex.load()
-        )
+            includeScrollback: true
+        ).snapshot else {
+            return
+        }
         guard !snapshot.tabManager.workspaces.isEmpty else {
             return
         }
