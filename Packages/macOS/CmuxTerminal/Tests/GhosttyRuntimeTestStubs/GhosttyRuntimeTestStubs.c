@@ -46,3 +46,8 @@ ghostty_string_s ghostty_surface_tty_name(void *surface) {
     (void)surface;
     return (ghostty_string_s){0};
 }
+
+void ghostty_set_window_background_blur(void *app, void *window) {
+    (void)app;
+    (void)window;
+}
