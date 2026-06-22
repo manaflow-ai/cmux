@@ -28233,7 +28233,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         existing["hooks"] = hooks
-        if case .flat = def.format { existing["version"] = 1 }
+        switch def.format {
+        case .flat, .nested:
+            existing["version"] = 1
+        default:
+            break
+        }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
