@@ -602,7 +602,7 @@ def cmux_codex_hook_command(subcommand: str) -> str:
 
 def cmux_codex_feed_command(agent_event: str) -> str:
     routed_arguments = f"hooks feed --source codex --event {agent_event}"
-    noop_command = "{ cat >/dev/null; echo '{}'; }" if agent_event == "PostToolUse" else "echo '{}'"
+    noop_command = "{ head -c 1048577 >/dev/null 2>/dev/null || true; echo '{}'; }" if agent_event == "PostToolUse" else "echo '{}'"
     return (
         'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
         'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
