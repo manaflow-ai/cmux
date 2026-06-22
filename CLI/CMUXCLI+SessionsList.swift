@@ -1,22 +1,9 @@
 import Foundation
 
 extension CMUXCLI {
-    private struct SessionListAgentSpec {
-        let name: String
-        let displayName: String
-        let sessionStoreSuffix: String
-        let configDirEnvOverride: String?
-    }
-
-    private struct SessionListEntry {
-        let updatedAt: TimeInterval
-        let payload: [String: Any]
-    }
-
-    private struct CodexSessionListIndex {
-        let indexedSessionIds: Set<String>
-        let transcriptPathBySessionId: [String: String]
-    }
+    private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
+    private typealias SessionListEntry = (updatedAt: TimeInterval, payload: [String: Any])
+    private typealias CodexSessionListIndex = (indexedSessionIds: Set<String>, transcriptPathBySessionId: [String: String])
 
     func runSessionsCommand(
         commandArgs rawArgs: [String],
@@ -215,7 +202,7 @@ extension CMUXCLI {
                     payload["session_dir"] = NSNull()
                 }
 
-                entries.append(SessionListEntry(updatedAt: record.updatedAt, payload: payload))
+                entries.append((updatedAt: record.updatedAt, payload: payload))
             }
         }
 
@@ -288,7 +275,7 @@ extension CMUXCLI {
 
     private func sessionsListAgentSpecs() -> [SessionListAgentSpec] {
         var specs = [
-            SessionListAgentSpec(
+            (
                 name: "claude",
                 displayName: "Claude Code",
                 sessionStoreSuffix: "claude",
@@ -296,7 +283,7 @@ extension CMUXCLI {
             )
         ]
         specs.append(contentsOf: Self.agentDefs.map {
-            SessionListAgentSpec(
+            (
                 name: $0.name,
                 displayName: $0.displayName,
                 sessionStoreSuffix: $0.sessionStoreSuffix,
@@ -347,7 +334,7 @@ extension CMUXCLI {
             }
         }
 
-        return CodexSessionListIndex(
+        return (
             indexedSessionIds: indexedSessionIds,
             transcriptPathBySessionId: transcriptPathBySessionId
         )
