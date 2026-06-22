@@ -793,10 +793,11 @@
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
-          "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。"
+          "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。",
+          "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
         "terminal": {
-          "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。",
+          "copyOnSelect": "為 true 時，選取確認後會將所選終端機文字複製到系統剪貼簿。為 false 時，cmux 不會輸出 Ghostty copy-on-select 覆寫；選取剪貼簿行為由 Ghostty 設定與預設值控制。",
           "scrollSpeed": "套用於終端機滾輪與觸控板捲動量的倍率。數值越大捲動越快，數值越小捲動越慢。",
           "showTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中顯示測試版 TextBox 輸入。",
           "focusTextBoxOnNewTerminals": "預設在新建的工作區、終端機分頁和終端機分割中聚焦測試版 TextBox 輸入。聚焦也會顯示 TextBox。"
@@ -1260,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox（測試版）"
+      "textBox": "TextBox（測試版）",
+      "ios": "iOS 應用程式"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1413,6 +1415,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中執行 OpenCode 多代理",
       "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中執行帶 oh-my-openagent 外掛的 OpenCode CLI。將 Claude、GPT、Gemini 和 Grok 作為並行代理編排，每個都在獨立的原生 cmux 分割中。"
+    },
+    "ios": {
+      "metaTitle": "iOS 應用程式",
+      "metaDescription": "設定 cmux iOS 配套應用程式：TestFlight 存取權限、使用 Tailscale 或 WireGuard 自帶網路、配對、通知，以及 cmux 儲存哪些資料。",
+      "title": "iOS 應用程式",
+      "intro": "cmux iOS 應用程式是你 Mac 的配套應用程式。將 iPhone 或 iPad 與執行 cmux 的 Mac 配對，即可從手機連線到你的終端，並可選擇轉發終端通知。",
+      "betaNote": "iOS 應用程式處於測試版階段。它透過 TestFlight 以 cmux BETA 的形式發布。",
+      "accessTitle": "取得存取權限",
+      "accessDesc": "該應用程式透過 TestFlight 發布。<foundersLink>cmux Founders Edition</foundersLink> 包含搶先存取權限，以及其他早期功能。",
+      "prereqTitle": "先決條件",
+      "prereqIntro": "開始之前，你需要：",
+      "prereq1": "一台執行 cmux 並已登入的 Mac。",
+      "prereq2": "一台已從 TestFlight 安裝 cmux BETA 應用程式的 iPhone 或 iPad。",
+      "prereq3": "從手機到 Mac 的網路路徑（參見下方的自帶網路）。",
+      "networkingTitle": "自帶網路",
+      "networkingDesc": "cmux 不提供開箱即用的網路。終端串流在你的手機和 Mac 之間直接傳輸，因此你的手機必須能夠在網路上連線到你的 Mac。最簡單的方式是使用私有覆蓋網路。",
+      "tailscaleTitle": "Tailscale（建議）",
+      "tailscaleDesc": "在你的 Mac 和手機上都安裝 <link>Tailscale</link>，並登入到同一個 tailnet。這樣你的手機就可以從任何地方透過 Mac 的 tailnet 位址連線到它，無需連接埠轉發。",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "如果你已經在執行 <link>WireGuard</link>，將你的 Mac 和手機置於同一網路，並使用 Mac 的 WireGuard 位址。",
+      "networkingNote": "無論你選擇哪種方式，連線都歸你所有。cmux 不會在你的裝置之間代理或中繼終端流量。",
+      "pairTitle": "配對與連線",
+      "pairStep1": "在 Mac 上，開啟 cmux 中的 Mobile Connect 視窗。",
+      "pairStep2": "在你的手機上，開啟 cmux BETA 應用程式並確認 Mobile Connect 中顯示的配對。",
+      "pairStep3": "配對完成後，你的工作區和終端會透過你的網路出現在手機上。",
+      "pairNote": "配對是按裝置進行的。新裝置或重新安裝的應用程式需要再次配對。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "你可以選擇將終端通知轉發到手機，這樣需要關注的面板就會推送到你的裝置。開啟轉發後，通知文字（標題和內文，取自終端輸出）會透過 cmux 伺服器傳送到 Apple 的推送服務以進行投遞。在通知設定中開啟 Hide content，即可改為傳送通用訊息，並將終端文字保留在你的裝置上。請參閱 <link>通知</link> 了解 cmux 如何觸發它們。",
+      "dataTitle": "儲存哪些資料",
+      "dataIntro": "cmux 的設計讓你的終端只在你的裝置之間流轉。在 cmux 伺服器上，我們只儲存登入你的帳戶和連線你的裝置所需的內容：",
+      "data1": "你登入時的帳戶（電子郵件），用於在各裝置間識別你。",
+      "data2": "你裝置的推送權杖，用於投遞轉發的終端通知。",
+      "data3": "配對和裝置中繼資料，用於將你的手機連線到你的 Mac。",
+      "dataNot": "你的互動式終端工作階段、其內容和按鍵，透過你自己的網路在手機和 Mac 之間直接傳輸，不會經由 cmux 伺服器中繼或儲存在其上。唯一的例外是轉發的通知文字，它會經過 cmux 和 Apple 的推送服務到達你的手機，除非你啟用 Hide content（參見上方的通知）。",
+      "enterpriseTitle": "企業與自架",
+      "enterpriseDesc": "如需自架或氣隙隔離部署，請聯絡 <link>founders@manaflow.com</link>。"
     }
   },
   "legal": {

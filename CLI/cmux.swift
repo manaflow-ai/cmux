@@ -1549,11 +1549,6 @@ private let agentHookWrapperProcessNames: Set<String> = [
     "env"
 ]
 
-private enum HookAgentProcessKind {
-    case codex
-    case claude
-}
-
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
 private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
@@ -3163,18 +3158,17 @@ struct CMUXCLI {
             return
         }
 
-        if command == "help" { print(usage()); return }
-        if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
-
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
             try runSettings(
@@ -4469,7 +4463,7 @@ struct CMUXCLI {
             }
 
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
 
             var params: [String: Any] = [:]
@@ -4504,7 +4498,7 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send requires text") }
@@ -4524,7 +4518,7 @@ struct CMUXCLI {
             let (sfArg, rem1) = parseOption(rem0, name: "--surface")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let keyArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             guard let key = keyArgs.first else { throw CLIError(message: "send-key requires a key") }
@@ -4543,10 +4537,10 @@ struct CMUXCLI {
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             guard let panelArg else {
                 throw CLIError(message: "send-panel requires --panel")
             }
+            let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(panelArg, windowRaw: windowRaw)
             let rawText = rem2.dropFirst(rem2.first == "--" ? 1 : 0).joined(separator: " ")
             guard !rawText.isEmpty else { throw CLIError(message: "send-panel requires text") }
             let text = unescapeSendText(rawText)
@@ -4565,10 +4559,10 @@ struct CMUXCLI {
             let (panelArg, rem1) = parseOption(rem0, name: "--panel")
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let windowRaw = windowOpt ?? windowId
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             guard let panelArg else {
                 throw CLIError(message: "send-key-panel requires --panel")
             }
+            let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(panelArg, windowRaw: windowRaw)
             let skpArgs = rem2.first == "--" ? Array(rem2.dropFirst()) : rem2
             let key = skpArgs.first ?? ""
             guard !key.isEmpty else { throw CLIError(message: "send-key-panel requires a key") }
@@ -6114,9 +6108,6 @@ struct CMUXCLI {
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }
-        if let windowHandle {
-            params["window_id"] = windowHandle
-        }
         let listed = try client.sendV2(method: "surface.list", params: params)
         let items = listed["surfaces"] as? [[String: Any]] ?? []
         for item in items where intFromAny(item["index"]) == wantedIndex {
@@ -6124,7 +6115,10 @@ struct CMUXCLI {
         }
         throw CLIError(message: "Surface index not found")
     }
-
+    private static func callerWorkspaceForSurfaceHandle(_ raw: String?, windowRaw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return windowRaw == nil && (trimmed.isEmpty || Int(trimmed) != nil) ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil
+    }
     private func validateSurfaceHandleInWindow(
         _ surfaceHandle: String,
         client: SocketClient,
@@ -14223,6 +14217,7 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
+        case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
             return """
             Usage: cmux feedback
@@ -22458,7 +22453,7 @@ struct CMUXCLI {
             let (windowOpt, rem2) = parseOption(rem1, name: "--window")
             let (linesArg, rem3) = parseOption(rem2, name: "--lines")
             let windowRaw = windowOpt ?? windowOverride
-            let workspaceArg = wsArg ?? (windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceArg = wsArg ?? Self.callerWorkspaceForSurfaceHandle(sfArg, windowRaw: windowRaw)
             let surfaceArg = sfArg ?? (wsArg == nil && windowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
 
             var params: [String: Any] = [:]
@@ -22521,7 +22516,7 @@ struct CMUXCLI {
             let (windowOpt, pipeRem2) = parseOption(pipeRem1, name: "--window")
             let (cmdOpt, pipeRem3) = parseOption(pipeRem2, name: "--command")
             let effectiveWindowRaw = windowOpt ?? windowOverride
-            let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let workspaceArg = workspaceOpt ?? Self.callerWorkspaceForSurfaceHandle(surfaceArg, windowRaw: effectiveWindowRaw)
             let commandText: String = {
                 if let cmdOpt { return cmdOpt }
                 let trimmed = pipeRem3.dropFirst(pipeRem3.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -22530,11 +22525,11 @@ struct CMUXCLI {
             guard !commandText.isEmpty else {
                 throw CLIError(message: "pipe-pane requires --command <shell-command>")
             }
-
             var params: [String: Any] = ["scrollback": true]
             let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
+            let allowCurrentWorkspace = winId == nil && (surfaceArg.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.map { $0.isEmpty || Int($0) != nil } ?? true)
+            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: allowCurrentWorkspace)
             if let wsId { params["workspace_id"] = wsId }
             let sfId = try normalizeSurfaceHandle(surfaceArg, client: client, workspaceHandle: wsId, windowHandle: winId, allowFocused: true)
             if let sfId { params["surface_id"] = sfId }
@@ -23433,7 +23428,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Needs input",
                 icon: "bell.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF", pid: claudePid
             )
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
@@ -26294,7 +26289,7 @@ struct CMUXCLI {
         var agentProcessCount = 0
         var remainingAncestors = 32
         while candidate > 1, remainingAncestors > 0 {
-            if nativeAgentProcessKind(for: candidate) != nil {
+            if nativeProcessDescribesKnownAgent(for: candidate) {
                 agentProcessCount += 1
                 if agentProcessCount >= 2 {
                     return true
@@ -26352,62 +26347,11 @@ struct CMUXCLI {
         }
     }
 
-    private func nativeAgentProcessKind(for pid: pid_t) -> HookAgentProcessKind? {
-        let name = processName(for: pid)
-        if let kind = Self.nativeAgentProcessKind(processName: name, arguments: []) {
-            return kind
-        }
-
-        let nameBase = Self.agentProcessBasename(name)
-        if let nameBase, nameBase != "node", nameBase != "bun" {
-            return nil
-        }
-
-        return Self.nativeAgentProcessKind(
-            processName: name,
+    private func nativeProcessDescribesKnownAgent(for pid: pid_t) -> Bool {
+        AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+            processName: processName(for: pid),
             arguments: processArguments(for: pid) ?? []
         )
-    }
-
-    private static func nativeAgentProcessKind(
-        processName: String?,
-        arguments: [String]
-    ) -> HookAgentProcessKind? {
-        let nameBase = agentProcessBasename(processName)
-        let executableBase = agentProcessBasename(arguments.first)
-
-        // Codex's npm/bun launcher leaves a node process above the native
-        // Codex binary. That wrapper is part of the same launch, not a
-        // parent agent, so only native Codex executables count. Claude Code
-        // can run as a node script, so keep that as an agent process.
-        if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-            if arguments.dropFirst().contains(where: { argument in
-                let lowered = argument.lowercased()
-                return agentProcessBasename(argument) == "claude"
-                    || lowered.contains("/.claude/")
-                    || lowered.contains("/claude/versions/")
-            }) {
-                return .claude
-            }
-            return nil
-        }
-
-        let executable = arguments.first?.lowercased() ?? ""
-        if nameBase == "codex" || executableBase == "codex" || executable.contains("/codex/codex") {
-            return .codex
-        }
-        if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
-            return .claude
-        }
-        return nil
-    }
-
-    private static func agentProcessBasename(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: value).lastPathComponent.lowercased()
     }
 
     private func parentPID(of pid: pid_t) -> pid_t {
@@ -26572,7 +26516,16 @@ struct CMUXCLI {
         let envArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             : nil
-        var processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        var processArguments = fallbackPID.flatMap { fallbackPID -> [String]? in
+            let pid = pid_t(fallbackPID)
+            let candidate = self.processArguments(for: pid)
+            guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: processName(for: pid),
+                arguments: candidate,
+                kind: fallbackKind
+            ) else { return nil }
+            return candidate
+        }
         if let candidate = processArguments,
            AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
             // The PID fallback resolved to a shell dispatcher (e.g. the hook's own

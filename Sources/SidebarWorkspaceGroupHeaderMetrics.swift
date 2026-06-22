@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CoreGraphics
 
 /// Font sizes, icon/control frames, and badge padding for
@@ -18,7 +19,7 @@ import CoreGraphics
 /// ```swift
 /// let metrics = SidebarWorkspaceGroupHeaderMetrics(fontScale: settings.sidebarFontScale)
 /// Image(systemName: "chevron.down")
-///     .font(.system(size: metrics.chevronFontSize, weight: .semibold))
+///     .cmuxFont(size: metrics.chevronFontSize, weight: .semibold)
 ///     .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
 /// ```
 struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
@@ -75,4 +76,9 @@ struct SidebarWorkspaceGroupHeaderMetrics: Equatable {
     var plusFontSize: CGFloat { Self.basePlusFontSize * fontScale }
     /// Scaled plus-button frame edge.
     var plusFrame: CGFloat { max(Self.basePlusFrame, Self.basePlusFrame * fontScale) }
+    /// Stable drop-hit height for the group header, without reading SwiftUI layout.
+    var dropTargetHeight: CGFloat {
+        let contentHeight = max(chevronFrame, iconFrame, plusFrame, nameFontSize + 4)
+        return max(24 * fontScale, contentHeight + 10)
+    }
 }
