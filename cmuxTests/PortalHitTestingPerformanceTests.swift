@@ -143,4 +143,49 @@ final class PortalHitTestingPerformanceTests: XCTestCase {
             "Repeated pointer moves should hit cached divider rectangles instead of converting through each split view."
         )
     }
+
+    func testTerminalSplitDividerCacheIgnoresRemovedSplitView() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: 180),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        let splitView = CountingSplitView(frame: contentView.bounds)
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        let splitDelegate = SplitDelegate()
+        splitView.delegate = splitDelegate
+        splitView.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 120, height: contentView.bounds.height)))
+        splitView.addSubview(NSView(frame: NSRect(x: 121, y: 0, width: 179, height: contentView.bounds.height)))
+        contentView.addSubview(splitView)
+        splitView.setPosition(120, ofDividerAt: 0)
+        splitView.adjustSubviews()
+
+        let hostedView = CapturingView(frame: contentView.bounds)
+        let host = WindowTerminalHostView(frame: contentView.bounds)
+        host.addSubview(hostedView)
+        contentView.addSubview(host)
+
+        let dividerPointInSplit = NSPoint(
+            x: splitView.arrangedSubviews[0].frame.maxX + (splitView.dividerThickness * 0.5),
+            y: splitView.bounds.midY
+        )
+        let dividerPointInWindow = splitView.convert(dividerPointInSplit, to: nil)
+        let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
+        let event = makeMouseEvent(type: .mouseMoved, at: dividerPointInWindow, window: window)
+
+        XCTAssertNil(host.performHitTest(at: dividerPointInHost, currentEvent: event))
+
+        splitView.removeFromSuperview()
+
+        let hitView = host.performHitTest(at: dividerPointInHost, currentEvent: event)
+        XCTAssertTrue(
+            hitView === hostedView,
+            "Removed split views must not leave stale cached divider strips that steal portal hits."
+        )
+    }
 }

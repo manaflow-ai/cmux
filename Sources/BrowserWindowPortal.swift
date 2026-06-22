@@ -274,7 +274,32 @@ enum HostedInspectorDockSide {
 }
 
 final class WindowBrowserHostView: NSView {
-    private struct DividerRegion { let rectInWindow: NSRect; let boundsInWindow: NSRect; let isVertical: Bool; let isInHostedContent: Bool }
+    private final class DividerRegion {
+        weak var splitView: NSSplitView?
+        weak var window: NSWindow?
+        let dividerIndex: Int
+        let rectInWindow: NSRect
+        let boundsInWindow: NSRect
+        let isVertical: Bool
+        let isInHostedContent: Bool
+
+        init(
+            splitView: NSSplitView,
+            dividerIndex: Int,
+            rectInWindow: NSRect,
+            boundsInWindow: NSRect,
+            isVertical: Bool,
+            isInHostedContent: Bool
+        ) {
+            self.splitView = splitView
+            self.window = splitView.window
+            self.dividerIndex = dividerIndex
+            self.rectInWindow = rectInWindow
+            self.boundsInWindow = boundsInWindow
+            self.isVertical = isVertical
+            self.isInHostedContent = isInHostedContent
+        }
+    }
 
     private struct DividerHit {
         let kind: DividerCursorKind
@@ -1114,7 +1139,10 @@ final class WindowBrowserHostView: NSView {
     }
     private func splitDividerRegions() -> [DividerRegion] {
         if let cachedSplitDividerRegions {
-            return cachedSplitDividerRegions
+            if Self.dividerRegionsAreLive(cachedSplitDividerRegions) {
+                return cachedSplitDividerRegions
+            }
+            self.cachedSplitDividerRegions = nil
         }
         guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; return [] }
         var regions: [DividerRegion] = []
@@ -1146,6 +1174,7 @@ final class WindowBrowserHostView: NSView {
     private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerHit? {
         let expansion: CGFloat = 5
         for region in regions.reversed() {
+            guard dividerRegionIsLive(region) else { continue }
             let hitRect = region.rectInWindow.insetBy(dx: -expansion, dy: -expansion)
                 .intersection(region.boundsInWindow)
             if !hitRect.isNull, hitRect.contains(windowPoint) {
@@ -1156,6 +1185,31 @@ final class WindowBrowserHostView: NSView {
             }
         }
         return nil
+    }
+
+    private static func dividerRegionsAreLive(_ regions: [DividerRegion]) -> Bool {
+        regions.allSatisfy(dividerRegionIsLive)
+    }
+
+    private static func dividerRegionIsLive(_ region: DividerRegion) -> Bool {
+        guard let splitView = region.splitView,
+              let window = region.window,
+              splitView.window === window,
+              region.dividerIndex + 1 < splitView.arrangedSubviews.count,
+              splitView.isVertical == region.isVertical else {
+            return false
+        }
+        var current: NSView? = splitView
+        while let view = current {
+            if view.isHidden { return false }
+            current = view.superview
+        }
+        let first = splitView.arrangedSubviews[region.dividerIndex].frame
+        let second = splitView.arrangedSubviews[region.dividerIndex + 1].frame
+        if region.isVertical {
+            return first.width > 1 || second.width > 1
+        }
+        return first.height > 1 || second.height > 1
     }
 
     private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
@@ -1229,6 +1283,8 @@ final class WindowBrowserHostView: NSView {
                 guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
                 result.append(
                     DividerRegion(
+                        splitView: splitView,
+                        dividerIndex: dividerIndex,
                         rectInWindow: dividerRectInWindow,
                         boundsInWindow: splitBoundsInWindow,
                         isVertical: splitView.isVertical,
