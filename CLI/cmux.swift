@@ -33237,11 +33237,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return encode(permissionRequestHookDecision(behavior: "allow"))
             }
             if source == "copilot" {
-                if mode == "deny" {
-                    let reason = String(localized: "cli.hooks.feed.permissionDeniedReason", defaultValue: "User denied permission via cmux Feed.")
-                    return encode(["permissionDecision": "deny", "permissionDecisionReason": reason])
+                if mode == "once" {
+                    return encode(["permissionDecision": "allow"])
                 }
-                return encode(["permissionDecision": "allow"])
+                let reason = String(localized: "cli.hooks.feed.permissionDeniedReason", defaultValue: "User denied permission via cmux Feed.")
+                return encode(["permissionDecision": "deny", "permissionDecisionReason": reason])
             }
             if source == "hermes-agent" {
                 if mode == "deny" {

@@ -135,5 +135,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(denyOutput["permissionDecision"] as? String, "deny")
         XCTAssertEqual(denyOutput["permissionDecisionReason"] as? String, "User denied permission via cmux Feed.")
         XCTAssertNil(denyOutput["hookSpecificOutput"])
+
+        let (unsupported, _) = try runCopilotDecision(mode: "always")
+        XCTAssertFalse(unsupported.timedOut, unsupported.stderr)
+        XCTAssertEqual(unsupported.status, 0, unsupported.stderr)
+        let unsupportedOutput = try XCTUnwrap(jsonObject(unsupported.stdout))
+        XCTAssertEqual(unsupportedOutput["permissionDecision"] as? String, "deny")
+        XCTAssertEqual(unsupportedOutput["permissionDecisionReason"] as? String, "User denied permission via cmux Feed.")
+        XCTAssertNil(unsupportedOutput["hookSpecificOutput"])
     }
 }
