@@ -793,10 +793,11 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
-          "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder."
+          "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
+          "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },
         "terminal": {
-          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil.",
+          "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
@@ -1263,7 +1264,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "iOS Uygulaması"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1416,6 +1418,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",
       "metaDescription": "oh-my-opencode (cmux omo), OpenCode CLI'yi oh-my-openagent eklentisiyle cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok'u paralel ajanlar olarak, her biri yerel bir cmux bölmesinde olacak şekilde orkestre edin."
+    },
+    "ios": {
+      "metaTitle": "iOS Uygulaması",
+      "metaDescription": "cmux iOS yardımcı uygulamasını kurun: TestFlight erişimi, Tailscale veya WireGuard ile kendi ağınızı kullanma, eşleştirme, bildirimler ve cmux'un hangi verileri sakladığı.",
+      "title": "iOS Uygulaması",
+      "intro": "cmux iOS uygulaması, Mac'iniz için bir yardımcıdır. iPhone veya iPad'inizi cmux çalıştıran bir Mac ile eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini iletebilirsiniz.",
+      "betaNote": "iOS uygulaması beta aşamasındadır. TestFlight'ta cmux BETA olarak yayınlanır.",
+      "accessTitle": "Erişim sağlama",
+      "accessDesc": "Uygulama TestFlight üzerinden dağıtılır. Erken erişim, diğer erken özelliklerle birlikte <foundersLink>cmux Founders Edition</foundersLink> ile birlikte gelir.",
+      "prereqTitle": "Ön koşullar",
+      "prereqIntro": "Başlamadan önce şunlara ihtiyacınız var:",
+      "prereq1": "cmux çalıştıran ve oturum açılmış bir Mac.",
+      "prereq2": "TestFlight'tan kurulmuş cmux BETA uygulamasına sahip bir iPhone veya iPad.",
+      "prereq3": "Telefonunuzdan Mac'inize uzanan bir ağ yolu (aşağıdaki Kendi ağınızı kullanma bölümüne bakın).",
+      "networkingTitle": "Kendi ağınızı kullanma",
+      "networkingDesc": "cmux, kutudan çıkar çıkmaz ağ sağlamaz. Terminal akışı doğrudan telefonunuz ile Mac'iniz arasında gerçekleşir, bu yüzden telefonunuzun Mac'inize ağ üzerinden ulaşabilmesi gerekir. En basit yolu özel bir kaplama ağıdır.",
+      "tailscaleTitle": "Tailscale (önerilen)",
+      "tailscaleDesc": "Hem Mac'inize hem de telefonunuza <link>Tailscale</link> kurun ve aynı tailnet'e oturum açın. Telefonunuz böylece, port yönlendirmesi olmadan her yerden Mac'inize tailnet adresiyle ulaşabilir.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Zaten <link>WireGuard</link> kullanıyorsanız, Mac'inizi ve telefonunuzu aynı ağa koyun ve Mac'in WireGuard adresini kullanın.",
+      "networkingNote": "Hangisini seçerseniz seçin, bağlantı sizindir. cmux, cihazlarınız arasındaki terminal trafiğine proxy yapmaz veya onu aktarmaz.",
+      "pairTitle": "Eşleştir ve bağlan",
+      "pairStep1": "Mac'te, cmux içinde Mobile Connect penceresini açın.",
+      "pairStep2": "Telefonunuzda cmux BETA uygulamasını açın ve Mobile Connect'te gösterilen eşleştirmeyi onaylayın.",
+      "pairStep3": "Eşleştirme tamamlandığında, çalışma alanlarınız ve terminalleriniz ağınız üzerinden telefonda görünür.",
+      "pairNote": "Eşleştirme her cihaz için ayrıdır. Yeni bir cihaz veya yeniden kurulmuş bir uygulama tekrar eşleşir.",
+      "notificationsTitle": "Bildirimler",
+      "notificationsDesc": "Terminal bildirimlerini telefonunuza iletmeyi tercih edebilirsiniz; böylece dikkat gerektiren bir bölme cihazınıza bildirim gönderir. İletme açıkken, bildirim metni (terminal çıktısından alınan başlık ve gövde) iletilmek üzere cmux sunucuları aracılığıyla Apple'ın push hizmetine gönderilir. Bunun yerine genel bir mesaj göndermek ve terminal metnini cihazlarınızda tutmak için bildirim ayarlarındaki Hide content seçeneğini açın. cmux'un bunları nasıl oluşturduğunu öğrenmek için <link>bildirimler</link> bölümüne bakın.",
+      "dataTitle": "Hangi veriler saklanır",
+      "dataIntro": "cmux, terminalinizin cihazlarınız arasında kalması için tasarlanmıştır. cmux sunucularında yalnızca sizi oturum açtırmak ve cihazlarınızı bağlamak için gereken verileri saklarız:",
+      "data1": "Sizi cihazlar arasında tanımlamak için oturum açmadan gelen hesabınız (e-posta).",
+      "data2": "İletilen terminal bildirimlerini ulaştırmak için cihazınıza ait bir push belirteci.",
+      "data3": "Telefonunuzu Mac'inize bağlamak için eşleştirme ve cihaz meta verileri.",
+      "dataNot": "Etkileşimli terminal oturumunuz, içeriği ve tuş vuruşları doğrudan telefonunuz ile Mac'iniz arasında kendi ağınız üzerinden akar; cmux sunucuları aracılığıyla aktarılmaz ya da bunlarda saklanmaz. Tek istisna, telefonunuza ulaşmak için cmux ve Apple'ın push hizmeti üzerinden geçen iletilmiş bildirim metnidir; ancak Hide content seçeneğini etkinleştirirseniz bu da geçerli olmaz (yukarıdaki Bildirimler bölümüne bakın).",
+      "enterpriseTitle": "Kurumsal ve kendi sunucunuzda barındırma",
+      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@manaflow.com</link> ile iletişime geçin."
     }
   },
   "legal": {

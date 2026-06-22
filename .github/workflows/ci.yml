@@ -130,6 +130,9 @@ jobs:
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
+      - name: Validate TestFlight notes generator
+        run: python3 tests/test_ios_testflight_notes.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -861,6 +864,22 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
+            CmuxAuthRuntime)
+              suite_list="$(
+                find "$pkgdir/Tests" -name '*.swift' -print0 \
+                  | xargs -0 perl -ne 'print "$1\n" if /^\s*@Suite(?:\([^)]*\))?\s+struct\s+([A-Za-z0-9_]+)/' \
+                  | sort -u
+              )"
+              if [ -z "$suite_list" ]; then
+                echo "::error::no Swift Testing suites found for $pkg"
+                exit 1
+              fi
+              while IFS= read -r suite; do
+                [ -n "$suite" ] || continue
+                echo "swift test $pkgdir --filter $suite"
+                swift test --package-path "$pkgdir" --filter "$suite"
+              done <<< "$suite_list"
+              ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?

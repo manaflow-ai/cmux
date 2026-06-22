@@ -1549,11 +1549,6 @@ private let agentHookWrapperProcessNames: Set<String> = [
     "env"
 ]
 
-private enum HookAgentProcessKind {
-    case codex
-    case claude
-}
-
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
 private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
@@ -3163,18 +3158,17 @@ struct CMUXCLI {
             return
         }
 
-        if command == "help" { print(usage()); return }
-        if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
-
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
             try runSettings(
@@ -14228,6 +14222,7 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
+        case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
             return """
             Usage: cmux feedback
@@ -23438,7 +23433,7 @@ struct CMUXCLI {
                 surfaceId: surfaceId,
                 value: "Needs input",
                 icon: "bell.fill",
-                color: "#4C8DFF"
+                color: "#4C8DFF", pid: claudePid
             )
             let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
             print(response)
@@ -26299,7 +26294,7 @@ struct CMUXCLI {
         var agentProcessCount = 0
         var remainingAncestors = 32
         while candidate > 1, remainingAncestors > 0 {
-            if nativeAgentProcessKind(for: candidate) != nil {
+            if nativeProcessDescribesKnownAgent(for: candidate) {
                 agentProcessCount += 1
                 if agentProcessCount >= 2 {
                     return true
@@ -26357,62 +26352,11 @@ struct CMUXCLI {
         }
     }
 
-    private func nativeAgentProcessKind(for pid: pid_t) -> HookAgentProcessKind? {
-        let name = processName(for: pid)
-        if let kind = Self.nativeAgentProcessKind(processName: name, arguments: []) {
-            return kind
-        }
-
-        let nameBase = Self.agentProcessBasename(name)
-        if let nameBase, nameBase != "node", nameBase != "bun" {
-            return nil
-        }
-
-        return Self.nativeAgentProcessKind(
-            processName: name,
+    private func nativeProcessDescribesKnownAgent(for pid: pid_t) -> Bool {
+        AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+            processName: processName(for: pid),
             arguments: processArguments(for: pid) ?? []
         )
-    }
-
-    private static func nativeAgentProcessKind(
-        processName: String?,
-        arguments: [String]
-    ) -> HookAgentProcessKind? {
-        let nameBase = agentProcessBasename(processName)
-        let executableBase = agentProcessBasename(arguments.first)
-
-        // Codex's npm/bun launcher leaves a node process above the native
-        // Codex binary. That wrapper is part of the same launch, not a
-        // parent agent, so only native Codex executables count. Claude Code
-        // can run as a node script, so keep that as an agent process.
-        if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-            if arguments.dropFirst().contains(where: { argument in
-                let lowered = argument.lowercased()
-                return agentProcessBasename(argument) == "claude"
-                    || lowered.contains("/.claude/")
-                    || lowered.contains("/claude/versions/")
-            }) {
-                return .claude
-            }
-            return nil
-        }
-
-        let executable = arguments.first?.lowercased() ?? ""
-        if nameBase == "codex" || executableBase == "codex" || executable.contains("/codex/codex") {
-            return .codex
-        }
-        if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
-            return .claude
-        }
-        return nil
-    }
-
-    private static func agentProcessBasename(_ value: String?) -> String? {
-        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !value.isEmpty else {
-            return nil
-        }
-        return URL(fileURLWithPath: value).lastPathComponent.lowercased()
     }
 
     private func parentPID(of pid: pid_t) -> pid_t {
@@ -26577,7 +26521,16 @@ struct CMUXCLI {
         let envArguments = envCaptureIsTrusted
             ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
             : nil
-        var processArguments = fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        var processArguments = fallbackPID.flatMap { fallbackPID -> [String]? in
+            let pid = pid_t(fallbackPID)
+            let candidate = self.processArguments(for: pid)
+            guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: processName(for: pid),
+                arguments: candidate,
+                kind: fallbackKind
+            ) else { return nil }
+            return candidate
+        }
         if let candidate = processArguments,
            AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(candidate) {
             // The PID fallback resolved to a shell dispatcher (e.g. the hook's own

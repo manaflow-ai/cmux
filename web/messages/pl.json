@@ -793,10 +793,11 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
-          "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe."
+          "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
+          "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
         },
         "terminal": {
-          "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",
+          "copyOnSelect": "Gdy wartość to true, zaznaczony tekst terminala jest kopiowany do schowka systemowego po zatwierdzeniu zaznaczenia. Gdy wartość to false, cmux nie emituje nadpisania Ghostty copy-on-select; konfiguracja i wartości domyślne Ghostty sterują zachowaniem schowka zaznaczenia.",
           "scrollSpeed": "Mnożnik stosowany do przewijania kółkiem myszy i gładzikiem w terminalu. Wyższe wartości przewijają szybciej, niższe wolniej.",
           "showTextBoxOnNewTerminals": "Domyślnie pokazuje wejście TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów.",
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
@@ -1263,7 +1264,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "Aplikacja iOS"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1416,6 +1418,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: wieloagentowy OpenCode w cmux",
       "metaDescription": "oh-my-opencode (cmux omo) uruchamia OpenCode CLI z wtyczką oh-my-openagent wewnątrz cmux. Orkiestruj Claude, GPT, Gemini i Grok jako równoległych agentów, każdego w natywnym podziale cmux."
+    },
+    "ios": {
+      "metaTitle": "Aplikacja iOS",
+      "metaDescription": "Skonfiguruj towarzyszącą aplikację cmux na iOS: dostęp przez TestFlight, własną sieć z Tailscale lub WireGuard, parowanie, powiadomienia i jakie dane przechowuje cmux.",
+      "title": "Aplikacja iOS",
+      "intro": "Aplikacja cmux na iOS jest towarzyszem twojego Maca. Sparuj iPhone'a lub iPada z Makiem, na którym działa cmux, i podłącz się do swoich terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala.",
+      "betaNote": "Aplikacja iOS jest w wersji beta. Jest dystrybuowana przez TestFlight jako cmux BETA.",
+      "accessTitle": "Uzyskiwanie dostępu",
+      "accessDesc": "Aplikacja jest dystrybuowana przez TestFlight. Wczesny dostęp jest wliczony w <foundersLink>cmux Founders Edition</foundersLink>, obok innych wczesnych funkcji.",
+      "prereqTitle": "Wymagania wstępne",
+      "prereqIntro": "Zanim zaczniesz, potrzebujesz:",
+      "prereq1": "Maca z działającym cmux i zalogowanym kontem.",
+      "prereq2": "iPhone'a lub iPada z aplikacją cmux BETA zainstalowaną z TestFlight.",
+      "prereq3": "Ścieżki sieciowej z telefonu do Maca (zobacz Własna sieć poniżej).",
+      "networkingTitle": "Własna sieć",
+      "networkingDesc": "cmux nie zapewnia sieci od razu po instalacji. Strumień terminala płynie bezpośrednio między telefonem a Makiem, więc twój telefon musi być w stanie połączyć się z Makiem w sieci. Najprostszym sposobem jest prywatna sieć nakładkowa.",
+      "tailscaleTitle": "Tailscale (zalecane)",
+      "tailscaleDesc": "Zainstaluj <link>Tailscale</link> zarówno na Macu, jak i na telefonie i zaloguj się do tej samej sieci tailnet. Twój telefon może wtedy połączyć się z Makiem przez jego adres tailnet z dowolnego miejsca, bez przekierowywania portów.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Jeśli już używasz <link>WireGuard</link>, umieść Maca i telefon w tej samej sieci i użyj adresu WireGuard Maca.",
+      "networkingNote": "Niezależnie od wyboru, połączenie należy do ciebie. cmux nie pośredniczy ani nie przekazuje ruchu terminala między twoimi urządzeniami.",
+      "pairTitle": "Parowanie i łączenie",
+      "pairStep1": "Na Macu otwórz okno Mobile Connect w cmux.",
+      "pairStep2": "Na telefonie otwórz aplikację cmux BETA i potwierdź parowanie pokazane w Mobile Connect.",
+      "pairStep3": "Po sparowaniu twoje przestrzenie robocze i terminale pojawią się na telefonie przez twoją sieć.",
+      "pairNote": "Parowanie jest na każde urządzenie. Nowe urządzenie lub ponownie zainstalowana aplikacja paruje się ponownie.",
+      "notificationsTitle": "Powiadomienia",
+      "notificationsDesc": "Możesz wyrazić zgodę na przekazywanie powiadomień terminala na telefon, aby panel wymagający uwagi wysyłał powiadomienie na twoje urządzenie. Gdy przekazywanie jest włączone, tekst powiadomienia (tytuł i treść, pochodzące z wyjścia terminala) jest wysyłany przez serwery cmux do usługi push firmy Apple, aby go dostarczyć. Włącz Hide content w ustawieniach powiadomień, aby zamiast tego wysyłać ogólny komunikat i zachować tekst terminala na swoich urządzeniach. Zobacz <link>powiadomienia</link>, aby dowiedzieć się, jak cmux je generuje.",
+      "dataTitle": "Jakie dane są przechowywane",
+      "dataIntro": "cmux jest zbudowany tak, aby twój terminal pozostawał między twoimi urządzeniami. Na serwerach cmux przechowujemy tylko to, co jest potrzebne, aby cię zalogować i połączyć twoje urządzenia:",
+      "data1": "Twoje konto z logowania (e-mail), aby identyfikować cię na różnych urządzeniach.",
+      "data2": "Token push twojego urządzenia, aby dostarczać przekazywane powiadomienia terminala.",
+      "data3": "Metadane parowania i urządzenia, aby połączyć twój telefon z Makiem.",
+      "dataNot": "Twoja interaktywna sesja terminala, jej zawartość i naciśnięcia klawiszy, płynie bezpośrednio między telefonem a Makiem przez twoją własną sieć i nie jest przekazywana przez serwery cmux ani na nich przechowywana. Jedynym wyjątkiem jest przekazywany tekst powiadomień, który przechodzi przez cmux i usługę push firmy Apple, aby dotrzeć do twojego telefonu, chyba że włączysz Hide content (zobacz Powiadomienia powyżej).",
+      "enterpriseTitle": "Wdrożenia korporacyjne i własne",
+      "enterpriseDesc": "W przypadku wdrożenia własnego lub odizolowanego od sieci skontaktuj się z <link>founders@manaflow.com</link>."
     }
   },
   "legal": {

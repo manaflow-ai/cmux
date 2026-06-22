@@ -25,13 +25,15 @@ enum FileExplorerStyle: Int, CaseIterable {
     }
 
     var rowHeight: CGFloat {
+        let baseHeight: CGFloat
         switch self {
-        case .liquidGlass: return 28
-        case .highDensity: return 20
-        case .terminalStealth: return 24
-        case .proStudio: return 32
-        case .finder: return 26
+        case .liquidGlass: baseHeight = 28
+        case .highDensity: baseHeight = 20
+        case .terminalStealth: baseHeight = 24
+        case .proStudio: baseHeight = 32
+        case .finder: baseHeight = 26
         }
+        return GlobalFontMagnification.scaledSize(baseHeight)
     }
 
     var indentation: CGFloat {
@@ -66,11 +68,11 @@ enum FileExplorerStyle: Int, CaseIterable {
 
     var nameFont: NSFont {
         switch self {
-        case .liquidGlass: return .systemFont(ofSize: 13, weight: .medium)
-        case .highDensity: return .systemFont(ofSize: 11, weight: .regular)
-        case .terminalStealth: return .monospacedSystemFont(ofSize: 12, weight: .regular)
-        case .proStudio: return .systemFont(ofSize: 14, weight: .semibold)
-        case .finder: return .systemFont(ofSize: 13, weight: .regular)
+        case .liquidGlass: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+        case .highDensity: return GlobalFontMagnification.systemFont(ofSize: 11, weight: .regular)
+        case .terminalStealth: return GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
+        case .proStudio: return GlobalFontMagnification.systemFont(ofSize: 14, weight: .semibold)
+        case .finder: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .regular)
         }
     }
 
