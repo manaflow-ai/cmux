@@ -52,14 +52,11 @@ public extension View {
         design: Font.Design = .default,
         monospacedDigit: Bool = false
     ) -> some View {
-        let metrics = CmuxTextStyleMetrics(style: style)
-        return modifier(
-            CmuxFontModifier(
-                baseSize: metrics.baseSize,
-                weight: weight ?? metrics.baseWeight,
-                design: design,
-                monospacedDigit: monospacedDigit
-            )
+        cmuxFont(
+            size: CmuxTextStyleMetrics(style: style).baseSize,
+            weight: weight ?? CmuxTextStyleMetrics(style: style).baseWeight,
+            design: design,
+            monospacedDigit: monospacedDigit
         )
     }
 }
