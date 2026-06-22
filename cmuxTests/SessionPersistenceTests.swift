@@ -6041,6 +6041,54 @@ extension SessionPersistenceTests {
         XCTAssertEqual(restoredDirectories, [projectDirectory])
     }
 
+    func testSessionSnapshotDropsEmptyCrashDiagnosticWorkspace() {
+        let projectDirectory = "/tmp/cmux-project"
+        let crashDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/state/cmux/crash", isDirectory: true)
+            .path
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: SessionTabManagerSnapshot(
+                        selectedWorkspaceIndex: 0,
+                        workspaces: [
+                            emptyWorkspaceSnapshot(currentDirectory: crashDirectory),
+                            emptyWorkspaceSnapshot(currentDirectory: projectDirectory),
+                        ]
+                    ),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+
+        XCTAssertTrue(pruned.removedAny)
+        XCTAssertEqual(pruned.snapshot?.windows.first?.tabManager.workspaces.map(\.currentDirectory), [projectDirectory])
+        XCTAssertEqual(pruned.snapshot?.windows.first?.tabManager.selectedWorkspaceIndex, 0)
+    }
+
+    private func emptyWorkspaceSnapshot(currentDirectory: String) -> SessionWorkspaceSnapshot {
+        SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: nil,
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: currentDirectory,
+            focusedPanelId: nil,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [], selectedPanelId: nil)),
+            panels: [],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

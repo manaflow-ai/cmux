@@ -14,7 +14,7 @@
 7986	Sources/Panels/BrowserPanelView.swift
 7354	cmuxTests/WorkspaceUnitTests.swift
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
-6357	cmuxTests/SessionPersistenceTests.swift
+6405	cmuxTests/SessionPersistenceTests.swift
 6220	cmuxTests/GhosttyConfigTests.swift
 6165	Sources/TabManager.swift
 6084	Sources/TextBoxInput.swift
@@ -40,7 +40,7 @@
 2546	cmuxTests/WorkspaceManualUnreadTests.swift
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
-2334	Sources/SessionPersistence.swift
+2348	Sources/SessionPersistence.swift
 2328	cmuxTests/CJKIMEInputTests.swift
 2257	Sources/TerminalNotificationStore.swift
 2257	Sources/TerminalWindowPortal.swift
