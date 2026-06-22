@@ -108,35 +108,16 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Captured PATH-resolved codex executable path falls back to bare codex")
-    func capturedCodexExecutablePathFallsBackToBareExecutable() {
+    @Test("Captured executable path overrides the fallback executable")
+    func executablePathOverridesFallback() {
+        // Non-claude kinds replay the captured executable path verbatim.
         #expect(
             AgentResumeArgv().builtInKind(
                 kind: "codex",
                 sessionId: "SID",
-                executablePath: "/Users/example/.nvm/versions/node/v24.2.0/bin/codex",
-                arguments: ["/Users/example/.nvm/versions/node/v24.2.0/bin/codex", "--model", "gpt-5.4"]
-            ) == ["codex", "resume", "SID", "--model", "gpt-5.4"]
-        )
-    }
-
-    @Test("Captured custom codex executable path keeps its explicit binary")
-    func capturedCustomCodexExecutablePathKeepsExplicitBinary() {
-        #expect(
-            AgentResumeArgv().builtInKind(
-                kind: "codex",
-                sessionId: "SID",
-                executablePath: "/opt/bin/codex-beta",
-                arguments: ["/opt/bin/codex-beta"]
-            ) == ["/opt/bin/codex-beta", "resume", "SID"]
-        )
-        #expect(
-            AgentResumeArgv().builtInKind(
-                kind: "codex",
-                sessionId: "SID",
-                executablePath: "/opt/company/bin/codex",
-                arguments: ["/opt/company/bin/codex"]
-            ) == ["/opt/company/bin/codex", "resume", "SID"]
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"]
+            ) == ["/opt/bin/codex", "resume", "SID"]
         )
     }
 

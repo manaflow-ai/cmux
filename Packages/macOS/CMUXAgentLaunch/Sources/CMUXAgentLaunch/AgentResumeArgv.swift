@@ -191,12 +191,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
         case "claude":
             return claudeResumeArgv(sessionId: sessionId, executablePath: executablePath, arguments: arguments)
         case "codex":
-            let parts = commandParts(
-                executablePath: executablePath,
-                arguments: arguments,
-                fallbackExecutable: "codex",
-                preferPathExecutableName: true
-            )
+            let parts = commandParts(executablePath: executablePath, arguments: arguments, fallbackExecutable: "codex")
             guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: parts.tail) else { return nil }
             return [parts.executable, "resume", sessionId] + preserved
         case "grok":
@@ -291,57 +286,11 @@ public struct AgentResumeArgv: Sendable, Equatable {
     private func commandParts(
         executablePath: String?,
         arguments: [String],
-        fallbackExecutable: String,
-        preferPathExecutableName: Bool = false
+        fallbackExecutable: String
     ) -> (executable: String, tail: [String]) {
-        let capturedExecutable = normalized(executablePath) ?? normalized(arguments.first)
-        let executable = portableExecutableName(
-            capturedExecutable,
-            fallbackExecutable: fallbackExecutable,
-            preferPathExecutableName: preferPathExecutableName
-        ) ?? fallbackExecutable
+        let executable = normalized(executablePath) ?? normalized(arguments.first) ?? fallbackExecutable
         let tail = arguments.isEmpty ? [] : Array(arguments.dropFirst())
         return (executable, tail)
-    }
-
-    private func portableExecutableName(
-        _ executable: String?,
-        fallbackExecutable: String,
-        preferPathExecutableName: Bool
-    ) -> String? {
-        guard let executable else { return nil }
-        guard preferPathExecutableName, executable.contains("/") else {
-            return executable
-        }
-        guard (executable as NSString).lastPathComponent == fallbackExecutable,
-              isPATHManagedExecutablePath(executable, executableName: fallbackExecutable) else {
-            return executable
-        }
-        return fallbackExecutable
-    }
-
-    private func isPATHManagedExecutablePath(_ path: String, executableName: String) -> Bool {
-        let standardized = (path as NSString).standardizingPath
-        if standardized == "/usr/local/bin/\(executableName)"
-            || standardized == "/opt/homebrew/bin/\(executableName)" {
-            return true
-        }
-        let components = standardized.split(separator: "/").map(String.init)
-        let lastThree = Array(components.suffix(3))
-        if lastThree == [".local", "bin", executableName]
-            || lastThree == [".bun", "bin", executableName]
-            || lastThree == [".volta", "bin", executableName]
-            || lastThree == [".asdf", "shims", executableName] {
-            return true
-        }
-        if components.count >= 6,
-           Array(components.suffix(2)) == ["bin", executableName],
-           components.contains(".nvm"),
-           components.contains("versions"),
-           components.contains("node") {
-            return true
-        }
-        return components.contains("cmux-cli-shims")
     }
 
     private func normalized(_ value: String?) -> String? {

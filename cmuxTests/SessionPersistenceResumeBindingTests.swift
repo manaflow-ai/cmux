@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -6,8 +7,8 @@ import XCTest
 @testable import cmux
 #endif
 
-extension SessionPersistenceTests {
-    func testAgentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
+@Suite struct SessionPersistenceResumeBindingTests {
+    @Test func agentHookSurfaceResumeStartupInputPreservesCustomAbsoluteAgentExecutable() throws {
         let binding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "'/opt/company/bin/codex' 'resume' 'session-custom-cli'",
@@ -16,12 +17,30 @@ extension SessionPersistenceTests {
             autoResume: true
         )
 
-        let startupInput = try XCTUnwrap(binding.startupInput)
+        let startupInput = try #require(binding.startupInput)
 
-        XCTAssertTrue(startupInput.contains("'/opt/company/bin/codex'"), startupInput)
+        #expect(startupInput.contains("'/opt/company/bin/codex'"), "\(startupInput)")
     }
 
-    func testAgentHookSurfaceResumeStartupInputFallsBackWhenRecordedAgentExecutableMoved() throws {
+    @Test func decodingAgentHookBindingRewritesPersistedPATHManagedAgentExecutable() throws {
+        let json = """
+        {
+          "kind": "claude",
+          "command": "{ cd -- '/tmp/project' 2>/dev/null || [ ! -d '/tmp/project' ]; } && '/Users/me/.nvm/versions/node/v24.2.0/bin/claude' '--resume' 'session-moved-cli' '--chrome'",
+          "cwd": "/tmp/project",
+          "checkpointId": "session-moved-cli",
+          "source": "agent-hook",
+          "autoResume": true,
+          "updatedAt": 123
+        }
+        """
+        let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
+
+        #expect(binding.command.contains("'claude' '--resume' 'session-moved-cli'"), "\(binding.command)")
+        #expect(!binding.command.contains("/Users/me/.nvm/versions/node/v24.2.0/bin/claude"), "\(binding.command)")
+    }
+
+    @Test func agentHookSurfaceResumeStartupInputFallsBackWhenRecordedAgentExecutableMoved() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-surface-resume-moved-agent-\(UUID().uuidString)", isDirectory: true)
@@ -56,7 +75,7 @@ extension SessionPersistenceTests {
             source: "agent-hook",
             autoResume: true
         )
-        let startupInput = try XCTUnwrap(binding.startupInput)
+        let startupInput = try #require(binding.startupInput)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -74,10 +93,24 @@ extension SessionPersistenceTests {
             data: stderr.fileHandleForReading.readDataToEndOfFile(),
             encoding: .utf8
         ) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, errorText)
+        #expect(process.terminationStatus == 0, "\(errorText)")
 
         let output = try String(contentsOf: outputURL, encoding: .utf8)
-        XCTAssertEqual(output, "\(cwd.path)|resume session-moved-cli --yolo\n")
-        XCTAssertFalse(startupInput.contains(movedExecutable.path), startupInput)
+        #expect(output == "\(cwd.path)|resume session-moved-cli --yolo\n")
+        #expect(!startupInput.contains(movedExecutable.path), "\(startupInput)")
+    }
+
+    private func runWithBoundedWait(
+        _ process: Process,
+        shellDescription: String,
+        timeout: TimeInterval = 30
+    ) throws {
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+        try process.run()
+        if exited.wait(timeout: .now() + timeout) == .timedOut {
+            process.terminate()
+            Issue.record("Resume shell (\(shellDescription)) did not exit within \(Int(timeout))s; treating as hung.")
+        }
     }
 }
