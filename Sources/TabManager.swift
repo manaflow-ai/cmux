@@ -6082,18 +6082,37 @@ extension TabManager {
             }
             let restoredGroupIds = Set(restoredPairs.map { $0.group.id })
             var restored = restoredPairs.map { $0.group }
-            func resolvedParentGroupId(for index: Int) -> UUID? {
-                let groupSnapshot = restoredPairs[index].snapshot
+            // Resolve each restored group's parent to the nearest ancestor that
+            // also restored. When an intermediate folder is dropped (none of its
+            // members restored), walk up the original parent chain so a surviving
+            // deeper folder re-attaches to its closest surviving ancestor instead
+            // of flattening to the root — matching the crash-storage pruning
+            // path's `survivingParentId`.
+            let groupSnapshotsById = Dictionary(
+                groupSnapshots.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            func immediateParentId(of groupSnapshot: SessionWorkspaceGroupSnapshot) -> UUID? {
                 if let parentGroupIndex = groupSnapshot.parentGroupIndex,
                    groupSnapshots.indices.contains(parentGroupIndex) {
-                    let parentSnapshotId = groupSnapshots[parentGroupIndex].id
-                    if restoredGroupIds.contains(parentSnapshotId) {
-                        return parentSnapshotId
-                    }
+                    return groupSnapshots[parentGroupIndex].id
                 }
                 if let parentGroupId = groupSnapshot.parentGroupId,
-                   restoredGroupIds.contains(parentGroupId) {
+                   groupSnapshotsById[parentGroupId] != nil {
                     return parentGroupId
+                }
+                return nil
+            }
+            func resolvedParentGroupId(for index: Int) -> UUID? {
+                let groupSnapshot = restoredPairs[index].snapshot
+                var visited: Set<UUID> = [groupSnapshot.id]
+                var cursor = immediateParentId(of: groupSnapshot)
+                while let current = cursor {
+                    guard visited.insert(current).inserted else { return nil }
+                    if restoredGroupIds.contains(current) {
+                        return current
+                    }
+                    cursor = groupSnapshotsById[current].flatMap { immediateParentId(of: $0) }
                 }
                 return nil
             }

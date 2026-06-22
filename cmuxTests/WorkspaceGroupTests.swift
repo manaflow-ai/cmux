@@ -1048,6 +1048,41 @@ struct WorkspaceGroupTests {
         #expect(restored.workspaceGroups.first { $0.id == childId }?.parentGroupId == parentId)
     }
 
+    @Test func sessionSnapshotRestoreRelinksGrandchildToNearestSurvivingAncestor() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let grandparentId = try #require(manager.createWorkspaceGroup(
+            name: "Hotels",
+            childWorkspaceIds: [originalIds[0]]
+        ))
+        let parentId = try #require(manager.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [originalIds[1]],
+            parentGroupId: grandparentId
+        ))
+        let childId = try #require(manager.createWorkspaceGroup(
+            name: "Downtown",
+            childWorkspaceIds: [originalIds[2]],
+            parentGroupId: parentId
+        ))
+
+        var snapshot = manager.sessionSnapshot(includeScrollback: false)
+        // Drop the intermediate folder by removing its only member workspace, so
+        // it has nothing to restore. The surviving grandchild must re-attach to
+        // the nearest surviving ancestor (the grandparent) rather than flatten to
+        // the root.
+        snapshot.workspaces.removeAll { $0.groupId == parentId }
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(snapshot)
+
+        #expect(restored.workspaceGroups.contains { $0.id == grandparentId })
+        #expect(!restored.workspaceGroups.contains { $0.id == parentId })
+        #expect(restored.workspaceGroups.first { $0.id == childId }?.parentGroupId == grandparentId)
+    }
+
     @Test func legacyWorkspaceGroupSnapshotDecodesAsTopLevelFolder() throws {
         let groupId = UUID()
         let anchorId = UUID()
