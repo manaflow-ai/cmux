@@ -648,7 +648,12 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.contains(hyperlink), "non-color OSC sequences must be preserved")
     }
 
-    func testSessionScrollbackPersistenceHonorsReportedShellState() {
+    func testSessionScrollbackPersistsUnlessCommandRunning() {
+        // Scrollback persistence must depend only on whether a command is positively
+        // running, never on close-confirmation. When shell-integration state is
+        // unavailable (.unknown / nil), scrollback was being dropped because the
+        // conservative needsConfirmClose fallback made the close-confirmation path
+        // skip persistence — terminals restored with no contents.
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
                 shellActivityState: .promptIdle,
@@ -661,16 +666,19 @@ final class SessionPersistenceTests: XCTestCase {
                 fallbackNeedsConfirmClose: false
             )
         )
-        XCTAssertFalse(
+        // Regression: unknown shell state must still persist scrollback, even when
+        // the close-confirmation fallback says a confirm would be required.
+        XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
                 shellActivityState: .unknown,
                 fallbackNeedsConfirmClose: true
             )
         )
+        // Regression: a never-reported (nil) shell state must persist scrollback too.
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
                 shellActivityState: nil,
-                fallbackNeedsConfirmClose: false
+                fallbackNeedsConfirmClose: true
             )
         )
     }
