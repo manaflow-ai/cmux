@@ -1,8 +1,8 @@
 import Foundation
 
 extension CmuxExtensionWorktreePrototype {
-    /// Returns a bounded list of paths that a force removal may delete even
-    /// though the first non-force removal was refused.
+    /// Returns a bounded list of paths that worktree removal may delete when
+    /// git's clean check does not protect the content, such as ignored files.
     static func forceRemovalPreview(
         worktreePath: String,
         itemLimit: Int = 20,

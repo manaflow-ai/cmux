@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -162,12 +163,7 @@ struct ExtensionWorktreeManagementTests {
         let repo = try GitFixture.makeRepo()
         defer { GitFixture.cleanUp(repo) }
 
-        try FileManager.default.createDirectory(
-            atPath: repo + "/.cmux/worktrees",
-            withIntermediateDirectories: true
-        )
-        let worktree = repo + "/.cmux/worktrees/detached-wt"
-        GitFixture.run(["worktree", "add", "-b", "detached-wt", worktree, "HEAD"], in: repo)
+        let worktree = try GitFixture.makeManagedWorktree(named: "detached-wt", in: repo)
         GitFixture.run(["checkout", "-q", "--detach", "HEAD"], in: worktree)
         try "detached\n".write(
             toFile: worktree + "/detached.txt",
@@ -175,15 +171,7 @@ struct ExtensionWorktreeManagementTests {
             encoding: .utf8
         )
         GitFixture.run(["add", "detached.txt"], in: worktree)
-        GitFixture.run(
-            [
-                "-c", "user.email=test@cmux.dev",
-                "-c", "user.name=cmux test",
-                "-c", "commit.gpgsign=false",
-                "commit", "-q", "-m", "detached work",
-            ],
-            in: worktree
-        )
+        GitFixture.commit("detached work", in: worktree)
 
         let safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktree)
         #expect(safety.hasUnreferencedDetachedHead)
@@ -274,12 +262,7 @@ struct ExtensionWorktreeManagementTests {
         let repo = try GitFixture.makeRepo()
         defer { GitFixture.cleanUp(repo) }
 
-        try FileManager.default.createDirectory(
-            atPath: repo + "/.cmux/worktrees",
-            withIntermediateDirectories: true
-        )
-        let worktree = repo + "/.cmux/worktrees/clean-wt"
-        GitFixture.run(["worktree", "add", "-b", "clean-wt", worktree, "HEAD"], in: repo)
+        let worktree = try GitFixture.makeManagedWorktree(named: "clean-wt", in: repo)
         #expect(FileManager.default.fileExists(atPath: worktree))
 
         let safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktree)
@@ -292,17 +275,45 @@ struct ExtensionWorktreeManagementTests {
         #expect(!list.contains("clean-wt"))
     }
 
+    @Test("ignored files in a clean worktree are included in the removal preview")
+    @MainActor
+    func cleanIgnoredFilesArePreviewedBeforeRemoval() async throws {
+        let repo = try GitFixture.makeRepo()
+        defer { GitFixture.cleanUp(repo) }
+
+        let worktree = try GitFixture.makeManagedWorktree(named: "ignored-wt", in: repo)
+        let exclude = GitFixture.run(["rev-parse", "--git-path", "info/exclude"], in: worktree)
+            .out.trimmingCharacters(in: .whitespacesAndNewlines)
+        try FileManager.default.createDirectory(atPath: (exclude as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try "ignored.log\n".write(toFile: exclude, atomically: true, encoding: .utf8)
+        try "ignored\n".write(toFile: worktree + "/ignored.log", atomically: true, encoding: .utf8)
+
+        let safety = try await CmuxExtensionWorktreePrototype.inspectRemovalSafety(worktreePath: worktree)
+        #expect(safety.isClean)
+        let preview = await CmuxExtensionWorktreePrototype.forceRemovalPreview(worktreePath: worktree)
+        #expect(preview.paths.contains("ignored.log"))
+        var confirmationText = ""
+        let confirmed = confirmRemoveExtensionWorktree(
+            worktreeName: "ignored-wt",
+            worktreePath: worktree,
+            closePlans: [],
+            safety: safety,
+            removalPreview: preview,
+            alertRunner: { alert in
+                confirmationText = alert.informativeText
+                return .alertFirstButtonReturn
+            }
+        )
+        #expect(confirmed)
+        #expect(confirmationText.contains("ignored.log"))
+    }
+
     @Test("a dirty worktree is guarded: removal needs an explicit force")
     func dirtyWorktreeRequiresForce() async throws {
         let repo = try GitFixture.makeRepo()
         defer { GitFixture.cleanUp(repo) }
 
-        try FileManager.default.createDirectory(
-            atPath: repo + "/.cmux/worktrees",
-            withIntermediateDirectories: true
-        )
-        let worktree = repo + "/.cmux/worktrees/dirty-wt"
-        GitFixture.run(["worktree", "add", "-b", "dirty-wt", worktree, "HEAD"], in: repo)
+        let worktree = try GitFixture.makeManagedWorktree(named: "dirty-wt", in: repo)
         try "scratch\n".write(
             toFile: worktree + "/uncommitted.txt",
             atomically: true,
@@ -346,22 +357,9 @@ struct ExtensionWorktreeManagementTests {
             ["-c", "protocol.file.allow=always", "submodule", "add", "-q", submoduleRepo, "deps/lib"],
             in: repo
         )
-        GitFixture.run(
-            [
-                "-c", "user.email=test@cmux.dev",
-                "-c", "user.name=cmux test",
-                "-c", "commit.gpgsign=false",
-                "commit", "-q", "-m", "add submodule",
-            ],
-            in: repo
-        )
+        GitFixture.commit("add submodule", in: repo)
 
-        try FileManager.default.createDirectory(
-            atPath: repo + "/.cmux/worktrees",
-            withIntermediateDirectories: true
-        )
-        let worktree = repo + "/.cmux/worktrees/submodule-wt"
-        GitFixture.run(["worktree", "add", "-b", "submodule-wt", worktree, "HEAD"], in: repo)
+        let worktree = try GitFixture.makeManagedWorktree(named: "submodule-wt", in: repo)
         GitFixture.run(
             ["-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive"],
             in: worktree
@@ -398,24 +396,11 @@ struct ExtensionWorktreeManagementTests {
             ["-c", "protocol.file.allow=always", "submodule", "add", "-q", submoduleRepo, "deps/lib"],
             in: repo
         )
-        GitFixture.run(
-            [
-                "-c", "user.email=test@cmux.dev",
-                "-c", "user.name=cmux test",
-                "-c", "commit.gpgsign=false",
-                "commit", "-q", "-m", "add submodule",
-            ],
-            in: repo
-        )
+        GitFixture.commit("add submodule", in: repo)
 
         let submodulePath = repo + "/deps/lib"
         #expect(FileManager.default.fileExists(atPath: submodulePath + "/.git"))
-        try FileManager.default.createDirectory(
-            atPath: submodulePath + "/.cmux/worktrees",
-            withIntermediateDirectories: true
-        )
-        let worktree = submodulePath + "/.cmux/worktrees/submodule-parent-wt"
-        GitFixture.run(["worktree", "add", "-b", "submodule-parent-wt", worktree, "HEAD"], in: submodulePath)
+        let worktree = try GitFixture.makeManagedWorktree(named: "submodule-parent-wt", in: submodulePath)
         #expect(FileManager.default.fileExists(atPath: worktree))
 
         try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktree, force: false)
@@ -457,21 +442,32 @@ private enum GitFixture {
         run(["init", "-q"], in: repo)
         try "hello\n".write(toFile: repo + "/README.md", atomically: true, encoding: .utf8)
         run(["add", "."], in: repo)
-        run(
-            [
-                "-c", "user.email=test@cmux.dev",
-                "-c", "user.name=cmux test",
-                "-c", "commit.gpgsign=false",
-                "commit", "-q", "-m", "init",
-            ],
-            in: repo
-        )
+        commit("init", in: repo)
         return repo
     }
 
     static func cleanUp(_ repo: String) {
         // Remove the temp base (repo is <base>; nuke the whole tree).
         try? FileManager.default.removeItem(atPath: repo)
+    }
+
+    static func makeManagedWorktree(named name: String, in repo: String) throws -> String {
+        try FileManager.default.createDirectory(atPath: repo + "/.cmux/worktrees", withIntermediateDirectories: true)
+        let worktree = repo + "/.cmux/worktrees/" + name
+        run(["worktree", "add", "-b", name, worktree, "HEAD"], in: repo)
+        return worktree
+    }
+
+    static func commit(_ message: String, in directory: String) {
+        run(
+            [
+                "-c", "user.email=test@cmux.dev",
+                "-c", "user.name=cmux test",
+                "-c", "commit.gpgsign=false",
+                "commit", "-q", "-m", message,
+            ],
+            in: directory
+        )
     }
 
     @discardableResult

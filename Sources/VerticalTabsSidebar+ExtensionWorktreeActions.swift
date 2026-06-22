@@ -68,12 +68,20 @@ extension VerticalTabsSidebar {
                 inWorktreePath: worktreePath,
                 windowWorkspaces: windowWorkspaces
             )
+            let removalPreview: (paths: [String], truncated: Bool, scanFailed: Bool)
+            if safety.requiresForce {
+                removalPreview = ([], false, false)
+            } else {
+                // A non-force git worktree removal can still delete ignored files.
+                removalPreview = await CmuxExtensionWorktreePrototype.forceRemovalPreview(worktreePath: worktreePath)
+            }
 
             guard confirmRemoveExtensionWorktree(
                 worktreeName: worktreeName,
                 worktreePath: worktreePath,
                 closePlans: closePlans,
-                safety: safety
+                safety: safety,
+                removalPreview: removalPreview
             ) else { return }
 
             await performRemoveExtensionWorktree(

@@ -101,7 +101,9 @@ func confirmRemoveExtensionWorktree(
     worktreeName: String,
     worktreePath: String,
     closePlans: [VerticalTabsSidebar.ExtensionWorktreeRemovalClosePlan],
-    safety: CmuxExtensionWorktreeRemovalSafety
+    safety: CmuxExtensionWorktreeRemovalSafety,
+    removalPreview: (paths: [String], truncated: Bool, scanFailed: Bool) = ([], false, false),
+    alertRunner: ((NSAlert) -> NSApplication.ModalResponse)? = nil
 ) -> Bool {
     let alert = NSAlert()
     alert.messageText = String(
@@ -194,6 +196,36 @@ func confirmRemoveExtensionWorktree(
         }
         lines.append(unpushed)
     }
+    if removalPreview.scanFailed {
+        lines.append(String(
+            localized: "dialog.removeWorktree.force.preview.failed",
+            defaultValue: "cmux could not fully preview the paths that removal may delete."
+        ))
+    }
+    if !removalPreview.paths.isEmpty {
+        let header = String(
+            localized: "dialog.removeWorktree.force.preview.header",
+            defaultValue: "Removal may delete these changed, ignored, or nested-repository paths:"
+        )
+        let itemFormat = String(
+            localized: "dialog.removeWorktree.force.preview.item",
+            defaultValue: "\u{2022} %@"
+        )
+        let itemLines = removalPreview.paths.map { path in
+            let displayPath = path
+                .replacingOccurrences(of: "\n", with: " ")
+                .replacingOccurrences(of: "\r", with: " ")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return String.localizedStringWithFormat(itemFormat, displayPath)
+        }
+        lines.append(([header] + itemLines).joined(separator: "\n"))
+    }
+    if removalPreview.truncated {
+        lines.append(String(
+            localized: "dialog.removeWorktree.force.preview.truncated",
+            defaultValue: "Additional paths may exist; only the first preview results are shown."
+        ))
+    }
     if safety.isClean {
         lines.append(String(
             localized: "dialog.removeWorktree.message.cleanFooter",
@@ -219,7 +251,8 @@ func confirmRemoveExtensionWorktree(
         cancelButton.keyEquivalent = "\u{1b}"
     }
 
-    return runCmuxModalAlert(alert) == .alertFirstButtonReturn
+    let response = alertRunner?(alert) ?? runCmuxModalAlert(alert)
+    return response == .alertFirstButtonReturn
 }
 
 /// Confirmation dialog for retrying a refused worktree removal with `--force`.
@@ -244,7 +277,7 @@ func confirmForceRemoveExtensionWorktreeAfterFailure(
     if previewScanFailed {
         lines.append(String(
             localized: "dialog.removeWorktree.force.preview.failed",
-            defaultValue: "cmux could not fully preview the paths that force removal may delete."
+            defaultValue: "cmux could not fully preview the paths that removal may delete."
         ))
     }
     if previewPaths.isEmpty {
@@ -255,7 +288,7 @@ func confirmForceRemoveExtensionWorktreeAfterFailure(
     } else {
         let header = String(
             localized: "dialog.removeWorktree.force.preview.header",
-            defaultValue: "Force removal may delete these changed, ignored, or nested-repository paths:"
+            defaultValue: "Removal may delete these changed, ignored, or nested-repository paths:"
         )
         let itemFormat = String(
             localized: "dialog.removeWorktree.force.preview.item",
