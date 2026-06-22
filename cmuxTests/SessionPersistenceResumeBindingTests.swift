@@ -36,7 +36,7 @@ import Testing
         """
         let binding = try JSONDecoder().decode(SurfaceResumeBindingSnapshot.self, from: Data(json.utf8))
 
-        #expect(binding.command.contains("'claude' '--resume' 'session-moved-cli'"), "\(binding.command)")
+        #expect(binding.command.contains("claude '--resume' 'session-moved-cli'"), "\(binding.command)")
         #expect(!binding.command.contains("/Users/me/.nvm/versions/node/v24.2.0/bin/claude"), "\(binding.command)")
     }
 
