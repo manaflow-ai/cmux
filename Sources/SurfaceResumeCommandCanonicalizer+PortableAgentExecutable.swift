@@ -70,8 +70,13 @@ extension SurfaceResumeCommandCanonicalizer {
 
     private static func isPATHManagedAgentExecutablePath(_ path: String, executableName: String) -> Bool {
         let standardized = (path as NSString).standardizingPath
-        guard isLocalManagedAgentExecutableCandidate(standardized) else { return false }
         let components = standardized.split(separator: "/").map(String.init)
+        if components.contains("cmux-cli-shims") {
+            return isLocalManagedAgentExecutableCandidate(standardized) ||
+                standardized.hasPrefix("/tmp/") ||
+                standardized.hasPrefix("/private/tmp/")
+        }
+        guard isLocalManagedAgentExecutableCandidate(standardized) else { return false }
         let lastThree = Array(components.suffix(3))
         if lastThree == [".local", "bin", executableName]
             || lastThree == [".bun", "bin", executableName]
@@ -101,7 +106,7 @@ extension SurfaceResumeCommandCanonicalizer {
            components.contains("node-versions") {
             return true
         }
-        return components.contains("cmux-cli-shims")
+        return false
     }
 
     private static func isLocalManagedAgentExecutableCandidate(_ standardizedPath: String) -> Bool {

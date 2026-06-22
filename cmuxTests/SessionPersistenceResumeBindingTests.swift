@@ -57,6 +57,7 @@ import Testing
 
         let executablePaths = [
             Self.localManagedExecutablePath(root: root, executableName: "codex", ".fnm", "current", "bin"),
+            "/tmp/cmux-cli-shims/\(UUID().uuidString)/codex",
             Self.localManagedExecutablePath(
                 root: root,
                 executableName: "codex",
