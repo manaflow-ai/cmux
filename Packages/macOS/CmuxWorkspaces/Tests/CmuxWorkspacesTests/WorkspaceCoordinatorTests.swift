@@ -480,6 +480,32 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func topLevelDragClassifiesRootGroupByGroupPinStateNotAnchorPinState() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let pinnedSolo = CoordinatorStubTab(isPinned: true)
+        let groupMember = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [pinnedSolo, groupMember, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [groupMember.id]))
+        let group = try #require(model.workspaceGroups.first { $0.id == groupId })
+        let anchor = try #require(model.tabs.first { $0.id == group.anchorWorkspaceId })
+        anchor.isPinned = true
+        let orderBefore = model.tabs.map(\.id)
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: group.anchorWorkspaceId,
+            toIndex: 0,
+            isDragOperation: true,
+            usesTopLevelRows: true
+        )
+
+        #expect(!group.isPinned)
+        #expect(!moved)
+        #expect(model.tabs.map(\.id) == orderBefore)
+    }
+
+    @Test
     func reorderingRootGroupPublishesDescendantWorkspaceIds() throws {
         let (model, host, groups, reorder) = makeWorld()
         let hotelsMember = CoordinatorStubTab()
