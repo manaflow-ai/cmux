@@ -983,6 +983,7 @@
 		E3C9F1000000000000000A10 /* Workspace+SurfaceTeardownHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3C9F1000000000000000A11 /* Workspace+SurfaceTeardownHosting.swift */; };
 		E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */; };
 		E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */; };
+		E3B7A40000000000000009F1 /* Workspace+WorkspaceLayoutFollowUpHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */; };
 		E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */; };
 		E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */; };
 		A5001406 /* Workspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001416 /* Workspace.swift */; };
@@ -2020,6 +2021,7 @@
 		E3C9F1000000000000000A11 /* Workspace+SurfaceTeardownHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+SurfaceTeardownHosting.swift"; sourceTree = "<group>"; };
 		E3B7A4000000000000000D41 /* Workspace+WorkspaceContextMenuHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceContextMenuHosting.swift"; sourceTree = "<group>"; };
 		E3D40D0000000000000000A1 /* Workspace+WorkspaceDropHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceDropHosting.swift"; sourceTree = "<group>"; };
+		E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceLayoutFollowUpHosting.swift"; sourceTree = "<group>"; };
 		E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceLayoutHosting.swift"; sourceTree = "<group>"; };
 		E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Workspace+WorkspaceSurfaceTreeReading.swift"; sourceTree = "<group>"; };
 		A5001416 /* Workspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Workspace.swift; sourceTree = "<group>"; };
@@ -2509,6 +2511,7 @@
 				E3B7A400000000000000020B /* Workspace+WorkspaceSurfaceTreeReading.swift */,
 				E3B7A40000000000000005C1 /* Workspace+SurfaceLifecycleHosting.swift */,
 				E3B7A40000000000000005D3 /* Workspace+WorkspaceLayoutHosting.swift */,
+				E3B7A40000000000000009F2 /* Workspace+WorkspaceLayoutFollowUpHosting.swift */,
 				E3B7A40000000000000005D5 /* CmuxLayoutNode+WorkspaceCustomLayout.swift */,
 				E3B7A4000000000000000CB1 /* Workspace+ClosedBrowserRestoreStagingHosting.swift */,
 				E3B7A4000000000000000A11 /* Workspace+SplitMoveReorderHosting.swift */,
@@ -4279,6 +4282,7 @@
 				E3C9F1000000000000000A10 /* Workspace+SurfaceTeardownHosting.swift in Sources */,
 				E3B7A4000000000000000D40 /* Workspace+WorkspaceContextMenuHosting.swift in Sources */,
 				E3D40D0000000000000000A0 /* Workspace+WorkspaceDropHosting.swift in Sources */,
+				E3B7A40000000000000009F1 /* Workspace+WorkspaceLayoutFollowUpHosting.swift in Sources */,
 				E3B7A40000000000000005D2 /* Workspace+WorkspaceLayoutHosting.swift in Sources */,
 				E3B7A400000000000000020A /* Workspace+WorkspaceSurfaceTreeReading.swift in Sources */,
 				A5001406 /* Workspace.swift in Sources */,

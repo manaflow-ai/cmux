@@ -9738,6 +9738,15 @@ final class GhosttySurfaceScrollView: NSView {
 
 }
 
+/// `GhosttySurfaceScrollView` is the terminal hosted view whose reparent-focus
+/// side effects ``WorkspaceLayoutFollowUpCoordinator`` suppresses across a
+/// SwiftUI reparent. The three protocol members are the existing
+/// `suppressReparentFocus()` / `clearSuppressReparentFocus()` /
+/// `canClearPendingReparentFocusSuppressionAfterLayoutAttempt()` methods, so the
+/// coordinator can hold the view as `any WorkspaceReparentSuppressible` without
+/// the package naming this app-target AppKit class.
+extension GhosttySurfaceScrollView: WorkspaceReparentSuppressible {}
+
 // MARK: - NSTextInputClient
 
 extension GhosttyNSView: NSTextInputClient {
