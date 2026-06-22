@@ -2119,6 +2119,68 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
     }
 
+    func testSystemMemoryPressureDiscardsHiddenWebViewImmediately() {
+        let pressureAt = Date(timeIntervalSince1970: 250)
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+        }
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(false, reason: "test.hidden", now: pressureAt)
+        let originalWebView = panel.webView
+
+        XCTAssertFalse(panel.discardHiddenWebViewForMemory(reason: "test.regularDiscard", now: pressureAt))
+        XCTAssertTrue(panel.discardHiddenWebViewForSystemMemoryPressure(now: pressureAt))
+        XCTAssertFalse(panel.webView === originalWebView)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+
+        let discardedPayload = panel.webViewLifecycleTopPayload(now: pressureAt)
+        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "system_memory_pressure")
+    }
+
+    func testSystemMemoryPressureDoesNotDiscardVisibleWebView() {
+        let pressureAt = Date(timeIntervalSince1970: 260)
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+
+        panel.noteWebViewVisibility(true, reason: "test.visible", now: pressureAt)
+        let originalWebView = panel.webView
+
+        XCTAssertFalse(panel.discardHiddenWebViewForSystemMemoryPressure(now: pressureAt))
+        XCTAssertTrue(panel.webView === originalWebView)
+        XCTAssertTrue(panel.shouldRenderWebView)
+        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+    }
+
     /// Regression guard for the issue #5303 render loop: `BrowserPanelView.onAppear`
     /// re-fired on every CoreAnimation commit and re-asserted webview visibility,
     /// which restored + re-navigated the webview repeatedly. Once the webview is live
