@@ -222,6 +222,7 @@ struct RemotePortScanGatingTests {
             "pty.session",
             "pty.session.token",
             "pty.write.notification",
+            "pty.resize.notification",
             "pty.session.persistent_daemon",
         ])
         #expect(coordinator.bakedDaemonPreflightRequiredCapabilities == ["proxy.stream.push"])
