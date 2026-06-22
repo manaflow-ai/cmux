@@ -6472,6 +6472,9 @@ extension BrowserPanel {
             }
             developerToolsLastKnownVisibleAt = Date()
             developerToolsRevealDeferredUntilWebViewAttached = false
+            if let inspector = webView.cmuxInspectorObject() {
+                applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
+            }
             refreshAttachedDeveloperToolsFrontend(reason: "detachedClose.redock.\(source)")
             cancelDeveloperToolsRestoreRetry()
 #if DEBUG
