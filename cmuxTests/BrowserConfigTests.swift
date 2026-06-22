@@ -3069,6 +3069,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         func setFrontendWebView(_ webView: WKWebView?) {
             frontendWebView = webView
         }
+
+        func setShowFailuresAfterEligibility(_ count: Int) {
+            remainingShowFailuresAfterEligibility = count
+        }
     }
 
     override class func setUp() {
@@ -4023,6 +4027,47 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "Deferred DevTools reveal must keep retry budget for the first post-attach show failure"
         )
         XCTAssertGreaterThanOrEqual(inspector.showCount, 2)
+    }
+
+    func testDeferredRevealRetriesAreNotConsumedAsManualCloseAfterPriorVisibleInspector() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        inspector.setFrontendWebView(panel.webView)
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.hideDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+        inspector.setShowFailuresAfterEligibility(40)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: window.contentView?.bounds.height ?? 240)
+        window.contentView?.addSubview(panel.webView)
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+
+        XCTAssertTrue(
+            panel.preferredDeveloperToolsVisible,
+            "A deferred DevTools reopen that is still retrying must not be consumed as a manual close after the grace window"
+        )
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        inspector.setShowFailuresAfterEligibility(0)
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
     }
 
     func testDeferredRevealSurvivesManualCloseDetectionGraceBeforeHostIsSized() {

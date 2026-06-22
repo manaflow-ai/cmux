@@ -6589,9 +6589,9 @@ extension BrowserPanel {
 
     @discardableResult
     private func revealDeveloperTools(_ inspector: NSObject) -> Bool {
-        developerToolsRevealDeferredUntilWebViewAttached = false
         let isVisibleSelector = NSSelectorFromString("isVisible")
         if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
+            developerToolsRevealDeferredUntilWebViewAttached = false
             developerToolsDetachedOpenGraceDeadline = nil
             developerToolsLastKnownVisibleAt = Date()
             applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
@@ -6605,6 +6605,7 @@ extension BrowserPanel {
         inspector.cmuxCallVoid(selector: showSelector)
         let visibleAfterShow = inspector.cmuxCallBool(selector: isVisibleSelector) ?? false
         if visibleAfterShow {
+            developerToolsRevealDeferredUntilWebViewAttached = false
             developerToolsLastKnownVisibleAt = Date()
             applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
         }
