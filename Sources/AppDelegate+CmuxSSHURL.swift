@@ -364,28 +364,17 @@ extension AppDelegate {
 
     @discardableResult
     func handleCmuxSSHURLs(from urls: [URL]) -> Bool {
-        var sshURLRequests: [CmuxSSHURLRequest] = []
-        var sshURLParseErrors: [CmuxSSHURLParseError] = []
-        for url in urls {
-            switch CmuxSSHURLRequest.parse(url) {
-            case .success(.some(let request)):
-                sshURLRequests.append(request)
-            case .success(nil):
-                break
-            case .failure(let error):
-                sshURLParseErrors.append(error)
-            }
-        }
-        let sshURLIntentCount = sshURLRequests.count + sshURLParseErrors.count
-        guard sshURLIntentCount > 0 else { return false }
-
-        if sshURLIntentCount > 1 {
+        let plan = CmuxDeepLinkDispatchPlan(parsing: urls, with: CmuxSSHURLRequest.parse)
+        switch plan.resolution {
+        case .empty:
+            return false
+        case .multipleLinks:
             showCmuxSSHURLParseError(.multipleLinks)
-        } else {
-            for error in sshURLParseErrors {
+        case .single(let parseErrors, let request):
+            for error in parseErrors {
                 showCmuxSSHURLParseError(error)
             }
-            if let request = sshURLRequests.first {
+            if let request {
                 handleCmuxSSHURLRequest(request)
             }
         }
@@ -394,28 +383,17 @@ extension AppDelegate {
 
     @discardableResult
     func handleCmuxTextURLs(from urls: [URL]) -> Bool {
-        var textURLRequests: [CmuxTextURLRequest] = []
-        var textURLParseErrors: [CmuxTextURLParseError] = []
-        for url in urls {
-            switch CmuxTextURLRequest.parse(url) {
-            case .success(.some(let request)):
-                textURLRequests.append(request)
-            case .success(nil):
-                break
-            case .failure(let error):
-                textURLParseErrors.append(error)
-            }
-        }
-        let textURLIntentCount = textURLRequests.count + textURLParseErrors.count
-        guard textURLIntentCount > 0 else { return false }
-
-        if textURLIntentCount > 1 {
+        let plan = CmuxDeepLinkDispatchPlan(parsing: urls, with: CmuxTextURLRequest.parse)
+        switch plan.resolution {
+        case .empty:
+            return false
+        case .multipleLinks:
             showCmuxTextURLParseError(.multipleLinks)
-        } else {
-            for error in textURLParseErrors {
+        case .single(let parseErrors, let request):
+            for error in parseErrors {
                 showCmuxTextURLParseError(error)
             }
-            if let request = textURLRequests.first {
+            if let request {
                 handleCmuxTextURLRequest(request)
             }
         }
