@@ -333,9 +333,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedDividerRegionGeneration: UInt64?
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
-#if DEBUG
     private(set) var debugDividerRegionBuildCountForTesting = 0
-#endif
 
     deinit {
         if let trackingArea {

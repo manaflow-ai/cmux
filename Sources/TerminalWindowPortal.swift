@@ -40,9 +40,7 @@ final class WindowTerminalHostView: NSView {
     private var cachedDividerRegionGeneration: UInt64?
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
-#if DEBUG
     private(set) var debugDividerRegionBuildCountForTesting = 0
-#endif
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
@@ -429,12 +427,11 @@ final class WindowTerminalHostView: NSView {
         return Self.dividerCursorKind(at: windowPoint, in: dividerRegions(in: rootView))
     }
 
-    static func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
+    func hasSplitDivider(atScreenPoint screenPoint: NSPoint, in window: NSWindow) -> Bool {
+        guard self.window === window else { return false }
         guard let rootView = window.contentView else { return false }
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
-        var regions: [DividerRegion] = []
-        collectSplitDividerRegions(in: rootView, into: &regions)
-        return dividerCursorKind(at: windowPoint, in: regions) != nil
+        return Self.dividerCursorKind(at: windowPoint, in: dividerRegions(in: rootView)) != nil
     }
 
     private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
@@ -1873,6 +1870,11 @@ final class WindowTerminalPortal: NSObject {
         guard let hit = hostedScrollViewAtWindowPoint(windowPoint) else { return nil }
         return hit.view.paneDropTargetForDrop(at: hit.point)
     }
+
+    func hasSplitDivider(atScreenPoint screenPoint: NSPoint) -> Bool {
+        guard let window else { return false }
+        return hostView.hasSplitDivider(atScreenPoint: screenPoint, in: window)
+    }
 }
 
 @MainActor
@@ -1932,7 +1934,8 @@ enum TerminalWindowPortalRegistry {
         let candidateWindows = currentSplitDividerDragCandidateWindows(for: event)
         let mouseLocation = NSEvent.mouseLocation
         for window in candidateWindows {
-            if WindowTerminalHostView.hasSplitDivider(atScreenPoint: mouseLocation, in: window) {
+            guard let portal = portalsByWindowId[ObjectIdentifier(window)] else { continue }
+            if portal.hasSplitDivider(atScreenPoint: mouseLocation) {
                 activeSplitDividerDragWindowId = ObjectIdentifier(window)
                 activeSplitDividerDragEventNumber = event.eventNumber
                 return true
