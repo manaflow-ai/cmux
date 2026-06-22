@@ -100,7 +100,7 @@ extension Workspace {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = customPanel.id
+        bindSurface(newTabId, toPanelId: customPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -149,7 +149,7 @@ extension Workspace {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = customPanel.id
+        bindSurface(newTab.id, toPanelId: customPanel.id)
         let previousHostedView = focusedTerminalPanel?.hostedView
 
         isProgrammaticSplit = true
@@ -162,7 +162,7 @@ extension Workspace {
         ) else {
             panels.removeValue(forKey: customPanel.id)
             panelTitles.removeValue(forKey: customPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
 
