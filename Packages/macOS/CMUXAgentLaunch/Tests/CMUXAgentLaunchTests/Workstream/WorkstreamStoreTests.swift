@@ -122,7 +122,19 @@ struct WorkstreamStoreTests {
 
     @Test("Codex CLI lifecycle feed events stay telemetry")
     func codexLifecycleFeedEventsStayTelemetry() {
-        let store = WorkstreamStore(ringCapacity: 10)
+        let store = WorkstreamStore(
+            ringCapacity: 10,
+            titleProvider: { event in
+                switch event.hookEventName {
+                case .preCompact, .postCompact:
+                    return "Compaction"
+                case .subagentStart, .subagentStop:
+                    return "Subagent"
+                default:
+                    return nil
+                }
+            }
+        )
         let events: [WorkstreamEvent.HookEventName] = [
             .postToolUse,
             .preCompact,

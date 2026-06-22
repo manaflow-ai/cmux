@@ -39,6 +39,7 @@ public final class WorkstreamStore {
     private let initialLoadLimit: Int
     private let historyPageSize: Int
     private let clock: @Sendable () -> Date
+    private let titleProvider: (WorkstreamEvent) -> String?
     private var oldestLoadedPersistenceOffset: UInt64?
 
     /// Last known conversational context for each workstream. Tool hooks
@@ -46,13 +47,24 @@ public final class WorkstreamStore {
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
 
+    /// Creates a store for Feed workstream items.
+    ///
+    /// - Parameters:
+    ///   - transport: Source and reply transport for live Feed events.
+    ///   - persistence: Optional JSONL persistence for event history.
+    ///   - ringCapacity: Maximum in-memory item count.
+    ///   - initialLoadLimit: Maximum persisted item count loaded at startup.
+    ///   - historyPageSize: Page size for older persisted history.
+    ///   - clock: Clock used for timestamps and expiry checks.
+    ///   - titleProvider: App boundary hook for localized display titles.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
         ringCapacity: Int = WorkstreamDefaultRingCapacity,
         initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
         historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil }
     ) {
         self.transport = transport
         self.persistence = persistence
@@ -60,6 +72,7 @@ public final class WorkstreamStore {
         self.initialLoadLimit = initialLoadLimit
         self.historyPageSize = historyPageSize
         self.clock = clock
+        self.titleProvider = titleProvider
     }
 
     public func start() async {
@@ -338,15 +351,7 @@ public final class WorkstreamStore {
         if let tool = event.toolName, !tool.isEmpty {
             return tool
         }
-        switch event.hookEventName {
-        case .preCompact, .postCompact:
-            return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
-        case .subagentStart, .subagentStop:
-            return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
-        default:
-            break
-        }
-        return nil
+        return titleProvider(event)
     }
 
     /// Parses Claude Code's `AskUserQuestion` tool input (or similar)
