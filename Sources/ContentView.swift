@@ -2226,7 +2226,7 @@ struct ContentView: View {
         }
     }
 
-    private func updateTitlebarText() {
+    @MainActor private func updateTitlebarText() {
         guard let selectedId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             if !titlebarText.isEmpty {
@@ -2241,7 +2241,7 @@ struct ContentView: View {
         }
     }
 
-    private func scheduleTitlebarTextRefresh() {
+    @MainActor private func scheduleTitlebarTextRefresh() {
         titlebarTextUpdateCoalescer.signal {
             updateTitlebarText()
         }
@@ -2644,8 +2644,13 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDidSetTitle)) { notification in
-            guard GhosttyTitleChange(notification: notification)?.tabId == tabManager.selectedTabId else { return }
+            guard tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: GhosttyTitleChange(notification: notification)?.tabId) else { return }
             scheduleTitlebarTextRefresh()
+        })
+
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .workspaceTitleDidChange, object: tabManager)) { notification in
+            guard let workspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID, workspaceId == tabManager.selectedTabId, !tabManager.shouldScheduleRawTitleRefresh(forWorkspaceId: workspaceId) else { return }
+            updateTitlebarText()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
