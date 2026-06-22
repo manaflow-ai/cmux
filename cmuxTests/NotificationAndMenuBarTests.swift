@@ -684,13 +684,13 @@ final class NotificationDockBadgeTests: XCTestCase {
         var readNotification = terminalNotification
         readNotification.isRead = true
 
-        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(clickActionNotification))
-        XCTAssertTrue(AppDelegate.shouldOpenFromJumpToLatestUnread(terminalNotification))
-        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(readNotification))
-        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(
-            terminalNotification,
-            excludingNotificationId: terminalNotification.id
-        ))
+        func openable(_ n: TerminalNotification, excludingNotificationId id: UUID? = nil) -> Bool {
+            n.navSnapshot.isOpenableForJump(excludingNotificationId: id, excludingWorkspaceId: nil)
+        }
+        XCTAssertFalse(openable(clickActionNotification))
+        XCTAssertTrue(openable(terminalNotification))
+        XCTAssertFalse(openable(readNotification))
+        XCTAssertFalse(openable(terminalNotification, excludingNotificationId: terminalNotification.id))
     }
 
     func testDockBadgeLabelEnabledAndCounted() {

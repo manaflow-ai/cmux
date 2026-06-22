@@ -211,15 +211,7 @@ extension AppDelegate {
 
     var orderedNotificationsForNav: [NotificationNavSnapshot] {
         guard let notificationStore else { return [] }
-        return notificationStore.notifications.map { notification in
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction)
-            )
-        }
+        return notificationStore.notifications.map(\.navSnapshot)
     }
 
     var workspaceUnreadIndicatorIdsForNav: Set<UUID> {
@@ -236,39 +228,6 @@ extension AppDelegate {
 
     func navMarkRead(id: UUID) {
         notificationStore?.markRead(id: id)
-    }
-
-    /// Maps the app-target click action onto the package's value-typed action.
-    static func navClickAction(
-        _ action: TerminalNotificationClickAction
-    ) -> NotificationNavClickAction {
-        switch action {
-        case .revealInFinder(let path):
-            return .revealInFinder(path: path)
-        }
-    }
-
-    /// Whether `notification` is openable by the jump-to-latest scan. A thin
-    /// shim over `NotificationNavSnapshot.isOpenableForJump`, kept so the legacy
-    /// predicate name and its unit test remain valid (and prove the package
-    /// predicate matches the original contract). The coordinator itself uses the
-    /// snapshot predicate directly; this is not on its hot path.
-    static func shouldOpenFromJumpToLatestUnread(
-        _ notification: TerminalNotification,
-        excludingNotificationId excludedNotificationId: UUID? = nil,
-        excludingWorkspaceId excludedWorkspaceId: UUID? = nil
-    ) -> Bool {
-        NotificationNavSnapshot(
-            id: notification.id,
-            tabId: notification.tabId,
-            surfaceId: notification.surfaceId,
-            isRead: notification.isRead,
-            clickAction: notification.clickAction.map(navClickAction)
-        )
-        .isOpenableForJump(
-            excludingNotificationId: excludedNotificationId,
-            excludingWorkspaceId: excludedWorkspaceId
-        )
     }
 
     // MARK: MainWindowContextResolving helpers
@@ -449,5 +408,35 @@ extension AppDelegate {
 
     func markLatestNotificationAsOldestUnread(forTabId tabId: UUID, surfaceId: UUID?) -> UUID? {
         notificationStore?.markLatestNotificationAsOldestUnread(forTabId: tabId, surfaceId: surfaceId)
+    }
+}
+
+/// Value-bridge from the app-target click action onto the package's value-typed
+/// ``NotificationNavClickAction``. Lives on the owning type per CONVENTIONS §9
+/// (operations on a type are extensions on that type), replacing the former
+/// `AppDelegate.navClickAction(_:)` static helper (a §10 namespace-on-AppDelegate
+/// anti-pattern). Byte-identical to the previous mapping.
+extension TerminalNotificationClickAction {
+    var navClickAction: NotificationNavClickAction {
+        switch self {
+        case .revealInFinder(let path):
+            return .revealInFinder(path: path)
+        }
+    }
+}
+
+/// Value-bridge from the app-target notification onto the package navigation
+/// snapshot the coordinator consumes. Lives on the owning type per CONVENTIONS
+/// §9, replacing the inline snapshot construction that was duplicated at each
+/// call site.
+extension TerminalNotification {
+    var navSnapshot: NotificationNavSnapshot {
+        NotificationNavSnapshot(
+            id: id,
+            tabId: tabId,
+            surfaceId: surfaceId,
+            isRead: isRead,
+            clickAction: clickAction?.navClickAction
+        )
     }
 }
