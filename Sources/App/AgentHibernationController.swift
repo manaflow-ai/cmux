@@ -32,6 +32,7 @@ enum AgentHibernationPlanner {
         let eligible = liveRestorable
             .filter { input in
                 !input.isProtected &&
+                    !input.hasLiveProcess &&
                     input.lifecycle.allowsHibernation &&
                     !input.hasUnconfirmedTerminalInput &&
                     now - input.lastActivityAt >= settings.idleSeconds
@@ -205,6 +206,7 @@ final class AgentHibernationController {
             if shouldMaintainTailSamples,
                isLive,
                !record.isProtected,
+               !record.hasLiveProcess,
                record.lifecycle.allowsHibernation,
                !record.hasUnconfirmedTerminalInput,
                let tailActivityAt = updateTailFingerprintSample(record: record, now: nowTime) {
@@ -249,7 +251,8 @@ final class AgentHibernationController {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
-              record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess,
+              !record.hasLiveProcess,
+              record.terminalPanel.surface.hasLiveSurface,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
             return
