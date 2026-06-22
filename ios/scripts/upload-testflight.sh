@@ -876,7 +876,17 @@ else
   NOTES_SOURCE_ARGS=()
   NOTES_SOURCE_DESC="ios/CHANGELOG.md"
   if [[ "$RANGE_NOTES_MODE" -eq 1 ]]; then
-    GENERATED_NOTES="$("$SCRIPT_DIR/generate-testflight-notes.sh" "$NOTES_RANGE_BASE" --audience "$NOTES_AUDIENCE" 2>/dev/null || true)"
+    # Keep generator stderr on the CI transcript (its fallback/unreachable-base
+    # diagnostics are useful); only swallow a non-zero EXIT so a generator hiccup
+    # cannot fail the already-uploaded build. Guard against an empty result: an
+    # empty --notes would be treated downstream as "no override" and silently fall
+    # back to changelog mode (the wrong notes for an auto-version build), or push
+    # blank What to Test. Substitute the generator's own fallback line instead.
+    GENERATED_NOTES="$("$SCRIPT_DIR/generate-testflight-notes.sh" "$NOTES_RANGE_BASE" --audience "$NOTES_AUDIENCE" || true)"
+    if [[ -z "$GENERATED_NOTES" ]]; then
+      GENERATED_NOTES="- Latest main; no notable iOS changes detected since the previous build."
+      echo "warning: notes generator produced no output; using the fallback What to Test line" >&2
+    fi
     NOTES_SOURCE_ARGS=( --notes "$GENERATED_NOTES" )
     if [[ -n "$NOTES_RANGE_BASE" ]]; then
       NOTES_SOURCE_DESC="commits since the previous beta (${NOTES_RANGE_BASE})"

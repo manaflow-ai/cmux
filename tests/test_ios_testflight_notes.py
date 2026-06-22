@@ -44,6 +44,10 @@ def _gen(repo, base, audience="internal"):
     env = dict(os.environ)
     out = subprocess.run(["bash", SCRIPT, base, "--audience", audience],
                          cwd=repo, capture_output=True, text=True, env=env)
+    # The generator must always exit 0 (notes are non-fatal; a failure here would
+    # abort the upload). Assert it, since callers only read stdout.
+    _check(out.returncode == 0,
+           f"generator exits 0 (base={base or 'EMPTY'}, {audience})")
     return out.stdout
 
 
@@ -68,6 +72,11 @@ def main():
         _commit(repo, "ios/cmux/Chore.swift", "chore: bump deps (#105)")
         _commit(repo, "ios/cmux/Ci.swift", "ci: tweak workflow (#106)")
 
+        # Subjects containing the literal '|' must not corrupt de-duplication
+        # (regression: a '|'-delimited seen-set dropped distinct later subjects).
+        _commit(repo, "ios/cmux/Pipe.swift", "ios: support A|B mode (#107)")
+        _commit(repo, "ios/cmux/Pipe2.swift", "ios: support A (#108)")
+
         internal = _gen(repo, base, "internal")
         _check("fix the thing (#101)" in internal, "internal includes iOS PR title + number")
         _check("add a feature (#102)" in internal, "internal includes Packages/iOS commit")
@@ -75,6 +84,9 @@ def main():
         _check("unrelated web change" not in internal, "internal excludes non-iOS commit")
         _check("bump deps" not in internal and "tweak workflow" not in internal,
                "internal excludes chore/ci noise")
+        _check("support A|B mode (#107)" in internal, "pipe-subject preserved")
+        _check("support A (#108)" in internal,
+               "distinct subject not dropped by a pipe-bearing earlier subject")
 
         external = _gen(repo, base, "external")
         _check("#101" not in external and "#102" not in external,

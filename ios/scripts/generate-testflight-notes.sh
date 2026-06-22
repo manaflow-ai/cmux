@@ -68,7 +68,12 @@ PATHS="ios Packages/iOS Packages/Shared Sources/Mobile vendor/stack-auth-swift-s
 # First-line subjects of non-merge commits in range touching those paths. Squash
 # merges carry the PR title + "(#N)" as the subject, which is exactly what we want.
 emitted=0
-seen="|"
+# Newline-delimited set of subjects already emitted. A commit subject is one git
+# log line, so it never contains a newline; membership is an exact fixed-string
+# line match (grep -Fx), which avoids both glob interpretation and a separator
+# collision (an earlier `|`-delimited scheme dropped distinct subjects that
+# happened to contain `|`, e.g. "feat: support A|B mode").
+seen=""
 
 while IFS= read -r subject; do
   [[ -n "$subject" ]] || continue
@@ -80,8 +85,9 @@ while IFS= read -r subject; do
   esac
 
   # De-dupe identical subjects, preserving first-seen order.
-  case "$seen" in *"|${subject}|"*) continue ;; esac
-  seen="${seen}${subject}|"
+  if printf '%s\n' "$seen" | grep -Fxq -- "$subject"; then continue; fi
+  seen="${seen}${subject}
+"
 
   if [[ "$emitted" -ge "$MAX" ]]; then
     echo "- ...and more (see the commit log)"
