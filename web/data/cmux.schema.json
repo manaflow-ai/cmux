@@ -433,6 +433,7 @@
           "type": "string",
           "enum": ["ask", "full", "summary"],
           "default": "ask",
+          "descriptionKey": "schemaDescriptions.terminal.claudeResumeMode",
           "description": "How cmux answers Claude Code's compacted-session resume prompt when auto-resuming a Claude agent. \"ask\" leaves the interactive prompt for you; \"full\" auto-selects Resume full session as-is; \"summary\" auto-selects Resume from summary."
         },
         "showTextBoxOnNewTerminals": {
