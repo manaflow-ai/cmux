@@ -318,7 +318,7 @@ extension CMUXCLI {
                 .init(agentEvent: "sessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "userPromptSubmitted", cmuxSubcommand: "prompt-submit"),
                 .init(agentEvent: "agentStop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "errorOccurred", cmuxSubcommand: "stop"),
+                .init(agentEvent: "errorOccurred", cmuxSubcommand: "notification"),
                 .init(agentEvent: "sessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["preToolUse"]

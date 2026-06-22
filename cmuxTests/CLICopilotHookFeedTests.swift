@@ -82,6 +82,15 @@ struct CLICopilotHookFeedTests {
         #expect(hooks["Stop"] == nil, "Copilot must use canonical agentStop/errorOccurred hook names")
         #expect(hooks["SessionEnd"] == nil, "Copilot must use canonical camelCase hook names")
         #expect(hooks["PreToolUse"] == nil, "Copilot must install canonical preToolUse hooks")
+        let errorOccurred = try #require(hooks["errorOccurred"] as? [[String: Any]])
+        #expect(
+            errorOccurred.contains {
+                ($0["bash"] as? String)?.contains("hooks copilot notification") == true
+                    && ($0["type"] as? String) == "command"
+                    && $0["command"] == nil
+            },
+            "Expected errorOccurred to route through notification handling, saw \(errorOccurred)"
+        )
         let preToolUse = try #require(hooks["preToolUse"] as? [[String: Any]])
         #expect(
             preToolUse.contains {
