@@ -1675,7 +1675,12 @@ class TabManager: ObservableObject {
     /// write landed (`.auto` writes are rejected over user-set titles; see
     /// ``Workspace/setCustomTitle(_:source:)``).
     @discardableResult
-    func setCustomTitle(tabId: UUID, title: String?, source: Workspace.CustomTitleSource = .user) -> Bool {
+    func setCustomTitle(
+        tabId: UUID,
+        title: String?,
+        source: Workspace.CustomTitleSource = .user,
+        propagateToRemoteTmux: Bool = true
+    ) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let applied = tabs[index].setCustomTitle(title, source: source)
         if applied, selectedTabId == tabId {
@@ -1684,7 +1689,7 @@ class TabManager: ObservableObject {
         // A remote tmux mirror workspace rename propagates to `rename-session`,
         // but only when the write landed (an `.auto` write rejected over a
         // user-set title must not desync the remote session name).
-        if applied, tabs[index].isRemoteTmuxMirror {
+        if applied, propagateToRemoteTmux, tabs[index].isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWorkspaceRenamed(
                 workspaceId: tabId, title: title
             )
