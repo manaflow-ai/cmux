@@ -62,6 +62,14 @@ import Testing
         #expect(sessions[0].name == "my long session")
     }
 
+    @Test func preservesNameWhitespaceAndStripsLineTerminator() {
+        let output = "$9:2:0:1780000006:  padded  \n$10:1:0:1780000007:crlf\r\n"
+        let sessions = RemoteTmuxSessionListParser.parse(output)
+        #expect(sessions.count == 2)
+        #expect(sessions[0].name == "  padded  ")
+        #expect(sessions[1].name == "crlf")
+    }
+
     @Test func rejectsControlCharSubstitutedOutput() {
         // Regression: against a non-UTF-8 remote tmux client, tmux sanitizes
         // control bytes in `-F` output to `_`. The previous tab-delimited format

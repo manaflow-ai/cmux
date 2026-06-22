@@ -44,7 +44,10 @@ enum RemoteTmuxSessionListParser {
     static func parse(_ output: String) -> [RemoteTmuxSession] {
         var sessions: [RemoteTmuxSession] = []
         for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            var line = String(rawLine)
+            if line.last == "\r" {
+                line.removeLast()
+            }
             if line.isEmpty { continue }
             // Unbounded split: the first four fields are id/windows/attached/
             // created, and the name (which may itself contain `:`) is reassembled
