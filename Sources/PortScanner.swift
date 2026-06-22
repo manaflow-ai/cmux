@@ -425,16 +425,29 @@ final class PortScanner: @unchecked Sendable {
                     agentCallback(result.workspaceId, result.ports)
                 }
             }
-            await self.acknowledgeAgentResults(appliedResults)
+            await self.acknowledgeAgentResults(
+                validatedResults,
+                appliedWorkspaceIds: Set(appliedResults.map(\.workspaceId))
+            )
         }
     }
 
-    private func acknowledgeAgentResults(_ results: [(workspaceId: UUID, ports: [Int], revision: UInt64)]) async {
+    private func acknowledgeAgentResults(
+        _ results: [(workspaceId: UUID, ports: [Int], revision: UInt64)],
+        appliedWorkspaceIds: Set<UUID>
+    ) async {
         guard !results.isEmpty else { return }
         await withCheckedContinuation { continuation in
             queue.async { [self] in
                 for (workspaceId, ports, revision) in results {
                     guard agentRevisionByWorkspace[workspaceId, default: 0] == revision else { continue }
+                    guard appliedWorkspaceIds.contains(workspaceId) else {
+                        if !trackedAgentWorkspaces.contains(workspaceId) {
+                            forceAgentResultWorkspaces.remove(workspaceId)
+                            lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                        }
+                        continue
+                    }
                     forceAgentResultWorkspaces.remove(workspaceId)
                     if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
                         lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
