@@ -86,6 +86,24 @@ import Testing
         #expect(SidebarWorkspaceRowDropMetrics.estimatedMetadataBlockLineCounts(blocks, isExpanded: true) == [1, 12])
     }
 
+    @Test func metadataBlockLineEstimationUsesRenderedMarkdownText() {
+        let longURL = "https://example.com/" + String(repeating: "hidden-url-segment/", count: 24)
+        let block = SidebarMetadataBlock(
+            key: "link",
+            markdown: "[short](\(longURL))",
+            priority: 0,
+            timestamp: Date()
+        )
+
+        let lineCounts = SidebarWorkspaceRowDropMetrics.estimatedMetadataBlockLineCounts(
+            [block],
+            isExpanded: false,
+            textWidth: 48
+        )
+
+        #expect(lineCounts == [1])
+    }
+
     @Test func workspaceRowDropTargetHeightUsesLineAwareTitleAndDescriptionEstimates() {
         let short = workspaceRowHeight(titleLineCount: 1, descriptionLineCount: 1)
         let tall = workspaceRowHeight(titleLineCount: 4, descriptionLineCount: 5)

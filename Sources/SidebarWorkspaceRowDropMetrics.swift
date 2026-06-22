@@ -10,6 +10,7 @@ struct SidebarWorkspaceRowDropMetrics {
     static let maxWrappedTitleLines = 8
     static let maxDescriptionLines = 12
     static let maxMetadataBlockLines = 12
+    private static let maxMetadataBlockCharacters = 4096
     private static let defaultEstimatedCharactersPerLine = 42
     private static let topLevelSectionSpacing: CGFloat = 4
     private static let titleGlyphWidthFactor: CGFloat = 0.62
@@ -96,8 +97,9 @@ struct SidebarWorkspaceRowDropMetrics {
     ) -> [Int] {
         let visibleBlocks = isExpanded ? blocks : Array(blocks.prefix(collapsedMetadataBlockLimit))
         return visibleBlocks.map {
+            let visibleText = visibleMetadataBlockText($0.markdown)
             estimatedLineCount(
-                $0.markdown,
+                visibleText,
                 maxLines: maxMetadataBlockLines,
                 textWidth: textWidth,
                 fontSize: 10 * max(fontScale, 0.5),
@@ -160,6 +162,54 @@ struct SidebarWorkspaceRowDropMetrics {
         let toggleCount = hasToggle ? 1 : 0
         let blockSpacingCount = max(lineCounts.count + toggleCount - 1, 0)
         return (CGFloat(visibleLineCount) * 13 + CGFloat(toggleCount) * 13 + CGFloat(blockSpacingCount) * 3) * scale
+    }
+
+    private static func visibleMetadataBlockText(_ markdown: String) -> String {
+        let displayMarkdown = boundedDisplayString(
+            markdown,
+            maxDisplayedLines: maxMetadataBlockLines,
+            maxDisplayedCharacters: maxMetadataBlockCharacters
+        )
+        guard displayMarkdown.utf8.count <= maxMetadataBlockCharacters,
+              let rendered = try? AttributedString(
+                markdown: displayMarkdown,
+                options: .init(interpretedSyntax: .full)
+              ) else {
+            return displayMarkdown
+        }
+        return String(rendered.characters)
+    }
+
+    private static func boundedDisplayString(
+        _ text: String,
+        maxDisplayedLines: Int,
+        maxDisplayedCharacters: Int
+    ) -> String {
+        var result = ""
+        result.reserveCapacity(maxDisplayedCharacters)
+        var lineCount = 1
+        var characterCount = 0
+        var truncated = false
+
+        for character in text {
+            if characterCount >= maxDisplayedCharacters {
+                truncated = true
+                break
+            }
+            if character == "\n" {
+                if lineCount >= maxDisplayedLines {
+                    truncated = true
+                    break
+                }
+                lineCount += 1
+            }
+            result.append(character)
+            characterCount += 1
+        }
+
+        guard truncated else { return text }
+        let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "..." : trimmed + "..."
     }
 
     static func rowContentWidth(sidebarWidth: CGFloat) -> CGFloat {
