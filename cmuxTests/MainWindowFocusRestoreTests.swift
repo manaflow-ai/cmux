@@ -158,7 +158,9 @@ struct MainWindowFocusRestoreTests {
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
         hostedView.moveFocus()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            hostedView.isSurfaceViewFirstResponder()
+        }
         #expect(
             hostedView.isSurfaceViewFirstResponder(),
             "Expected terminal surface to own first responder before restore test"
@@ -178,7 +180,9 @@ struct MainWindowFocusRestoreTests {
         window.animationBehavior = .none
         window.orderOut(nil)
         window.close()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            mainWindow(for: windowId) == nil || !window.isVisible
+        }
     }
 
     private func surfaceView(in hostedView: GhosttySurfaceScrollView) -> GhosttyNSView? {
