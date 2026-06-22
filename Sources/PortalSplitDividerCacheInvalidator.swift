@@ -2,11 +2,14 @@ import AppKit
 
 @MainActor
 final class PortalSplitDividerCacheInvalidator {
-    private var observations: [NSKeyValueObservation] = []
-    private var notificationObservers: [NSObjectProtocol] = []
+    // Observer tokens are assigned/cleared from main-thread AppKit paths. Swift
+    // deinit is nonisolated, so the teardown helper needs nonisolated access
+    // after all main-thread use has ceased.
+    private nonisolated(unsafe) var observations: [NSKeyValueObservation] = []
+    private nonisolated(unsafe) var notificationObservers: [NSObjectProtocol] = []
 
     deinit {
-        invalidate()
+        invalidateObservations()
     }
 
     func observe(
@@ -59,6 +62,10 @@ final class PortalSplitDividerCacheInvalidator {
     }
 
     func invalidate() {
+        invalidateObservations()
+    }
+
+    private nonisolated func invalidateObservations() {
         observations.removeAll()
         notificationObservers.forEach(NotificationCenter.default.removeObserver)
         notificationObservers.removeAll()
