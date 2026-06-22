@@ -4404,6 +4404,60 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
+    func testLocalInlineTransferMovesAttachedInspectorFrontendWithPage() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        let localSlot = WindowBrowserSlotView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
+        contentView.addSubview(sourceSlot)
+        contentView.addSubview(localSlot)
+
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
+        )
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: frontendWebView.frame.maxY,
+            width: sourceSlot.bounds.width,
+            height: sourceSlot.bounds.height - frontendWebView.frame.height
+        )
+        sourceSlot.addSubview(frontendWebView)
+        sourceSlot.addSubview(panel.webView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        WebViewRepresentable.browserPanelTestMoveWebKitRelatedSubviewsIntoLocalHost(
+            from: sourceSlot,
+            to: localSlot,
+            primaryWebView: panel.webView
+        )
+
+        XCTAssertTrue(
+            panel.webView.superview === localSlot,
+            "Local inline takeover should move the page out of the retiring host"
+        )
+        XCTAssertTrue(
+            frontendWebView.superview === localSlot,
+            "Local inline takeover should move an attached inspector frontend with the page instead of orphaning it in the retiring host"
+        )
+    }
+
     func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
@@ -4581,11 +4635,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let inspectorView = WKInspectorProbeView(
-            frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72)
+        let inspectorView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
         )
         inspectorView.autoresizingMask = [.width]
         initialSlot.addSubview(inspectorView)
+        inspector.setFrontendWebView(inspectorView)
         panel.webView.frame = NSRect(
             x: 0,
             y: inspectorView.frame.maxY,

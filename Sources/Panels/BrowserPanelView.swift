@@ -7210,9 +7210,25 @@ struct WebViewRepresentable: NSViewRepresentable {
             return candidate === inspectorFrontend || inspectorFrontend.isDescendant(of: candidate)
         }
 
-        if let directChild = directTransferChild(of: sourceSuperview, containing: primaryWebView),
-           !containsInspectorFrontend(directChild) {
-            append(directChild)
+        func shouldTransferAttachedInspectorFrontend(_ candidate: NSView) -> Bool {
+            guard let inspectorFrontend,
+                  inspectorFrontend !== primaryWebView,
+                  containsInspectorFrontend(candidate),
+                  let primaryWindow = primaryWebView.window,
+                  inspectorFrontend.window === primaryWindow,
+                  sourceSuperview.window === primaryWindow else {
+                return false
+            }
+            return true
+        }
+
+        if let directChild = directTransferChild(of: sourceSuperview, containing: primaryWebView) {
+            if containsInspectorFrontend(directChild),
+               !shouldTransferAttachedInspectorFrontend(directChild) {
+                append(primaryWebView)
+            } else {
+                append(directChild)
+            }
         } else {
             append(primaryWebView)
         }
@@ -7221,6 +7237,10 @@ struct WebViewRepresentable: NSViewRepresentable {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
             if containsInspectorFrontend(view) {
+                if shouldTransferAttachedInspectorFrontend(view) {
+                    append(view)
+                    continue
+                }
 #if DEBUG
                 cmuxDebugLog(
                     "browser.localHost.reparent.skipInspectorFrontend " +
@@ -7295,6 +7315,19 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
     }
 
+    static func browserPanelTestMoveWebKitRelatedSubviewsIntoLocalHost(
+        from sourceSuperview: NSView,
+        to container: WindowBrowserSlotView,
+        primaryWebView: WKWebView
+    ) {
+        moveWebKitRelatedSubviewsIntoHostIfNeeded(
+            from: sourceSuperview,
+            to: container,
+            primaryWebView: primaryWebView,
+            reason: "test"
+        )
+    }
+
     private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {
         // SwiftUI can keep transient replacement hosts alive off-window during split
         // reparenting. Never let those hosts steal the shared portal anchor, or the
@@ -7360,6 +7393,17 @@ struct WebViewRepresentable: NSViewRepresentable {
             hostId: ObjectIdentifier(host),
             reason: "localInlineHosting"
         ) {
+            if didAttachWebViewToLocalHost,
+               host.window != nil,
+               let sourceSuperview = Self.localInlineTransferRoot(for: webView),
+               sourceSuperview !== slotView {
+                Self.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+                    from: sourceSuperview,
+                    to: slotView,
+                    primaryWebView: webView,
+                    reason: "localInline.prePortalDiscard"
+                )
+            }
             BrowserWindowPortalRegistry.discard(
                 webView: webView,
                 source: "viewStateChanged.localInlineHosting",
