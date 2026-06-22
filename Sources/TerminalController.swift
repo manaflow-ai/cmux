@@ -116,6 +116,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     @MainActor private(set) var browserSignInFlow: HostBrowserSignInFlow?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
     @MainActor var mobileChatHandlerStorage: MobileChatRPCHandler? // owned mobile.chat.* dispatch handler (built lazily; see TerminalController+MobileChat.swift)
+    @MainActor var mobileWorkspaceListHandlerStorage: MobileWorkspaceListRPCHandler? // owned mobile.workspace.list/close/group dispatch handler (built lazily; see TerminalController+MobileWorkspaceList.swift)
     // Sendable value type; injected at construction so socket auth never reaches a global.
     private nonisolated let passwordStore: SocketControlPasswordStore
     /// Process-wide proxy-tunnel broker (one shared tunnel per remote transport across all

@@ -563,6 +563,8 @@
 		C7A50B000000000000000023 /* MobileViewportSurfaceLimiting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000022 /* MobileViewportSurfaceLimiting.swift */; };
 		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
+		ACA7C4C000000000000000B1 /* MobileWorkspaceListRPCHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4C000000000000000B2 /* MobileWorkspaceListRPCHandler.swift */; };
+		ACA7C4C000000000000000A1 /* MobileWorkspaceListRPCHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4C000000000000000A2 /* MobileWorkspaceListRPCHost.swift */; };
 		B9000015A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */; };
 		1191D19B179EE48B2C5B419F /* MultiWindowNotificationUITestScaffold.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8B64DF5DE07D699C51E0F66 /* MultiWindowNotificationUITestScaffold.swift */; };
 		596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */; };
@@ -1602,6 +1604,8 @@
 		C7A50B000000000000000022 /* MobileViewportSurfaceLimiting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileViewportSurfaceLimiting.swift; sourceTree = "<group>"; };
 		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
+		ACA7C4C000000000000000B2 /* MobileWorkspaceListRPCHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceListRPCHandler.swift"; sourceTree = "<group>"; };
+		ACA7C4C000000000000000A2 /* MobileWorkspaceListRPCHost.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceListRPCHost.swift"; sourceTree = "<group>"; };
 		B9000016A1B2C3D4E5F60719 /* MultiWindowNotificationsUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationsUITests.swift; sourceTree = "<group>"; };
 		E8B64DF5DE07D699C51E0F66 /* MultiWindowNotificationUITestScaffold.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MultiWindowNotificationUITestScaffold.swift; sourceTree = "<group>"; };
 		596100000000000000000004 /* NativeNotificationDeliveryHooks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeNotificationDeliveryHooks.swift; sourceTree = "<group>"; };
@@ -2260,6 +2264,16 @@
 			path = AgentChat;
 			sourceTree = "<group>";
 		};
+		ACA7C4C000000000000000C0 /* WorkspaceList */ = {
+			isa = PBXGroup;
+			children = (
+				ACA7C4C000000000000000A2 /* MobileWorkspaceListRPCHost.swift */,
+				ACA7C4C000000000000000B2 /* MobileWorkspaceListRPCHandler.swift */,
+			);
+			name = WorkspaceList;
+			path = WorkspaceList;
+			sourceTree = "<group>";
+		};
 		59065015952E1B5BE5E23519 /* Mobile */ = {
 			isa = PBXGroup;
 			children = (
@@ -2281,6 +2295,7 @@
 				F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */,
 				4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */,
 				ACA7C4A70000000000000100 /* AgentChat */,
+				ACA7C4C000000000000000C0 /* WorkspaceList */,
 			);
 			name = Mobile;
 			path = Mobile;
@@ -3952,6 +3967,8 @@
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
 				C7A50B000000000000000023 /* MobileViewportSurfaceLimiting.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
+				ACA7C4C000000000000000B1 /* MobileWorkspaceListRPCHandler.swift in Sources */,
+				ACA7C4C000000000000000A1 /* MobileWorkspaceListRPCHost.swift in Sources */,
 				1191D19B179EE48B2C5B419F /* MultiWindowNotificationUITestScaffold.swift in Sources */,
 				596100000000000000000003 /* NativeNotificationDeliveryHooks.swift in Sources */,
 				B7F00002 /* NotificationSoundSettings.swift in Sources */,
