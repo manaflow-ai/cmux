@@ -1422,17 +1422,6 @@ extension Workspace {
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
-                // When we're about to drive `claude --resume` for a restored Claude
-                // pane, arm the auto-responder so it can answer Claude's
-                // compacted-session resume menu per the user's `claudeResumeMode`
-                // setting (no-op for `.ask`, the default).
-                if restorableAgent.kind == .claude,
-                   restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput {
-                    ClaudeResumeAutoResponderController.shared.arm(
-                        panel: terminalPanel,
-                        mode: ClaudeResumeModeSettings.mode()
-                    )
-                }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
@@ -1445,6 +1434,23 @@ extension Workspace {
             } else {
                 clearRestoredAgentSnapshot(panelId: terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+            }
+            // Arm the Claude resume auto-responder whenever cmux is about to drive
+            // `claude --resume` for this restored pane — from either a restorable
+            // agent snapshot OR an agent-hook resume binding (the binding path runs
+            // the resume even when no compatible restorableAgent snapshot exists).
+            // It answers Claude's compacted-session resume menu per the user's
+            // `terminal.claudeResumeMode` setting (no-op for `.ask`, the default).
+            let restorableClaudeResume = restorableAgent?.kind == .claude
+                && (restoredAgentWillRunStartupCommand || restoredAgentWillRunStartupInput)
+            let bindingClaudeResume = restoredBindingLaunch != nil
+                && RestorableAgentKind(rawValue: resumeBinding?.kind ?? "") == .claude
+            let armsClaudeResume = restorableClaudeResume || bindingClaudeResume
+            if armsClaudeResume {
+                ClaudeResumeAutoResponderController.shared.arm(
+                    panel: terminalPanel,
+                    mode: ClaudeResumeModeSettings.mode()
+                )
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)

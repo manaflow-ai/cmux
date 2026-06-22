@@ -40,10 +40,14 @@ final class ClaudeResumeAutoResponderController {
     /// compacted the menu never appears and we quietly give up).
     private static let pollInterval: TimeInterval = 0.4
     private static let watchWindow: TimeInterval = 45
+    /// Cap snapshot reads per tick so a large restore (~1000 panes) spreads the
+    /// work across ticks instead of doing an O(N) sweep every poll.
+    private static let maxEntriesPerTick = 24
 
     private let timerQueue = DispatchQueue(label: "com.cmux.claude-resume-auto-responder")
     private var timer: DispatchSourceTimer?
     private var entries: [UUID: Entry] = [:]
+    private var pollCursor = 0
 
     private init() {}
 
@@ -64,8 +68,10 @@ final class ClaudeResumeAutoResponderController {
         let timer = DispatchSource.makeTimerSource(queue: timerQueue)
         timer.schedule(deadline: .now() + Self.pollInterval, repeating: Self.pollInterval)
         timer.setEventHandler {
-            Task.detached(priority: .utility) {
-                await MainActor.run {
+            // Hop to the main actor without spawning an untracked Task; the timer
+            // queue serializes fires and the main queue runs the tick.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
                     ClaudeResumeAutoResponderController.shared.tick(now: Date())
                 }
             }
@@ -80,7 +86,13 @@ final class ClaudeResumeAutoResponderController {
     }
 
     private func tick(now: Date) {
-        for id in Array(entries.keys) {
+        let ids = Array(entries.keys)
+        guard !ids.isEmpty else { stopTimer(); return }
+        // Round-robin a bounded batch per tick so a large restore doesn't do an
+        // O(N) sweep (and N terminal reads) every 0.4s on the main actor.
+        let count = min(Self.maxEntriesPerTick, ids.count)
+        for offset in 0..<count {
+            let id = ids[(pollCursor + offset) % ids.count]
             guard let entry = entries[id] else { continue }
             // Drop panes that went away or outlived the watch window.
             guard let panel = entry.panel, now < entry.deadline else {
@@ -101,6 +113,7 @@ final class ClaudeResumeAutoResponderController {
                 entries.removeValue(forKey: id)
             }
         }
+        pollCursor = (pollCursor + count) % max(ids.count, 1)
         if entries.isEmpty { stopTimer() }
     }
 }

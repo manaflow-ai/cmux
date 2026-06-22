@@ -28,9 +28,12 @@ public enum ClaudeResumePrompt {
     /// Selection-pointer glyphs Ink-style menus render next to the active row.
     private static let pointerGlyphs: Set<Character> = ["❯", "›", "▶", "▸", "➤"]
 
-    /// True when the resume menu is currently on screen.
+    /// True when the resume menu is currently on screen. Requires all three
+    /// option labels together — a deliberately strict signal so the responder
+    /// never synthesizes keys just because one phrase appears in ordinary
+    /// terminal output.
     public static func isVisible(in screen: String) -> Bool {
-        screen.contains(summaryLabel) && screen.contains(fullLabel)
+        screen.contains(summaryLabel) && screen.contains(fullLabel) && screen.contains(dontAskLabel)
     }
 
     /// The keys needed to land on `mode`'s option and confirm it, given the
@@ -54,19 +57,27 @@ public enum ClaudeResumePrompt {
         case .ask: return nil
         }
 
-        let optionLines: [String] = screen
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
-            .filter { line in
-                line.contains(summaryLabel) || line.contains(fullLabel) || line.contains(dontAskLabel)
+        // Single pass over the screen: collect the menu's option rows (in display
+        // order) and note which row currently carries the selection pointer.
+        var optionLines: [String] = []
+        var pointerPosition: Int?
+        for rawLine in screen.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            guard line.contains(summaryLabel) || line.contains(fullLabel) || line.contains(dontAskLabel) else {
+                continue
             }
+            if line.contains(where: { pointerGlyphs.contains($0) }) {
+                pointerPosition = optionLines.count
+            }
+            optionLines.append(line)
+        }
 
         guard let targetPosition = optionLines.firstIndex(where: { $0.contains(targetLabel) }) else {
             return nil
         }
-        let currentPosition = optionLines.firstIndex { line in
-            line.contains { pointerGlyphs.contains($0) }
-        } ?? 0
+        // Claude highlights the recommended (first) row by default; if no pointer
+        // glyph rendered, assume the first option is selected.
+        let currentPosition = pointerPosition ?? 0
 
         var keys: [ClaudeResumeKey] = []
         let delta = targetPosition - currentPosition

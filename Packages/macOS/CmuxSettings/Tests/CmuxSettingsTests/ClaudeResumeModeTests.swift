@@ -4,12 +4,15 @@ import Testing
 
 @Suite("ClaudeResumeMode")
 struct ClaudeResumeModeTests {
-    @Test func tolerantRawStringParse() {
+    @Test func strictRawStringParse() {
         #expect(ClaudeResumeMode(rawString: "ask") == .ask)
-        #expect(ClaudeResumeMode(rawString: "FULL") == .full)
-        #expect(ClaudeResumeMode(rawString: "  full-session ") == .full)
-        #expect(ClaudeResumeMode(rawString: "Summary") == .summary)
-        #expect(ClaudeResumeMode(rawString: "manual") == .ask)
+        #expect(ClaudeResumeMode(rawString: "full") == .full)
+        #expect(ClaudeResumeMode(rawString: "summary") == .summary)
+        #expect(ClaudeResumeMode(rawString: "FULL") == .full)           // case-insensitive
+        #expect(ClaudeResumeMode(rawString: "  summary ") == .summary)  // trimmed
+        // Non-schema aliases must be rejected so invalid config is reported.
+        #expect(ClaudeResumeMode(rawString: "manual") == nil)
+        #expect(ClaudeResumeMode(rawString: "full-session") == nil)
         #expect(ClaudeResumeMode(rawString: "garbage") == nil)
         #expect(ClaudeResumeMode(rawString: "") == nil)
         #expect(ClaudeResumeMode(rawString: nil) == nil)
@@ -34,10 +37,12 @@ struct ClaudeResumePromptTests {
       3. Don't ask me again
     """
 
-    @Test func detectsPromptOnlyWhenBothLabelsPresent() {
+    @Test func detectsPromptOnlyWhenAllOptionLabelsPresent() {
         #expect(ClaudeResumePrompt.isVisible(in: menu))
         #expect(!ClaudeResumePrompt.isVisible(in: "just some normal claude output\nnothing to see"))
         #expect(!ClaudeResumePrompt.isVisible(in: "Resume from summary mentioned alone"))
+        // Two of three labels appearing in prose must NOT count as the menu.
+        #expect(!ClaudeResumePrompt.isVisible(in: "We support Resume from summary and Resume full session as-is here."))
     }
 
     @Test func fullModeMovesDownToSecondOptionThenEnter() {

@@ -20,12 +20,16 @@ public enum ClaudeResumeMode: String, CaseIterable, Sendable, Identifiable, Sett
     public init?(rawString: String?) {
         guard let raw = rawString?.trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
+        // Accept only the exact schema enum values (case-insensitive + trimmed);
+        // anything else is rejected so out-of-schema config is reported invalid
+        // rather than silently accepted. Keep in sync with
+        // web/data/cmux.schema.json (`terminal.claudeResumeMode` enum).
         switch raw.lowercased() {
-        case "ask", "prompt", "manual":
+        case "ask":
             self = .ask
-        case "full", "full-session", "fullsession", "full_session", "as-is", "asis":
+        case "full":
             self = .full
-        case "summary", "compact", "compacted":
+        case "summary":
             self = .summary
         default:
             return nil

@@ -514,6 +514,8 @@ final class CmuxSettingsFileStore {
             } else {
                 logInvalid("terminal.claudeResumeMode", sourcePath: sourcePath)
             }
+        } else if section.keys.contains("claudeResumeMode") {
+            logInvalid("terminal.claudeResumeMode", sourcePath: sourcePath)
         }
 
         if let value = jsonBool(section["showTextBoxOnNewTerminals"]) {
