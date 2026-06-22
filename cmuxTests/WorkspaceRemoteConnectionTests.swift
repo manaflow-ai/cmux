@@ -3885,25 +3885,23 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         timeout: TimeInterval
     ) -> ProcessRunResult {
         let process = Process()
-        let stdoutPipe = Pipe()
+        let stdoutURL = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-cli-stdout-\(UUID().uuidString)")
+        FileManager.default.createFile(atPath: stdoutURL.path, contents: nil)
+        guard let stdoutHandle = try? FileHandle(forWritingTo: stdoutURL) else { return ProcessRunResult(status: -1, stdout: "", stderr: "failed to create process output capture file", timedOut: false) }
+        defer { try? stdoutHandle.close(); try? FileManager.default.removeItem(at: stdoutURL) }
         let stderrPipe = Pipe()
         let stdinPipe = standardInput == nil ? nil : Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
         process.environment = environment
         process.standardInput = stdinPipe ?? FileHandle.nullDevice
-        process.standardOutput = stdoutPipe
+        process.standardOutput = stdoutHandle
         process.standardError = stderrPipe
 
         do {
             try process.run()
         } catch {
-            return ProcessRunResult(
-                status: -1,
-                stdout: "",
-                stderr: String(describing: error),
-                timedOut: false
-            )
+            return ProcessRunResult(status: -1, stdout: "", stderr: String(describing: error), timedOut: false)
         }
         if let standardInput, let stdinPipe {
             stdinPipe.fileHandleForWriting.write(Data(standardInput.utf8))
@@ -3921,8 +3919,9 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             process.terminate()
             _ = exitSignal.wait(timeout: .now() + 1)
         }
+        try? stdoutHandle.close()
 
-        let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let stdout = (try? String(contentsOf: stdoutURL, encoding: .utf8)) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
             status: process.terminationStatus,

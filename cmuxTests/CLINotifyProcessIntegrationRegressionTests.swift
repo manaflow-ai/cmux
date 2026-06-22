@@ -3518,12 +3518,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript.contains("required terminal context missing for SSH PTY attach"),
             initialScript
         )
-        XCTAssertTrue(
-            initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
-            initialScript
-        )
+        XCTAssertTrue(initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"), initialScript)
+        let attachIDFlag = "--attachment-id \"$cmux_ssh_pty_surface_id\""
         XCTAssertTrue(initialScript.contains("254|255"), initialScript)
-        XCTAssertFalse(initialScript.contains("-surface"), initialScript)
+        XCTAssertTrue(initialScript.split(separator: "\n").first { $0.contains("ssh-pty-attach") }.map { $0.contains(attachIDFlag) && !$0.contains("--surface") } == true, initialScript)
         XCTAssertTrue(
             initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             initialScript
@@ -3550,7 +3548,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript
         )
         XCTAssertTrue(terminalStartupScript.contains("254|255"), terminalStartupScript)
-        XCTAssertFalse(terminalStartupScript.contains("-surface"), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.split(separator: "\n").first { $0.contains("ssh-pty-attach") }.map { $0.contains(attachIDFlag) && !$0.contains("--surface") } == true, terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript
