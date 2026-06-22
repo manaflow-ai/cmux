@@ -12178,15 +12178,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
-        notificationNavigation.openNotification(
-            NotificationNavSnapshot(
-                id: notification.id,
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                isRead: notification.isRead,
-                clickAction: notification.clickAction.map(Self.navClickAction)
-            )
-        )
+        notificationNavigation.openNotification(notification.navSnapshot)
     }
 
     /// Performs a notification click action. Forwards to the shared
@@ -12198,7 +12190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     @MainActor
     func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
-        notificationClickPerformer.perform(Self.navClickAction(action))
+        notificationClickPerformer.perform(action.navClickAction)
     }
 
     @discardableResult
