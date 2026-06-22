@@ -6,8 +6,8 @@
 12145	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11411	Sources/Panels/BrowserPanel.swift
 11336	Sources/Workspace.swift
-11006	Sources/GhosttyTerminalView.swift
 10734	Sources/ContentView.swift
+10723	Sources/GhosttyTerminalView.swift
 9331	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 7992	Sources/Panels/BrowserPanelView.swift
 7314	cmuxTests/WorkspaceUnitTests.swift
@@ -204,6 +204,7 @@
 536	cmuxTests/CmuxConfigContextMenuTests.swift
 534	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Surface/ControlCommandCoordinator+Surface.swift
 534	Sources/TerminalController+ControlBrowserContext.swift
+531	Packages/macOS/CmuxTerminalCore/Sources/CmuxTerminalCore/CopyMode/TerminalKeyboardCopyModeController.swift
 531	Sources/App/WorkspaceRuntimeSettings.swift
 530	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/GhosttyRuntime.swift
 530	Packages/macOS/CmuxCommandPaletteUI/Sources/CmuxCommandPaletteUI/Overlay/WindowCommandPaletteOverlayController.swift
