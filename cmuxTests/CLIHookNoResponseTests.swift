@@ -218,7 +218,7 @@ struct CLIHookNoResponseTests {
         }
 
         let server = Self.startAcceptedSocketThatDoesNotRead(listenerFD: listenerFD, holdFor: 1.0)
-        let largeToolInput = String(repeating: "x", count: 512 * 1024)
+        let largeToolInput = String(repeating: "x", count: 8 * 1024 * 1024)
         let input = """
         {"hook_event_name":"PreToolUse","session_id":"codex-session-no-read","cwd":"\(root.path)","tool_name":"apply_patch","tool_input":{"payload":"\(largeToolInput)"}}
         """

@@ -32919,11 +32919,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
+        let commandEvent = optionValue(commandArgs, name: "--event")
+
         // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`.
-        guard let stdinData = Self.readBoundedFeedHookStdin() else {
-            print("{}")
-            return
+        // JSON through stdin; unknown inputs fall through to `{}`. Codex
+        // PostToolUse is telemetry and can contain command output, so cap that
+        // event before JSON decoding without changing actionable hook reads.
+        let stdinData: Data
+        if source == "codex", commandEvent == "PostToolUse" {
+            guard let boundedData = Self.readBoundedFeedHookStdin() else {
+                print("{}")
+                return
+            }
+            stdinData = boundedData
+        } else {
+            stdinData = FileHandle.standardInput.readDataToEndOfFile()
         }
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
@@ -32936,7 +32946,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
         let rawEvent = (stdinObj["hook_event_name"] as? String)
             ?? (stdinObj["event"] as? String)
-            ?? optionValue(commandArgs, name: "--event")
+            ?? commandEvent
             ?? ""
         let toolCall = stdinObj["toolCall"] as? [String: Any]
         let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
