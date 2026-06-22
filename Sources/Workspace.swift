@@ -481,12 +481,8 @@ extension Workspace {
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
-            let closeConfirmationRequired = Self.resolveCloseConfirmation(
-                shellActivityState: panelShellActivityStates[panelId],
-                fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
-            )
             let shouldPersistScrollback = sessionRestorePolicy.shouldPersistSessionScrollback(
-                closeConfirmationRequired: closeConfirmationRequired
+                shellActivityState: panelShellActivityStates[panelId]
             ) && sessionRestorePolicy.shouldReplaySessionScrollback(
                 hasRestorableAgent: effectiveRestorableAgent != nil,
                 tmuxStartCommand: restorableTmuxStartCommand,
@@ -959,15 +955,20 @@ extension Workspace {
         makeSessionRestorePolicyService().restorableTmuxStartCommand(rawCommand)
     }
 
+    /// Whether scrollback should be persisted for a panel at session save.
+    ///
+    /// `fallbackNeedsConfirmClose` is retained for call-site symmetry with the
+    /// close-confirmation inputs but is intentionally NOT consulted: scrollback
+    /// persistence depends only on shell-activity state (persist unless a command
+    /// is positively running). Coupling it to close-confirmation previously dropped
+    /// scrollback whenever shell-integration state was unavailable.
     nonisolated static func shouldPersistSessionScrollback(
         shellActivityState: PanelShellActivityState?,
         fallbackNeedsConfirmClose: Bool
     ) -> Bool {
-        makeSessionRestorePolicyService().shouldPersistSessionScrollback(
-            closeConfirmationRequired: resolveCloseConfirmation(
-                shellActivityState: shellActivityState,
-                fallbackNeedsConfirmClose: fallbackNeedsConfirmClose
-            )
+        _ = fallbackNeedsConfirmClose
+        return makeSessionRestorePolicyService().shouldPersistSessionScrollback(
+            shellActivityState: shellActivityState
         )
     }
 

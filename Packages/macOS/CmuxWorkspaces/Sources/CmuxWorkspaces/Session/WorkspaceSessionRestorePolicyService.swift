@@ -184,8 +184,15 @@ public struct WorkspaceSessionRestorePolicyService<Binding: WorkspaceSurfaceResu
         ).restorableTmuxStartCommand(rawCommand)
     }
 
-    /// Returns whether terminal scrollback should be persisted when closing/restoring.
-    public func shouldPersistSessionScrollback(closeConfirmationRequired: Bool) -> Bool {
-        !closeConfirmationRequired
+    /// Returns whether terminal scrollback should be persisted at session save.
+    ///
+    /// Persistence depends only on whether a command is *positively* running:
+    /// persist for `.promptIdle` and for `.unknown`/`nil` (no shell-integration
+    /// report), and skip only for `.commandRunning`. It must NOT be coupled to
+    /// close-confirmation — an unknown shell state would otherwise route through the
+    /// conservative `needsConfirmClose` fallback and drop scrollback entirely, so
+    /// terminals restored with no contents.
+    public func shouldPersistSessionScrollback(shellActivityState: PanelShellActivityState?) -> Bool {
+        (shellActivityState ?? .unknown) != .commandRunning
     }
 }
