@@ -3863,12 +3863,12 @@ final class WindowTerminalHostViewTests: XCTestCase {
         let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
 
         XCTAssertNil(host.hitTest(dividerPointInHost))
-        let buildCountAfterWarmHit = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
         XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
 
         XCTAssertNil(host.hitTest(dividerPointInHost))
         XCTAssertEqual(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterWarmHit,
             "Steady-state terminal divider hit-testing should reuse indexed divider regions instead of rebuilding them for every pointer event"
         )
@@ -3885,7 +3885,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
         let movedDividerPointInWindow = splitView.convert(movedDividerPointInSplit, to: nil)
         let movedDividerPointInHost = host.convert(movedDividerPointInWindow, from: nil)
         XCTAssertNil(host.hitTest(movedDividerPointInHost))
-        let buildCountAfterInvalidation = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterInvalidation = host.dividerRegionBuildCount
         XCTAssertGreaterThan(
             buildCountAfterInvalidation,
             buildCountAfterWarmHit,
@@ -3894,7 +3894,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
 
         XCTAssertNil(host.hitTest(movedDividerPointInHost))
         XCTAssertEqual(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterInvalidation,
             "Terminal divider hit-testing should reuse regions again after the invalidation rebuild"
         )
@@ -3945,7 +3945,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
         let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
 
         XCTAssertNil(host.hitTest(dividerPointInHost))
-        let buildCountAfterWarmHit = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
         XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
 
         splitView.isHidden = true
@@ -3957,11 +3957,11 @@ final class WindowTerminalHostViewTests: XCTestCase {
             message: "Hidden cached split dividers must not keep stealing terminal hits"
         )
         XCTAssertGreaterThan(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterWarmHit,
             "Hidden split views should invalidate cached terminal divider regions on the next pointer hit"
         )
-        let buildCountAfterHiddenHit = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterHiddenHit = host.dividerRegionBuildCount
 
         splitView.isHidden = false
         contentView.layoutSubtreeIfNeeded()
@@ -3971,7 +3971,7 @@ final class WindowTerminalHostViewTests: XCTestCase {
             "Revealed split dividers should become interactive again without waiting for a resize notification"
         )
         XCTAssertGreaterThan(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterHiddenHit,
             "Empty terminal divider caches should be rebuilt after hidden split views are revealed"
         )

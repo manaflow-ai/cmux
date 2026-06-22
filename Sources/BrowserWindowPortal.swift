@@ -273,6 +273,7 @@ enum HostedInspectorDockSide {
     }
 }
 
+@MainActor
 final class WindowBrowserHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -335,7 +336,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedDividerRegionGeneration: UInt64?
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
-    private(set) var debugDividerRegionBuildCountForTesting = 0
+    private(set) var dividerRegionBuildCount = 0
 
     deinit {
         if let trackingArea {
@@ -962,7 +963,7 @@ final class WindowBrowserHostView: NSView {
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
-        debugDividerRegionBuildCountForTesting += 1
+        dividerRegionBuildCount += 1
 #endif
         return regions
     }
@@ -1569,6 +1570,7 @@ enum BrowserPaneDropRouting {
     }
 }
 
+@MainActor
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {

@@ -24,7 +24,7 @@
 4487	Sources/Panels/FilePreviewPanel.swift
 4478	Sources/cmuxApp.swift
 4595	cmuxTests/BrowserPanelTests.swift
-4338	Sources/BrowserWindowPortal.swift
+4340	Sources/BrowserWindowPortal.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
@@ -41,7 +41,7 @@
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
-2360	Sources/TerminalWindowPortal.swift
+2361	Sources/TerminalWindowPortal.swift
 2257	Sources/TerminalNotificationStore.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2103	Sources/SessionPersistence.swift

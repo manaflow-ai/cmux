@@ -1505,12 +1505,12 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
 
         XCTAssertNil(host.hitTest(dividerPointInHost))
-        let buildCountAfterWarmHit = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
         XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
 
         XCTAssertNil(host.hitTest(dividerPointInHost))
         XCTAssertEqual(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterWarmHit,
             "Steady-state browser divider hit-testing should reuse indexed divider regions instead of rebuilding them for every pointer event"
         )
@@ -1527,7 +1527,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let movedDividerPointInWindow = splitView.convert(movedDividerPointInSplit, to: nil)
         let movedDividerPointInHost = host.convert(movedDividerPointInWindow, from: nil)
         XCTAssertNil(host.hitTest(movedDividerPointInHost))
-        let buildCountAfterInvalidation = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterInvalidation = host.dividerRegionBuildCount
         XCTAssertGreaterThan(
             buildCountAfterInvalidation,
             buildCountAfterWarmHit,
@@ -1536,7 +1536,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
 
         XCTAssertNil(host.hitTest(movedDividerPointInHost))
         XCTAssertEqual(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterInvalidation,
             "Browser divider hit-testing should reuse regions again after the invalidation rebuild"
         )
@@ -1547,7 +1547,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             host.hitTest(movedDividerPointInHost) === child,
             "Hidden app split dividers must not keep stale browser pass-through regions active"
         )
-        let buildCountAfterHiddenHit = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterHiddenHit = host.dividerRegionBuildCount
         XCTAssertGreaterThan(
             buildCountAfterHiddenHit,
             buildCountAfterInvalidation,
@@ -1561,7 +1561,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             "Revealed app split dividers should pass through again without waiting for a resize notification"
         )
         XCTAssertGreaterThan(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterHiddenHit,
             "Empty browser divider caches should be rebuilt after hidden split views are revealed"
         )
@@ -1622,7 +1622,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let warmHit = host.hitTest(dividerPointInHost)
         XCTAssertNotNil(warmHit)
         XCTAssertFalse(warmHit === child)
-        let buildCountAfterWarmHit = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterWarmHit = host.dividerRegionBuildCount
         XCTAssertGreaterThan(buildCountAfterWarmHit, 0)
 
         slot.isHidden = true
@@ -1630,7 +1630,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             host.hitTest(dividerPointInHost) === child,
             "Hidden browser slots must not keep stale hosted inspector divider hit regions active"
         )
-        let buildCountAfterHide = host.debugDividerRegionBuildCountForTesting
+        let buildCountAfterHide = host.dividerRegionBuildCount
         XCTAssertGreaterThan(
             buildCountAfterHide,
             buildCountAfterWarmHit,
@@ -1645,7 +1645,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
             "Revealed browser slots should rebuild hosted inspector divider regions without waiting for a resize"
         )
         XCTAssertGreaterThan(
-            host.debugDividerRegionBuildCountForTesting,
+            host.dividerRegionBuildCount,
             buildCountAfterHide,
             "Revealing a browser slot should invalidate hosted divider regions"
         )

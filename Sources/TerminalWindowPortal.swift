@@ -9,6 +9,7 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
+@MainActor
 final class WindowTerminalHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -42,7 +43,7 @@ final class WindowTerminalHostView: NSView {
     private var cachedDividerRegionGeneration: UInt64?
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
-    private(set) var debugDividerRegionBuildCountForTesting = 0
+    private(set) var dividerRegionBuildCount = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
 #endif
@@ -451,7 +452,7 @@ final class WindowTerminalHostView: NSView {
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
-        debugDividerRegionBuildCountForTesting += 1
+        dividerRegionBuildCount += 1
 #endif
         return regions
     }
