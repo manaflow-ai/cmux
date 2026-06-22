@@ -421,19 +421,20 @@ final class PortScanner: @unchecked Sendable {
             )
             guard !validatedResults.isEmpty else { return }
             let appliedResults = await MainActor.run {
-                validatedResults.filter { workspaceId, ports in
-                    agentCallback(workspaceId, ports)
+                validatedResults.filter { result in
+                    agentCallback(result.workspaceId, result.ports)
                 }
             }
             await self.acknowledgeAgentResults(appliedResults)
         }
     }
 
-    private func acknowledgeAgentResults(_ results: [(UUID, [Int])]) async {
+    private func acknowledgeAgentResults(_ results: [(workspaceId: UUID, ports: [Int], revision: UInt64)]) async {
         guard !results.isEmpty else { return }
         await withCheckedContinuation { continuation in
             queue.async { [self] in
-                for (workspaceId, ports) in results {
+                for (workspaceId, ports, revision) in results {
+                    guard agentRevisionByWorkspace[workspaceId, default: 0] == revision else { continue }
                     forceAgentResultWorkspaces.remove(workspaceId)
                     if ports.isEmpty, !trackedAgentWorkspaces.contains(workspaceId) {
                         lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
@@ -450,21 +451,20 @@ final class PortScanner: @unchecked Sendable {
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64]
-    ) async -> [(UUID, [Int])] {
+    ) async -> [(workspaceId: UUID, ports: [Int], revision: UInt64)] {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
-                var results: [(UUID, [Int])] = []
+                var results: [(workspaceId: UUID, ports: [Int], revision: UInt64)] = []
                 for workspaceId in workspaceIds.sorted(by: { $0.uuidString < $1.uuidString }) {
-                    let currentRevision = agentRevisionByWorkspace[workspaceId, default: 0]
                     let expectedRevision = agentRevisions[workspaceId, default: 0]
-                    guard currentRevision == expectedRevision else { continue }
+                    guard agentRevisionByWorkspace[workspaceId, default: 0] == expectedRevision else { continue }
                     let ports = Array(agentPortsByWorkspace[workspaceId] ?? []).sorted()
                     let previousPorts = lastAgentPortsByWorkspace[workspaceId]
                     if !forceAgentResultWorkspaces.contains(workspaceId) {
                         guard previousPorts != ports else { continue }
                         guard previousPorts != nil || !ports.isEmpty else { continue }
                     }
-                    results.append((workspaceId, ports))
+                    results.append((workspaceId: workspaceId, ports: ports, revision: expectedRevision))
                 }
                 continuation.resume(returning: results)
             }
