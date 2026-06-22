@@ -23606,13 +23606,37 @@ struct CMUXCLI {
                 return
             }
 
-            // AskUserQuestion means Claude is about to ask the user something.
-            // Save question text in session so the Notification handler can use it
-            // instead of the generic "Claude Code needs your attention".
+            // AskUserQuestion and ExitPlanMode are blocking "needs input" tools:
+            // Claude renders an interactive menu / plan-approval prompt and waits for
+            // the user. With --dangerously-skip-permissions (permission_mode
+            // "bypassPermissions") Claude fires NEITHER PermissionRequest NOR
+            // Notification for them, so this async PreToolUse is the only needs-input
+            // signal — flag Needs input here and return early instead of falling
+            // through to the generic ".running" tail (which would leave a tab blocked
+            // on a question / plan approval looking busy and silent).
+            // https://github.com/manaflow-ai/cmux/issues/6606
             if let toolName = parsedInput.object?["tool_name"] as? String,
-               toolName == "AskUserQuestion",
-               let question = describeAskUserQuestion(parsedInput.object),
+               toolName == "AskUserQuestion" || toolName == "ExitPlanMode",
                let sessionId = parsedInput.sessionId {
+                // Save the question / plan summary in the session so the Notification
+                // handler (when it does fire) reuses it instead of the generic
+                // "Claude Code needs your attention". The question / plan text is
+                // dynamic agent output; only the fallbacks are fixed strings, and
+                // those reuse the shared localized waiting keys.
+                let waitingSubtitle = String(
+                    localized: "agent.generic.notification.subtitle.waiting",
+                    defaultValue: "Waiting"
+                )
+                let waitingBody = String(
+                    localized: "agent.generic.notification.body.waitingForInput",
+                    defaultValue: "Waiting for input"
+                )
+                let needsInputBody: String
+                if toolName == "AskUserQuestion" {
+                    needsInputBody = describeAskUserQuestion(parsedInput.object) ?? waitingBody
+                } else {
+                    needsInputBody = describeExitPlanMode(parsedInput.object) ?? waitingBody
+                }
                 // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
@@ -23623,8 +23647,8 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     agentLifecycle: .needsInput,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
+                    lastSubtitle: waitingSubtitle,
+                    lastBody: needsInputBody
                 )
                 setAgentLifecycle(
                     client: client,
@@ -23633,8 +23657,41 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId
                 )
-                // Don't clear notifications or set status here.
-                // The Notification hook fires right after and will use the saved question.
+                // In bypassPermissions (--dangerously-skip-permissions) mode no
+                // PermissionRequest or Notification hook follows, so this handler must
+                // publish the FULL needs-input state (status + bell) itself. In every
+                // other mode that following hook owns the status/bell and converges on
+                // the same needs-input state, so we only set the lifecycle here —
+                // doing both would double-ring the notification.
+                //
+                // Read permission_mode from rawObject: the compacted `object`
+                // (compactClaudeHookObject) keeps only an allowlist of keys and does
+                // not retain permission_mode.
+                let permissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
+                    ?? (parsedInput.rawObject?["permissionMode"] as? String)
+                if permissionMode == "bypassPermissions" {
+                    // Reuse the same localized "Needs input" value the in-app feed
+                    // overlay sets (FeedCoordinator.needsInputStatusValue) so the two
+                    // needs-input paths stay locale-consistent.
+                    _ = try? setClaudeStatus(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: existingSurfaceId,
+                        value: String(localized: "feed.status.needsInput", defaultValue: "Needs input"),
+                        icon: "bell.fill",
+                        color: "#4C8DFF",
+                        pid: claudePid
+                    )
+                    let title = String(
+                        localized: "cli.claude-hook.notification.title",
+                        defaultValue: "Claude Code"
+                    )
+                    let payload = notificationPayload(title: title, subtitle: waitingSubtitle, body: needsInputBody)
+                    _ = try? sendV1Command(
+                        "notify_target_async \(workspaceId) \(existingSurfaceId) \(payload)",
+                        client: client
+                    )
+                }
                 print("OK")
                 return
             }
@@ -24056,6 +24113,26 @@ struct CMUXCLI {
 
         if parts.isEmpty { return "Asking a question" }
         return parts.joined(separator: "\n")
+    }
+
+    private func describeExitPlanMode(_ object: [String: Any]?) -> String? {
+        guard let object,
+              let input = object["tool_input"] as? [String: Any],
+              let plan = input["plan"] as? String else { return nil }
+
+        // Summarize the plan with its first non-empty line (minus leading Markdown
+        // heading markers) so the needs-input notification body stays concise.
+        let firstLine = plan
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .first(where: { !$0.isEmpty })
+        guard var summary = firstLine, !summary.isEmpty else { return nil }
+        while summary.hasPrefix("#") {
+            summary.removeFirst()
+        }
+        summary = summary.trimmingCharacters(in: .whitespaces)
+        guard !summary.isEmpty else { return nil }
+        return truncate(summary, maxLength: 180)
     }
 
     private func describeToolUse(_ object: [String: Any]?) -> String? {
