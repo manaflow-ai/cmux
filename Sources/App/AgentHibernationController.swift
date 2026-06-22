@@ -203,6 +203,10 @@ final class AgentHibernationController {
         let plannerInputs = records.map { record in
             let isLive = isLiveByKey[record.key] ?? false
             var effectiveLastActivityAt = record.lastActivityAt
+            if record.hasLiveProcess {
+                tailFingerprintSamples.removeValue(forKey: record.key)
+                confirmations.removeValue(forKey: record.key)
+            }
             if shouldMaintainTailSamples,
                isLive,
                !record.isProtected,
