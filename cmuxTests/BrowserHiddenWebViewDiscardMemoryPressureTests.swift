@@ -71,38 +71,28 @@ private func makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot() -> BrowserH
 }
 
 @MainActor
-private func withMemoryPressureHiddenWebViewDiscardPolicyEnabled(_ body: () -> Void) {
-    let defaults = UserDefaults.standard
-    let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-    let previousHiddenDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+private func withMemoryPressureHiddenWebViewDiscardPolicyEnabled(_ body: (UserDefaults) -> Void) {
+    let suiteName = "com.cmux.BrowserHiddenWebViewDiscardMemoryPressureTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
     defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
     defaults.set(
         BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay,
         forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey
     )
     defer {
-        if let previousEnabled {
-            defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
-        }
-        if let previousHiddenDelay {
-            defaults.set(previousHiddenDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-        } else {
-            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
-        }
+        defaults.removePersistentDomain(forName: suiteName)
     }
-    body()
+    body(defaults)
 }
 
 @MainActor
 @Suite(.serialized)
 struct BrowserHiddenWebViewDiscardMemoryPressureTests {
     @Test func systemMemoryPressureRequestsImmediateHiddenWebViewDiscard() {
-        withMemoryPressureHiddenWebViewDiscardPolicyEnabled {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let now = Date(timeIntervalSince1970: 1_000)
             let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
-            let manager = BrowserHiddenWebViewDiscardManager()
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
             let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
                 snapshot: snapshot,
                 hiddenAt: now.addingTimeInterval(-10)
@@ -118,10 +108,10 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
     }
 
     @Test func systemMemoryPressureDoesNotDiscardBeforeHiddenStateIsRecorded() {
-        withMemoryPressureHiddenWebViewDiscardPolicyEnabled {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let now = Date(timeIntervalSince1970: 1_500)
             let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
-            let manager = BrowserHiddenWebViewDiscardManager()
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
             let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
                 snapshot: snapshot,
                 hiddenAt: nil
@@ -137,11 +127,11 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
     }
 
     @Test func systemMemoryPressureDefersImmediateDiscardDuringPostWakeWindow() {
-        withMemoryPressureHiddenWebViewDiscardPolicyEnabled {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled { defaults in
             let wakeAt = Date(timeIntervalSince1970: 2_000)
             let pressureAt = wakeAt.addingTimeInterval(1)
             let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
-            let manager = BrowserHiddenWebViewDiscardManager()
+            let manager = BrowserHiddenWebViewDiscardManager(policyDefaults: defaults)
             let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
                 snapshot: snapshot,
                 hiddenAt: wakeAt.addingTimeInterval(-7_200)
