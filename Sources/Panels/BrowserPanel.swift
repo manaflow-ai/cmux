@@ -6475,8 +6475,9 @@ extension BrowserPanel {
             if let inspector = webView.cmuxInspectorObject() {
                 applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
             }
-            refreshAttachedDeveloperToolsFrontend(reason: "detachedClose.redock.\(source)")
-            cancelDeveloperToolsRestoreRetry()
+            if refreshAttachedDeveloperToolsFrontendOrKeepPending(reason: "detachedClose.redock.\(source)") {
+                cancelDeveloperToolsRestoreRetry()
+            }
 #if DEBUG
             cmuxDebugLog(
                 "browser.devtools detachedClose.redock panel=\(id.uuidString.prefix(5)) " +
@@ -6520,12 +6521,31 @@ extension BrowserPanel {
         return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
     }
 
-    private func refreshAttachedDeveloperToolsFrontend(reason: String) {
+    @discardableResult
+    private func refreshAttachedDeveloperToolsFrontend(reason: String) -> Bool {
         guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
               frontendWebView.window != nil else {
-            return
+            return false
         }
         frontendWebView.cmuxRefreshWebInspectorFrontendRendering(reason: reason)
+        return true
+    }
+
+    @discardableResult
+    private func refreshAttachedDeveloperToolsFrontendOrKeepPending(reason: String) -> Bool {
+        guard refreshAttachedDeveloperToolsFrontend(reason: reason) else {
+            forceDeveloperToolsRefreshOnNextAttach = true
+            scheduleDeveloperToolsRestoreRetry()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools refresh.pending panel=\(id.uuidString.prefix(5)) " +
+                "reason=\(reason) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+            )
+#endif
+            return false
+        }
+        forceDeveloperToolsRefreshOnNextAttach = false
+        return true
     }
 
     private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
@@ -7021,14 +7041,15 @@ extension BrowserPanel {
                 return
             }
             let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
-            forceDeveloperToolsRefreshOnNextAttach = false
             developerToolsDetachedOpenGraceDeadline = nil
             developerToolsRevealDeferredUntilWebViewAttached = false
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
             applyPendingDeveloperToolsConsoleSelectionIfNeeded(inspector: inspector)
             if shouldForceRefresh {
-                refreshAttachedDeveloperToolsFrontend(reason: "restore.visible")
+                guard refreshAttachedDeveloperToolsFrontendOrKeepPending(reason: "restore.visible") else {
+                    return
+                }
             }
             #if DEBUG
             if shouldForceRefresh {
@@ -7069,7 +7090,6 @@ extension BrowserPanel {
         }
 
         let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
-        forceDeveloperToolsRefreshOnNextAttach = false
         #if DEBUG
         if shouldForceRefresh {
             cmuxDebugLog("browser.devtools refresh.forceShowWhenHidden panel=\(id.uuidString.prefix(5)) \(debugDeveloperToolsStateSummary())")
@@ -7084,11 +7104,13 @@ extension BrowserPanel {
         setPreferredDeveloperToolsVisible(true)
         let visibleAfterShow = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visibleAfterShow {
-            if shouldForceRefresh {
-                refreshAttachedDeveloperToolsFrontend(reason: "restore.revealed")
-            }
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
+            if shouldForceRefresh {
+                guard refreshAttachedDeveloperToolsFrontendOrKeepPending(reason: "restore.revealed") else {
+                    return
+                }
+            }
             cancelDeveloperToolsRestoreRetry()
             scheduleDetachedDeveloperToolsWindowDismissal()
         } else {

@@ -4216,9 +4216,75 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
+    func testForceRefreshRemainsPendingUntilInspectorFrontendReentersWindow() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 260, y: 0, width: 260, height: 320),
+            configuration: WKWebViewConfiguration()
+        )
+        inspector.setFrontendWebView(frontendWebView)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test-windowless-frontend")
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            panel.hasPendingDeveloperToolsRefreshAfterAttach(),
+            "A force-refresh must stay pending when WebKit reports the inspector visible before its frontend view has reentered a window"
+        )
+        XCTAssertTrue(frontendWebView.evaluatedJavaScript.isEmpty)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
+            return
+        }
+        contentView.addSubview(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+        XCTAssertTrue(
+            frontendWebView.evaluatedJavaScript.contains {
+                $0.contains("window.dispatchEvent(new Event(\"resize\"))")
+            },
+            "The pending force-refresh should be consumed only after it can repaint a windowed inspector frontend"
+        )
+    }
+
     func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
+            return
+        }
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: contentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        contentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
@@ -4239,8 +4305,27 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testRefreshRequestTracksPendingStateUntilRestoreRuns() {
-        let (panel, _) = makePanelWithInspector()
+        let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
+            return
+        }
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: contentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        contentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
@@ -4498,6 +4583,65 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(
             frontendWebView.superview === localSlot,
             "Local inline takeover should move an attached inspector frontend with the page instead of orphaning it in the retiring host"
+        )
+    }
+
+    func testLocalInlineTransferMovesAttachedInspectorFrontendFromOffWindowRetiringHost() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        let localSlot = WindowBrowserSlotView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
+        contentView.addSubview(sourceSlot)
+        contentView.addSubview(localSlot)
+
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
+        )
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: frontendWebView.frame.maxY,
+            width: sourceSlot.bounds.width,
+            height: sourceSlot.bounds.height - frontendWebView.frame.height
+        )
+        sourceSlot.addSubview(frontendWebView)
+        sourceSlot.addSubview(panel.webView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        sourceSlot.removeFromSuperview()
+
+        XCTAssertNil(sourceSlot.window)
+        XCTAssertNil(frontendWebView.window)
+        XCTAssertNil(panel.webView.window)
+
+        WebViewRepresentable.browserPanelTestMoveWebKitRelatedSubviewsIntoLocalHost(
+            from: sourceSlot,
+            to: localSlot,
+            primaryWebView: panel.webView
+        )
+
+        XCTAssertTrue(
+            panel.webView.superview === localSlot,
+            "Local inline takeover should recover the page from an already off-window retiring host"
+        )
+        XCTAssertTrue(
+            frontendWebView.superview === localSlot,
+            "Local inline takeover should recover the attached inspector frontend before the retiring host is discarded"
         )
     }
 

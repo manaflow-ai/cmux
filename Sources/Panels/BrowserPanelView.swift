@@ -7213,11 +7213,18 @@ struct WebViewRepresentable: NSViewRepresentable {
         func shouldTransferAttachedInspectorFrontend(_ candidate: NSView) -> Bool {
             guard let inspectorFrontend,
                   inspectorFrontend !== primaryWebView,
-                  containsInspectorFrontend(candidate),
-                  let primaryWindow = primaryWebView.window,
-                  inspectorFrontend.window === primaryWindow,
-                  sourceSuperview.window === primaryWindow else {
+                  containsInspectorFrontend(candidate) else {
                 return false
+            }
+            let frontendBelongsToSource =
+                inspectorFrontend === sourceSuperview ||
+                inspectorFrontend.isDescendant(of: sourceSuperview)
+            guard frontendBelongsToSource else { return false }
+            if let inspectorWindow = inspectorFrontend.window {
+                guard let primaryWindow = primaryWebView.window,
+                      inspectorWindow === primaryWindow else {
+                    return false
+                }
             }
             return true
         }
