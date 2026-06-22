@@ -106,7 +106,12 @@ struct MobileTabContainer: View {
                 let previousNotifications = store.notificationsStore.notifications
                 store.notificationsStore.markReadLocally(forWorkspace: notification.workspaceID)
                 let didMarkRead = await store.setWorkspaceUnread(id: workspaceID, false)
-                let didRefresh = didMarkRead && await store.refreshNotifications()
+                let didRefresh: Bool
+                if didMarkRead {
+                    didRefresh = await store.refreshNotifications()
+                } else {
+                    didRefresh = false
+                }
                 if !didRefresh {
                     store.notificationsStore.apply(previousNotifications)
                 }
