@@ -46,14 +46,13 @@ final class BrowserHiddenWebViewDiscardManager {
     private var policyObserver: NSObjectProtocol?
     private var systemSleepObservers: [NSObjectProtocol] = []
     private var systemSleepObserverCenter: NotificationCenter?
-    private let policyDefaults: UserDefaults
-    private var policyState: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
-    private var scheduleGeneration: UInt64 = 0
-
-    init(policyDefaults: UserDefaults = .standard) {
-        self.policyDefaults = policyDefaults
-        self.policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
+    var policyDefaults: UserDefaults = .standard {
+        didSet {
+            policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: policyDefaults)
+        }
     }
+    private var policyState = BrowserHiddenWebViewDiscardPolicy.resolved(defaults: .standard)
+    private var scheduleGeneration: UInt64 = 0
 
     /// Sleep/wake state used to keep a hidden-webview discard from running in
     /// the fragile window right after system wake
