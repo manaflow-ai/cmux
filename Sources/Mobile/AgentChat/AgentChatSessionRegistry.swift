@@ -124,8 +124,11 @@ final class AgentChatSessionRegistry {
         onRecordChanged?(record, previous)
     }
 
-    /// Removes a record the caller has superseded out-of-band, keeping the
-    /// surface index pointed at the newest remaining live record.
+    /// Removes a record the caller has superseded out-of-band.
+    ///
+    /// This intentionally does not invoke `onRecordChanged`; callers that
+    /// remove a live record must perform their own tailer cleanup and wire
+    /// event emission after using the returned record.
     @discardableResult
     func remove(sessionID: String) -> AgentChatSessionRecord? {
         guard let removed = records.removeValue(forKey: sessionID) else { return nil }

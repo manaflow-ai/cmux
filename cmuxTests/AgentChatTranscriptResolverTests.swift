@@ -246,4 +246,96 @@ import Testing
         let real = try #require(service.sessionRecord(sessionID: hookSessionID))
         #expect(real.transcriptPath == transcript.path)
     }
+
+    @MainActor
+    @Test("non-Claude title removes provisional Claude session")
+    func nonClaudeTitleRemovesProvisionalClaudeSession() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("agentchat-non-claude-title-\(UUID().uuidString)", isDirectory: true)
+        let cwd = home.appendingPathComponent("proj", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home)
+        )
+        #expect(service.adoptDetectedClaudeSession(
+            workspaceID: workspaceID.uuidString,
+            surfaceID: surfaceID.uuidString,
+            workingDirectory: cwd.path,
+            titleHint: "Claude Code"
+        ))
+        let provisional = try #require(service.sessionRecords(workspaceID: workspaceID.uuidString).first)
+
+        service.scheduleTitleDetectedAdoption(GhosttyTitleChange(
+            tabId: workspaceID,
+            surfaceId: surfaceID,
+            title: "zsh"
+        ))
+
+        #expect(service.sessionRecord(sessionID: provisional.sessionID) == nil)
+        #expect(service.transcriptResolutionTasks[surfaceID.uuidString] == nil)
+        #expect(service.detectionScanAt[surfaceID.uuidString] != nil)
+        #expect(service.detectionScanContextKeys[surfaceID.uuidString] != nil)
+    }
+
+    @MainActor
+    @Test("same-title throttle allows changed resolution context")
+    func sameTitleThrottleAllowsChangedResolutionContext() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("agentchat-context-throttle-\(UUID().uuidString)", isDirectory: true)
+        let firstCwd = home.appendingPathComponent("one", isDirectory: true)
+        let secondCwd = home.appendingPathComponent("two", isDirectory: true)
+        try fm.createDirectory(at: firstCwd, withIntermediateDirectories: true)
+        try fm.createDirectory(at: secondCwd, withIntermediateDirectories: true)
+
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let sessionID = "detected-context"
+        let titleHint = "✳ Build plan"
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home)
+        )
+        service.registry.adoptDetectedSession(
+            sessionID: sessionID,
+            agentKind: .claude,
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            workingDirectory: firstCwd.path,
+            transcriptPath: nil,
+            at: Date()
+        )
+        let titleKey = try #require(AgentChatTranscriptService.specificClaudeTitleKey(titleHint))
+        let previousKey: AgentChatTranscriptService.ClaudeTranscriptResolutionKey = (
+            targetSessionID: sessionID,
+            workingDirectory: firstCwd.path,
+            claimedSessionIDs: [],
+            titleKey: titleKey,
+            forceScan: false
+        )
+        service.detectionScanAt[surfaceID] = Date()
+        service.detectionScanContextKeys[surfaceID] = "\(sessionID)\u{0}\(firstCwd.path)\u{0}\(titleKey)"
+        service.transcriptResolutionKeys[surfaceID] = previousKey
+        service.registry.update(sessionID: sessionID) { $0.workingDirectory = secondCwd.path }
+
+        service.scheduleClaudeTranscriptResolution(
+            workspaceID: workspaceID,
+            workingDirectory: secondCwd.path,
+            surfaceID: surfaceID,
+            targetSessionID: sessionID,
+            excludingSessionID: sessionID,
+            titleHint: titleHint,
+            forceScan: false
+        )
+        defer { service.cancelTranscriptResolution(surfaceID: surfaceID) }
+
+        let nextKey = try #require(service.transcriptResolutionKeys[surfaceID])
+        #expect(nextKey.workingDirectory == secondCwd.path)
+        #expect(service.detectionScanContextKeys[surfaceID] == "\(sessionID)\u{0}\(secondCwd.path)\u{0}\(titleKey)")
+    }
 }

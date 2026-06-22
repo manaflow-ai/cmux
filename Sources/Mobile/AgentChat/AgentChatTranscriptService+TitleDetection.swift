@@ -16,7 +16,9 @@ extension AgentChatTranscriptService {
             // A superseding non-Claude title invalidates queued/in-flight
             // adoption, but keeps the negative scan throttle in place.
             pendingTitleChanges.removeValue(forKey: surfaceID)
+            deliveredTitleKeys.removeValue(forKey: surfaceID)
             cancelTranscriptResolution(surfaceID: surfaceID, resetThrottle: false)
+            retireProvisionalClaudeSession(surfaceID: surfaceID, resetThrottle: false)
             return
         }
         if pendingTitleChanges[surfaceID]?.titleKey == titleKey {
@@ -67,7 +69,7 @@ extension AgentChatTranscriptService {
         transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
         if resetThrottle {
             detectionScanAt.removeValue(forKey: surfaceID)
-            detectionScanTitleKeys.removeValue(forKey: surfaceID)
+            detectionScanContextKeys.removeValue(forKey: surfaceID)
         }
     }
 
@@ -96,9 +98,12 @@ extension AgentChatTranscriptService {
             forceScan: forceScan
         )
         let scanTitleKey = titleKey ?? "generic"
-        if let lastScan = detectionScanAt[surfaceID],
-           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle,
-           (!forceScan || (throttleForcedScan && detectionScanTitleKeys[surfaceID] == scanTitleKey)) {
+        let scanContextKey = "\(targetSessionID)\u{0}\(workingDirectory)\u{0}\(scanTitleKey)"
+        let shouldThrottleSameContext = !forceScan || throttleForcedScan
+        if shouldThrottleSameContext,
+           let lastScan = detectionScanAt[surfaceID],
+           detectionScanContextKeys[surfaceID] == scanContextKey,
+           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle {
             return
         }
         if let currentKey = transcriptResolutionKeys[surfaceID],
@@ -107,7 +112,7 @@ extension AgentChatTranscriptService {
         }
 
         detectionScanAt[surfaceID] = now
-        detectionScanTitleKeys[surfaceID] = scanTitleKey
+        detectionScanContextKeys[surfaceID] = scanContextKey
         transcriptResolutionKeys[surfaceID] = key
         if !forceScan {
             transcriptResolutionForcedRetryCounts.removeValue(forKey: surfaceID)
@@ -214,7 +219,7 @@ extension AgentChatTranscriptService {
         }
 
         detectionScanAt.removeValue(forKey: surfaceID)
-        detectionScanTitleKeys.removeValue(forKey: surfaceID)
+        detectionScanContextKeys.removeValue(forKey: surfaceID)
         registry.update(sessionID: target.sessionID) { record in
             record.workspaceID = workspaceID
             record.surfaceID = surfaceID
@@ -256,6 +261,32 @@ extension AgentChatTranscriptService {
             claimed.formUnion(sessionIDs)
         }
         return claimed
+    }
+
+    func newestClaudeTranscript(
+        workingDirectory: String,
+        surfaceID: String,
+        excludingSessionID: String?,
+        titleHint: String?,
+        forceScan: Bool
+    ) -> (sessionID: String, path: String)? {
+        let now = Date()
+        if !forceScan,
+           let lastScan = detectionScanAt[surfaceID],
+           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle {
+            return nil
+        }
+        detectionScanAt[surfaceID] = now
+        var claimed = registry.claimedSessionIDs()
+            .union(activeClaimedDetectedTranscriptSessionIDs(excludingSurfaceID: surfaceID))
+        if let excludingSessionID {
+            claimed.remove(excludingSessionID)
+        }
+        return resolver.newestClaudeTranscript(
+            workingDirectory: workingDirectory,
+            excludingSessionIDs: claimed,
+            titleHint: titleHint
+        )
     }
 
     func claimDetectedTranscriptSessionID(_ sessionID: String, surfaceID: String) {

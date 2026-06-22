@@ -24,7 +24,7 @@ final class AgentChatTranscriptService {
     /// title-detected claude has not yet written its transcript; a successful
     /// adoption removes the entry.
     var detectionScanAt: [String: Date] = [:]
-    var detectionScanTitleKeys: [String: String] = [:]
+    var detectionScanContextKeys: [String: String] = [:]
     private var ghosttyTitleSubscription: GhosttyTitleChangeSubscription?
     var pendingTitleChanges: [String: PendingTitleChange] = [:]
     var deliveredTitleKeys: [String: String] = [:]
@@ -357,7 +357,7 @@ final class AgentChatTranscriptService {
                 // and cache instead of holding them until app quit. Evicting
                 // only on the TRANSITION keeps unrelated record updates (title
                 // discovery while paging an ended session) from churning it.
-                Task { await tailer.stop() }
+                Task.detached(priority: .utility) { await tailer.stop() }
             }
         }
         guard MobileHostService.hasEventSubscribers(topic: Self.eventTopic) else { return }
@@ -390,21 +390,33 @@ final class AgentChatTranscriptService {
               let surfaceID = record.surfaceID else {
             return
         }
+        retireProvisionalClaudeSession(surfaceID: surfaceID, replacement: record)
+    }
+
+    func retireProvisionalClaudeSession(
+        surfaceID: String,
+        replacement record: AgentChatSessionRecord? = nil,
+        resetThrottle: Bool = true
+    ) {
         let provisionalSessionID = Self.provisionalClaudeSessionID(surfaceID: surfaceID)
-        guard provisionalSessionID != record.sessionID,
+        guard record?.sessionID != provisionalSessionID,
               let provisional = registry.remove(sessionID: provisionalSessionID) else {
             return
         }
 
-        if record.transcriptPath == nil,
+        if let record,
+           record.transcriptPath == nil,
            let provisionalPath = provisional.transcriptPath,
            URL(fileURLWithPath: provisionalPath).deletingPathExtension().lastPathComponent == record.sessionID {
             registry.update(sessionID: record.sessionID) { $0.transcriptPath = provisionalPath }
         }
-        clearTitleDetectionState(surfaceID: surfaceID, releaseTranscriptClaims: true)
+        pendingTitleChanges.removeValue(forKey: surfaceID)
+        deliveredTitleKeys.removeValue(forKey: surfaceID)
+        cancelTranscriptResolution(surfaceID: surfaceID, resetThrottle: resetThrottle)
+        claimedDetectedTranscriptSessionIDsBySurfaceID.removeValue(forKey: surfaceID)
         failedResolutions.remove(provisional.sessionID)
         if let tailer = tailers.removeValue(forKey: provisional.sessionID) {
-            Task { await tailer.stop() }
+            Task.detached(priority: .utility) { await tailer.stop() }
         }
         if MobileHostService.hasEventSubscribers(topic: Self.eventTopic) {
             if provisional.state != .ended {
@@ -417,32 +429,6 @@ final class AgentChatTranscriptService {
     private func emit(frame: ChatSessionEventFrame) {
         guard let payload = wirePayload(frame) else { return }
         MobileHostService.emitEvent(topic: Self.eventTopic, payload: payload)
-    }
-
-    private func newestClaudeTranscript(
-        workingDirectory: String,
-        surfaceID: String,
-        excludingSessionID: String?,
-        titleHint: String?,
-        forceScan: Bool
-    ) -> (sessionID: String, path: String)? {
-        let now = Date()
-        if !forceScan,
-           let lastScan = detectionScanAt[surfaceID],
-           now.timeIntervalSince(lastScan) < Self.detectionScanThrottle {
-            return nil
-        }
-        detectionScanAt[surfaceID] = now
-        var claimed = registry.claimedSessionIDs()
-            .union(activeClaimedDetectedTranscriptSessionIDs(excludingSurfaceID: surfaceID))
-        if let excludingSessionID {
-            claimed.remove(excludingSessionID)
-        }
-        return resolver.newestClaudeTranscript(
-            workingDirectory: workingDirectory,
-            excludingSessionIDs: claimed,
-            titleHint: titleHint
-        )
     }
 
     private static func provisionalClaudeSessionID(surfaceID: String) -> String {
