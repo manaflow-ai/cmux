@@ -2120,15 +2120,21 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     }
 
     func testSystemMemoryPressureDiscardsHiddenWebViewImmediately() {
-        let pressureAt = Date(timeIntervalSince1970: 250)
         let defaults = UserDefaults.standard
         let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousHiddenDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
         defaults.set(true, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
         defer {
             if let previousEnabled {
                 defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
             } else {
                 defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousHiddenDelay {
+                defaults.set(previousHiddenDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
             }
         }
         let panel = BrowserPanel(
@@ -2144,6 +2150,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
               Date() < deadline {}
         XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
+        let pressureAt = Date()
         panel.noteWebViewVisibility(false, reason: "test.hidden", now: pressureAt)
         let originalWebView = panel.webView
 
@@ -2157,7 +2164,6 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
     }
 
     func testSystemMemoryPressureDoesNotDiscardVisibleWebView() {
-        let pressureAt = Date(timeIntervalSince1970: 260)
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "about:blank")!,
@@ -2171,6 +2177,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
               Date() < deadline {}
         XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
 
+        let pressureAt = Date()
         panel.noteWebViewVisibility(true, reason: "test.visible", now: pressureAt)
         let originalWebView = panel.webView
 
