@@ -252,7 +252,6 @@
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
 		C0DE45000000000000000001 /* CmuxExtensionKit in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE45000000000000000002 /* CmuxExtensionKit */; };
 			E4C006000000000000000001 /* CmuxExtensionPipeOutputCollector.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C006000000000000000002 /* CmuxExtensionPipeOutputCollector.swift */; };
-			E4C005000000000000000001 /* CmuxExtensionProcessTermination.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4C005000000000000000002 /* CmuxExtensionProcessTermination.swift */; };
 		C0DE49000000000000000001 /* CmuxExtensionSidebarExamples in Frameworks */ = {isa = PBXBuildFile; productRef = C0DE49000000000000000002 /* CmuxExtensionSidebarExamples */; };
 		C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */; };
 		C9A2C00000000000000000C3 /* CmuxFeedback in Frameworks */ = {isa = PBXBuildFile; productRef = C9A2C00000000000000000C2 /* CmuxFeedback */; };
@@ -1341,7 +1340,6 @@
 		E7E000000000000000000008 /* CmuxEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventPublishing.swift; sourceTree = "<group>"; };
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
 			E4C006000000000000000002 /* CmuxExtensionPipeOutputCollector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionPipeOutputCollector.swift; sourceTree = "<group>"; };
-			E4C005000000000000000002 /* CmuxExtensionProcessTermination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxExtensionProcessTermination.swift; sourceTree = "<group>"; };
 		C57B00050000000000000002 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxExtensionSidebarSelection+CustomSidebarName.swift"; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
@@ -2382,7 +2380,6 @@
 					E4C001000000000000000002 /* ExtensionSidebarWorkspaceRowView.swift */,
 					E4C007000000000000000002 /* ExtensionWorktreePrototype+ForceRemovalPreview.swift */,
 					E4C001000000000000000004 /* ExtensionWorktreePrototype.swift */,
-					E4C005000000000000000002 /* CmuxExtensionProcessTermination.swift */,
 					E4C006000000000000000002 /* CmuxExtensionPipeOutputCollector.swift */,
 					E4C004000000000000000002 /* VerticalTabsSidebar+ExtensionWorktreeActions.swift */,
 				C0DE36230000000000000002 /* WorkspaceFinderDirectoryResolver.swift */,
@@ -3785,7 +3782,6 @@
 				E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
 					E4C006000000000000000001 /* CmuxExtensionPipeOutputCollector.swift in Sources */,
-					E4C005000000000000000001 /* CmuxExtensionProcessTermination.swift in Sources */,
 				C57B00050000000000000001 /* CmuxExtensionSidebarSelection+CustomSidebarName.swift in Sources */,
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,

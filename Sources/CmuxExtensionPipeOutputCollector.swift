@@ -1,19 +1,14 @@
 import CmuxFoundation
 import Foundation
 
-final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
-    private struct ReadHandle: @unchecked Sendable {
-        let fileHandle: FileHandle
-    }
-
+/// Immutable handle around a detached pipe-drain task.
+final class CmuxExtensionPipeOutputCollector: Sendable {
     private let readTask: Task<Data, Never>
 
     init(fileHandle: FileHandle) {
-        let readHandle = ReadHandle(fileHandle: fileHandle)
+        let fileDescriptor = fileHandle.fileDescriptor
         readTask = Task.detached(priority: .utility) {
-            let data = readHandle.fileHandle.readDataToEndOfFileOrEmpty()
-            try? readHandle.fileHandle.close()
-            return data
+            ProcessPipeEndRead.reading(fileDescriptor: fileDescriptor).data
         }
     }
 

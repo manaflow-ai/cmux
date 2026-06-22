@@ -431,10 +431,7 @@ enum CmuxExtensionWorktreePrototype {
         process.arguments = [executable] + arguments
         process.standardOutput = stdout
         process.standardError = stderr
-        let termination = CmuxExtensionProcessTermination()
-        process.terminationHandler = { process in
-            termination.complete(process.terminationStatus)
-        }
+        let terminationStream = processTerminationStream(for: process)
         do {
             try process.run()
         } catch {
@@ -442,7 +439,7 @@ enum CmuxExtensionWorktreePrototype {
             try? stderr.close()
             return -1
         }
-        let terminationStatus = await termination.wait()
+        let terminationStatus = await processTerminationStatus(from: terminationStream)
         try? stdout.close()
         try? stderr.close()
         return terminationStatus
@@ -459,10 +456,7 @@ enum CmuxExtensionWorktreePrototype {
         let stderrPipe = Pipe()
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
-        let termination = CmuxExtensionProcessTermination()
-        process.terminationHandler = { process in
-            termination.complete(process.terminationStatus)
-        }
+        let terminationStream = processTerminationStream(for: process)
         do {
             try process.run()
         } catch {
@@ -472,10 +466,24 @@ enum CmuxExtensionWorktreePrototype {
         }
         let stdoutCollector = CmuxExtensionPipeOutputCollector(fileHandle: stdoutPipe.fileHandleForReading)
         let stderrCollector = CmuxExtensionPipeOutputCollector(fileHandle: stderrPipe.fileHandleForReading)
-        let terminationStatus = await termination.wait()
+        let terminationStatus = await processTerminationStatus(from: terminationStream)
         let stdoutData = await stdoutCollector.finish()
         let stderrData = await stderrCollector.finish()
         return (terminationStatus, stdoutData, stderrData)
+    }
+
+    private static func processTerminationStream(for process: Process) -> AsyncStream<Int32> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            process.terminationHandler = { finishedProcess in
+                continuation.yield(finishedProcess.terminationStatus)
+                continuation.finish()
+            }
+        }
+    }
+
+    private static func processTerminationStatus(from stream: AsyncStream<Int32>) async -> Int32 {
+        var iterator = stream.makeAsyncIterator()
+        return await iterator.next() ?? -1
     }
 
     private static func shellEscaped(_ value: String) -> String {
