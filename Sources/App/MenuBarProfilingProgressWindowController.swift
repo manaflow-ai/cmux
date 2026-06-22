@@ -95,8 +95,9 @@ final class MenuBarProfilingProgressWindowController: NSWindowController {
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [scriptURL.path] + MenuBarProfilingLauncher.arguments(pid: pid, submitProfile: false)
         process.terminationHandler = { [weak self] process in
+            let status = process.terminationStatus
             Task { @MainActor [weak self] in
-                self?.finish(terminationStatus: process.terminationStatus)
+                self?.finish(terminationStatus: status)
             }
         }
 

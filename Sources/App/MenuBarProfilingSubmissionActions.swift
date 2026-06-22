@@ -56,8 +56,9 @@ extension MenuBarProfilingProgressWindowController {
             send: true
         )
         process.terminationHandler = { [weak self] process in
+            let status = process.terminationStatus
             Task { @MainActor [weak self] in
-                self?.finishSubmit(terminationStatus: process.terminationStatus)
+                self?.finishSubmit(terminationStatus: status)
             }
         }
 
@@ -86,8 +87,9 @@ extension MenuBarProfilingProgressWindowController {
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
         process.arguments = [submitterURL.path] + MenuBarProfilingProfilePreview.packageArguments(profileURL: profileURL)
         process.terminationHandler = { [weak self] process in
+            let status = process.terminationStatus
             Task { @MainActor [weak self] in
-                self?.finishPackage(terminationStatus: process.terminationStatus)
+                self?.finishPackage(terminationStatus: status)
             }
         }
 
@@ -174,20 +176,34 @@ extension MenuBarProfilingProgressWindowController {
     }
 
     private func startSubmitTimeoutTimer(for process: Process) {
+        let pid = process.processIdentifier
         submitTimeoutTimer?.invalidate()
-        submitTimeoutTimer = Timer.scheduledTimer(withTimeInterval: submitTimeoutSeconds, repeats: false) { [weak self, weak process] _ in
-            Task { @MainActor [weak self, weak process] in
-                guard let self, let process, process.isRunning, self.submitProcess === process else { return }
+        submitTimeoutTimer = Timer.scheduledTimer(withTimeInterval: submitTimeoutSeconds, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      let process = self.submitProcess,
+                      process.processIdentifier == pid,
+                      process.isRunning
+                else {
+                    return
+                }
                 self.submitTimedOut = true
                 self.statusLabel.stringValue = String(
                     localized: "statusMenu.profiling.submitTimedOut",
                     defaultValue: "Mail did not finish in time. Stopping the send helper so you can retry."
                 )
                 process.terminate()
-                let pid = process.processIdentifier
-                _ = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak process] _ in
-                    guard let process, process.isRunning else { return }
-                    _ = kill(pid, SIGKILL)
+                _ = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        guard let self,
+                              let process = self.submitProcess,
+                              process.processIdentifier == pid,
+                              process.isRunning
+                        else {
+                            return
+                        }
+                        _ = kill(pid, SIGKILL)
+                    }
                 }
             }
         }
