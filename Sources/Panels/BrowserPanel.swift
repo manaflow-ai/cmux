@@ -3399,7 +3399,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     @discardableResult
     func discardHiddenWebViewForSystemMemoryPressure(now: Date = Date()) -> Bool {
-        discardHiddenWebViewForMemory(reason: "system_memory_pressure", now: now)
+        hiddenWebViewDiscardManager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now)
     }
 
     @discardableResult

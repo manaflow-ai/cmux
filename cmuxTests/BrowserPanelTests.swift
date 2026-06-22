@@ -67,6 +67,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
     var hiddenAt: Date?
     var webViewInstanceID = UUID()
     var discardRequestCount = 0
+    var lastDiscardReason: String?
 
     init(snapshot: BrowserHiddenWebViewDiscardManager.BlockerSnapshot, hiddenAt: Date?) {
         self.snapshot = snapshot
@@ -90,6 +91,7 @@ private final class BrowserHiddenWebViewDiscardTestDelegate: BrowserHiddenWebVie
         reason: String
     ) {
         discardRequestCount += 1
+        lastDiscardReason = reason
     }
 
     func hiddenWebViewDiscardManagerPolicyDidChange(
@@ -299,6 +301,42 @@ final class BrowserHiddenWebViewDiscardManagerTests: XCTestCase {
         XCTAssertTrue(manager.hasScheduledDiscard)
         XCTAssertEqual(manager.blockers(for: snapshot), [])
         XCTAssertEqual(delegate.discardRequestCount, 0)
+    }
+
+    func testSystemMemoryPressureRequestsImmediateHiddenWebViewDiscard() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(
+            snapshot: snapshot,
+            hiddenAt: now.addingTimeInterval(-10)
+        )
+        manager.delegate = delegate
+
+        XCTAssertTrue(manager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now))
+
+        XCTAssertFalse(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 1)
+        XCTAssertEqual(delegate.lastDiscardReason, "system_memory_pressure")
+    }
+
+    func testSystemMemoryPressureDefersImmediateDiscardDuringPostWakeWindow() {
+        let wakeAt = Date(timeIntervalSince1970: 2_000)
+        let pressureAt = wakeAt.addingTimeInterval(1)
+        let snapshot = makeHiddenWebViewDiscardBlockerSnapshot()
+        let manager = BrowserHiddenWebViewDiscardManager()
+        let delegate = BrowserHiddenWebViewDiscardTestDelegate(
+            snapshot: snapshot,
+            hiddenAt: wakeAt.addingTimeInterval(-7_200)
+        )
+        manager.delegate = delegate
+
+        manager.noteSystemDidWake(now: wakeAt)
+        XCTAssertFalse(manager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: pressureAt))
+
+        XCTAssertTrue(manager.hasScheduledDiscard)
+        XCTAssertEqual(delegate.discardRequestCount, 0)
+        XCTAssertNil(delegate.lastDiscardReason)
     }
 }
 
