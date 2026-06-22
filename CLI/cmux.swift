@@ -23663,7 +23663,13 @@ struct CMUXCLI {
                 // other mode that following hook owns the status/bell and converges on
                 // the same needs-input state, so we only set the lifecycle here —
                 // doing both would double-ring the notification.
-                if (parsedInput.object?["permission_mode"] as? String) == "bypassPermissions" {
+                //
+                // Read permission_mode from rawObject: the compacted `object`
+                // (compactClaudeHookObject) keeps only an allowlist of keys and does
+                // not retain permission_mode.
+                let permissionMode = (parsedInput.rawObject?["permission_mode"] as? String)
+                    ?? (parsedInput.rawObject?["permissionMode"] as? String)
+                if permissionMode == "bypassPermissions" {
                     // Reuse the same localized "Needs input" value the in-app feed
                     // overlay sets (FeedCoordinator.needsInputStatusValue) so the two
                     // needs-input paths stay locale-consistent.
