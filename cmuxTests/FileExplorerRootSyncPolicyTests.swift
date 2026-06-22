@@ -106,8 +106,8 @@ struct RightSidebarKeyboardNavigationTests {
             timestamp: 0,
             windowNumber: 0,
             context: nil,
-            characters: nil,
-            charactersIgnoringModifiers: nil,
+            characters: "",
+            charactersIgnoringModifiers: "",
             isARepeat: false,
             keyCode: keyCode
         )
