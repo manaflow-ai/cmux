@@ -18,28 +18,6 @@ final class WindowTerminalHostView: NSView {
         let dividerIndex: Int
     }
 
-    private struct DividerSubviewSnapshot {
-        weak var view: NSView?
-        private let subviewIDs: [ObjectIdentifier]
-
-        init(view: NSView, subviews: [NSView]) {
-            self.view = view
-            self.subviewIDs = subviews.map { ObjectIdentifier($0) }
-        }
-
-        func matchesCurrentSubviews() -> Bool {
-            guard let view else { return false }
-            let currentSubviews = view.subviews
-            guard currentSubviews.count == subviewIDs.count else { return false }
-            for index in currentSubviews.indices {
-                guard ObjectIdentifier(currentSubviews[index]) == subviewIDs[index] else {
-                    return false
-                }
-            }
-            return true
-        }
-    }
-
     private enum DividerCursorKind: Equatable {
         case vertical
         case horizontal
@@ -67,7 +45,8 @@ final class WindowTerminalHostView: NSView {
     private var cachedDividerRegions: [DividerRegion] = []
     private var cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
     private var cachedDividerSplitSourceCounts: [ObjectIdentifier: UInt64] = [:]
-    private var cachedDividerSubviewSnapshots: [DividerSubviewSnapshot] = []
+    private var cachedDividerSubviewSnapshotViews = NSPointerArray.weakObjects()
+    private var cachedDividerSubviewSnapshotIDs: [[ObjectIdentifier]] = []
     var dividerRegionBuildCount = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
@@ -163,7 +142,8 @@ final class WindowTerminalHostView: NSView {
         cachedDividerRegions.removeAll(keepingCapacity: true)
         cachedDividerSplitSourceViews = NSPointerArray.weakObjects()
         cachedDividerSplitSourceCounts.removeAll(keepingCapacity: true)
-        cachedDividerSubviewSnapshots.removeAll(keepingCapacity: true)
+        cachedDividerSubviewSnapshotViews = NSPointerArray.weakObjects()
+        cachedDividerSubviewSnapshotIDs.removeAll(keepingCapacity: true)
         window?.invalidateCursorRects(for: self)
     }
 
@@ -477,18 +457,21 @@ final class WindowTerminalHostView: NSView {
         var regions: [DividerRegion] = []
         let splitSourceViews = NSPointerArray.weakObjects()
         var splitSourceCounts: [ObjectIdentifier: UInt64] = [:]
-        var subviewSnapshots: [DividerSubviewSnapshot] = []
+        let subviewSnapshotViews = NSPointerArray.weakObjects()
+        var subviewSnapshotIDs: [[ObjectIdentifier]] = []
         Self.collectSplitDividerRegions(
             in: rootView,
             into: &regions,
             splitSourceViews: splitSourceViews,
             splitSourceCounts: &splitSourceCounts,
-            subviewSnapshots: &subviewSnapshots
+            subviewSnapshotViews: subviewSnapshotViews,
+            subviewSnapshotIDs: &subviewSnapshotIDs
         )
         cachedDividerRegions = regions
         cachedDividerSplitSourceViews = splitSourceViews
         cachedDividerSplitSourceCounts = splitSourceCounts
-        cachedDividerSubviewSnapshots = subviewSnapshots
+        cachedDividerSubviewSnapshotViews = subviewSnapshotViews
+        cachedDividerSubviewSnapshotIDs = subviewSnapshotIDs
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
@@ -505,8 +488,11 @@ final class WindowTerminalHostView: NSView {
               !Self.isHiddenOrAncestorHidden(rootView) else {
             return nil
         }
-        for snapshot in cachedDividerSubviewSnapshots {
-            guard snapshot.matchesCurrentSubviews() else { return nil }
+        guard Self.subviewSnapshotsAreCurrent(
+            views: cachedDividerSubviewSnapshotViews,
+            subviewIDs: cachedDividerSubviewSnapshotIDs
+        ) else {
+            return nil
         }
 
         for index in cachedDividerRegions.indices {
@@ -559,10 +545,12 @@ final class WindowTerminalHostView: NSView {
         into result: inout [DividerRegion],
         splitSourceViews: NSPointerArray,
         splitSourceCounts: inout [ObjectIdentifier: UInt64],
-        subviewSnapshots: inout [DividerSubviewSnapshot]
+        subviewSnapshotViews: NSPointerArray,
+        subviewSnapshotIDs: inout [[ObjectIdentifier]]
     ) {
         let subviews = view.subviews
-        subviewSnapshots.append(DividerSubviewSnapshot(view: view, subviews: subviews))
+        subviewSnapshotViews.addPointer(Unmanaged.passUnretained(view).toOpaque())
+        subviewSnapshotIDs.append(subviews.map { ObjectIdentifier($0) })
 
         if let splitView = view as? NSSplitView {
             let dividerCount = dividerCount(in: splitView)
@@ -587,9 +575,32 @@ final class WindowTerminalHostView: NSView {
                 into: &result,
                 splitSourceViews: splitSourceViews,
                 splitSourceCounts: &splitSourceCounts,
-                subviewSnapshots: &subviewSnapshots
+                subviewSnapshotViews: subviewSnapshotViews,
+                subviewSnapshotIDs: &subviewSnapshotIDs
             )
         }
+    }
+
+    private static func subviewSnapshotsAreCurrent(
+        views: NSPointerArray,
+        subviewIDs: [[ObjectIdentifier]]
+    ) -> Bool {
+        guard views.count == subviewIDs.count else { return false }
+        for index in 0..<views.count {
+            guard let pointer = views.pointer(at: index) else { return false }
+            let view = Unmanaged<NSView>.fromOpaque(pointer).takeUnretainedValue()
+            guard currentSubviews(in: view, match: subviewIDs[index]) else { return false }
+        }
+        return true
+    }
+
+    private static func currentSubviews(in view: NSView, match subviewIDs: [ObjectIdentifier]) -> Bool {
+        let currentSubviews = view.subviews
+        guard currentSubviews.count == subviewIDs.count else { return false }
+        for index in currentSubviews.indices {
+            guard ObjectIdentifier(currentSubviews[index]) == subviewIDs[index] else { return false }
+        }
+        return true
     }
 
     private static func encodedDividerSplitSourceCounts(dividerCount: Int, validRegionCount: Int) -> UInt64 {
