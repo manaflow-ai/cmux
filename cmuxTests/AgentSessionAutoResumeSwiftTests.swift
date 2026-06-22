@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxSidebar
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,32 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
+    @MainActor
+    @Test func sessionRestoreDropsPersistedAgentStatusRuntimeState() throws {
+        let source = Workspace()
+        let sourcePanelId = try #require(source.focusedPanelId)
+        let pidKey = "claude_code.issue-6441"
+
+        source.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input"
+        )
+        source.recordAgentPID(key: pidKey, pid: 42_424, panelId: sourcePanelId, refreshPorts: false)
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.statusEntries.contains { $0.key == "claude_code" })
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+
+        #expect(restored.statusEntries["claude_code"] == nil)
+        #expect(restored.agentPIDs.isEmpty)
+        #expect(restored.agentPIDPanelIdsByKey.isEmpty)
+        #expect(restored.agentPIDKeysByPanelId.isEmpty)
+        #expect(restored.agentHibernationLifecycleState(panelId: restoredPanelId, fallback: nil) == .unknown)
+    }
+
     @MainActor
     @Test func claudeAgentHookResumeBindingRestoresFromLaunchCwdWhenRuntimeCwdDrifted() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
