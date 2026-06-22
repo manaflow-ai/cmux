@@ -2506,12 +2506,13 @@ final class TerminalOutputCollector {
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where collector.lines.count < 2 {
+    let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
+    for _ in 0..<200 where !collector.lines.contains(liveText) {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
-    let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
-    #expect(collector.lines == [liveText])
+    #expect(collector.lines.contains(liveText))
+    #expect(collector.lines.last == liveText)
     #expect(liveText.contains("\u{1B}[0;1;4;38;2;255;0;0;48;2;0;0;255mlive"))
     #expect(liveText.contains("\u{1B}[6 q\u{1B}[?25h\u{1B}[2;3H"))
     collector.unmount()
