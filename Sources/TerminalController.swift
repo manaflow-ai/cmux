@@ -788,17 +788,6 @@ class TerminalController {
             return pidsByWorkspace
         }
         PortScanner.shared.setTrackedAgentScanningPaused(!NSApplication.shared.isActive)
-        PortScanner.shared.trackedAgentScanWorkspaceFilter = { [weak self] workspaceIds in
-            guard NSApplication.shared.isActive else { return [] }
-            guard let self, let selectedWorkspaceId = self.tabManager?.selectedTabId else {
-                return workspaceIds
-            }
-            guard
-                  workspaceIds.contains(selectedWorkspaceId) else {
-                return []
-            }
-            return [selectedWorkspaceId]
-        }
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {

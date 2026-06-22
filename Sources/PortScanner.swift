@@ -22,8 +22,6 @@ final class PortScanner: @unchecked Sendable {
     var onAgentPortsUpdated: (@MainActor (_ workspaceId: UUID, _ ports: [Int]) -> Void)?
     /// Provider returns tracked agent root PIDs for the given workspaces.
     var agentPIDsProvider: (@MainActor (_ workspaceIds: Set<UUID>) -> [UUID: Set<Int>])?
-    /// Filters workspaces eligible for periodic tracked-agent rescans.
-    var trackedAgentScanWorkspaceFilter: (@MainActor (_ workspaceIds: Set<UUID>) -> Set<UUID>)?
 
     // MARK: - State (all guarded by `queue`)
 
@@ -38,6 +36,7 @@ final class PortScanner: @unchecked Sendable {
     /// Workspaces with active agent PID tracking that need background rescans.
     private var trackedAgentWorkspaces: Set<UUID> = []
     private var lastAgentPortsByWorkspace: [UUID: [Int]] = [:]
+    private var forceAgentResultWorkspaces: Set<UUID> = []
     private var trackedAgentScanningPaused = false
 
     /// Panels that requested a scan since the last coalesce snapshot.
@@ -265,7 +264,7 @@ final class PortScanner: @unchecked Sendable {
             trackedAgentWorkspaces.insert(workspaceId)
         }
         updateAgentScanTimerLocked()
-        lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+        forceAgentResultWorkspaces.insert(workspaceId)
 
         scanAgentPorts(
             workspaceIds: [workspaceId],
@@ -312,21 +311,15 @@ final class PortScanner: @unchecked Sendable {
             )
             return
         }
-        let workspaceFilter = trackedAgentScanWorkspaceFilter
 
         Task { [weak self] in
             guard let self else { return }
-            let (eligibleWorkspaceIds, agentPIDsByWorkspace) = await MainActor.run {
-                let eligibleWorkspaceIds = workspaceFilter?(workspaceIds) ?? workspaceIds
-                guard !eligibleWorkspaceIds.isEmpty else {
-                    return (Set<UUID>(), [UUID: Set<Int>]())
-                }
-                return (eligibleWorkspaceIds, agentPIDsProvider(eligibleWorkspaceIds))
+            let agentPIDsByWorkspace = await MainActor.run {
+                agentPIDsProvider(workspaceIds)
             }
-            guard !eligibleWorkspaceIds.isEmpty else { return }
             self.queue.async { [weak self] in
                 self?.finishTrackedAgentScan(
-                    workspaceIds: eligibleWorkspaceIds,
+                    workspaceIds: workspaceIds,
                     agentPIDsByWorkspace: agentPIDsByWorkspace,
                     agentRevisions: agentRevisions
                 )
@@ -347,7 +340,10 @@ final class PortScanner: @unchecked Sendable {
         let inactiveWorkspaceIds = workspaceIds.subtracting(normalizedPIDsByWorkspace.keys)
         if !inactiveWorkspaceIds.isEmpty {
             trackedAgentWorkspaces.subtract(inactiveWorkspaceIds)
-            inactiveWorkspaceIds.forEach { lastAgentPortsByWorkspace.removeValue(forKey: $0) }
+            for workspaceId in inactiveWorkspaceIds {
+                lastAgentPortsByWorkspace.removeValue(forKey: workspaceId)
+                forceAgentResultWorkspaces.remove(workspaceId)
+            }
             updateAgentScanTimerLocked()
         }
 
@@ -449,8 +445,11 @@ final class PortScanner: @unchecked Sendable {
                     guard currentRevision == expectedRevision else { continue }
                     let ports = Array(agentPortsByWorkspace[workspaceId] ?? []).sorted()
                     let previousPorts = lastAgentPortsByWorkspace[workspaceId]
-                    guard previousPorts != ports else { continue }
-                    guard previousPorts != nil || !ports.isEmpty else { continue }
+                    let forceDelivery = forceAgentResultWorkspaces.remove(workspaceId) != nil
+                    if !forceDelivery {
+                        guard previousPorts != ports else { continue }
+                        guard previousPorts != nil || !ports.isEmpty else { continue }
+                    }
                     lastAgentPortsByWorkspace[workspaceId] = ports
                     results.append((workspaceId, ports))
                 }
