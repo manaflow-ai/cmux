@@ -415,7 +415,7 @@ final class PortScanner: @unchecked Sendable {
         }
     }
 
-    private func validatedAgentResults(
+    func validatedAgentResults(
         workspaceIds: Set<UUID>,
         agentPortsByWorkspace: [UUID: Set<Int>],
         agentRevisions: [UUID: UInt64]
