@@ -260,6 +260,28 @@ if ! grep -Fq "Completed:" "$display_failed_out/summary.md" ||
   exit 1
 fi
 
+sleep_system_profiler="$TMP_DIR/sleep-system-profiler"
+cat > "$sleep_system_profiler" <<'EOF'
+#!/usr/bin/env bash
+sleep 30
+EOF
+chmod +x "$sleep_system_profiler"
+display_hung_out="$TMP_DIR/display-hung-out"
+PATH="$fake_bin:$PATH" CMUX_PROFILE_SYSTEM_PROFILER="$sleep_system_profiler" CMUX_PROFILE_SYSTEM_PROFILER_TIMEOUT_SECONDS=1 "$SCRIPT" \
+  --test-ps-file "$ps_file" \
+  --channel dev \
+  --tag dog \
+  --duration 1 \
+  --template "Time Profiler" \
+  --no-submit \
+  --out "$display_hung_out" >/dev/null
+if ! grep -Fq "Completed:" "$display_hung_out/summary.md" ||
+   ! grep -Fq "Displays: unknown" "$display_hung_out/summary.md"; then
+  echo "FAIL: hung optional display probe should time out and not abort profiling" >&2
+  cat "$display_hung_out/summary.md" >&2
+  exit 1
+fi
+
 fail_bin="$TMP_DIR/fail-bin"
 mkdir -p "$fail_bin"
 cat > "$fail_bin/xcrun" <<'EOF'
