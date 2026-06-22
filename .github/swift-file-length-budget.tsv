@@ -2,13 +2,13 @@
 # Format: max_lines<TAB>relative path
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34289	CLI/cmux.swift
-17827	Sources/AppDelegate.swift
+17830	Sources/AppDelegate.swift
 16117	Sources/ContentView.swift
 13952	Sources/TerminalController.swift
-12822	Sources/Workspace.swift
+12833	Sources/Workspace.swift
 12240	Sources/GhosttyTerminalView.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11924	Sources/Panels/BrowserPanel.swift
+11929	Sources/Panels/BrowserPanel.swift
 9335	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8017	CLI/cmux_open.swift
 7986	Sources/Panels/BrowserPanelView.swift
@@ -16,7 +16,7 @@
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6217	cmuxTests/GhosttyConfigTests.swift
-6171	Sources/TabManager.swift
+6178	Sources/TabManager.swift
 6084	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
@@ -189,6 +189,7 @@
 558	Packages/macOS/CmuxGit/Sources/CmuxGit/Parsing/GitMetadataService+Config.swift
 552	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/BrowserSection.swift
 549	Sources/Panels/BrowserAutomation.swift
+548	Sources/PaneMemoryGuardrail.swift
 541	Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Coordinator/Pane/ControlCommandCoordinator+Pane.swift
 540	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceReorderCoordinator.swift
 539	CLI/CMUXCLI+Themes.swift
@@ -210,7 +211,6 @@
 519	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-two-column-cockpit-sidebar.swift
 519	Sources/CmuxConfigExecutor.swift
 518	Packages/macOS/CmuxSwiftRender/Tests/CmuxSwiftRenderTests/Corpus/stress-git-review-queue-command-deck.swift
-517	Sources/PaneMemoryGuardrail.swift
 516	Sources/TerminalImageTransfer.swift
 514	Packages/macOS/CmuxSwiftRender/Sources/CmuxSwiftRender/ExpressionEvaluator.swift
 514	cmuxUITests/UpdatePillUITests.swift

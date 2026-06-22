@@ -4964,6 +4964,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
+        var discardedCount = 0
+        for browserPanel in panels.values.compactMap({ $0 as? BrowserPanel }) {
+            if browserPanel.discardHiddenWebViewForSystemMemoryPressure(now: now) {
+                discardedCount += 1
+            }
+        }
+        return discardedCount
+    }
+
+    @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
