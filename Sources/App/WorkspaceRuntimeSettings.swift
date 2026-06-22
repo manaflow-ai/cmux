@@ -1,4 +1,5 @@
 import Darwin
+import CmuxSettings
 import Foundation
 
 enum WorkspaceTitlebarSettings {
@@ -455,6 +456,31 @@ enum RendererRealizationSettings {
 
     static func notifyDidChange(notificationCenter: NotificationCenter = .default) {
         notificationCenter.post(name: didChangeNotification, object: nil)
+    }
+}
+
+enum TerminalTitleUpdateCoalescingSettings {
+    static let enabledKey = SettingCatalog().terminal.titleUpdateCoalescingEnabled.userDefaultsKey
+    static let millisecondsKey = SettingCatalog().terminal.titleUpdateCoalescingMilliseconds.userDefaultsKey
+
+    static let defaultEnabled = TerminalCatalogSection.titleUpdateCoalescingDefaultEnabled
+    static let defaultMilliseconds = TerminalCatalogSection.titleUpdateCoalescingDefaultMilliseconds
+    static let minimumMilliseconds = TerminalCatalogSection.titleUpdateCoalescingMinimumMilliseconds
+    static let maximumMilliseconds = TerminalCatalogSection.titleUpdateCoalescingMaximumMilliseconds
+    static let passthroughDelay: TimeInterval = 1.0 / 30.0
+
+    static func sanitizedMilliseconds(_ value: Int) -> Int {
+        min(max(value, minimumMilliseconds), maximumMilliseconds)
+    }
+
+    static func delay(settings: any SettingsReading) -> TimeInterval {
+        let terminal = SettingCatalog().terminal
+        guard settings.value(for: terminal.titleUpdateCoalescingEnabled) else {
+            return passthroughDelay
+        }
+        return TimeInterval(
+            sanitizedMilliseconds(settings.value(for: terminal.titleUpdateCoalescingMilliseconds))
+        ) / 1_000.0
     }
 }
 

@@ -8,6 +8,14 @@ public struct TerminalCatalogSection: SettingCatalogSection {
     public static let scrollSpeedMinimum = 0.25
     /// Maximum allowed multiplier for terminal scroll deltas.
     public static let scrollSpeedMaximum = 3.0
+    /// Default state for terminal title update coalescing.
+    public static let titleUpdateCoalescingDefaultEnabled = false
+    /// Default coalescing delay when terminal title update coalescing is enabled.
+    public static let titleUpdateCoalescingDefaultMilliseconds = 1_000
+    /// Minimum allowed delay for terminal title update coalescing.
+    public static let titleUpdateCoalescingMinimumMilliseconds = 33
+    /// Maximum allowed delay for terminal title update coalescing.
+    public static let titleUpdateCoalescingMaximumMilliseconds = 5_000
 
     public let showScrollBar = DefaultsKey<Bool>(
         id: "terminal.showScrollBar",
@@ -67,6 +75,18 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         id: "terminal.rendererRealization.maxWarmRenderers",
         defaultValue: 12,
         userDefaultsKey: "terminal.rendererRealization.maxWarmRenderers"
+    )
+
+    public let titleUpdateCoalescingEnabled = DefaultsKey<Bool>(
+        id: "terminal.titleUpdates.coalescing.enabled",
+        defaultValue: TerminalCatalogSection.titleUpdateCoalescingDefaultEnabled,
+        userDefaultsKey: "terminal.titleUpdates.coalescing.enabled"
+    )
+
+    public let titleUpdateCoalescingMilliseconds = DefaultsKey<Int>(
+        id: "terminal.titleUpdates.coalescing.milliseconds",
+        defaultValue: TerminalCatalogSection.titleUpdateCoalescingDefaultMilliseconds,
+        userDefaultsKey: "terminal.titleUpdates.coalescing.milliseconds"
     )
 
     public let showTextBoxOnNewTerminals = DefaultsKey<Bool>(

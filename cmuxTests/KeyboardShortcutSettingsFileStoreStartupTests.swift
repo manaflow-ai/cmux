@@ -1126,6 +1126,54 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesTerminalTitleUpdateCoalescingSettings() throws {
+        let defaults = UserDefaults.standard
+        let enabledKey = TerminalTitleUpdateCoalescingSettings.enabledKey
+        let millisecondsKey = TerminalTitleUpdateCoalescingSettings.millisecondsKey
+
+        try preservingDefaults(keys: [
+            enabledKey,
+            millisecondsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: enabledKey)
+            defaults.removeObject(forKey: millisecondsKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "titleUpdates": {
+                      "coalescing": {
+                        "enabled": true,
+                        "milliseconds": 1000
+                      }
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: enabledKey) as? Bool, true)
+            XCTAssertEqual(defaults.object(forKey: millisecondsKey) as? Int, 1_000)
+        }
+    }
+
     func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
         let defaults = UserDefaults.standard
         let key = TerminalCopyOnSelectSettings.copyOnSelectKey

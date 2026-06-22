@@ -32,31 +32,50 @@ enum WorkspaceOrderChangeNotificationKey {
 /// Coalesces repeated main-thread signals into one callback after a short delay.
 /// Useful for notification storms where only the latest update matters.
 final class NotificationBurstCoalescer {
-    private let delay: TimeInterval
-    private var isFlushScheduled = false
+    typealias Cancellation = () -> Void
+    typealias Scheduler = (TimeInterval, @escaping () -> Void) -> Cancellation
+
+    private var delay: TimeInterval
+    private let schedule: Scheduler
+    private var cancelScheduledFlush: Cancellation?
     private var pendingAction: (() -> Void)?
 
-    init(delay: TimeInterval = 1.0 / 30.0) {
+    init(
+        delay: TimeInterval = 1.0 / 30.0,
+        schedule: @escaping Scheduler = { delay, action in
+            let workItem = DispatchWorkItem(block: action)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+            return { workItem.cancel() }
+        }
+    ) {
         self.delay = max(0, delay)
+        self.schedule = schedule
     }
 
-    func signal(_ action: @escaping () -> Void) {
+    func signal(delay newDelay: TimeInterval? = nil, _ action: @escaping () -> Void) {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
+        let previousDelay = delay
+        if let newDelay {
+            delay = max(0, newDelay)
+        }
         pendingAction = action
+        if cancelScheduledFlush != nil, delay != previousDelay {
+            cancelScheduledFlush?()
+            cancelScheduledFlush = nil
+        }
         scheduleFlushIfNeeded()
     }
 
     private func scheduleFlushIfNeeded() {
-        guard !isFlushScheduled else { return }
-        isFlushScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        guard cancelScheduledFlush == nil else { return }
+        cancelScheduledFlush = schedule(delay) { [weak self] in
             self?.flush()
         }
     }
 
     private func flush() {
         precondition(Thread.isMainThread, "NotificationBurstCoalescer must be used on the main thread")
-        isFlushScheduled = false
+        cancelScheduledFlush = nil
         guard let action = pendingAction else { return }
         pendingAction = nil
         action()
@@ -411,7 +430,7 @@ class TabManager: ObservableObject {
         let panelId: UUID
     }
     private var pendingPanelTitleUpdates: [PanelTitleUpdateKey: String] = [:]
-    private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
+    private let panelTitleUpdateCoalescer: NotificationBurstCoalescer
 
     // Wave-3 sub-models (TabManager decomposition): TabManager is the
     // per-window composition point. It owns the concrete sub-models, hosts
@@ -501,10 +520,12 @@ class TabManager: ObservableObject {
         workspaceGitMetadataReader: (any WorkspaceGitMetadataReading)? = nil,
         gitPollClock: any GitPollClock = SystemGitPollClock(),
         gitProbeLimiter: WorkspaceGitMetadataProbeLimiter? = nil,
+        panelTitleUpdateCoalescer: NotificationBurstCoalescer = NotificationBurstCoalescer(),
         settings: any SettingsWriting = UserDefaultsSettingsClient(defaults: .standard),
         closeTabWarningDefaults: UserDefaults = .standard
     ) {
         self.settings = settings
+        self.panelTitleUpdateCoalescer = panelTitleUpdateCoalescer
         self.closeTabWarningDefaults = closeTabWarningDefaults
         workspaceReordering = WorkspaceReorderCoordinator(model: workspaces)
         workspaceGrouping = WorkspaceGroupCoordinator(model: workspaces)
@@ -2086,6 +2107,7 @@ class TabManager: ObservableObject {
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        flushPendingPanelTitleUpdates()
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarMultiSelection.removeFromSelection(tabId)
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
@@ -3302,7 +3324,9 @@ class TabManager: ObservableObject {
 #endif
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
-        panelTitleUpdateCoalescer.signal { [weak self] in
+        panelTitleUpdateCoalescer.signal(
+            delay: TerminalTitleUpdateCoalescingSettings.delay(settings: settings)
+        ) { [weak self] in
             self?.flushPendingPanelTitleUpdates()
         }
     }

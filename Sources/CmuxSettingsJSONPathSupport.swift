@@ -355,6 +355,8 @@ extension CmuxSettingsFileStore {
         "terminal.rendererRealization.enabled",
         "terminal.rendererRealization.idleSeconds",
         "terminal.rendererRealization.maxWarmRenderers",
+        "terminal.titleUpdates.coalescing.enabled",
+        "terminal.titleUpdates.coalescing.milliseconds",
         "terminal.textBoxMaxLines",
         "terminal.resumeCommands",
         "notifications.dockBadge",
