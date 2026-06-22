@@ -322,7 +322,7 @@ extension CMUXCLI {
                 .init(agentEvent: "notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "sessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["permissionRequest"]
+            feedHookEvents: ["preToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",

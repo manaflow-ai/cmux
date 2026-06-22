@@ -27018,12 +27018,6 @@ struct CMUXCLI {
                     command: feedCmd,
                     timeoutSeconds: timeoutSeconds + (feedTimeoutMs >= 120_000 ? 5 : 0)
                 ))
-                if def.name == "copilot", agentEvent == "permissionRequest" {
-                    entries.append(Self.copilotHookEntry(
-                        command: "\(feedCmd) --copilot-deny-guard",
-                        timeoutSeconds: Self.timeoutSecondsFromMilliseconds(5_000)
-                    ))
-                }
                 result[agentEvent] = entries
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
@@ -28213,10 +28207,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case .flat, .kiroAgentJSON, .copilotJSON:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
-                    if Self.shouldBracketCmuxHookValues(def: def, event: event), !newEntries.isEmpty {
-                        entries.insert(newEntries[0], at: 0)
-                        entries.append(contentsOf: newEntries.dropFirst())
-                    } else if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
+                    if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
                         Self.insertCmuxHookValues(newEntries, into: &entries, atOriginalIndexes: insertionIndexes)
                     } else if Self.shouldPrependNewCmuxHookValues(def: def, event: event) {
                         entries.insert(contentsOf: newEntries, at: 0)
@@ -28580,10 +28571,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func shouldPrependNewCmuxHookValues(def: AgentHookDef, event: String) -> Bool {
-        def.name == "copilot" && event == "permissionRequest"
-    }
-
-    private static func shouldBracketCmuxHookValues(def: AgentHookDef, event: String) -> Bool {
         def.name == "copilot" && event == "permissionRequest"
     }
 
@@ -31140,120 +31127,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return "fallback-\(String(digest.prefix(16)))"
     }
 
-    private func fallbackFeedRequestId(
-        source: String,
-        sessionId: String,
-        rawEvent: String,
-        toolName: String,
-        rawObject: [String: Any]
-    ) -> String {
-        guard source == "copilot" else {
-            return "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
-        }
-        var stableObject = rawObject
-        stableObject.removeValue(forKey: "timestamp")
-        let seedData = (try? JSONSerialization.data(
-            withJSONObject: stableObject,
-            options: [.sortedKeys]
-        )) ?? Data(String(describing: stableObject).utf8)
-        var seed = Data()
-        seed.append(Data(source.utf8))
-        seed.append(0)
-        seed.append(Data(sessionId.utf8))
-        seed.append(0)
-        seed.append(Data(rawEvent.utf8))
-        seed.append(0)
-        seed.append(Data(toolName.utf8))
-        seed.append(0)
-        seed.append(seedData)
-        let digest = SHA256.hash(data: seed)
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return "\(source)-permission-\(String(digest.prefix(24)))"
-    }
-
-    private func copilotPermissionDecisionFileURL(
-        requestId: String,
-        env: [String: String]
-    ) -> URL {
-        let baseDirectory: URL
-        if let overrideDirectory = normalizedHookValue(env["CMUX_AGENT_HOOK_STATE_DIR"]) {
-            baseDirectory = URL(
-                fileURLWithPath: NSString(string: overrideDirectory).expandingTildeInPath,
-                isDirectory: true
-            )
-        } else {
-            baseDirectory = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent(".cmuxterm", isDirectory: true)
-        }
-        let digest = SHA256.hash(data: Data(requestId.utf8))
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return baseDirectory
-            .appendingPathComponent("copilot-permission-decisions", isDirectory: true)
-            .appendingPathComponent("\(digest).json", isDirectory: false)
-    }
-
-    private func recordCopilotPermissionDecisionIfNeeded(
-        source: String,
-        rawEventName: String,
-        requestId: String,
-        decision: [String: Any],
-        env: [String: String]
-    ) {
-        guard Self.isCopilotPermissionRequest(source: source, rawEventName: rawEventName) else {
-            return
-        }
-        let fileURL = copilotPermissionDecisionFileURL(requestId: requestId, env: env)
-        let mode = ((decision["mode"] as? String) ?? "deny")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        if mode == "once" {
-            try? FileManager.default.removeItem(at: fileURL)
-            return
-        }
-        do {
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            let payload: [String: Any] = [
-                "mode": "deny",
-                "updatedAt": Date().timeIntervalSince1970,
-            ]
-            let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            try? FileManager.default.removeItem(at: fileURL)
-        }
-    }
-
-    private func copilotPermissionDenyGuardOutput(
-        source: String,
-        rawEventName: String,
-        requestId: String,
-        env: [String: String]
-    ) -> String {
-        guard Self.isCopilotPermissionRequest(source: source, rawEventName: rawEventName) else {
-            return "{}"
-        }
-        let fileURL = copilotPermissionDecisionFileURL(requestId: requestId, env: env)
-        defer { try? FileManager.default.removeItem(at: fileURL) }
-        guard let data = try? Data(contentsOf: fileURL),
-              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (payload["mode"] as? String) == "deny" else {
-            return "{}"
-        }
-        let updatedAt = payload["updatedAt"] as? TimeInterval ?? 0
-        guard Date().timeIntervalSince1970 - updatedAt <= 600 else {
-            return "{}"
-        }
-        return Self.encodeHookOutput([
-            "behavior": "deny",
-            "message": Self.copilotPermissionDeniedReason(),
-        ])
-    }
-
     private func enrichUserPromptSubmitFeedEvent(
         _ event: inout [String: Any],
         hookEventName: String,
@@ -33111,23 +32984,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         )
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
-            ?? fallbackFeedRequestId(
-                source: source,
-                sessionId: sessionId,
-                rawEvent: rawEvent,
-                toolName: toolName,
-                rawObject: stdinObj
-            )
+            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
-        if commandArgs.contains("--copilot-deny-guard") {
-            print(copilotPermissionDenyGuardOutput(
+        func emitCopilotPreToolUseDenyIfNeeded() -> Bool {
+            guard source == "copilot",
+                  isActionable,
+                  rawEvent == "preToolUse" || rawEvent == "PreToolUse" else {
+                return false
+            }
+            print(Self.renderAgentDecision(
                 source: source,
                 rawEventName: rawEvent,
-                requestId: requestId,
-                env: env
+                hookEventName: hookEventName,
+                toolName: toolName,
+                toolInput: eventDict["tool_input"],
+                rawObject: stdinObj,
+                decision: ["kind": "permission", "mode": "deny"]
             ))
-            return
+            return true
         }
 
         // Sync. For actionable events we block up to 120s waiting
@@ -33203,6 +33078,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 responseTimeout: waitTimeout + 5
             )
         } catch {
+            if emitCopilotPreToolUseDenyIfNeeded() {
+                return
+            }
             print("{}")
             return
         }
@@ -33212,6 +33090,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
               let ok = respObj["ok"] as? Bool, ok,
               let result = respObj["result"] as? [String: Any]
         else {
+            if emitCopilotPreToolUseDenyIfNeeded() {
+                return
+            }
             print("{}")
             return
         }
@@ -33221,13 +33102,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if source == "kiro", Self.emitKiroDecisionIfHandled(decision: decision) {
                 return
             }
-            recordCopilotPermissionDecisionIfNeeded(
-                source: source,
-                rawEventName: rawEvent,
-                requestId: requestId,
-                decision: decision,
-                env: env
-            )
             let out = Self.renderAgentDecision(
                 source: source,
                 rawEventName: rawEvent,
@@ -33238,6 +33112,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 decision: decision
             )
             print(out)
+            return
+        }
+        if emitCopilotPreToolUseDenyIfNeeded() {
             return
         }
         print("{}")
@@ -33288,23 +33165,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         exit(2)
     }
 
-    private static func isCopilotPermissionRequest(source: String, rawEventName: String) -> Bool {
-        source == "copilot" && (rawEventName == "permissionRequest" || rawEventName == "PermissionRequest")
-    }
-
     private static func copilotPermissionDeniedReason() -> String {
         String(
             localized: "cli.hooks.feed.permissionDeniedReason",
             defaultValue: "User denied permission via cmux Feed."
         )
-    }
-
-    private static func encodeHookOutput(_ obj: [String: Any]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]),
-              let string = String(data: data, encoding: .utf8) else {
-            return "{}"
-        }
-        return string
     }
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
@@ -33427,10 +33292,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     if mode == "deny" {
                         return encode(["behavior": "deny", "message": reason])
                     }
-                    if mode == "once" {
-                        return encode(["behavior": "allow"])
-                    }
-                    return encode(["behavior": "deny", "message": reason])
+                    return "{}"
                 }
                 if mode == "once" {
                     return encode(["permissionDecision": "allow"])
