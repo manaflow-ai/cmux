@@ -180,6 +180,23 @@ import Testing
         ])
     }
 
+    @Test func expandedGroupKeepsNonContiguousMemberAtSpatialPosition() {
+        let items = MobileWorkspaceListItem.items(
+            workspaces: [
+                workspace("a", group: "g"),
+                workspace("mid"),
+                workspace("b", group: "g"),
+            ],
+            groups: [group("g", anchor: "a")]
+        )
+
+        #expect(items == [
+            .groupHeader(group("g", anchor: "a"), hasUnread: false),
+            .workspace(workspace("mid"), indented: false),
+            .workspace(workspace("b", group: "g"), indented: true),
+        ])
+    }
+
     @Test func nestedGroupsRenderUnderExpandedParent() {
         let items = MobileWorkspaceListItem.items(
             workspaces: [

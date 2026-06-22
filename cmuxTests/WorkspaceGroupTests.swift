@@ -161,7 +161,7 @@ struct WorkspaceGroupTests {
         #expect(manager.tabs.map(\.id) == orderBefore)
     }
 
-    @Test func collapsedGroupRenderItemCarriesMembersWithoutRenderingChildren() throws {
+    @Test func collapsedGroupRenderItemCarriesMemberCountWithoutRenderingChildren() throws {
         let manager = makeTabManager()
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         manager.addWorkspace(autoWelcomeIfNeeded: false)
@@ -178,14 +178,14 @@ struct WorkspaceGroupTests {
             groupsById: Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
         )
 
-        var groupMemberIds: [UUID] = []
+        var groupMemberCount = 0
         var visibleWorkspaceIds: [UUID] = []
         var visibleRowIds: [UUID] = []
         for item in items {
             visibleRowIds.append(item.rowWorkspaceId)
             switch item {
-            case .groupHeader(let renderedGroup, let memberWorkspaceIds, _) where renderedGroup.id == groupId:
-                groupMemberIds = memberWorkspaceIds
+            case .groupHeader(let renderedGroup, let memberCount, _) where renderedGroup.id == groupId:
+                groupMemberCount = memberCount
             case .groupHeader:
                 break
             case .workspace(let workspace, _):
@@ -193,11 +193,7 @@ struct WorkspaceGroupTests {
             }
         }
 
-        #expect(groupMemberIds == [
-            group.anchorWorkspaceId,
-            originalIds[1],
-            originalIds[2],
-        ])
+        #expect(groupMemberCount == 3)
         #expect(!visibleWorkspaceIds.contains(originalIds[1]))
         #expect(!visibleWorkspaceIds.contains(originalIds[2]))
         #expect(visibleRowIds == [

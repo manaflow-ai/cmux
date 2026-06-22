@@ -18,7 +18,7 @@ enum SidebarWorkspaceRenderItemID: Hashable {
 /// One drawable item in the workspace sidebar.
 @MainActor
 enum SidebarWorkspaceRenderItem {
-    case groupHeader(WorkspaceGroup, memberWorkspaceIds: [UUID], depth: Int)
+    case groupHeader(WorkspaceGroup, memberCount: Int, depth: Int)
     case workspace(Workspace, depth: Int)
 
     var id: SidebarWorkspaceRenderItemID {
@@ -80,27 +80,25 @@ enum SidebarWorkspaceRenderItem {
                     (tabIndexById[$1.anchorWorkspaceId] ?? Int.max)
             }
         }
-        var directMemberWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
+        var directMemberCountByGroupId: [UUID: Int] = [:]
         for tab in tabs {
             if let gid = tab.groupId {
-                directMemberWorkspaceIdsByGroupId[gid, default: []].append(tab.id)
+                directMemberCountByGroupId[gid, default: 0] += 1
             }
         }
-        var subtreeWorkspaceIdsByGroupId: [UUID: [UUID]] = [:]
-        func subtreeWorkspaceIds(for groupId: UUID, visiting: inout Set<UUID>) -> [UUID] {
-            if let cached = subtreeWorkspaceIdsByGroupId[groupId] {
+        var subtreeMemberCountByGroupId: [UUID: Int] = [:]
+        func subtreeMemberCount(for groupId: UUID, visiting: inout Set<UUID>) -> Int {
+            if let cached = subtreeMemberCountByGroupId[groupId] {
                 return cached
             }
-            guard visiting.insert(groupId).inserted else { return directMemberWorkspaceIdsByGroupId[groupId] ?? [] }
-            var ids = directMemberWorkspaceIdsByGroupId[groupId] ?? []
+            guard visiting.insert(groupId).inserted else { return directMemberCountByGroupId[groupId] ?? 0 }
+            var count = directMemberCountByGroupId[groupId] ?? 0
             for childGroup in childGroupsByParentId[Optional(groupId)] ?? [] {
-                ids.append(contentsOf: subtreeWorkspaceIds(for: childGroup.id, visiting: &visiting))
+                count += subtreeMemberCount(for: childGroup.id, visiting: &visiting)
             }
             visiting.remove(groupId)
-            var seenIds: Set<UUID> = []
-            let deduped = ids.filter { seenIds.insert($0).inserted }
-            subtreeWorkspaceIdsByGroupId[groupId] = deduped
-            return deduped
+            subtreeMemberCountByGroupId[groupId] = count
+            return count
         }
 
         enum ChildRow {
@@ -138,8 +136,8 @@ enum SidebarWorkspaceRenderItem {
         func appendGroup(_ group: WorkspaceGroup, depth: Int) {
             guard emittedHeaders.insert(group.id).inserted else { return }
             var visiting: Set<UUID> = []
-            let memberWorkspaceIds = subtreeWorkspaceIds(for: group.id, visiting: &visiting)
-            items.append(.groupHeader(group, memberWorkspaceIds: memberWorkspaceIds, depth: depth))
+            let memberCount = subtreeMemberCount(for: group.id, visiting: &visiting)
+            items.append(.groupHeader(group, memberCount: memberCount, depth: depth))
             guard !group.isCollapsed else { return }
             appendChildren(of: group.id, depth: depth + 1)
         }

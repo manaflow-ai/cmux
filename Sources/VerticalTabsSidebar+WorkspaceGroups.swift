@@ -8,7 +8,7 @@ extension VerticalTabsSidebar {
     @ViewBuilder
     func sidebarWorkspaceGroupHeader(
         group: WorkspaceGroup,
-        memberWorkspaceIds: [UUID],
+        memberCount: Int,
         depth: Int,
         renderContext: WorkspaceListRenderContext,
         shouldCollectWorkspaceDropTargets: Bool,
@@ -27,22 +27,19 @@ extension VerticalTabsSidebar {
         let newWorkspacePlacement = resolvedConfig?.newWorkspacePlacement
         let anchorUnreadCount: Int = {
             if group.isCollapsed {
-                return memberWorkspaceIds.reduce(0) { partial, workspaceId in
-                    partial + notificationStore.unreadCount(forTabId: workspaceId)
-                }
+                return renderContext.workspaceGroupCollapsedUnreadCountById[group.id, default: 0]
             }
-            return notificationStore.unreadCount(forTabId: group.anchorWorkspaceId)
+            return sidebarUnread.unreadCount(forWorkspaceId: group.anchorWorkspaceId)
         }()
         let anchorIds = [group.anchorWorkspaceId]
-        let canMarkAnchorRead = notificationStore.canMarkWorkspaceRead(forTabIds: anchorIds)
-        let canMarkAnchorUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: anchorIds)
+        let canMarkAnchorRead = sidebarUnread.canMarkWorkspaceRead(forWorkspaceIds: anchorIds)
+        let canMarkAnchorUnread = sidebarUnread.canMarkWorkspaceUnread(forWorkspaceIds: anchorIds)
         let anchorHasLatestNotification = notificationStore.latestNotification(forTabId: group.anchorWorkspaceId) != nil
         // "Mark all workspaces in group" targets the contained workspaces only,
         // never the anchor: the anchor is the group's own row, whose read status
         // is owned by the separate "Mark Group as Read/Unread" actions.
-        let nonAnchorMemberIds = memberWorkspaceIds.filter { $0 != group.anchorWorkspaceId }
-        let canMarkAllRead = notificationStore.canMarkWorkspaceRead(forTabIds: nonAnchorMemberIds)
-        let canMarkAllUnread = notificationStore.canMarkWorkspaceUnread(forTabIds: nonAnchorMemberIds)
+        let canMarkAllRead = renderContext.workspaceGroupCanMarkAllReadById[group.id, default: false]
+        let canMarkAllUnread = renderContext.workspaceGroupCanMarkAllUnreadById[group.id, default: false]
         let anchorIndex = renderContext.tabIndexById[group.anchorWorkspaceId] ?? 0
         let shortcutDigit = WorkspaceShortcutMapper.digitForWorkspace(
             at: anchorIndex,
@@ -100,7 +97,7 @@ extension VerticalTabsSidebar {
             isCollapsed: group.isCollapsed,
             isPinned: group.isPinned,
             isAnchorActive: isAnchorActive,
-            memberCount: memberWorkspaceIds.count,
+            memberCount: memberCount,
             anchorUnreadCount: anchorUnreadCount,
             canMarkRead: canMarkAnchorRead,
             canMarkUnread: canMarkAnchorUnread,
@@ -204,7 +201,7 @@ extension VerticalTabsSidebar {
             onUngroup: { [weak tabManager, groupId = group.id] in
                 tabManager?.ungroupWorkspaceGroup(groupId: groupId)
             },
-            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, memberCount = memberWorkspaceIds.count] in
+            onDelete: { [weak tabManager, groupId = group.id, groupName = group.name, memberCount] in
                 guard let tabManager else { return }
                 let otherMemberCount = max(memberCount - 1, 0)
                 guard confirmDeleteWorkspaceGroup(groupName: groupName, otherMemberCount: otherMemberCount) else { return }

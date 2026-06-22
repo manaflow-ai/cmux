@@ -48,6 +48,11 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
     /// payload skew) degrades gracefully: the workspace renders as an ungrouped
     /// row rather than vanishing.
     ///
+    /// Non-contiguous members of an already-emitted expanded group stay at
+    /// their own spatial position, still indented to mark membership. A
+    /// collapsed group still hides those stray members and includes them in
+    /// the collapsed unread aggregate.
+    ///
     /// - Parameters:
     ///   - workspaces: The workspaces in the Mac's spatial order.
     ///   - groups: The group sections, keyed by id for header lookup.
@@ -111,37 +116,27 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
             return hasUnread
         }
 
-        enum ChildRow {
-            case group(MobileWorkspaceGroupPreview)
-            case workspace(MobileWorkspacePreview)
-        }
-
         func normalizedParentGroupID(for groupID: MobileWorkspaceGroupPreview.ID) -> MobileWorkspaceGroupPreview.ID? {
             parentGroupIDByGroupID[groupID] ?? nil
-        }
-
-        var childRowsByParentID: [MobileWorkspaceGroupPreview.ID?: [ChildRow]] = [:]
-        for workspace in workspaces {
-            if let anchoredGroup = anchorGroupByWorkspaceID[workspace.id] {
-                childRowsByParentID[
-                    normalizedParentGroupID(for: anchoredGroup.id),
-                    default: []
-                ].append(.group(anchoredGroup))
-                continue
-            }
-            if let groupID = workspace.groupID, groupsByID[groupID] != nil {
-                if groupsByID[groupID]?.anchorWorkspaceID == workspace.id {
-                    continue
-                }
-                childRowsByParentID[Optional(groupID), default: []].append(.workspace(workspace))
-            } else {
-                childRowsByParentID[nil, default: []].append(.workspace(workspace))
-            }
         }
 
         var items: [MobileWorkspaceListItem] = []
         items.reserveCapacity(workspaces.count + groups.count)
         var emittedHeaders: Set<MobileWorkspaceGroupPreview.ID> = []
+        var collapsedByGroupID: [MobileWorkspaceGroupPreview.ID: Bool] = [:]
+
+        func isHiddenByCollapsedAncestor(_ groupID: MobileWorkspaceGroupPreview.ID) -> Bool {
+            var visited: Set<MobileWorkspaceGroupPreview.ID> = []
+            var cursor = normalizedParentGroupID(for: groupID)
+            while let parentID = cursor {
+                guard visited.insert(parentID).inserted else { return false }
+                if collapsedByGroupID[parentID] == true {
+                    return true
+                }
+                cursor = normalizedParentGroupID(for: parentID)
+            }
+            return false
+        }
 
         func appendGroup(_ group: MobileWorkspaceGroupPreview) {
             guard emittedHeaders.insert(group.id).inserted else { return }
@@ -150,22 +145,33 @@ public enum MobileWorkspaceListItem: Identifiable, Equatable, Sendable {
                 ? subtreeHasUnread(for: group.id, visiting: &visiting)
                 : anchorUnreadByGroupID[group.id, default: false]
             items.append(.groupHeader(group, hasUnread: hasUnread))
-            guard !group.isCollapsed else { return }
-            appendChildren(of: group.id)
+            collapsedByGroupID[group.id] = group.isCollapsed
         }
 
-        func appendChildren(of parentGroupID: MobileWorkspaceGroupPreview.ID?) {
-            for row in childRowsByParentID[parentGroupID] ?? [] {
-                switch row {
-                case .group(let group):
-                    appendGroup(group)
-                case .workspace(let workspace):
-                    items.append(.workspace(workspace, indented: parentGroupID != nil))
-                }
+        for workspace in workspaces {
+            guard let groupID = workspace.groupID,
+                  groupsByID[groupID] != nil else {
+                items.append(.workspace(workspace, indented: false))
+                continue
             }
+
+            if isHiddenByCollapsedAncestor(groupID) {
+                continue
+            }
+
+            if let anchoredGroup = anchorGroupByWorkspaceID[workspace.id],
+               anchoredGroup.id == groupID {
+                appendGroup(anchoredGroup)
+                continue
+            }
+
+            if collapsedByGroupID[groupID] == true {
+                continue
+            }
+
+            items.append(.workspace(workspace, indented: true))
         }
 
-        appendChildren(of: nil)
         return items
     }
 }
