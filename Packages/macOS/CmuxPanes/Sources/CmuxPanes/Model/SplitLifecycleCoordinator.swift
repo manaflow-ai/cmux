@@ -34,6 +34,19 @@ public final class SplitLifecycleCoordinator {
     /// zoomed pane (legacy `Workspace.postCloseClearSplitZoomTabIds`).
     public var postCloseClearSplitZoomTabIds: Set<TabID> = []
 
+    /// The panel ids that were in a pane when a pane-close was approved, keyed
+    /// by the closing pane's id (legacy `Workspace.pendingPaneClosePanelIds`).
+    /// Bonsplit's pane-close does not emit a per-tab `didCloseTab` callback, so
+    /// the delegate records the doomed pane's panel ids against the *pre-close*
+    /// tree in `splitTabBar(_:shouldClosePane:)` and consumes them in
+    /// `splitTabBar(_:didClosePane:)` to drive per-panel teardown.
+    ///
+    /// The sibling `Workspace.pendingPaneCloseHistoryEntries` map stays
+    /// app-side: it holds the app-target `ClosedPanelHistoryEntry` value, which
+    /// this package cannot import, so only the pure `UUID`-keyed panel-id
+    /// bookkeeping moves here.
+    public var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
+
     /// Creates an idle model; the owning workspace drives it from its
     /// `BonsplitDelegate` close flow.
     public init() {}
@@ -93,5 +106,27 @@ public final class SplitLifecycleCoordinator {
     /// `Workspace.splitTabBar(_:didCloseTab:fromPane:)`).
     public func consumeShouldClearSplitZoom(forClosed tabId: TabID) -> Bool {
         postCloseClearSplitZoomTabIds.remove(tabId) != nil
+    }
+
+    /// Records the panel ids present in a pane that Bonsplit is about to close,
+    /// keyed by the pane id (legacy `pendingPaneClosePanelIds[pane.id] = panelIds`
+    /// in `Workspace.splitTabBar(_:shouldClosePane:)`).
+    public func recordPaneClosePanelIds(_ panelIds: [UUID], forPane paneId: UUID) {
+        pendingPaneClosePanelIds[paneId] = panelIds
+    }
+
+    /// Discards any recorded panel ids for a pane whose close was vetoed before
+    /// it ran (legacy `pendingPaneClosePanelIds.removeValue(forKey: pane.id)` on
+    /// the confirmation-required veto in `Workspace.splitTabBar(_:shouldClosePane:)`).
+    public func clearPaneClosePanelIds(forPane paneId: UUID) {
+        pendingPaneClosePanelIds.removeValue(forKey: paneId)
+    }
+
+    /// Removes and returns the recorded panel ids for a closed pane, defaulting
+    /// to an empty array when none were recorded (legacy
+    /// `pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []` in
+    /// `Workspace.splitTabBar(_:didClosePane:)`).
+    public func consumePaneClosePanelIds(forClosed paneId: UUID) -> [UUID] {
+        pendingPaneClosePanelIds.removeValue(forKey: paneId) ?? []
     }
 }
