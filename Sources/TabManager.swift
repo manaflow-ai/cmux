@@ -1998,9 +1998,9 @@ class TabManager: ObservableObject {
         )
     }
 
-
     func closeWorkspace(_ workspace: Workspace, recordHistory: Bool = true) {
         guard tabs.count > 1 else { return }
+        panelTitleUpdateCoalescer.flushNow()
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         // User-initiated close of a mirrored remote tmux session kills it on the
         // remote. (App quit tears down windows without calling closeWorkspace, so
@@ -2061,13 +2061,12 @@ class TabManager: ObservableObject {
         publishCmuxWorkspaceClosed(workspace)
     }
 
-
     /// Detach a workspace from this window without closing its panels.
     /// Used by the socket API for cross-window moves.
     @discardableResult
     func detachWorkspace(tabId: UUID) -> Workspace? {
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
-        flushPendingPanelTitleUpdates()
+        panelTitleUpdateCoalescer.flushNow()
         sidebarGitMetadataService.clearWorkspaceGitProbes(workspaceId: tabId)
         sidebarMultiSelection.removeFromSelection(tabId)
         invalidateFocusHistoryTarget(workspaceId: tabId, panelId: nil)
@@ -5838,6 +5837,7 @@ extension TabManager {
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
+        panelTitleUpdateCoalescer.flushNow()
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
             .prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)

@@ -46,6 +46,13 @@ final class NotificationBurstCoalescer {
     }
 
     @MainActor
+    func flushNow() {
+        cancelScheduledFlush?()
+        cancelScheduledFlush = nil
+        flush()
+    }
+
+    @MainActor
     private func scheduleFlushIfNeeded() {
         guard cancelScheduledFlush == nil else { return }
         let scheduledDelay = delay

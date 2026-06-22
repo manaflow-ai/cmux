@@ -282,6 +282,110 @@ struct TabManagerTitleUpdateTests {
     }
 
     @Test
+    func pendingTitleUpdateFlushesBeforeSessionSnapshot() async throws {
+        let suiteName = "TabManagerTitleSessionSnapshot.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        let workspace = try #require(manager.selectedWorkspace)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let snapshotTitle = "Snapshot Title - grok"
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: snapshotTitle
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5])
+        #expect(workspace.panelTitles[focusedPanelId] != snapshotTitle)
+        #expect(workspace.title != snapshotTitle)
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        let workspaceSnapshot = try #require(snapshot.workspaces.first)
+        let panelSnapshot = try #require(workspaceSnapshot.panels.first { $0.id == focusedPanelId })
+
+        #expect(workspace.panelTitles[focusedPanelId] == snapshotTitle)
+        #expect(workspace.title == snapshotTitle)
+        #expect(workspaceSnapshot.processTitle == snapshotTitle)
+        #expect(panelSnapshot.title == snapshotTitle)
+    }
+
+    @Test
+    func pendingTitleUpdateFlushesBeforeClosedWorkspaceHistorySnapshot() async throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let suiteName = "TabManagerTitleClosedHistory.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let catalog = SettingCatalog()
+        settings.set(true, for: catalog.terminal.titleUpdateCoalescingEnabled)
+        settings.set(500, for: catalog.terminal.titleUpdateCoalescingMilliseconds)
+
+        let scheduler = ManualCoalescerScheduler()
+        let manager = TabManager(
+            panelTitleUpdateCoalescer: NotificationBurstCoalescer(
+                schedule: scheduler.schedule(delay:action:)
+            ),
+            settings: settings
+        )
+        _ = try #require(manager.selectedWorkspace)
+        let workspace = manager.addWorkspace(select: true)
+        let focusedPanelId = try #require(workspace.focusedPanelId)
+        let closedTitle = "Closed Workspace Title - grok"
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: focusedPanelId,
+                GhosttyNotificationKey.title: closedTitle
+            ]
+        )
+
+        await drainMainQueue()
+        #expect(scheduler.delays == [0.5])
+        #expect(workspace.panelTitles[focusedPanelId] != closedTitle)
+        #expect(workspace.title != closedTitle)
+
+        manager.closeWorkspace(workspace)
+
+        let historyItem = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
+        let removed = try #require(ClosedItemHistoryStore.shared.removeRecord(id: historyItem.id)?.record)
+        guard case .workspace(let entry) = removed.entry else {
+            Issue.record("Expected closed workspace history entry")
+            return
+        }
+        let panelSnapshot = try #require(entry.snapshot.panels.first { $0.id == focusedPanelId })
+
+        #expect(entry.snapshot.processTitle == closedTitle)
+        #expect(panelSnapshot.title == closedTitle)
+    }
+
+    @Test
     func rawTitleRefreshGateKeepsDefaultBehaviorUntilCoalescingIsEnabled() throws {
         let suiteName = "TabManagerTitleRawRefreshGate.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
