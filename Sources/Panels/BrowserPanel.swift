@@ -7008,6 +7008,9 @@ extension BrowserPanel {
             scheduleDeveloperToolsRestoreRetry()
             return
         }
+        if developerToolsRevealDeferredUntilWebViewAttached && isWebViewReadyForDeveloperToolsReveal {
+            developerToolsRestoreRetryAttempt = 0
+        }
 
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visible {

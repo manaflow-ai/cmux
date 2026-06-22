@@ -4013,7 +4013,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
 
-        panel.noteDeveloperToolsHostAttached()
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
 
