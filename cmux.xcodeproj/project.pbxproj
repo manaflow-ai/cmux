@@ -484,7 +484,6 @@
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */; };
 		CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */; };
-		C7A50B000000000000000021 /* HostMobileViewportReportModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000020 /* HostMobileViewportReportModel.swift */; };
 		C7A50B000000000000000025 /* HostMobileViewportReportModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000024 /* HostMobileViewportReportModelTests.swift */; };
 		CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */; };
 		F1C1AA21B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */; };
@@ -563,7 +562,6 @@
 		9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */; };
 		AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */; };
 		C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */; };
-		C7A50B000000000000000023 /* MobileViewportSurfaceLimiting.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000022 /* MobileViewportSurfaceLimiting.swift */; };
 		F6448F377504F33956E7E03B /* MobileWorkspaceListFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */; };
 		00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */; };
 		ACA7C4C000000000000000B1 /* MobileWorkspaceListRPCHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4C000000000000000B2 /* MobileWorkspaceListRPCHandler.swift */; };
@@ -875,6 +873,7 @@
 		ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */; };
 		D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */; };
 		D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */; };
+		C7A50B000000000000000026 /* TerminalController+MobileViewport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000027 /* TerminalController+MobileViewport.swift */; };
 		C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */; };
 		D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */; };
 		A5001007 /* TerminalController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001019 /* TerminalController.swift */; };
@@ -1531,7 +1530,6 @@
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenRightSidebarContentMountingTests.swift; sourceTree = "<group>"; };
 		CD0CFE6100000000CD0CFE61 /* HostAccountFlow.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostAccountFlow.swift; sourceTree = "<group>"; };
-		C7A50B000000000000000020 /* HostMobileViewportReportModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostMobileViewportReportModel.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000024 /* HostMobileViewportReportModelTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostMobileViewportReportModelTests.swift; sourceTree = "<group>"; };
 		CD0CFE6300000000CD0CFE63 /* HostSettingsActions.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HostSettingsActions.swift; sourceTree = "<group>"; };
 		F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InactivePaneFirstClickFocusTests.swift; sourceTree = "<group>"; };
@@ -1608,7 +1606,6 @@
 		7A956C76162B79EC74AF9965 /* MobileRouteResolver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileRouteResolver.swift; sourceTree = "<group>"; };
 		4F05EBBC2FE0D5CB2F662B8A /* MobileTerminalByteTee.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalByteTee.swift; sourceTree = "<group>"; };
 		F51B54FAD18160281FC1C2B6 /* MobileTerminalRenderObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileTerminalRenderObserver.swift; sourceTree = "<group>"; };
-		C7A50B000000000000000022 /* MobileViewportSurfaceLimiting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileViewportSurfaceLimiting.swift; sourceTree = "<group>"; };
 		86544CEFA1CA33CA9225FB6E /* MobileWorkspaceListFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListFidelityTests.swift; sourceTree = "<group>"; };
 		C9F14137954A34DFFA05C88C /* MobileWorkspaceListObserver.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MobileWorkspaceListObserver.swift; sourceTree = "<group>"; };
 		ACA7C4C000000000000000B2 /* MobileWorkspaceListRPCHandler.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "MobileWorkspaceListRPCHandler.swift"; sourceTree = "<group>"; };
@@ -1911,6 +1908,7 @@
 		ACA7C4A7000000000000000E /* TerminalController+MobileChat.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileChat.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B000 /* TerminalController+MobileNotificationSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileNotificationSync.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000B010 /* TerminalController+MobileScrollPrefetch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileScrollPrefetch.swift"; sourceTree = "<group>"; };
+		C7A50B000000000000000027 /* TerminalController+MobileViewport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileViewport.swift"; sourceTree = "<group>"; };
 		C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MobileWorkspaceList.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000C /* TerminalController+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalController+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		A5001019 /* TerminalController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalController.swift; sourceTree = "<group>"; };
@@ -2291,8 +2289,6 @@
 				47BDC06F004C02A52B05E4A0 /* MobileHostRPC.swift */,
 				7ACA497A6831165EA879C642 /* MobileHostService.swift */,
 				C7A50B000000000000000015 /* MobileHostBuildIdentity.swift */,
-				C7A50B000000000000000020 /* HostMobileViewportReportModel.swift */,
-				C7A50B000000000000000022 /* MobileViewportSurfaceLimiting.swift */,
 				4C1A7E10B2D34F56A8C90012 /* MobileHostStatusVerificationLimiter.swift */,
 				C7A50B000000000000000013 /* MobileHostService+Capabilities.swift */,
 				DE71CE000000000000000007 /* MobileHostNetworkPathMonitor.swift */,
@@ -2627,6 +2623,7 @@
 				C0DE00000000000000000C53 /* TerminalController+ControlWorkspaceGroupContext.swift */,
 				C0DE00000000000000000C55 /* TerminalController+ControlPaneContext.swift */,
 				C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */,
+				C7A50B000000000000000027 /* TerminalController+MobileViewport.swift */,
 				C7A50B000000000000000011 /* TerminalController+MobileWorkspaceList.swift */,
 				C7A505000000000000000001 /* TerminalControllerTopSupport.swift */,
 				C7A501000000000000000001 /* CmuxTopSnapshot.swift */,
@@ -3930,7 +3927,6 @@
 				9E31AE7418ECFEB7BFCC0EB1 /* GotoSplitUITestRecorder.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				CD0CFE6000000000CD0CFE60 /* HostAccountFlow.swift in Sources */,
-				C7A50B000000000000000021 /* HostMobileViewportReportModel.swift in Sources */,
 				CD0CFE6200000000CD0CFE62 /* HostSettingsActions.swift in Sources */,
 				4D8B37E0E11A29997632765F /* InternalTabDragConfiguration.swift in Sources */,
 				C0DEF0B10000000000000001 /* JSONCParser.swift in Sources */,
@@ -3983,7 +3979,6 @@
 				9916B44C7A9914E172D112D4 /* MobileRouteResolver.swift in Sources */,
 				AB57F0C27BECE8EDFC6B2B97 /* MobileTerminalByteTee.swift in Sources */,
 				C9CFB398DF94D6DDEAF42D67 /* MobileTerminalRenderObserver.swift in Sources */,
-				C7A50B000000000000000023 /* MobileViewportSurfaceLimiting.swift in Sources */,
 				00C3AA443F6DA8D94E28CE17 /* MobileWorkspaceListObserver.swift in Sources */,
 				ACA7C4C000000000000000B1 /* MobileWorkspaceListRPCHandler.swift in Sources */,
 				ACA7C4C000000000000000A1 /* MobileWorkspaceListRPCHost.swift in Sources */,
@@ -4190,6 +4185,7 @@
 				ACA7C4A7000000000000000D /* TerminalController+MobileChat.swift in Sources */,
 				D7AB00000000000000B001 /* TerminalController+MobileNotificationSync.swift in Sources */,
 				D7AB00000000000000B011 /* TerminalController+MobileScrollPrefetch.swift in Sources */,
+				C7A50B000000000000000026 /* TerminalController+MobileViewport.swift in Sources */,
 				C7A50B000000000000000012 /* TerminalController+MobileWorkspaceList.swift in Sources */,
 				D7AB0000000000000000000B /* TerminalController+MoveTabToNewWorkspace.swift in Sources */,
 				A5001007 /* TerminalController.swift in Sources */,
