@@ -33061,12 +33061,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             } catch {
                 feedClient.close()
+                if emitCopilotPreToolUseDenyIfNeeded() {
+                    return
+                }
                 print("{}")
                 return
             }
             ownedClient = feedClient
             activeClient = feedClient
         } else {
+            if emitCopilotPreToolUseDenyIfNeeded() {
+                return
+            }
             print("{}")
             return
         }

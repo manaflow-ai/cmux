@@ -249,6 +249,35 @@ struct CLICopilotHookFeedTests {
             return (result, try #require(feedEvents.first))
         }
 
+        func runCopilotDecisionWithUnavailableSocket() throws -> ProcessRunResult {
+            let cliPath = try Self.bundledCLIPath()
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-copilot-feed-unavailable-\(UUID().uuidString)", isDirectory: true)
+            let workspaceId = "33333333-3333-3333-3333-333333333333"
+            let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+
+            return Self.runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "copilot", "--event", "preToolUse"],
+                environment: [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": root.path,
+                    "CMUX_SOCKET_PATH": root.appendingPathComponent("missing.sock").path,
+                    "CMUX_WORKSPACE_ID": workspaceId,
+                    "CMUX_SURFACE_ID": surfaceId,
+                    "CMUX_COPILOT_PID": "525252",
+                    "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                ],
+                standardInput: #"{"sessionId":"copilot-session-123","cwd":"\#(root.path)","toolName":"bash","toolArgs":{"command":"touch \#(root.appendingPathComponent("README.md").path)"}}"#,
+                timeout: 5
+            )
+        }
+
         // Fresh installs gate after Copilot's native permission service through
         // preToolUse. Keep permissionRequest denial support for already-installed
         // hook files and manual invocations, but approvals fall through there.
@@ -285,6 +314,14 @@ struct CLICopilotHookFeedTests {
         #expect(timeoutOutput["permissionDecision"] as? String == "deny")
         #expect(timeoutOutput["permissionDecisionReason"] as? String == "User denied permission via cmux Feed.")
         #expect(timeoutOutput["hookSpecificOutput"] == nil)
+
+        let unavailable = try runCopilotDecisionWithUnavailableSocket()
+        #expect(!unavailable.timedOut, Comment(rawValue: unavailable.stderr))
+        #expect(unavailable.status == 0, Comment(rawValue: unavailable.stderr))
+        let unavailableOutput = try #require(Self.jsonObject(unavailable.stdout))
+        #expect(unavailableOutput["permissionDecision"] as? String == "deny")
+        #expect(unavailableOutput["permissionDecisionReason"] as? String == "User denied permission via cmux Feed.")
+        #expect(unavailableOutput["hookSpecificOutput"] == nil)
 
         let (permissionAllow, permissionAllowEvent) = try runCopilotDecision(mode: "once", event: "permissionRequest")
         #expect(!permissionAllow.timedOut, Comment(rawValue: permissionAllow.stderr))
