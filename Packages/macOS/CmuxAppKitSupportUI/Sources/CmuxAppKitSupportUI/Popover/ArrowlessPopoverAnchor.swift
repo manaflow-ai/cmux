@@ -37,16 +37,22 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
     }
 
     public func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.anchorView = nsView
-        context.coordinator.updateRootView(AnyView(content()))
+        let coordinator = context.coordinator
+        coordinator.anchorView = nsView
+        if ArrowlessPopoverRootViewUpdatePolicy.shouldUpdateRootView(
+            isPresented: isPresented,
+            popoverIsShown: coordinator.isPopoverShown
+        ) {
+            coordinator.updateRootView(AnyView(content()))
+        }
 
         if isPresented {
-            context.coordinator.present(
+            coordinator.present(
                 preferredEdge: preferredEdge,
                 detachedGap: detachedGap
             )
         } else {
-            context.coordinator.dismiss()
+            coordinator.dismiss()
         }
     }
 
@@ -62,6 +68,7 @@ public struct ArrowlessPopoverAnchor<PopoverContent: View>: NSViewRepresentable 
         weak var anchorView: NSView?
         private let hostingController = NSHostingController(rootView: AnyView(EmptyView()))
         private var popover: NSPopover?
+        var isPopoverShown: Bool { popover?.isShown == true }
 
         init(isPresented: Binding<Bool>) {
             _isPresented = isPresented
