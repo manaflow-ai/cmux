@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -159,5 +160,90 @@ import Testing
         let resolver = AgentChatTranscriptResolver(homeDirectory: home)
         let result = resolver.newestClaudeTranscript(workingDirectory: cwd, titleHint: "Target")
         #expect(result?.sessionID == "fresh-untitled")
+    }
+
+    @MainActor
+    @Test("hook session keeps matching provisional transcript path")
+    func hookSessionKeepsMatchingProvisionalTranscriptPath() throws {
+        let fm = FileManager.default
+        let home = fm.temporaryDirectory
+            .appendingPathComponent("agentchat-service-transfer-\(UUID().uuidString)", isDirectory: true)
+        let cwd = home.appendingPathComponent("proj", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let workspaceID = UUID().uuidString
+        let surfaceID = UUID().uuidString
+        let hookSessionID = "real-session"
+        let hookStore = home
+            .appendingPathComponent(".cmuxterm", isDirectory: true)
+            .appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        try fm.createDirectory(at: hookStore.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let hookStorePayload: [String: Any] = [
+            "sessions": [
+                hookSessionID: [
+                    "workspaceId": workspaceID,
+                    "surfaceId": surfaceID,
+                    "cwd": cwd.path,
+                    "updatedAt": 2_000_031,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: hookStorePayload).write(to: hookStore)
+
+        let service = AgentChatTranscriptService(
+            registry: AgentChatSessionRegistry(
+                hookStore: AgentChatHookSessionStore(homeDirectory: home)
+            ),
+            resolver: AgentChatTranscriptResolver(homeDirectory: home)
+        )
+        #expect(service.adoptDetectedClaudeSession(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            workingDirectory: cwd.path,
+            titleHint: "Claude Code"
+        ))
+        let provisional = try #require(service.sessionRecords(workspaceID: workspaceID).first)
+        service.cancelTranscriptResolution(surfaceID: surfaceID)
+
+        let transcript = home.appendingPathComponent("\(hookSessionID).jsonl", isDirectory: false)
+        try Data("{}\n".utf8).write(to: transcript)
+        let key: AgentChatTranscriptService.ClaudeTranscriptResolutionKey = (
+            targetSessionID: provisional.sessionID,
+            workingDirectory: cwd.path,
+            claimedSessionIDs: [],
+            titleKey: nil,
+            forceScan: false
+        )
+        service.transcriptResolutionKeys[surfaceID] = key
+        service.applyClaudeTranscriptResolution(
+            (sessionID: hookSessionID, path: transcript.path),
+            key: key,
+            workspaceID: workspaceID,
+            workingDirectory: cwd.path,
+            surfaceID: surfaceID,
+            titleHint: nil
+        )
+
+        let sessionStart = Date(timeIntervalSince1970: 2_000_000)
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: "claude-\(hookSessionID)",
+            hookEventName: .sessionStart,
+            source: "claude",
+            workspaceId: workspaceID,
+            cwd: cwd.path,
+            receivedAt: sessionStart
+        ))
+        service.noteHookEvent(WorkstreamEvent(
+            sessionId: "claude-\(hookSessionID)",
+            hookEventName: .userPromptSubmit,
+            source: "claude",
+            workspaceId: workspaceID,
+            cwd: cwd.path,
+            receivedAt: sessionStart.addingTimeInterval(31)
+        ))
+
+        #expect(service.sessionRecord(sessionID: provisional.sessionID) == nil)
+        let real = try #require(service.sessionRecord(sessionID: hookSessionID))
+        #expect(real.transcriptPath == transcript.path)
     }
 }
