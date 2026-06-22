@@ -1,6 +1,7 @@
 import Darwin
 import Combine
-import XCTest
+import Foundation
+import Testing
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
@@ -12,6 +13,151 @@ import CmuxTerminal
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private typealias XCTestExpectation = DispatchSemaphore
+
+private extension DispatchSemaphore {
+    func fulfill() {
+        signal()
+    }
+}
+
+private func legacyTimeout(_ timeout: TimeInterval) -> DispatchTime {
+    .now() + .milliseconds(Int((timeout * 1_000).rounded(.up)))
+}
+
+private func legacyFailure(_ message: String) {
+    Issue.record(Comment(rawValue: message.isEmpty ? "Assertion failed" : message))
+}
+
+private func expectation(description _: String) -> XCTestExpectation {
+    DispatchSemaphore(value: 0)
+}
+
+private func wait(for expectations: [XCTestExpectation], timeout: TimeInterval) {
+    for expectation in expectations {
+        if expectation.wait(timeout: legacyTimeout(timeout)) == .timedOut {
+            legacyFailure("Timed out waiting for expectation")
+        }
+    }
+}
+
+private func XCTFail(_ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    legacyFailure(message())
+}
+
+private func XCTAssertTrue(_ expression: @autoclosure () throws -> Bool, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try !expression() {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertFalse(_ expression: @autoclosure () throws -> Bool, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try expression() {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs != rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertNotEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs == rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertGreaterThan<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs <= rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertGreaterThanOrEqual<T: Comparable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs < rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertNil<T>(_ expression: @autoclosure () throws -> T?, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try expression() != nil {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertNotNil<T>(_ expression: @autoclosure () throws -> T?, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try expression() == nil {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertNoThrow<T>(_ expression: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        _ = try expression()
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line, _ errorHandler: (Error) -> Void = { _ in }) {
+    do {
+        _ = try expression()
+        legacyFailure(message())
+    } catch {
+        errorHandler(error)
+    }
+}
+
+private func XCTUnwrap<T>(_ expression: @autoclosure () throws -> T?, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) throws -> T {
+    guard let value = try expression() else {
+        legacyFailure(message())
+        throw NSError(domain: "WorkspaceRemoteConnectionTests", code: 1)
+    }
+    return value
+}
 
 /// Closure shape shared by the scripted process-runner tests; mirrors the
 /// legacy `runProcessOverrideForTesting` static signature so the scripted
@@ -30,7 +176,8 @@ private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchec
     }
 }
 
-final class WorkspaceRemoteConnectionTests: XCTestCase {
+@Suite(.serialized)
+final class WorkspaceRemoteConnectionTests {
     private struct ProcessRunResult {
         let status: Int32, stdout: String, stderr: String
         let timedOut: Bool
@@ -199,6 +346,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             .filter { !$0.isEmpty }
     }
 
+    @Test
     func testGeneratedBashBootstrapSourcesLoginFilesInBashPrecedenceOrder() throws {
         XCTAssertEqual(
             try runGeneratedBashBootstrapMarkers(startupFiles: [
@@ -226,6 +374,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    @Test
     func testGeneratedFallbackShellBootstrapPrependsCmuxBinOnce() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
@@ -275,6 +424,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(cmuxBinEntries.count, 1, path)
     }
 
+    @Test
     func testRemoteRelayMetadataCleanupScriptRemovesMatchingSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-\(UUID().uuidString)")
@@ -313,6 +463,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
     }
 
+    @Test
     func testRemoteRelayMetadataCleanupScriptPreservesDifferentSocketAddr() {
         let fileManager = FileManager.default
         let home = fileManager.temporaryDirectory.appendingPathComponent("cmux-relay-cleanup-preserve-\(UUID().uuidString)")
@@ -351,6 +502,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
     }
 
+    @Test
     func testRemoteStaleRelayListenerCleanupScriptKillsMatchingPersistentRelayListener() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-cleanup-\(UUID().uuidString)")
@@ -414,6 +566,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(killOutput.contains("-KILL 34057"), killOutput)
     }
 
+    @Test
     func testRemoteStaleRelayListenerCleanupScriptPreservesDifferentPersistentSlot() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-preserve-\(UUID().uuidString)")
@@ -472,6 +625,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
     }
 
+    @Test
     func testRemoteStaleRelayListenerCleanupScriptMatchesPersistentSlotExactly() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-slot-prefix-\(UUID().uuidString)")
@@ -530,6 +684,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
     }
 
+    @Test
     func testRemoteStaleRelayListenerCleanupScriptKillsMetadataMatchedListenerWithoutChild() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-metadata-\(UUID().uuidString)")
@@ -606,6 +761,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(killOutput.contains("-KILL 33681"), killOutput)
     }
 
+    @Test
     func testRemoteStaleRelayListenerCleanupScriptPreservesMetadataMatchedDifferentPersistentSlot() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-stale-relay-metadata-preserve-\(UUID().uuidString)")
@@ -676,6 +832,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: killLog, encoding: .utf8), "")
     }
 
+    @Test
     func testRelayZshBootstrapUsesRealHomeHistoryByDefault() throws {
         let histfile = try runRelayZshHistfile { home in
             try ":\n".write(to: home.appendingPathComponent(".zshenv"), atomically: true, encoding: .utf8)
@@ -686,6 +843,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(histfile.hasSuffix("/.zsh_history"))
     }
 
+    @Test
     func testRelayZshBootstrapUsesUserUpdatedZdotdirHistory() throws {
         let histfile = try runRelayZshHistfile { home in
             let altZdotdir = home.appendingPathComponent("dotfiles")
@@ -702,6 +860,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(histfile.contains("/dotfiles/.zsh_history"))
     }
 
+    @Test
     func testRemoteUTF8LocaleSetupLinesSeedUTF8LocaleWhenMissing() {
         let script = (RemoteShellEnvironment.utf8LocaleSetupLines() + [
             #"printf '%s' "${LANG}|${LC_CTYPE}|${LC_ALL}""#,
@@ -726,6 +885,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "C.UTF-8|C.UTF-8|C.UTF-8")
     }
 
+    @Test
     func testRemoteUTF8LocaleSetupLinesPreserveExistingUTF8Locale() {
         let script = (RemoteShellEnvironment.utf8LocaleSetupLines() + [
             #"printf '%s' "${LANG}|${LC_CTYPE}|${LC_ALL}""#,
@@ -750,6 +910,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "ja_JP.UTF-8||")
     }
 
+    @Test
     func testDaemonSocketForwardArgumentsTargetBakedVMSocket() {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -782,6 +943,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(arguments.last, "cmux-macmini")
     }
 
+    @Test
     func testProxyBrokerTransportKeySeparatesVMBakedSSHFromStandardSSH() {
         let standard = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -871,6 +1033,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testWebSocketVMWithoutDaemonEndpointSkipsProxyStartup() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -895,6 +1058,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testSkipBootstrapPersistentPTYDoesNotFailBakedCapabilityPreflight() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -925,6 +1089,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse((daemon?["detail"] as? String)?.contains("pty.session") == true)
     }
 
+    @Test
     func testRemoteDaemonCapabilityErrorsUseUserFacingMessage() {
         let message = RemoteDaemonStrings.appLocalized.missingRequiredCapabilitiesMessage([
             "pty.session",
@@ -956,6 +1121,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testWebSocketVMWithDaemonEndpointStartsProxyCapableConnection() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -986,6 +1152,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.disconnectRemoteConnection(clearConfiguration: true)
     }
 
+    @Test
     func testReverseRelayStartupFailureDetailCapturesImmediateForwardingFailure() throws {
         let process = Process()
         let stderrPipe = Pipe()
@@ -1006,6 +1173,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(detail, "remote port forwarding failed for listen port 64009")
     }
 
+    @Test
     func testExecutableSearchPathsIncludesHomebrewAndHomeFallbacks() {
         let paths = RemoteSessionCoordinator.executableSearchPaths(
             environment: [
@@ -1033,6 +1201,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    @Test
     func testParsePathHelperPathsExtractsPathEntries() {
         XCTAssertEqual(
             RemoteSessionCoordinator.parsePathHelperPaths(
@@ -1046,6 +1215,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    @Test
     func testParsePathHelperPathsIgnoresMANPATHAssignments() {
         XCTAssertEqual(
             RemoteSessionCoordinator.parsePathHelperPaths(
@@ -1063,6 +1233,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteTerminalSurfaceLookupTracksOnlyActiveSSHSurfaces() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1088,6 +1259,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testWebSocketRemoteTerminalEndLeavesConnectedStateWithinBoundedTime() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1135,6 +1307,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testWebSocketRemoteTerminalEndWithoutStartupCommandStillDisconnects() throws {
         let workspace = Workspace()
         let initialConfig = WorkspaceRemoteConfiguration(
@@ -1198,6 +1371,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteTerminalSessionEndPublishesDisconnectedDetailWithoutTransientNil() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1238,6 +1412,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteTerminalSessionEndIgnoresDuplicateRelayCallbackAfterSurfaceProcessed() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1267,6 +1442,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1291,6 +1467,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testForegroundSSHAuthReadyReconnectsConfiguredDisconnectedRemoteWorkspace() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1317,6 +1494,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testForegroundSSHAuthReadyBufferedTokenDoesNotReconnectDifferentConfiguration() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1340,6 +1518,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteReconnectingStateIsExposedInStatusPayload() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1367,6 +1546,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testForegroundSSHAuthReadyIgnoresMismatchedConfiguredToken() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1390,6 +1570,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteTerminalSessionEndRequestsControlMasterCleanupAndLeavesWorkspaceDisconnected() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1445,6 +1626,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteTerminalSessionEndWithoutCallbackRelayPortStillCleansControlMaster() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1495,6 +1677,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteTerminalSessionEndPreservesPersistentPTYWorkspace() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1549,6 +1732,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testTeardownRemoteConnectionRequestsControlMasterCleanupWhileStillConnecting() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1601,6 +1785,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testTeardownRemoteConnectionRequestsControlMasterCleanupWithoutExplicitControlPath() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1648,6 +1833,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testClosingRemoteWorkspaceRequestsControlMasterCleanup() throws {
         let manager = TabManager()
         let remainingWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1704,6 +1890,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testDetachLastRemoteSurfacePreservesRemoteSessionWithoutCleanup() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1751,6 +1938,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testClosingSourceWorkspaceAfterDetachingRemoteSurfaceSkipsControlMasterCleanup() throws {
         let manager = TabManager()
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1804,6 +1992,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testClosingMixedSourceWorkspaceAfterDetachingLastRemoteSurfaceSkipsControlMasterCleanup() throws {
         let manager = TabManager()
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1859,6 +2048,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testTransferredRemoteSurfaceCleansUpControlMasterWhenSessionEndsInLocalWorkspace() throws {
         let manager = TabManager()
         let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
@@ -1914,6 +2104,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteTerminalSessionEndDisconnectsWorkspaceWhenBrowserPanelsRemain() throws {
         let workspace = Workspace()
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -1955,6 +2146,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testClosingInitialRemoteTerminalPaneKeepsSiblingRemotePaneAlive() throws {
         let workspace = Workspace()
         let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
@@ -2005,6 +2197,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(cleanupArguments.isEmpty)
     }
 
+    @Test
     func testRemoteDropPathUsesLowercasedExtensionAndProvidedUUID() throws {
         let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
         let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
@@ -2015,6 +2208,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testDaemonBootstrapUploadUsesAbsoluteHomePathForScpDestination() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
@@ -2114,6 +2308,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testPersistentPTYBootstrapReinstallsOldDaemonMissingPTYCapability() throws {
         let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
         let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
@@ -2219,6 +2414,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testPersistentReverseRelayCancelsStaleControlMasterForwardBeforeReusingRelayPort() throws {
         let forwardInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
@@ -2309,6 +2505,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testPersistentReverseRelayCleansStaleRemoteListenerAndRetriesControlMasterForward() throws {
         let retryForwardInvoked = DispatchSemaphore(value: 0)
         let lock = NSLock()
@@ -2431,6 +2628,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testDetachAttachPreservesRemoteTerminalSurfaceTracking() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2472,6 +2670,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testDetachAttachPreservesPersistentPTYSessionIDAcrossWorkspaces() throws {
         let source = Workspace()
         let destination = Workspace()
@@ -2521,6 +2720,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testDetachAttachDoesNotAdoptPersistentPTYSessionIDAcrossNilRelayWorkspaces() throws {
         let source = Workspace()
         let destination = Workspace()
@@ -2590,6 +2790,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testExplicitRemotePTYSessionSurfaceTracksRemoteTerminalWithoutDefaultStartup() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2634,6 +2835,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteDisconnectClearsExplicitRemotePTYSessionIDBeforeReseed() throws {
         let workspace = Workspace()
         let explicitSessionConfig = WorkspaceRemoteConfiguration(
@@ -2690,6 +2892,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testRemoteReconfigureClearsExplicitRemotePTYSessionIDForTrackedSurface() throws {
         let workspace = Workspace()
         let originalConfig = WorkspaceRemoteConfiguration(
@@ -2738,6 +2941,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testExplicitRemotePTYSessionSplitTracksRemoteTerminalWithoutDefaultStartup() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2776,6 +2980,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testPersistentRemoteTerminalSeedsDefaultPTYSessionIDForSnapshot() throws {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -2806,6 +3011,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testDetachAttachPreservesSurfaceTTYMetadata() throws {
         let source = Workspace()
         let destination = Workspace()
@@ -2829,6 +3035,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(source.bonsplitController.tabs(inPane: sourcePaneID).count, 0)
     }
 
+    @Test
     func testDetectedSSHUploadFailureCleansUpEarlierRemoteUploads() throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
@@ -2895,6 +3102,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(cleanupCommand.contains(String(uploadedRemotePath)))
     }
 
+    @Test
     func testDetectsForegroundSSHSessionForTTY() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -2934,6 +3142,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    @Test
     func testDetectsForegroundSSHSessionWithShortControlPathFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -2959,6 +3168,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(scpArgs.contains("-S"))
     }
 
+    @Test
     func testDetectsForegroundEternalTerminalSessionForTTY() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -2991,6 +3201,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    @Test
     func testDetectsEternalTerminalSessionWithoutTreatingETPortAsSSHPort() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3019,6 +3230,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
     }
 
+    @Test
     func testDetectsEternalTerminalSessionWithBracketedIPv6ServerPortForSCP() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3045,6 +3257,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
     }
 
+    @Test
     func testDetectsEternalTerminalSessionWithFullIPv6ServerPortForSCP() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3071,6 +3284,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8:0:0:0:0:0:1]:/tmp/cmux-drop-123.png")
     }
 
+    @Test
     func testDetectsEternalTerminalSessionPreservesAmbiguousCompressedIPv6LiteralForSCP() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3097,6 +3311,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1:2022]:/tmp/cmux-drop-123.png")
     }
 
+    @Test
     func testDetectsEternalTerminalSessionIgnoresOptionsAfterDestination() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3123,6 +3338,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
     }
 
+    @Test
     func testDetectsEternalTerminalSessionStripsNativeJumpHostServerPortForSCP() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3152,6 +3368,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@example.com:/tmp/cmux-drop-123.png")
     }
 
+    @Test
     func testDetectsEternalTerminalSessionSSHOptionsForSCP() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3193,6 +3410,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
     }
 
+    @Test
     func testDaemonTransportArgumentsReuseConfiguredControlPath() {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -3223,6 +3441,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.last?.contains("/remote/cmuxd-remote") ?? false)
     }
 
+    @Test
     func testDaemonTransportArgumentsReuseWhitespaceConfiguredControlPath() {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -3251,6 +3470,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.contains(where: { $0 == "ControlPath /tmp/cmux-ssh-%C" || $0 == "ControlPath=/tmp/cmux-ssh-%C" }))
     }
 
+    @Test
     func testReverseRelayControlMasterArgumentsReuseConfiguredControlSocket() throws {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -3287,6 +3507,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.contains("cmux-macmini"))
     }
 
+    @Test
     func testReverseRelayControlMasterCancelArgumentsUseRemoteListenPortOnly() throws {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -3323,6 +3544,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.contains("cmux-macmini"))
     }
 
+    @Test
     func testReverseRelayControlMasterArgumentsReuseWhitespaceConfiguredControlSocket() throws {
         let configuration = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -3356,6 +3578,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertTrue(arguments.contains("forward"))
     }
 
+    @Test
     func testDetectedSSHSessionBracketsIPv6LiteralSCPDestination() {
         let session = DetectedSSHSession(
             destination: "lawrence@2001:db8::1",
@@ -3379,6 +3602,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(scpArgs.last, "lawrence@[2001:db8::1]:/tmp/cmux-drop-123.png")
     }
 
+    @Test
     func testDetectsForegroundSSHSessionWithLowercaseAgentFlag() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3398,6 +3622,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(session?.forwardAgent ?? true)
     }
 
+    @Test
     func testDetectsForegroundSSHSessionIgnoringBindInterfaceValue() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "/dev/ttys004",
@@ -3416,6 +3641,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(session?.destination, "lawrence@example.com")
     }
 
+    @Test
     func testIgnoresBackgroundSSHProcessForTTY() {
         let session = TerminalSSHSessionDetector.detectForTesting(
             ttyName: "ttys004",
@@ -3431,6 +3657,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testProxyOnlyErrorsKeepSSHWorkspaceConnectedAndLoggedInSidebar() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -3488,6 +3715,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testWebSocketDaemonTransportErrorClearsConnectedSidebarState() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -3532,7 +3760,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 }
 
-final class CLINotifyProcessIntegrationTests: XCTestCase {
+@Suite(.serialized)
+final class CLINotifyProcessIntegrationTests {
     private struct ProcessRunResult {
         let status: Int32
         let stdout: String
@@ -3931,6 +4160,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook")
@@ -4006,6 +4236,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(persistedEnvironment, ["CODEX_HOME": "/tmp/codex home"])
     }
 
+    @Test
     func testCodexHookStopSetsRateLimitStatusFromTranscript() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4084,6 +4315,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopTreatsTypedCodexErrorEventAsFailure() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4158,6 +4390,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopFallsBackToDiscoveredTranscriptWhenProvidedPathUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4236,6 +4469,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexPromptSubmitRetiresPreviousMonitorLeaseForSameSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4314,6 +4548,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopTreatsCodexErrorInfoPayloadAsFailure() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4375,6 +4610,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopTreatsStructuredCodexErrorInfoPayloadAsFailure() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4436,6 +4672,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopTreatsCamelCaseCodexErrorInfoPayloadAsFailure() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4497,6 +4734,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopTreatsTypedHookPayloadAsFailure() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4558,6 +4796,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopTreatsExplicitErrorFieldAsFailureSignal() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4625,6 +4864,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopDoesNotKeepOldTranscriptErrorAfterSuccessfulTurn() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4703,6 +4943,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopPrefersExplicitErrorPayloadOverHealthyTranscript() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4777,6 +5018,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopTreatsCompletedTurnWithoutAssistantAsFailure() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4851,6 +5093,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopDoesNotSynthesizeNoFinalResponseAfterScopedAssistantMessage() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4923,6 +5166,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookStopIgnoresUnscopedTranscriptErrorWithoutTurnEvidence() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -4993,6 +5237,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookMonitorSetsErrorStatusFromCompletedTranscriptWithoutAssistant() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -5073,6 +5318,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookMonitorReportsExplicitErrorBeforeTerminalCompletion() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -5153,6 +5399,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookMonitorNotifiesOnRequestUserInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -5253,6 +5500,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
     }
 
+    @Test
     func testCodexHookMonitorNotifiesOnResponseItemRequestUserInput() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-response-item")
@@ -5353,6 +5601,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
     }
 
+    @Test
     func testCodexHookMonitorReResolvesUnavailableTranscriptPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -5437,6 +5686,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexHookMonitorIgnoresUnscopedTerminalForTurnScopedMonitor() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -5554,6 +5804,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    @Test
     func testPTYBridgeFlushesReadyBeforeImmediateExit() throws {
         let rpcClient = ImmediateExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
@@ -5601,6 +5852,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(rpcClient.attachCalls.first?.requireExisting, true)
     }
 
+    @Test
     func testPTYBridgeBuffersOutputUntilReadyFrame() throws {
         let rpcClient = ImmediateOutputThenExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
@@ -5643,6 +5895,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertTrue(responseText.contains("early-output"), responseText)
     }
 
+    @Test
     func testPTYBridgeForwardsInputWithoutWaitingForWriteCompletion() throws {
         let rpcClient = DeferredWriteCompletionPTYBridgeRPC()
         let server = RemotePTYBridgeServer(
@@ -5685,6 +5938,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         rpcClient.completeWrites()
     }
 
+    @Test
     func testPTYBridgeStopRetainsServerUntilCleanupRuns() throws {
         let rpcClient = ImmediateExitPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
@@ -5709,6 +5963,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
     }
 
+    @Test
     func testPTYBridgeKeepsOutputOpenAfterClientHalfClose() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
@@ -5748,6 +6003,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
     }
 
+    @Test
     func testPTYBridgeKeepsOutputOpenAfterClientHalfCloseWithoutPID() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
@@ -5787,6 +6043,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
     }
 
+    @Test
     func testPTYBridgeDefersHalfCloseUntilAttachCompletes() throws {
         let attachStarted = DispatchSemaphore(value: 0)
         let attachGate = DispatchSemaphore(value: 0)
@@ -5832,6 +6089,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 0.1), .timedOut)
     }
 
+    @Test
     func testPTYBridgeDetachesWhenClientSocketClosesAfterAttach() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
@@ -5870,6 +6128,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
     }
 
+    @Test
     func testPTYBridgeClosesBackpressuredOutput() throws {
         let rpcClient = FloodPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
@@ -6273,6 +6532,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testNotifyWithWorkspaceHandleKeepsCallerSurfaceFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify")
@@ -6341,6 +6601,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testNotifyWithWorkspaceHandlePreservesSyncTargetValidation() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-handle")
@@ -6415,6 +6676,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testTriggerFlashFallsBackFromStaleCallerWorkspaceAndSurfaceIDs() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("flash")
@@ -6528,6 +6790,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testSSHCommandCreatesConfiguresAndSelectsRemoteWorkspaceViaCLI() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh")
@@ -6668,6 +6931,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testSSHCommandDoesNotDeferReconnectWhenWhitespaceControlMasterDisablesMultiplexing() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("ssh-controlmaster-no")
@@ -6768,6 +7032,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testNotifyPrefersCallerTTYOverFocusedSurfaceWhenCallerIDsAreStale() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-tty")
@@ -6843,6 +7108,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testNotifyInTmuxPrefersCallerTTYOverStaleValidSurfaceID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-tmux-tty")
@@ -6917,6 +7183,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testTriggerFlashPrefersCallerTTYOverFocusedSurfaceWhenCallerIDsAreStale() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("flash-tty")
@@ -7073,6 +7340,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testTriggerFlashInTmuxPrefersCallerTTYOverStaleValidSurfaceID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("flash-tmux-tty")

@@ -1,12 +1,131 @@
-import XCTest
 import Darwin
+import Foundation
+import Testing
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
 @testable import cmux
 #endif
 
-final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
+private typealias XCTestExpectation = DispatchSemaphore
+
+private extension DispatchSemaphore {
+    func fulfill() {
+        signal()
+    }
+}
+
+private func legacyTimeout(_ timeout: TimeInterval) -> DispatchTime {
+    .now() + .milliseconds(Int((timeout * 1_000).rounded(.up)))
+}
+
+private func legacyFailure(_ message: String) {
+    Issue.record(Comment(rawValue: message.isEmpty ? "Assertion failed" : message))
+}
+
+private func expectation(description _: String) -> XCTestExpectation {
+    DispatchSemaphore(value: 0)
+}
+
+private func wait(for expectations: [XCTestExpectation], timeout: TimeInterval) {
+    for expectation in expectations {
+        if expectation.wait(timeout: legacyTimeout(timeout)) == .timedOut {
+            legacyFailure("Timed out waiting for expectation")
+        }
+    }
+}
+
+private func XCTFail(_ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    legacyFailure(message())
+}
+
+private func XCTAssertTrue(_ expression: @autoclosure () throws -> Bool, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try !expression() {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertFalse(_ expression: @autoclosure () throws -> Bool, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try expression() {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs != rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertNotEqual<T: Equatable>(_ expression1: @autoclosure () throws -> T, _ expression2: @autoclosure () throws -> T, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        let lhs = try expression1()
+        let rhs = try expression2()
+        if lhs == rhs {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertNil<T>(_ expression: @autoclosure () throws -> T?, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try expression() != nil {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTAssertNotNil<T>(_ expression: @autoclosure () throws -> T?, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) {
+    do {
+        if try expression() == nil {
+            legacyFailure(message())
+        }
+    } catch {
+        legacyFailure("\(message()) \(error)")
+    }
+}
+
+private func XCTUnwrap<T>(_ expression: @autoclosure () throws -> T?, _ message: @autoclosure () -> String = "", file _: StaticString = #filePath, line _: UInt = #line) throws -> T {
+    guard let value = try expression() else {
+        legacyFailure(message())
+        throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests", code: 1)
+    }
+    return value
+}
+
+@Suite(.serialized)
+final class CLINotifyProcessIntegrationRegressionTests {
+    private var teardownBlocks: [() -> Void] = []
+
+    deinit {
+        for block in teardownBlocks.reversed() {
+            block()
+        }
+    }
+
+    private func addTeardownBlock(_ block: @escaping () -> Void) {
+        teardownBlocks.append(block)
+    }
+
+    @Test
     func testClaudeClearSessionStartMarksWorkspaceRunning() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-running")
         defer { context.cleanup() }
@@ -33,6 +152,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeSessionStartRecordIsNotRestorableUntilPrompt() throws {
         let context = try makeClaudeHookContext(name: "claude-session-restorable")
         defer { context.cleanup() }
@@ -73,6 +193,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudePreToolUseFeedContextReadsOnlyRecentTranscriptTail() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-tail")
         defer { context.cleanup() }
@@ -112,6 +233,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(String(describing: feedContext).contains("ancient"), "\(feedContext)")
     }
 
+    @Test
     func testClaudePreToolUseFeedContextKeepsOversizedFinalTranscriptLine() throws {
         let context = try makeClaudeHookContext(name: "claude-pretool-oversized-final")
         defer { context.cleanup() }
@@ -144,6 +266,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(assistantPreamble.hasPrefix("recent assistant response"), "\(feedContext)")
     }
 
+    @Test
     func testCodexStopReadsOversizedFinalTranscriptLine() throws {
         let context = try makeClaudeHookContext(name: "codex-oversized-final-transcript")
         defer { context.cleanup() }
@@ -178,6 +301,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexPromptSubmitDoesNotRefreshTerminalLastTurnDiffBaseline() throws {
         let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
         defer { context.cleanup() }
@@ -324,6 +448,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(refreshedBaseCommit, promptCommit)
     }
 
+    @Test
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }
@@ -385,6 +510,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(resumeBindingRequests.first?["auto_resume"] as? Bool, true)
     }
 
+    @Test
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {
         let context = try makeClaudeHookContext(name: "claude-new-session-after-stop")
         defer { context.cleanup() }
@@ -682,6 +808,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return result
     }
 
+    @Test
     func testClaudeForkSessionStartKeepsParentSessionBoundToOriginalSurface() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-session-start")
         defer { context.cleanup() }
@@ -714,6 +841,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeForkSessionStartWithoutSurfaceIdentityDoesNotRegisterPIDOnFallbackPane() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-no-surface")
         defer { context.cleanup() }
@@ -751,6 +879,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeForkSessionStartRecognizesEqualsFlagForm() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-equals-form")
         defer { context.cleanup() }
@@ -788,6 +917,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeLegacyStoreBackfillsPaneBoundaryFromWorkspaceActiveSlot() throws {
         let context = try makeClaudeHookContext(name: "claude-legacy-backfill")
         defer { context.cleanup() }
@@ -869,6 +999,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeForkedSessionPromptSubmitRecordsWhileParentTurnActive() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-prompt-submit")
         defer { context.cleanup() }
@@ -921,6 +1052,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
     }
 
+    @Test
     func testClaudeForkSessionEndBeforeFirstPromptDoesNotConsumeParentSession() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-session-end")
         defer { context.cleanup() }
@@ -972,6 +1104,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeForkedSessionPromptSubmitRecordsWithSurfaceRefForm() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-surface-ref")
         defer { context.cleanup() }
@@ -1008,6 +1141,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeStaleStopFromClosedPaneStaysStaleWhenSurfaceResolutionFallsBack() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-stop-fallback")
         defer { context.cleanup() }
@@ -1079,6 +1213,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeStaleStopStaysStaleAfterAnotherPaneBecomesWorkspaceActive() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-stop-multi-pane")
         defer { context.cleanup() }
@@ -1143,6 +1278,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeNewSessionReplacesStoppedSessionInPaneAfterAnotherPaneBecameActive() throws {
         let context = try makeClaudeHookContext(name: "claude-replace-multi-pane")
         defer { context.cleanup() }
@@ -1202,6 +1338,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeStaleTurnSessionEndDoesNotConsumeSessionAfterAnotherPaneBecameActive() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-end-multi-pane")
         defer { context.cleanup() }
@@ -1255,6 +1392,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeParentPaneStopAppliesAfterForkedSessionPromoted() throws {
         let context = try makeClaudeHookContext(name: "claude-fork-parent-stop")
         defer { context.cleanup() }
@@ -1290,6 +1428,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudePromptSubmitResumeBindingPersistsSafeAuthSelectionValues() throws {
         let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
         defer { context.cleanup() }
@@ -1360,6 +1499,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-session-end-workspace")
         defer { context.cleanup() }
@@ -1429,6 +1569,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClaudeSessionEndDoesNotConsumeSameSessionStaleTurn() throws {
         let context = try makeClaudeHookContext(name: "claude-stale-session-end-turn")
         defer { context.cleanup() }
@@ -1487,6 +1628,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(active["turnId"] as? String, "turn-2")
     }
 
+    @Test
     func testClaudeSessionEndClearsMatchingSurfaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "claude-session-end-resume-clear")
         defer { context.cleanup() }
@@ -1532,6 +1674,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    @Test
     func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-nested-resume-guard")
         defer { context.cleanup() }
@@ -1619,6 +1762,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testGenericAgentNotificationUpdatesLifecycleForNeedsInput() throws {
         let context = try makeClaudeHookContext(name: "codex-notification-lifecycle")
         defer { context.cleanup() }
@@ -1676,6 +1820,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(record["agentLifecycle"] as? String, "needsInput")
     }
 
+    @Test
     func testGenericAgentStaleIdleStopDoesNotOverwriteNewerRunningLifecycle() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-idle-stop-lifecycle")
         defer { context.cleanup() }
@@ -1736,6 +1881,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(newRecord["agentLifecycle"] as? String, "running")
     }
 
+    @Test
     func testGenericAgentStaleIdleNotificationDoesNotOverwriteNewerRunningLifecycle() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-idle-notification-lifecycle")
         defer { context.cleanup() }
@@ -1796,6 +1942,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(newRecord["agentLifecycle"] as? String, "running")
     }
 
+    @Test
     func testCodexLegacyStopWithoutTurnIdPopsStoredTurnStack() throws {
         let context = try makeClaudeHookContext(name: "codex-legacy-stop-turn-stack")
         defer { context.cleanup() }
@@ -1857,6 +2004,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testGenericAgentTurnIdsStayNestedAcrossTurnChanges() throws {
         let context = try makeClaudeHookContext(name: "generic-turn-stack")
         defer { context.cleanup() }
@@ -1932,6 +2080,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexTurnStackPreservesAnonymousDepthBetweenKnownTurns() throws {
         let context = try makeClaudeHookContext(name: "codex-mixed-anonymous-depth")
         defer { context.cleanup() }
@@ -2037,6 +2186,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopWithNewTurnIdPopsAnonymousDepthUnderKnownParent() throws {
         let context = try makeClaudeHookContext(name: "codex-anonymous-depth-turn-stop")
         defer { context.cleanup() }
@@ -2098,6 +2248,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopAfterInterruptedPriorTurnStillNotifies() throws {
         let context = try makeClaudeHookContext(name: "codex-interrupted-turn-depth")
         defer { context.cleanup() }
@@ -2151,6 +2302,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopPrunesLateTerminalPriorTurnBeforeCurrentStop() throws {
         let context = try makeClaudeHookContext(name: "codex-late-terminal-prior-turn")
         defer { context.cleanup() }
@@ -2217,6 +2369,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexTerminalNestedChildDoesNotClearParentTurnStack() throws {
         let context = try makeClaudeHookContext(name: "codex-terminal-child-stack")
         defer { context.cleanup() }
@@ -2314,6 +2467,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexTerminalInterruptedStackClearsBeforeCurrentPrompt() throws {
         let context = try makeClaudeHookContext(name: "codex-terminal-stack-reset")
         defer { context.cleanup() }
@@ -2378,6 +2532,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexDepthOnlyLegacyNestingRemainsNestedWhenTurnIdsAppear() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-nested")
         defer { context.cleanup() }
@@ -2441,6 +2596,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexDepthOnlyHistoricalTerminalDoesNotResetActiveParent() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-history")
         defer { context.cleanup() }
@@ -2512,6 +2668,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexDepthOnlyTurnContextOnlyParentDoesNotResetActiveParent() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-context-parent")
         defer { context.cleanup() }
@@ -2582,6 +2739,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexDepthOnlyParentStopNotifiesAfterChildTurnStops() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-parent-stop")
         defer { context.cleanup() }
@@ -2654,6 +2812,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexDepthOnlySiblingStaysNestedAfterChildTerminalTranscript() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-child-terminal")
         defer { context.cleanup() }
@@ -2741,6 +2900,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexDepthOnlyTerminalHistoryDoesNotResetUnknownActiveDepth() throws {
         let context = try makeClaudeHookContext(name: "codex-depth-only-terminal-history")
         defer { context.cleanup() }
@@ -2812,6 +2972,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopFromStaleOlderTurnDoesNotNotifyWhileNewerTurnIsActive() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-turn-stop")
         defer { context.cleanup() }
@@ -2877,6 +3038,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexLateStopFromOlderTurnDoesNotNotifyAfterNewerTurnCompleted() throws {
         let context = try makeClaudeHookContext(name: "codex-late-stale-turn-stop")
         defer { context.cleanup() }
@@ -2941,6 +3103,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopWithMissedPromptSubmitClearsTerminalStaleTurn() throws {
         let context = try makeClaudeHookContext(name: "codex-missed-prompt-stale-turn")
         defer { context.cleanup() }
@@ -2985,6 +3148,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopWithMissedPromptSubmitClearsFullyTerminalStack() throws {
         let context = try makeClaudeHookContext(name: "codex-missed-prompt-terminal-stack")
         defer { context.cleanup() }
@@ -3048,6 +3212,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopWithUnseenTurnIdNotSuppressedAtIdleDepth() throws {
         let context = try makeClaudeHookContext(name: "codex-unseen-turn-stop")
         defer { context.cleanup() }
@@ -3095,6 +3260,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testManagedCodexSubagentStopDoesNotReplaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-managed-resume-guard")
         defer { context.cleanup() }
@@ -3130,6 +3296,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
         let context = try makeClaudeHookContext(name: "codex-stale-relay")
         defer { context.cleanup() }
@@ -3171,6 +3338,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testManagedCodexSubagentSessionEndDoesNotClearParentResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "codex-managed-end-resume-guard")
         defer { context.cleanup() }
@@ -3223,6 +3391,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(savedSessions[sessionId], "Suppressed SessionEnd should leave the stored parent session intact")
     }
 
+    @Test
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
@@ -3276,6 +3445,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    @Test
     func testRightSidebarInvalidCommandValidatesBeforeTargetResolution() throws {
         let cliPath = try bundledCLIPath()
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
@@ -3297,6 +3467,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    @Test
     func testRightSidebarInvalidSetModeValidatesBeforeTargetResolution() throws {
         let cliPath = try bundledCLIPath()
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
@@ -3318,16 +3489,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    @Test
     func testSSHPersistentPTYUsesReusableForegroundAuthControlConnection() throws {
         let run = try runMockedSSH(arguments: [])
         try assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(run: run)
     }
 
+    @Test
     func testSSHPersistentPTYTreatsControlPersistZeroAsReusable() throws {
         let run = try runMockedSSH(arguments: ["--ssh-option", "ControlPersist=0"])
         try assertSSHPersistentPTYUsesReusableForegroundAuthControlConnection(run: run)
     }
 
+    @Test
     func testSSHPersistentPTYJSONReportsResolvedSessionID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true)
         let payload = try jsonPayload(from: run.stdout)
@@ -3341,6 +3515,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
+    @Test
     func testSSHPersistentPTYJSONResolvesSessionIDWhenWorkspaceCreateOmitsSurfaceID() throws {
         let run = try runMockedSSH(arguments: [], jsonOutput: true, omitWorkspaceCreateSurfaceID: true)
         let payload = try jsonPayload(from: run.stdout)
@@ -3352,6 +3527,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
+    @Test
     func testSSHForwardAgentFlagPropagatesCallerAgentSocket() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
@@ -3368,6 +3544,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    @Test
     func testSSHForwardAgentOptionPropagatesCallerAgentSocket() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
@@ -3384,6 +3561,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    @Test
     func testSSHForwardAgentRepeatedOptionUsesLastValue() throws {
         let run = try runMockedSSH(
             arguments: [
@@ -3406,6 +3584,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(configureParams["ssh_auth_sock"])
     }
 
+    @Test
     func testSSHPreservesCallerAgentSocketForOpenSSHConfigResolution() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
@@ -3423,6 +3602,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    @Test
     func testSSHForwardAgentLiteralSocketPathPropagatesSocketPath() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
@@ -3438,6 +3618,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, agentSocketPath)
     }
 
+    @Test
     func testSSHForwardAgentTildeSocketPathExpandsSocketPath() throws {
         let homeURL = try makeTemporaryDirectory(prefix: "cmux-ssh-home")
         let tildeSocketPath = "~/.ssh/cmux-test-agent.sock"
@@ -3459,6 +3640,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["ssh_auth_sock"] as? String, expandedSocketURL.path)
     }
 
+    @Test
     func testSSHForwardAgentAskDoesNotPropagateInvalidSocketPath() throws {
         let run = try runMockedSSH(
             arguments: ["--ssh-option", "ForwardAgent=ask"],
@@ -3475,6 +3657,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNil(configureParams["ssh_auth_sock"])
     }
 
+    @Test
     func testSSHNoForwardAgentFlagOverridesConfig() throws {
         let agentSocketPath = try makeExistingAgentSocketPath()
         let run = try runMockedSSH(
@@ -3566,6 +3749,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: String(persistentDaemonSlot.dropFirst(4))))
     }
 
+    @Test
     func testSSHPersistentPTYFallsBackWhenForegroundAuthCannotBeReused() throws {
         let cases: [(name: String, arguments: [String])] = [
             ("control-master-no", ["--ssh-option", "ControlMaster=no"]),
@@ -3601,6 +3785,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    @Test
     func testSSHPTYAttachBridgeErrorClearsLocalStateBeforeReady() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshpty")
@@ -3693,6 +3878,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
     }
 
+    @Test
     func testSSHPTYAttachBridgeEOFWhileSessionRunsExitsWithoutSSHRetryStatus() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyeof")
@@ -3802,6 +3988,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_detach"])
     }
 
+    @Test
     func testSSHPTYAttachBridgeEOFWhenSessionGoneClearsLocalState() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptygone")
@@ -3901,6 +4088,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
+    @Test
     func testSSHPTYAttachWithoutSurfaceDoesNotSendLocalAttachEnd() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptynosurface")
@@ -3990,6 +4178,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions"])
     }
 
+    @Test
     func testSSHPTYAttachBridgeResetWhenSessionGoneClearsLocalState() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyrst")
@@ -4089,6 +4278,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_resize", "workspace.remote.pty_sessions", "workspace.remote.pty_attach_end"])
     }
 
+    @Test
     func testSSHPTYAttachWaitUsesCurrentTerminalSizeForBridgeHandshake() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptysize")
@@ -4270,6 +4460,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(capturedHandshake?["rows"] as? Int, 43)
     }
 
+    @Test
     func testSSHPTYAttachSendsResizeWithoutBlockingEOFLocalCleanup() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyresize")
@@ -4438,6 +4629,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods.filter { $0 == "workspace.remote.pty_attach_end" }.count, 1)
     }
 
+    @Test
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshattach")
@@ -4508,6 +4700,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(state.snapshot().count, 1)
     }
 
+    @Test
     func testSSHPTYAttachRequireExistingPassesBridgeFlag() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshreq")
@@ -4599,6 +4792,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
     }
 
+    @Test
     func testSSHPTYAttachRequireExistingSessionNotFoundFailsWithoutWaitRetry() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshreqmissing")
@@ -4683,6 +4877,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["workspace.remote.pty_bridge", "workspace.remote.pty_attach_end"])
     }
 
+    @Test
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshlist")
@@ -4743,6 +4938,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("remote connection is not active"), result.stderr)
     }
 
+    @Test
     func testSSHSessionCleanupAllReportsPartialFailures() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshclean")
@@ -4834,6 +5030,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("close failed"), result.stderr)
     }
 
+    @Test
     func testSSHSessionCleanupAllWorkspacesReportsListErrors() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshcleanall")
@@ -4913,6 +5110,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("remote connection is not active"), result.stderr)
     }
 
+    @Test
     func testSSHSessionCleanupAllWorkspacesAllRejectsMissingWorkspaceID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshcleanallmissing")
@@ -4987,6 +5185,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("missing workspace_id in SSH PTY session list response"), result.stderr)
     }
 
+    @Test
     func testSSHSessionCleanupAllWorkspacesSessionIDRejectsMissingWorkspaceID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshcleansessionmissing")
@@ -5061,6 +5260,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("missing workspace_id in SSH PTY session list response"), result.stderr)
     }
 
+    @Test
     func testSSHSessionCleanupAllWorkspacesSessionIDReportsNotFound() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshcleansessiongone")
@@ -5127,6 +5327,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("persistent SSH PTY session is no longer running"), result.stderr)
     }
 
+    @Test
     func testSSHSessionCleanupAllWorkspacesSessionIDCountsDuplicateIDsPerWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshcleandup")
@@ -5213,6 +5414,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(Set(closedWorkspaces), Set([workspaceA, workspaceB]))
     }
 
+    @Test
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")
@@ -5291,6 +5493,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(state.commands.last, "right_sidebar set find --tab=\(workspaceId) --window=\(windowId)")
     }
 
+    @Test
     func testRightSidebarCLIRejectsUnresolvedWorkspaceHandleBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-miss")
@@ -5347,6 +5550,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     @MainActor
+    @Test
     func testNotifyWithUUIDSurfaceDoesNotRequireCallerWorkspaceOrWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-uuid-surface")
@@ -5413,6 +5617,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testNotificationCLIActionsUseSocketAPIAndParseExtendedFields() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notif-actions")
@@ -5618,6 +5823,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testListNotificationsKeepsOldServerPipeBodiesAsBody() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notif-old-pipe")
@@ -5662,6 +5868,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(row["tab_title"] is NSNull)
     }
 
+    @Test
     func testCodexPromptSubmitRebindsRestoredSessionToCurrentCallerSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-rebind")
@@ -5771,6 +5978,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testNewPaneWindowFlagScopesWorkspaceIndex() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("pane-window")
@@ -5850,6 +6058,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testFocusPaneWindowFlagRejectsPaneFromOtherWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("pane-other-window")
@@ -5932,6 +6141,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testReorderSurfaceWindowFlagRejectsSurfaceFromOtherWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("surface-other-window")
@@ -6014,6 +6224,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testSendWindowFlagRejectsUnknownWindowRefBeforeMutation() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("send-window-ref")
@@ -6075,6 +6286,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testVMNewWindowFlagValidatesBeforeCreate() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-window-validate")
@@ -6122,6 +6334,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testVMNewWindowFlagAcceptsCaseInsensitiveUUID() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-window-case")
@@ -6194,6 +6407,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testPipePaneWindowFlagDoesNotBecomePositionalCommandText() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("pipe-window")
@@ -6275,6 +6489,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testPipePaneWindowWorkspaceOmittedSurfaceDoesNotUseSelectedWorkspaceSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("pipe-window-workspace")
@@ -6371,6 +6586,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testRespawnPaneWindowFlagDoesNotBecomePositionalCommandText() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("respawn-window")
@@ -6452,6 +6668,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testMoveSurfaceWindowFlagKeepsIndexedSourceInCallerContext() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("move-surface-window")
@@ -6531,6 +6748,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testMoveSurfaceWindowFlagAllowsSourceSurfaceRefFromOtherWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("move-surface-cross-window")
@@ -6589,6 +6807,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testSidebarMetadataWindowFlagTargetsSelectedWorkspaceInWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("status-window")
@@ -6639,6 +6858,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
     }
 
+    @Test
     func testSidebarMetadataWindowFlagAfterSeparatorStaysMessageText() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("log-separator")
@@ -6687,6 +6907,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
     }
 
+    @Test
     func testSidebarMetadataWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("status-window-empty")
@@ -6735,6 +6956,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testNotifyWindowFlagResolvesCurrentWorkspaceInWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-window")
@@ -6798,6 +7020,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testNotifyWindowSurfaceRefResolvesAcrossTargetWindowWorkspaces() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-window-surface")
@@ -6919,6 +7142,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list"])
     }
 
+    @Test
     func testNotifyWindowSurfaceIndexUsesCurrentWorkspaceInTargetWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-window-surface-index")
@@ -7002,6 +7226,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list"])
     }
 
+    @Test
     func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("action-window")
@@ -7064,6 +7289,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testClearNotificationsWindowFlagFailsWhenWindowHasNoCurrentWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("clear-window-empty")
@@ -7112,6 +7338,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testTreeCommandForwardsWindowFlag() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("tree-window")
@@ -7166,6 +7393,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
     }
 
+    @Test
     func testTreeCommandWindowFlagSurvivesLegacyFallback() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("tree-legacy-window")
@@ -7296,6 +7524,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stdout.contains(otherWindowId), result.stdout)
     }
 
+    @Test
     func testCodexPromptSubmitWithForeignCmuxEnvDoesNotFallbackToSelectedWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-foreign-env")
@@ -7359,6 +7588,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexPromptSubmitWithForeignCmuxEnvIgnoresStaleMappedSession() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-foreign-mapped")
@@ -7445,6 +7675,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexPromptSubmitWithInvalidSurfaceDoesNotFallbackToFocusedSurface() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-invalid-surface")
@@ -7512,6 +7743,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexPromptSubmitWithInvalidMappedWorkspaceDoesNotFallbackToSelectedWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-invalid-mapped")
@@ -7598,6 +7830,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testCodexTeamsForkPromptPublishesResumeBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex-team-resume")
@@ -7739,6 +7972,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testAgentPromptClearsSurfaceResumeBindingWhenResumeCommandUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("agent-resume-unavailable")
@@ -7845,6 +8079,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
     }
 
+    @Test
     func testGenericAgentSessionEndClearsMatchingSurfaceResumeBinding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("agent-resume-clear")
@@ -7928,6 +8163,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    @Test
     func testSurfaceResumeClearCLIForwardsCheckpointAndSourceGuards() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-clear-guards")
@@ -7987,6 +8223,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    @Test
     func testSurfaceResumeSetCLIPreservesQuotedShellCommand() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-set-shell")
@@ -8046,6 +8283,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["command"] as? String, "tmux attach -t work")
     }
 
+    @Test
     func testSurfaceResumeSetCLIStopsParsingOptionsAfterTerminator() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-set-terminator")
@@ -8112,6 +8350,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testSurfaceResumeSetCLIDoesNotScopeExplicitSurfaceToEnvWorkspace() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-set-surface")
@@ -8167,6 +8406,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, movedSurfaceId)
     }
 
+    @Test
     func testSurfaceResumeSetCLIRejectsTrailingShellTokens() throws {
         let cliPath = try bundledCLIPath()
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
@@ -8196,6 +8436,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    @Test
     func testSurfaceResumeSetCLIRejectsPreTerminatorCommandTokens() throws {
         let cliPath = try bundledCLIPath()
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
@@ -8223,6 +8464,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    @Test
     func testSurfaceResumeSetCLIRejectsDanglingValueOptionsBeforeSocketRequest() throws {
         let cliPath = try bundledCLIPath()
         let workspaceId = "11111111-1111-1111-1111-111111111111"
@@ -8277,6 +8519,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    @Test
     func testSurfaceResumeClearCLIRejectsMalformedGuardsBeforeClearing() throws {
         let cliPath = try bundledCLIPath()
         let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
@@ -8303,6 +8546,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    @Test
     func testSurfaceResumeClearCLINormalizesWindowIndex() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-clear-window")
@@ -8381,6 +8625,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
+    @Test
     func testSurfaceResumeClearCLIParsesLocalWindowOption() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-clear-local-window")
@@ -8705,6 +8950,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    @Test
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-agent")
@@ -8788,6 +9034,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testBrowserImportUsesInteractiveDialogOutsideCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-human")
@@ -8854,6 +9101,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testBrowserImportInteractiveFlagForcesDialogInCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-agent-interactive")
@@ -8908,6 +9156,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testBrowserProfilesListRoutesToSocketMethod() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-profile-list")
@@ -8964,6 +9213,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    @Test
     func testBrowserProfilesCreateClearAndDeleteRouteToSocketMethods() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedMethod: String, expectedParams: [String], responseResult: [String: Any])] = [
@@ -9262,6 +9512,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     // inherited env), not the operator's focused pane returned by system.identify. Without the fix it
     // stamped the focused surface (A), desyncing CMUX_SURFACE_ID from CMUX_PANEL_ID and jumbling codex
     // into the wrong surface on reload.
+    @Test
     func testTmuxCompatEnvStampsLaunchSurfaceNotFocusedPane() throws {
         let cliPath = try bundledCLIPath()
         let tmpDir = FileManager.default.temporaryDirectory
