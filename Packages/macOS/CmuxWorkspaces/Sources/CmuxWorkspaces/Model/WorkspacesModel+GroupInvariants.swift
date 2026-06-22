@@ -36,6 +36,10 @@ extension WorkspacesModel {
                   parentGroupId != group.id else { continue }
             childGroupsByParentId[parentGroupId, default: []].append(group)
         }
+        for parentGroupId in Array(childGroupsByParentId.keys) {
+            guard let children = childGroupsByParentId[parentGroupId] else { continue }
+            childGroupsByParentId[parentGroupId] = children.filter(\.isPinned) + children.filter { !$0.isPinned }
+        }
 
         var emittedWorkspaceIds = Set<UUID>()
         var emittedGroupIds = Set<UUID>()
@@ -207,16 +211,17 @@ extension WorkspacesModel {
             .filter { $0.anchorWorkspaceId == closedWorkspaceId }
             .map(\.id)
         guard !dissolvedGroupIds.isEmpty else { return }
-        for gid in dissolvedGroupIds {
-            for tab in tabs where tab.groupId == gid {
-                tab.groupId = nil
-            }
-        }
         let parentByDissolvedGroupId = Dictionary(
             uniqueKeysWithValues: workspaceGroups
                 .filter { dissolvedGroupIds.contains($0.id) }
                 .map { ($0.id, $0.parentGroupId) }
         )
+        for gid in dissolvedGroupIds {
+            let promotedGroupId = parentByDissolvedGroupId[gid] ?? nil
+            for tab in tabs where tab.groupId == gid {
+                tab.groupId = promotedGroupId
+            }
+        }
         for index in workspaceGroups.indices {
             if let parentGroupId = workspaceGroups[index].parentGroupId,
                dissolvedGroupIds.contains(parentGroupId) {

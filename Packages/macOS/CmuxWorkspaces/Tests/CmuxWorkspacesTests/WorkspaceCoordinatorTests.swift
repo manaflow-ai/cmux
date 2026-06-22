@@ -414,6 +414,63 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func closingNestedGroupAnchorPromotesMembersToParent() {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let hotelsMember = CoordinatorStubTab()
+        let marriottMember = CoordinatorStubTab()
+        model.tabs = [hotelsMember, marriottMember]
+        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try! #require(groups.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [marriottMember.id],
+            parentGroupId: hotelsId
+        ))
+        let marriottAnchorId = try! #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+        let anchorIndex = try! #require(model.tabs.firstIndex { $0.id == marriottAnchorId })
+        model.tabs.remove(at: anchorIndex)
+
+        model.dissolveGroupsAnchoredBy(closedWorkspaceId: marriottAnchorId)
+
+        #expect(model.workspaceGroups.allSatisfy { $0.id != marriottId })
+        #expect(model.tabs.first { $0.id == marriottMember.id }?.groupId == hotelsId)
+    }
+
+    @Test
+    func pinnedNestedWorkspaceGroupNormalizesBeforeUnpinnedSiblings() {
+        let (model, host, groups, _) = makeWorld()
+        _ = host
+        let hotelsMember = CoordinatorStubTab()
+        let marriottMember = CoordinatorStubTab()
+        let hiltonMember = CoordinatorStubTab()
+        model.tabs = [hotelsMember, marriottMember, hiltonMember]
+        let hotelsId = try! #require(groups.createWorkspaceGroup(name: "Hotels", childWorkspaceIds: [hotelsMember.id]))
+        let marriottId = try! #require(groups.createWorkspaceGroup(
+            name: "Marriott",
+            childWorkspaceIds: [marriottMember.id],
+            parentGroupId: hotelsId
+        ))
+        let hiltonId = try! #require(groups.createWorkspaceGroup(
+            name: "Hilton",
+            childWorkspaceIds: [hiltonMember.id],
+            parentGroupId: hotelsId
+        ))
+
+        groups.setWorkspaceGroupPinned(groupId: hiltonId, isPinned: true)
+
+        let childOrder = model.workspaceGroups
+            .filter { $0.parentGroupId == hotelsId }
+            .map(\.id)
+        #expect(childOrder == [hiltonId, marriottId])
+        let hiltonAnchorId = try! #require(model.workspaceGroups.first { $0.id == hiltonId }?.anchorWorkspaceId)
+        let marriottAnchorId = try! #require(model.workspaceGroups.first { $0.id == marriottId }?.anchorWorkspaceId)
+        let tabIds = model.tabs.map(\.id)
+        let hiltonAnchorIndex = try! #require(tabIds.firstIndex(of: hiltonAnchorId))
+        let marriottAnchorIndex = try! #require(tabIds.firstIndex(of: marriottAnchorId))
+        #expect(hiltonAnchorIndex < marriottAnchorIndex)
+    }
+
+    @Test
     func collapsingParentGroupMovesFocusFromDescendantToParentAnchor() {
         let (model, host, groups, _) = makeWorld()
         let hotelsMember = CoordinatorStubTab()
