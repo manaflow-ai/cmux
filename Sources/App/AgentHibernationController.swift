@@ -16,6 +16,26 @@ struct AgentHibernationPlannerInput: Sendable {
     let lifecycle: AgentHibernationLifecycleState
     let hasUnconfirmedTerminalInput: Bool
     let lastActivityAt: TimeInterval
+
+    init(
+        key: AgentHibernationPanelKey,
+        hasRestorableAgent: Bool,
+        isLive: Bool,
+        hasLiveProcess: Bool = false,
+        isProtected: Bool,
+        lifecycle: AgentHibernationLifecycleState,
+        hasUnconfirmedTerminalInput: Bool,
+        lastActivityAt: TimeInterval
+    ) {
+        self.key = key
+        self.hasRestorableAgent = hasRestorableAgent
+        self.isLive = isLive
+        self.hasLiveProcess = hasLiveProcess
+        self.isProtected = isProtected
+        self.lifecycle = lifecycle
+        self.hasUnconfirmedTerminalInput = hasUnconfirmedTerminalInput
+        self.lastActivityAt = lastActivityAt
+    }
 }
 
 enum AgentHibernationPlanner {
@@ -333,6 +353,14 @@ final class AgentHibernationController {
 
     nonisolated static func scrollbackFingerprint(tail: String, processIDs: Set<Int>) -> String {
         "scrollback:\(processIdentityFingerprint(processIDs)):\(tail)"
+    }
+
+    nonisolated static func processFallbackFingerprint(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        processIDs: Set<Int>
+    ) -> String {
+        "process:\(kind.rawValue):\(sessionId):\(processIdentityFingerprint(processIDs))"
     }
 
     nonisolated static func tailFingerprintStableSince(

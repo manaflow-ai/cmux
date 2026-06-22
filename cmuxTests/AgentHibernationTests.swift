@@ -134,7 +134,7 @@ final class AgentHibernationTests: XCTestCase {
         let idleNew = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let runningOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let needsInputOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
-        let liveProcessOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
+        let unknownOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let unconfirmedInputOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let visibleOld = AgentHibernationPanelKey(workspaceId: workspaceId, panelId: UUID())
         let settings = AgentHibernationSettings.Values(
@@ -146,13 +146,13 @@ final class AgentHibernationTests: XCTestCase {
 
         let selected = AgentHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: idleOld, hasRestorableAgent: true, isLive: true, hasLiveProcess: false, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: idleNew, hasRestorableAgent: true, isLive: true, hasLiveProcess: false, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
-                .init(key: runningOld, hasRestorableAgent: true, isLive: true, hasLiveProcess: false, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, hasLiveProcess: false, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: liveProcessOld, hasRestorableAgent: true, isLive: true, hasLiveProcess: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
-                .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, hasLiveProcess: false, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
-                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, hasLiveProcess: false, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: idleNew, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 10),
+                .init(key: runningOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .running, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: needsInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .needsInput, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unknownOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .unknown, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
+                .init(key: unconfirmedInputOld, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: true, lastActivityAt: now - 300),
+                .init(key: visibleOld, hasRestorableAgent: true, isLive: true, isProtected: true, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: now - 300),
             ],
             settings: settings,
             now: now
@@ -172,13 +172,34 @@ final class AgentHibernationTests: XCTestCase {
 
         let selected = AgentHibernationPlanner.selectedPanelKeys(
             inputs: [
-                .init(key: key, hasRestorableAgent: true, isLive: true, hasLiveProcess: false, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
+                .init(key: key, hasRestorableAgent: true, isLive: true, isProtected: false, lifecycle: .idle, hasUnconfirmedTerminalInput: false, lastActivityAt: 0),
             ],
             settings: settings,
             now: 1_000
         )
 
         XCTAssertTrue(selected.isEmpty)
+    }
+
+    func testProcessFallbackFingerprintIncludesProcessIDs() {
+        let first = AgentHibernationController.processFallbackFingerprint(
+            kind: .opencode,
+            sessionId: "same-session",
+            processIDs: [7, 3]
+        )
+        let sameIDsDifferentOrder = AgentHibernationController.processFallbackFingerprint(
+            kind: .opencode,
+            sessionId: "same-session",
+            processIDs: [3, 7]
+        )
+        let restarted = AgentHibernationController.processFallbackFingerprint(
+            kind: .opencode,
+            sessionId: "same-session",
+            processIDs: [8]
+        )
+
+        XCTAssertEqual(first, sameIDsDifferentOrder)
+        XCTAssertNotEqual(first, restarted)
     }
 
     func testScrollbackFingerprintIncludesProcessIDs() {
