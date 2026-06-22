@@ -3847,6 +3847,19 @@ final class WindowTerminalHostViewTests: XCTestCase {
         splitView.addSubview(second)
         contentView.addSubview(splitView)
         splitView.adjustSubviews()
+
+        let secondarySplitView = NSSplitView(frame: NSRect(x: 220, y: 0, width: 80, height: contentView.bounds.height))
+        secondarySplitView.autoresizingMask = [.minXMargin, .height]
+        secondarySplitView.isVertical = true
+        secondarySplitView.dividerStyle = .thin
+        let secondarySplitDelegate = BonsplitMockSplitDelegate()
+        secondarySplitView.delegate = secondarySplitDelegate
+        let secondaryFirst = NSView(frame: NSRect(x: 0, y: 0, width: 30, height: contentView.bounds.height))
+        let secondarySecond = NSView(frame: NSRect(x: 31, y: 0, width: 49, height: contentView.bounds.height))
+        secondarySplitView.addSubview(secondaryFirst)
+        secondarySplitView.addSubview(secondarySecond)
+        contentView.addSubview(secondarySplitView)
+        secondarySplitView.adjustSubviews()
         contentView.layoutSubtreeIfNeeded()
 
         let host = WindowTerminalHostView(frame: contentView.bounds)

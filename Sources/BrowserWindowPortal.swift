@@ -273,7 +273,6 @@ enum HostedInspectorDockSide {
     }
 }
 
-@MainActor
 final class WindowBrowserHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -281,6 +280,10 @@ final class WindowBrowserHostView: NSView {
         let isInHostedContent: Bool
         weak var splitView: NSSplitView?
         let dividerIndex: Int
+    }
+
+    private struct DividerSplitSource {
+        weak var splitView: NSSplitView?
     }
 
     private struct DividerHit {
@@ -336,6 +339,7 @@ final class WindowBrowserHostView: NSView {
     private var cachedDividerRegionGeneration: UInt64?
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
+    private var cachedInactiveDividerSplitSources: [DividerSplitSource] = []
     private(set) var dividerRegionBuildCount = 0
 
     deinit {
@@ -489,6 +493,7 @@ final class WindowBrowserHostView: NSView {
         cachedDividerRegionGeneration = nil
         cachedDividerRegionRootView = nil
         cachedDividerRegions.removeAll(keepingCapacity: true)
+        cachedInactiveDividerSplitSources.removeAll(keepingCapacity: true)
         window?.invalidateCursorRects(for: self)
     }
 
@@ -958,8 +963,15 @@ final class WindowBrowserHostView: NSView {
         }
 
         var regions: [DividerRegion] = []
-        Self.collectSplitDividerRegions(in: rootView, hostView: self, into: &regions)
+        var inactiveSources: [DividerSplitSource] = []
+        Self.collectSplitDividerRegions(
+            in: rootView,
+            hostView: self,
+            into: &regions,
+            inactiveSources: &inactiveSources
+        )
         cachedDividerRegions = regions
+        cachedInactiveDividerSplitSources = inactiveSources
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
@@ -992,6 +1004,17 @@ final class WindowBrowserHostView: NSView {
                 return nil
             }
             cachedDividerRegions[index] = refreshed
+        }
+        for source in cachedInactiveDividerSplitSources {
+            guard let splitView = source.splitView,
+                  splitView.window === window,
+                  (splitView === rootView || splitView.isDescendant(of: rootView)) else {
+                return nil
+            }
+            if !Self.isHiddenOrAncestorHidden(splitView),
+               Self.hasAnyDividerRegion(in: splitView, hostView: self) {
+                return nil
+            }
         }
         return cachedDividerRegions
     }
@@ -1302,25 +1325,42 @@ final class WindowBrowserHostView: NSView {
     private static func collectSplitDividerRegions(
         in view: NSView,
         hostView: WindowBrowserHostView,
-        into result: inout [DividerRegion]
+        into result: inout [DividerRegion],
+        inactiveSources: inout [DividerSplitSource]
     ) {
-        guard !view.isHidden else { return }
-
         if let splitView = view as? NSSplitView {
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            for dividerIndex in 0..<dividerCount {
-                guard let region = dividerRegion(
-                    in: splitView,
-                    dividerIndex: dividerIndex,
-                    hostView: hostView
-                ) else { continue }
-                result.append(region)
+            if isHiddenOrAncestorHidden(splitView) {
+                inactiveSources.append(DividerSplitSource(splitView: splitView))
+            } else {
+                let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
+                for dividerIndex in 0..<dividerCount {
+                    guard let region = dividerRegion(
+                        in: splitView,
+                        dividerIndex: dividerIndex,
+                        hostView: hostView
+                    ) else { continue }
+                    result.append(region)
+                }
             }
         }
 
         for subview in view.subviews.reversed() {
-            collectSplitDividerRegions(in: subview, hostView: hostView, into: &result)
+            collectSplitDividerRegions(
+                in: subview,
+                hostView: hostView,
+                into: &result,
+                inactiveSources: &inactiveSources
+            )
         }
+    }
+
+    private static func hasAnyDividerRegion(in splitView: NSSplitView, hostView: WindowBrowserHostView) -> Bool {
+        let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
+        for dividerIndex in 0..<dividerCount
+            where dividerRegion(in: splitView, dividerIndex: dividerIndex, hostView: hostView) != nil {
+            return true
+        }
+        return false
     }
 
     private static func dividerRegion(
@@ -1570,7 +1610,6 @@ enum BrowserPaneDropRouting {
     }
 }
 
-@MainActor
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {

@@ -1487,6 +1487,19 @@ final class WindowBrowserHostViewTests: XCTestCase {
         splitView.addSubview(second)
         contentView.addSubview(splitView)
         splitView.adjustSubviews()
+
+        let secondarySplitView = NSSplitView(frame: NSRect(x: 240, y: 0, width: 60, height: contentView.bounds.height))
+        secondarySplitView.autoresizingMask = [.minXMargin, .height]
+        secondarySplitView.isVertical = true
+        secondarySplitView.dividerStyle = .thin
+        let secondarySplitDelegate = BonsplitMockSplitDelegate()
+        secondarySplitView.delegate = secondarySplitDelegate
+        let secondaryFirst = NSView(frame: NSRect(x: 0, y: 0, width: 24, height: contentView.bounds.height))
+        let secondarySecond = NSView(frame: NSRect(x: 25, y: 0, width: 35, height: contentView.bounds.height))
+        secondarySplitView.addSubview(secondaryFirst)
+        secondarySplitView.addSubview(secondarySecond)
+        contentView.addSubview(secondarySplitView)
+        secondarySplitView.adjustSubviews()
         contentView.layoutSubtreeIfNeeded()
 
         let hostFrame = container.convert(contentView.bounds, from: contentView)

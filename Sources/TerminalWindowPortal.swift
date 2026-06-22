@@ -9,13 +9,16 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
-@MainActor
 final class WindowTerminalHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
         let isVertical: Bool
         weak var splitView: NSSplitView?
         let dividerIndex: Int
+    }
+
+    private struct DividerSplitSource {
+        weak var splitView: NSSplitView?
     }
 
     private enum DividerCursorKind: Equatable {
@@ -43,6 +46,7 @@ final class WindowTerminalHostView: NSView {
     private var cachedDividerRegionGeneration: UInt64?
     private weak var cachedDividerRegionRootView: NSView?
     private var cachedDividerRegions: [DividerRegion] = []
+    private var cachedInactiveDividerSplitSources: [DividerSplitSource] = []
     private(set) var dividerRegionBuildCount = 0
 #if DEBUG
     private var lastDragRouteSignature: String?
@@ -136,6 +140,7 @@ final class WindowTerminalHostView: NSView {
         cachedDividerRegionGeneration = nil
         cachedDividerRegionRootView = nil
         cachedDividerRegions.removeAll(keepingCapacity: true)
+        cachedInactiveDividerSplitSources.removeAll(keepingCapacity: true)
         window?.invalidateCursorRects(for: self)
     }
 
@@ -447,8 +452,10 @@ final class WindowTerminalHostView: NSView {
         }
 
         var regions: [DividerRegion] = []
-        Self.collectSplitDividerRegions(in: rootView, into: &regions)
+        var inactiveSources: [DividerSplitSource] = []
+        Self.collectSplitDividerRegions(in: rootView, into: &regions, inactiveSources: &inactiveSources)
         cachedDividerRegions = regions
+        cachedInactiveDividerSplitSources = inactiveSources
         cachedDividerRegionRootView = rootView
         cachedDividerRegionGeneration = dividerRegionCacheGeneration
 #if DEBUG
@@ -478,6 +485,17 @@ final class WindowTerminalHostView: NSView {
             }
             cachedDividerRegions[index] = refreshed
         }
+        for source in cachedInactiveDividerSplitSources {
+            guard let splitView = source.splitView,
+                  splitView.window === window,
+                  (splitView === rootView || splitView.isDescendant(of: rootView)) else {
+                return nil
+            }
+            if !Self.isHiddenOrAncestorHidden(splitView),
+               Self.hasAnyDividerRegion(in: splitView) {
+                return nil
+            }
+        }
         return cachedDividerRegions
     }
 
@@ -491,20 +509,34 @@ final class WindowTerminalHostView: NSView {
         return nil
     }
 
-    private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
-        guard !view.isHidden else { return }
-
+    private static func collectSplitDividerRegions(
+        in view: NSView,
+        into result: inout [DividerRegion],
+        inactiveSources: inout [DividerSplitSource]
+    ) {
         if let splitView = view as? NSSplitView {
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            for dividerIndex in 0..<dividerCount {
-                guard let region = dividerRegion(in: splitView, dividerIndex: dividerIndex) else { continue }
-                result.append(region)
+            if isHiddenOrAncestorHidden(splitView) {
+                inactiveSources.append(DividerSplitSource(splitView: splitView))
+            } else {
+                let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
+                for dividerIndex in 0..<dividerCount {
+                    guard let region = dividerRegion(in: splitView, dividerIndex: dividerIndex) else { continue }
+                    result.append(region)
+                }
             }
         }
 
         for subview in view.subviews.reversed() {
-            collectSplitDividerRegions(in: subview, into: &result)
+            collectSplitDividerRegions(in: subview, into: &result, inactiveSources: &inactiveSources)
         }
+    }
+
+    private static func hasAnyDividerRegion(in splitView: NSSplitView) -> Bool {
+        let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
+        for dividerIndex in 0..<dividerCount where dividerRegion(in: splitView, dividerIndex: dividerIndex) != nil {
+            return true
+        }
+        return false
     }
 
     private static func dividerRegion(in splitView: NSSplitView, dividerIndex: Int) -> DividerRegion? {
