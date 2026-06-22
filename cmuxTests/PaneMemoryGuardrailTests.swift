@@ -402,7 +402,7 @@ struct PaneMemoryGuardrailTests {
 
     @MainActor
     @Test
-    func appDelegateGuardrailDescriptorsOnlyIncludeSelectedWorkspaces() throws {
+    func appDelegateGuardrailDescriptorsKeepBackgroundWorkspacesLive() throws {
         let app = AppDelegate()
         let manager = TabManager()
         let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
@@ -413,12 +413,12 @@ struct PaneMemoryGuardrailTests {
 
         let initialWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
         #expect(initialWorkspaceIds.contains(firstWorkspace.id))
-        #expect(!initialWorkspaceIds.contains(backgroundWorkspace.id))
+        #expect(initialWorkspaceIds.contains(backgroundWorkspace.id))
 
         manager.selectWorkspace(backgroundWorkspace)
 
         let selectedWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
-        #expect(!selectedWorkspaceIds.contains(firstWorkspace.id))
+        #expect(selectedWorkspaceIds.contains(firstWorkspace.id))
         #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
     }
 

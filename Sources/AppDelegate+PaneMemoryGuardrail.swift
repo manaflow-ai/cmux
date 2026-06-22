@@ -3,10 +3,9 @@ import Foundation
 extension AppDelegate {
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
         paneMemoryGuardrailTabManagers().flatMap { manager in
-            guard let selectedWorkspace = manager.selectedWorkspace else {
-                return []
+            manager.tabs.flatMap { workspace in
+                paneMemoryGuardrailDescriptors(in: workspace)
             }
-            return paneMemoryGuardrailDescriptors(in: selectedWorkspace)
         }
     }
 
