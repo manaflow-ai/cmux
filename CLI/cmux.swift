@@ -32877,7 +32877,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             toolName: toolName
         )
         if commandArgs.contains("--telemetry-only") {
-            hookEventName = rawEvent.isEmpty ? hookEventName : rawEvent
+            if rawEvent == "preToolUse" || rawEvent == "PreToolUse" {
+                hookEventName = "PreToolUse"
+            }
             isActionable = false
         }
         let env = ProcessInfo.processInfo.environment
