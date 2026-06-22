@@ -103,18 +103,9 @@ struct MobileTabContainer: View {
         #endif
         if store.supportsWorkspaceReadStateActions {
             Task { @MainActor in
-                let previousNotifications = store.notificationsStore.notifications
-                store.notificationsStore.markReadLocally(forWorkspace: notification.workspaceID)
+                let readClaim = store.beginOptimisticNotificationRead(forWorkspace: notification.workspaceID)
                 let didMarkRead = await store.setWorkspaceUnread(id: workspaceID, false)
-                let didRefresh: Bool
-                if didMarkRead {
-                    didRefresh = await store.refreshNotifications()
-                } else {
-                    didRefresh = false
-                }
-                if !didRefresh {
-                    store.notificationsStore.apply(previousNotifications)
-                }
+                await store.finishOptimisticNotificationRead(readClaim, mutationSucceeded: didMarkRead)
             }
         }
     }

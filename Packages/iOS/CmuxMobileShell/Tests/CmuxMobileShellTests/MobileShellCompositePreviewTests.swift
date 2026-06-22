@@ -67,22 +67,43 @@ import Testing
     @Test func signOutClearsNotificationFeed() {
         let store = MobileShellComposite.preview()
         store.notificationsStore.apply([
-            MobileNotificationPreview(
-                id: "n1",
-                workspaceID: "workspace-main",
-                surfaceID: nil,
-                title: "done",
-                subtitle: "",
-                body: "private output",
-                isContentHidden: false,
-                createdAt: Date(timeIntervalSince1970: 1),
-                isRead: false
-            )
+            notificationPreview(id: "n1", workspaceID: "workspace-main", isRead: false)
         ])
 
         store.signOut()
 
         #expect(store.notificationsStore.notifications.isEmpty)
+    }
+
+    @Test func failedOptimisticNotificationReadRestoresSnapshot() async {
+        let store = MobileShellComposite.preview()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", isRead: false),
+            notificationPreview(id: "n2", workspaceID: "workspace-other", isRead: false),
+        ])
+        let previousNotifications = store.notificationsStore.notifications
+
+        let claim = store.beginOptimisticNotificationRead(forWorkspace: "workspace-main")
+        await store.finishOptimisticNotificationRead(claim, mutationSucceeded: false)
+
+        #expect(store.notificationsStore.notifications == previousNotifications)
+    }
+
+    @Test func supersededOptimisticNotificationReadDoesNotRestoreStaleSnapshot() async {
+        let store = MobileShellComposite.preview()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", title: "old", isRead: false),
+        ])
+
+        let claim = store.beginOptimisticNotificationRead(forWorkspace: "workspace-main")
+        _ = await store.refreshNotifications()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", title: "new", isRead: true),
+        ])
+        await store.finishOptimisticNotificationRead(claim, mutationSucceeded: false)
+
+        #expect(store.notificationsStore.notifications.map(\.title) == ["new"])
+        #expect(store.notificationsStore.notifications.map(\.isRead) == [true])
     }
 
     @Test func deeplinkNavigationSelectsAndBumpsToken() {
@@ -255,5 +276,24 @@ private func hostPortRoute(
         kind: kind,
         endpoint: .hostPort(host: host, port: port),
         priority: priority
+    )
+}
+
+private func notificationPreview(
+    id: String,
+    workspaceID: String,
+    title: String = "done",
+    isRead: Bool
+) -> MobileNotificationPreview {
+    MobileNotificationPreview(
+        id: id,
+        workspaceID: workspaceID,
+        surfaceID: nil,
+        title: title,
+        subtitle: "",
+        body: "private output",
+        isContentHidden: false,
+        createdAt: Date(timeIntervalSince1970: 1),
+        isRead: isRead
     )
 }
