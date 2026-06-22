@@ -351,6 +351,11 @@ final class WindowDecorationsController {
                     tabManager: targetTabManager,
                     debugSource: "titlebar.minimalSidebarControl"
                 )
+            case .cloudVM:
+                _ = AppDelegate.shared?.performCloudVMAction(
+                    preferredWindow: window,
+                    debugSource: "titlebar.minimalSidebarControl.cloudVM"
+                )
             case .focusHistoryBack:
                 guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateBack else { return }
                 AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()

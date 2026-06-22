@@ -881,6 +881,18 @@ final class WindowDragHandleHitTests: XCTestCase {
         let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
         XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
         XCTAssertEqual(
+            MinimalModeSidebarControlActionSlot.allCases.map(\.accessibilityIdentifier),
+            [
+                "titlebarControl.toggleSidebar",
+                "titlebarControl.showNotifications",
+                "titlebarControl.newTab",
+                "titlebarControl.cloudVM",
+                "titlebarControl.focusHistoryBack",
+                "titlebarControl.focusHistoryForward",
+            ],
+            "The hidden minimal-mode click lanes must match the visible titlebar control order."
+        )
+        XCTAssertEqual(
             ranges[0].lowerBound,
             TitlebarControlsLayoutMetrics.hintLeadingPadding + config.groupPadding.leading,
             accuracy: 0.001,
@@ -905,6 +917,12 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertFalse(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(NSPoint(x: secondGapX, y: 14), config: config),
             "The gap between the notification and new-workspace icons should remain available for window dragging"
+        )
+
+        XCTAssertGreaterThanOrEqual(
+            MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+            ranges.last?.upperBound ?? 0,
+            "The minimal-mode host must be wide enough to preserve the back/forward button lanes."
         )
     }
 

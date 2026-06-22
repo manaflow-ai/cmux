@@ -430,7 +430,8 @@ func titlebarHintLayoutRightmostExtent(
     let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
     var intervals: [ClosedRange<CGFloat>] = []
     for slot in TitlebarShortcutHintActionSlot.allCases {
-        let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
+        guard let action = slot.action else { continue }
+        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
         guard !shortcut.isUnbound, shortcut.command else { continue }
         let width = titlebarHintPillWidth(for: shortcut, config: config)
         intervals.append(
@@ -458,10 +459,11 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
+    case cloudVM
     case focusHistoryBack
     case focusHistoryForward
 
-    var action: KeyboardShortcutSettings.Action {
+    var action: KeyboardShortcutSettings.Action? {
         switch self {
         case .toggleSidebar:
             return .toggleSidebar
@@ -469,6 +471,8 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
             return .showNotifications
         case .newTab:
             return .newTab
+        case .cloudVM:
+            return nil
         case .focusHistoryBack:
             return .focusHistoryBack
         case .focusHistoryForward:
@@ -1111,7 +1115,8 @@ struct TitlebarControlsView: View {
         guard shouldShowTitlebarShortcutHints else { return [] }
 
         return TitlebarShortcutHintActionSlot.allCases.compactMap { slot in
-            let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
+            guard let action = slot.action else { return nil }
+            let shortcut = KeyboardShortcutSettings.shortcut(for: action)
             guard ShortcutHintTitlebarPolicy.shouldShow(
                 shortcut: shortcut,
                 alwaysShowShortcutHints: alwaysShowShortcutHints,
@@ -1126,7 +1131,7 @@ struct TitlebarControlsView: View {
                 config: config,
                 xOffset: xOffset
             )
-            return (slot.action, shortcut, width, interval)
+            return (action, shortcut, width, interval)
         }
     }
 
@@ -1419,6 +1424,11 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(anchorView)
                 case .newTab:
                     onNewTab()
+                case .cloudVM:
+                    _ = AppDelegate.shared?.performCloudVMAction(
+                        preferredWindow: hostWindowForFocusHistoryNavigation,
+                        debugSource: "titlebar.minimalSidebarControl.cloudVM"
+                    )
                 case .focusHistoryBack:
                     let availability = focusHistoryNavigationAvailability(
                         preferredWindow: hostWindowForFocusHistoryNavigation

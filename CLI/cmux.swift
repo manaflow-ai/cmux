@@ -10524,7 +10524,7 @@ struct CMUXCLI {
         )
         guard let id = (response["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !id.isEmpty else {
-            throw CLIError(message: "vm ssh-attach could not recreate the default Freestyle VM")
+            throw CLIError(message: "vm ssh-attach could not recreate the default Cloud VM")
         }
         return id
     }
@@ -10586,22 +10586,20 @@ struct CMUXCLI {
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
         if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
           export CMUX_CLOUD_WELCOME_SHOWN=1
-          cat <<'CMUX_CLOUD_WELCOME'
-          ::
-            ::::              cmux cloud
-              ::::::
-                ::::::        persistent Freestyle VM
-              ::::::          ready for coding agents
-            ::::
-          ::
-
-        CMUX_CLOUD_WELCOME
+          print -P '%F{cyan}          ::%f'
+          print -P '%F{cyan}            ::::              %F{white}%Bcmux cloud%b%f'
+          print -P '%F{cyan}              ::::::%f'
+          print -P '%F{cyan}                ::::::%f        %F{green}persistent cloud VM%f'
+          print -P '%F{cyan}              ::::::%f          %F{green}ready for coding agents%f'
+          print -P '%F{cyan}            ::::%f'
+          print -P '%F{cyan}          ::%f'
+          print
         fi
         CMUX_USER_ZSHRC
           fi
           if [ ! -e "$HOME/.zshrc.local" ]; then
             cat > "$HOME/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
-        # Personal zsh overrides for this Freestyle VM.
+        # Personal zsh overrides for this cloud VM.
         # Examples:
         #   CMUX_CLOUD_WELCOME=0
         #   CMUX_PROMPT_USER='cmux-cloud'
@@ -10662,23 +10660,21 @@ struct CMUXCLI {
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
         if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
           export CMUX_CLOUD_WELCOME_SHOWN=1
-          cat <<'CMUX_CLOUD_WELCOME'
-          ::
-            ::::              cmux cloud
-              ::::::
-                ::::::        persistent Freestyle VM
-              ::::::          ready for coding agents
-            ::::
-          ::
-
-        CMUX_CLOUD_WELCOME
+          print -P '%F{cyan}          ::%f'
+          print -P '%F{cyan}            ::::              %F{white}%Bcmux cloud%b%f'
+          print -P '%F{cyan}              ::::::%f'
+          print -P '%F{cyan}                ::::::%f        %F{green}persistent cloud VM%f'
+          print -P '%F{cyan}              ::::::%f          %F{green}ready for coding agents%f'
+          print -P '%F{cyan}            ::::%f'
+          print -P '%F{cyan}          ::%f'
+          print
         fi
         CMUX_USER_ZSHRC
         fi
 
         if [ ! -e "$cmux_home/.zshrc.local" ]; then
           cat > "$cmux_home/.zshrc.local" <<'CMUX_LOCAL_ZSHRC'
-        # Personal zsh overrides for this Freestyle VM.
+        # Personal zsh overrides for this cloud VM.
         # Examples:
         #   CMUX_CLOUD_WELCOME=0
         #   CMUX_PROMPT_USER='cmux-cloud'

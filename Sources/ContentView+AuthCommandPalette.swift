@@ -82,13 +82,13 @@ extension ContentView {
                 commandId: commandPaletteCloudOpenCommandId,
                 title: constant(String(localized: "command.cloudVM.open.title", defaultValue: "Open Cloud VM")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "freestyle", "ssh", "sshd", "open", "reconnect"]
+                keywords: ["cloud", "vm", "ssh", "sshd", "open", "reconnect"]
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudForkCommandId,
                 title: constant(String(localized: "command.cloudVM.fork.title", defaultValue: "Fork Current Cloud VM")),
                 subtitle: subtitle,
-                keywords: ["cloud", "vm", "freestyle", "fork", "clone", "branch"]
+                keywords: ["cloud", "vm", "fork", "clone", "branch"]
             ),
             CommandPaletteCommandContribution(
                 commandId: commandPaletteCloudSnapshotCommandId,

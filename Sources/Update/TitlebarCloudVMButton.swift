@@ -29,7 +29,7 @@ struct TitlebarCloudVMButton: View {
     }
 
     @MainActor
-    private static func showCloudVMMenu(anchorView: NSView, event: NSEvent) {
+    static func showCloudVMMenu(anchorView: NSView, event: NSEvent) {
         let menu = NSMenu()
         menu.addItem(menuItem(
             title: String(localized: "command.cloudVM.open.title", defaultValue: "Open Cloud VM"),

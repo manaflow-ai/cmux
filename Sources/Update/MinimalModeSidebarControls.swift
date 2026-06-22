@@ -199,6 +199,8 @@ final class MinimalModeSidebarControlActionView: NSView {
             CmuxExtensionSidebarSelection.showMenu(anchorView: self, event: event)
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
+        case .cloudVM:
+            TitlebarCloudVMButton.showCloudVMMenu(anchorView: self, event: event)
         case .focusHistoryBack:
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
         case .focusHistoryForward:

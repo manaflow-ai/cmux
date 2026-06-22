@@ -133,6 +133,19 @@ struct WorkspaceRemoteConfigurationValueTests {
         #expect(makeConfiguration(port: 2222).displayTarget == "user@host:2222")
     }
 
+    @Test("displayTarget hides the provider hostname for the managed Cloud VM")
+    func managedCloudDisplayTarget() {
+        let configuration = makeConfiguration(
+            destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+
+        #expect(configuration.displayTarget == "cloud VM")
+        #expect(configuration.destination.contains("vm-ssh.freestyle.sh"))
+    }
+
     @Test("proxy broker transport key separates bootstrap modes and ignores transient options")
     func proxyBrokerTransportKey() {
         let base = makeConfiguration(sshOptions: ["ForwardAgent=yes", "ControlMaster=auto"])
