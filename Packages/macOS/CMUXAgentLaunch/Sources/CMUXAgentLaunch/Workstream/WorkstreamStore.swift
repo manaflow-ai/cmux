@@ -310,6 +310,11 @@ public final class WorkstreamStore {
             )
         case .subagentStart:
             return (.toolUse, .toolUse(toolName: "subagent", toolInputJSON: toolInput))
+        case .subagentStop:
+            return (
+                .toolResult,
+                .toolResult(toolName: "subagent", resultJSON: toolInput, isError: false)
+            )
         case .userPromptSubmit:
             let prompt = Self.promptText(from: event.toolInputJSON)
             return (
@@ -320,7 +325,7 @@ public final class WorkstreamStore {
             return (.sessionStart, .sessionStart)
         case .sessionEnd:
             return (.sessionEnd, .sessionEnd)
-        case .stop, .subagentStop:
+        case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
             return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
@@ -336,7 +341,7 @@ public final class WorkstreamStore {
         switch event.hookEventName {
         case .preCompact, .postCompact:
             return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
-        case .subagentStart:
+        case .subagentStart, .subagentStop:
             return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
         default:
             break

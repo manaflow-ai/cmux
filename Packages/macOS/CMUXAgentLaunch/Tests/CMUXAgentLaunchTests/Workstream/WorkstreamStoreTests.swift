@@ -148,6 +148,7 @@ struct WorkstreamStoreTests {
         #expect(!store.items.map(\.title).contains("PostCompact"))
         #expect(!store.items.map(\.title).contains("SubagentStart"))
         #expect(!store.items.contains { $0.kind == .sessionStart })
+        #expect(!store.items.contains { $0.kind == .stop })
         if let subagentStartItem = store.items.first(where: {
             $0.title == "Subagent" && $0.kind == .toolUse
         }) {
@@ -159,6 +160,18 @@ struct WorkstreamStoreTests {
             }
         } else {
             Issue.record("expected SubagentStart item")
+        }
+        if let subagentStopItem = store.items.first(where: {
+            $0.title == "Subagent" && $0.kind == .toolResult
+        }) {
+            #expect(subagentStopItem.kind == .toolResult)
+            if case .toolResult(let toolName, _, _) = subagentStopItem.payload {
+                #expect(toolName == "subagent")
+            } else {
+                Issue.record("expected SubagentStop to decode as toolResult telemetry")
+            }
+        } else {
+            Issue.record("expected SubagentStop item")
         }
     }
 
