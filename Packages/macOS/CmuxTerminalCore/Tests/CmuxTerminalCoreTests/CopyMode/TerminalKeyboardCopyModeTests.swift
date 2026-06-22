@@ -165,6 +165,17 @@ struct TerminalKeyboardCopyModeResolverTests {
         )
     }
 
+    @Test func shiftVStartsVisualLineSelection() {
+        #expect(
+            terminalKeyboardCopyModeAction(
+                keyCode: 9,
+                charactersIgnoringModifiers: "v",
+                modifiers: [.shift],
+                hasSelection: false
+            ) == .startLineSelection
+        )
+    }
+
     @Test func capsLockUppercaseVStartsCharacterSelection() {
         #expect(
             terminalKeyboardCopyModeAction(

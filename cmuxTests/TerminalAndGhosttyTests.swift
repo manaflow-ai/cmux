@@ -2126,7 +2126,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         )
     }
 
-    func testShiftVStartsVisualLineSelection() {
+    func testShiftVMatchesVisualToggleBehavior() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 9,
@@ -2134,7 +2134,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: false
             ),
-            .startLineSelection
+            .startSelection
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -2143,7 +2143,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: true
             ),
-            .startLineSelection
+            .clearSelection
         )
     }
 
