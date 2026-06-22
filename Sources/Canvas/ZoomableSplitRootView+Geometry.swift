@@ -3,6 +3,26 @@ import Bonsplit
 import CmuxCanvas
 
 extension ZoomableSplitRootView {
+    struct SplitActionButtonHit {
+        let paneId: PaneID
+        let button: BonsplitConfiguration.SplitActionButton
+    }
+
+    private enum SplitActionLaneMetrics {
+        static let reservedButtonWidth: CGFloat = 22
+        static let spacing: CGFloat = 4
+        static let leadingPadding: CGFloat = 6
+        static let trailingPadding: CGFloat = 8
+
+        static func laneWidth(buttonCount: Int) -> CGFloat {
+            guard buttonCount > 0 else { return 0 }
+            return leadingPadding
+                + trailingPadding
+                + CGFloat(buttonCount) * reservedButtonWidth
+                + CGFloat(max(0, buttonCount - 1)) * spacing
+        }
+    }
+
     func canvasRect(from rect: CGRect) -> CanvasRect {
         CanvasRect(
             x: Double(rect.origin.x),
@@ -64,6 +84,53 @@ extension ZoomableSplitRootView {
         }
 
         return false
+    }
+
+    static func splitActionButtonHit(
+        atDocumentPoint point: CGPoint,
+        in snapshot: LayoutSnapshot,
+        appearance: BonsplitConfiguration.Appearance
+    ) -> SplitActionButtonHit? {
+        let buttons = appearance.splitButtons
+        guard !buttons.isEmpty else { return nil }
+        let tabBarHeight = appearance.tabBarHeight
+        let laneWidth = SplitActionLaneMetrics.laneWidth(buttonCount: buttons.count)
+        guard laneWidth > 0 else { return nil }
+
+        for pane in snapshot.panes.reversed() {
+            guard let paneUUID = UUID(uuidString: pane.paneId) else { continue }
+            let paneFrame = CGRect(
+                x: pane.frame.x - snapshot.containerFrame.x,
+                y: pane.frame.y - snapshot.containerFrame.y,
+                width: pane.frame.width,
+                height: pane.frame.height
+            )
+            guard paneFrame.contains(point),
+                  point.y <= paneFrame.minY + tabBarHeight else {
+                continue
+            }
+
+            let visibleLaneWidth = min(max(0, paneFrame.width), laneWidth)
+            let laneMinX = paneFrame.maxX - visibleLaneWidth
+            guard point.x >= laneMinX, point.x <= paneFrame.maxX else { return nil }
+
+            let localPoint = CGPoint(x: point.x - laneMinX, y: point.y - paneFrame.minY)
+            var buttonX = SplitActionLaneMetrics.leadingPadding
+            for button in buttons {
+                let buttonRect = CGRect(
+                    x: buttonX,
+                    y: 0,
+                    width: SplitActionLaneMetrics.reservedButtonWidth,
+                    height: tabBarHeight
+                )
+                if buttonRect.contains(localPoint) {
+                    return SplitActionButtonHit(paneId: PaneID(id: paneUUID), button: button)
+                }
+                buttonX += SplitActionLaneMetrics.reservedButtonWidth + SplitActionLaneMetrics.spacing
+            }
+            return nil
+        }
+        return nil
     }
 
     static func pointTargetsPaneChrome(atDocumentPoint point: CGPoint, in snapshot: LayoutSnapshot) -> Bool {

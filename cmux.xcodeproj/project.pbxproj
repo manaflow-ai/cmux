@@ -1065,6 +1065,7 @@
 		CA52B0210000000000000000 /* ZoomableSplitDirectTerminalHosting.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0210000000000000000 /* ZoomableSplitDirectTerminalHosting.swift */; };
 		CA52B0230000000000000000 /* ZoomableSplitDocumentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0230000000000000000 /* ZoomableSplitDocumentView.swift */; };
 		CA52B0170000000000000000 /* ZoomableSplitHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* ZoomableSplitHostView.swift */; };
+		CA52B0260000000000000000 /* ZoomableSplitPaneChromeActionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0260000000000000000 /* ZoomableSplitPaneChromeActionBridge.swift */; };
 		CA52B0240000000000000000 /* ZoomableSplitRootView+Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0240000000000000000 /* ZoomableSplitRootView+Geometry.swift */; };
 		CA52B0190000000000000000 /* ZoomableSplitRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0190000000000000000 /* ZoomableSplitRootView.swift */; };
 		CA52B0250000000000000000 /* ZoomableSplitScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0250000000000000000 /* ZoomableSplitScrollView.swift */; };
@@ -2133,6 +2134,7 @@
 		CA52C0210000000000000000 /* ZoomableSplitDirectTerminalHosting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitDirectTerminalHosting.swift"; sourceTree = "<group>"; };
 		CA52C0230000000000000000 /* ZoomableSplitDocumentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitDocumentView.swift"; sourceTree = "<group>"; };
 		CA52C0170000000000000000 /* ZoomableSplitHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitHostView.swift"; sourceTree = "<group>"; };
+		CA52C0260000000000000000 /* ZoomableSplitPaneChromeActionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitPaneChromeActionBridge.swift"; sourceTree = "<group>"; };
 		CA52C0240000000000000000 /* ZoomableSplitRootView+Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitRootView+Geometry.swift"; sourceTree = "<group>"; };
 		CA52C0190000000000000000 /* ZoomableSplitRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitRootView.swift"; sourceTree = "<group>"; };
 		CA52C0250000000000000000 /* ZoomableSplitScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitScrollView.swift"; sourceTree = "<group>"; };
@@ -2975,6 +2977,7 @@
 				CA52C0230000000000000000 /* ZoomableSplitDocumentView.swift */,
 				CA52C0240000000000000000 /* ZoomableSplitRootView+Geometry.swift */,
 				CA52C0170000000000000000 /* ZoomableSplitHostView.swift */,
+				CA52C0260000000000000000 /* ZoomableSplitPaneChromeActionBridge.swift */,
 				CA52C0190000000000000000 /* ZoomableSplitRootView.swift */,
 				CA52C0250000000000000000 /* ZoomableSplitScrollView.swift */,
 				CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */,
@@ -4365,6 +4368,7 @@
 				CA52B0210000000000000000 /* ZoomableSplitDirectTerminalHosting.swift in Sources */,
 				CA52B0230000000000000000 /* ZoomableSplitDocumentView.swift in Sources */,
 				CA52B0170000000000000000 /* ZoomableSplitHostView.swift in Sources */,
+				CA52B0260000000000000000 /* ZoomableSplitPaneChromeActionBridge.swift in Sources */,
 				CA52B0240000000000000000 /* ZoomableSplitRootView+Geometry.swift in Sources */,
 				CA52B0190000000000000000 /* ZoomableSplitRootView.swift in Sources */,
 				CA52B0250000000000000000 /* ZoomableSplitScrollView.swift in Sources */,

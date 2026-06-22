@@ -299,8 +299,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
                 return event
             }
 
-            _ = self.focusPaneForPointerDown(event, in: window)
-            return event
+            if ZoomableSplitPaneChromeActionBridge(rootView: self, documentView: self.documentView, workspace: self.workspace).perform(event, in: window) { self.synchronizeViewportGeometry(); return nil }
+            _ = self.focusPaneForPointerDown(event, in: window); return event
         }
     }
 

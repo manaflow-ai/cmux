@@ -180,6 +180,38 @@ struct ZoomableSplitViewportTests {
         ))
     }
 
+    @Test func splitActionButtonHitResolvesTrailingPaneChromeButton() throws {
+        let paneId = UUID()
+        let snapshot = LayoutSnapshot(
+            containerFrame: PixelRect(x: 0, y: 0, width: 220, height: 160),
+            panes: [
+                PaneGeometry(
+                    paneId: paneId.uuidString,
+                    frame: PixelRect(x: 0, y: 0, width: 220, height: 160),
+                    selectedTabId: UUID().uuidString,
+                    tabIds: []
+                ),
+            ],
+            focusedPaneId: nil,
+            timestamp: 0
+        )
+        let appearance = BonsplitConfiguration.default.appearance
+
+        let hit = try #require(ZoomableSplitRootView.splitActionButtonHit(
+            atDocumentPoint: CGPoint(x: 123, y: appearance.tabBarHeight / 2),
+            in: snapshot,
+            appearance: appearance
+        ))
+
+        #expect(hit.paneId == PaneID(id: paneId))
+        #expect(hit.button.id == BonsplitConfiguration.SplitActionButton.newTerminal.id)
+        #expect(ZoomableSplitRootView.splitActionButtonHit(
+            atDocumentPoint: CGPoint(x: 24, y: appearance.tabBarHeight / 2),
+            in: snapshot,
+            appearance: appearance
+        ) == nil)
+    }
+
     private func makeRoot() -> ZoomableSplitRootView {
         let root = ZoomableSplitRootView(
             workspace: Workspace(title: "Zoomable split tests"),
