@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxTerminalCore"),
+        .package(path: "../CmuxFoundation"),
         .package(path: "../CMUXDebugLog"),
         .package(path: "../CMUXAgentLaunch"),
         .package(path: "../../Shared/CMUXMobileCore"),
@@ -26,6 +27,7 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
                 .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
@@ -53,6 +55,7 @@ let package = Package(
                 "GhosttyRuntimeTestStubs",
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
                 .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
+                .product(name: "CmuxFoundation", package: "CmuxFoundation"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
