@@ -3458,7 +3458,7 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     private var debugDidMoveTabEventCount: UInt64 = 0
 #endif
     private var layoutFollowUpObservers: [NSObjectProtocol] = []
-    private var layoutFollowUpPanelsCancellable: AnyCancellable?
+    private var layoutFollowUpPanelsObservation: PaneTreeObservation?
     private var layoutFollowUpTimeoutWorkItem: DispatchWorkItem?
     private var layoutFollowUpReason: String?
     private var layoutFollowUpTerminalFocusPanelId: UUID?
@@ -9062,11 +9062,11 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         ) { _ in
             enqueueAttempt()
         })
-        layoutFollowUpPanelsCancellable = panelsPublisher
-            .map { _ in () }
-            .sink { _ in
-                enqueueAttempt()
-            }
+        // `@Observable` replacement for the legacy `panelsPublisher` subscriber;
+        // `fireImmediately` reproduces `CurrentValueSubject.sink`'s replay-on-subscribe.
+        layoutFollowUpPanelsObservation = paneTree.observePanels(fireImmediately: true) {
+            enqueueAttempt()
+        }
     }
 
     private func refreshLayoutFollowUpTimeout() {
@@ -9084,8 +9084,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         layoutFollowUpTimeoutWorkItem = nil
         layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }
         layoutFollowUpObservers.removeAll()
-        layoutFollowUpPanelsCancellable?.cancel()
-        layoutFollowUpPanelsCancellable = nil
+        layoutFollowUpPanelsObservation?.cancel()
+        layoutFollowUpPanelsObservation = nil
         layoutFollowUpReason = nil
         layoutFollowUpTerminalFocusPanelId = nil
         layoutFollowUpBrowserPanelId = nil
