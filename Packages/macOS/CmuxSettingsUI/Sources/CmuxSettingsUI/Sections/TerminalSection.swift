@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -113,7 +114,7 @@ public struct TerminalSection: View {
             ) {
                 HStack(spacing: 8) {
                     Text(verbatim: "0")
-                        .font(.caption.monospacedDigit())
+                        .cmuxFont(.caption, monospacedDigit: true)
                         .foregroundColor(.secondary)
                     Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
                         hostActions.openConfigInExternalEditor()
@@ -147,7 +148,7 @@ public struct TerminalSection: View {
                         .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
 
                         Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(surfaceTabBarFont.points)))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
 
@@ -162,7 +163,7 @@ public struct TerminalSection: View {
 
                     if fontSaveFailed {
                         Text(String(localized: "settings.terminal.tabBarFontSize.saveFailed", defaultValue: "Couldn't save tab bar font size. Please try again."))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
@@ -188,7 +189,7 @@ public struct TerminalSection: View {
                     .accessibilityIdentifier("SettingsTerminalScrollSpeedSlider")
 
                     Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), displayedScrollSpeed))
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
                         .monospacedDigit()
                         .frame(width: 44, alignment: .trailing)
 

@@ -677,9 +677,9 @@ Coordinated area-teams adversarially verified the candidates above, then applied
 - `test_codex_hook_agent_ports.py` — The fix instruction is self-refuting and concludes "Mark skipped / no code change is needed." Verified against the file: the duplicate-port guard the instruction relies on already exists at lines 325-
 - `test_socket_access.py` — No edit needed: the prescribed minimal fallback fix is already present in the file. The instruction's safe minimum was "generate a unique hook_file path using os.getpid()". In test_internal_process_al
 - `TailscaleStatusTests.swift` — Finding [1]'s stated mechanism is factually wrong. It claims staleInstant (line 165, call it T1) could equal refresh()'s internal stamp (line 71, T2) and thereby let the stale apply(.active, evaluated
-- `SyncFrameAndProtocolTests.swift` — Finding [1] is not genuinely flaky. In FlagTests.envOverrideWins (lines 385-386) both #expect calls pass a non-empty CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST env value ("1" and "0"). resolved() checks the 
-- `BrowserOmnibarPageFocusRepositoryTests.swift` — Finding [1] (invalidateAbortsPendingRetry) is not genuinely flaky and the only proposed fix is a risky production change. The test is @MainActor async, so the main actor executor IS the main dispatch 
-- `JSONConfigStoreTests.swift` — Finding [1] is not a genuine flake. (a) fatalError in withTimeout is unreachable in normal runs: the work child task returns non-optional T wrapped as T? (always non-nil); if the timeout task returns 
+- `SyncFrameAndProtocolTests.swift` — Finding [1] is not genuinely flaky. In FlagTests.envOverrideWins (lines 385-386) both #expect calls pass a non-empty CMUX_MOBILE_DEVICE_LIST_LOCAL_FIRST env value ("1" and "0"). resolved() checks the
+- `BrowserOmnibarPageFocusRepositoryTests.swift` — Finding [1] (invalidateAbortsPendingRetry) is not genuinely flaky and the only proposed fix is a risky production change. The test is @MainActor async, so the main actor executor IS the main dispatch
+- `JSONConfigStoreTests.swift` — Finding [1] is not a genuine flake. (a) fatalError in withTimeout is unreachable in normal runs: the work child task returns non-optional T wrapped as T? (always non-nil); if the timeout task returns
 - `HostingInvalidationTests.swift` — Finding [1] (async-race in the three @Test methods via the pump(until:) helper) is refuted; no safe behavior-preserving fix exists, so I made no edit.
 
 Why it is not genuinely flaky: pump(until:) poll

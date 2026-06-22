@@ -3163,18 +3163,17 @@ struct CMUXCLI {
             return
         }
 
-        if command == "help" { print(usage()); return }
-        if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
+        if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+        if command == "sessions" || command == "session-debug" { try runSessionsCommand(commandArgs: command == "session-debug" ? ["debug"] + commandArgs : commandArgs, jsonOutput: jsonOutput, processEnv: processEnv); return }
         if command == "__sigpipe-probe" { try runSIGPIPEProbe(commandArgs: commandArgs); return }
         if command == "__sigpipe-stdin-pipe-probe" { try runSIGPIPEStdinPipeProbe(); return }
         if command == "__sigpipe-inspect" { try runSIGPIPEInspect(commandArgs: commandArgs); return }
         if command == "diff-viewer-server" { try runDiffViewerServerCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-refs" { try runDiffViewerRefsCommand(commandArgs: commandArgs); return }
         if command == "__diff-viewer-branch" { try runDiffViewerBranchRegenerateCommand(commandArgs: commandArgs); return }
-
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
             try runSettings(
@@ -14227,6 +14226,7 @@ struct CMUXCLI {
             If the app is already running, this restores the last saved session into the current app.
             If the app is not running, this launches cmux and lets startup restore reopen the saved session.
             """
+        case "sessions", "session-debug": return sessionsUsage()
         case "feedback":
             return """
             Usage: cmux feedback
