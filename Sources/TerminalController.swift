@@ -25,8 +25,14 @@ extension Notification.Name {
     // terminalSurfaceDidBecomeReady moved to CmuxTerminal (posted by TerminalSurface).
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
-    static let browserDownloadEventDidArrive = Notification.Name("cmux.browserDownloadEventDidArrive")
-    static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
+    // The browser-download-event and react-grab-copy notification names are owned
+    // by `BrowserAutomationController` (CmuxBrowser), which registers the
+    // download observer. These app-side aliases keep every existing call site
+    // (`.browserDownloadEventDidArrive` / `.reactGrabDidCopySelection`) byte
+    // identical while the canonical definition (the same string) lives with the
+    // state owner.
+    static let browserDownloadEventDidArrive = BrowserAutomationController.browserDownloadEventDidArriveName
+    static let reactGrabDidCopySelection = BrowserAutomationController.reactGrabDidCopySelectionName
 }
 
 nonisolated struct SocketLineProcessingResult: Sendable {
@@ -151,8 +157,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// process today), so the allowance is genuinely instance-scoped.
     nonisolated let socketCommandFocusAllowance = ControlSocketFocusAllowanceStack()
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
-    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs = 10_000
-    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs = 120_000
+    // The download-wait timeout bounds moved to `BrowserAutomationController`
+    // (CmuxBrowser); these aliases keep the worker-lane call sites byte identical.
+    private nonisolated static let v2BrowserDownloadWaitDefaultTimeoutMs =
+        BrowserAutomationController.downloadWaitDefaultTimeoutMs
+    private nonisolated static let v2BrowserDownloadWaitMaxTimeoutMs =
+        BrowserAutomationController.downloadWaitMaxTimeoutMs
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
     /// Owns the shared mobile-terminal viewport state machine (per-surface,
@@ -318,41 +328,44 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// Read from the nonisolated socket-worker lane, so stored `nonisolated`.
     nonisolated(unsafe) var controlFeedWorker: ControlFeedWorker?
 
-    /// The per-browser-surface automation state (element refs, frame selector,
-    /// init scripts/styles, dialog queue, download events, not-supported network
-    /// log), extracted to `CmuxBrowser` as a `@MainActor @Observable` store.
-    /// `TerminalController` owns the instance; the `@MainActor` browser witnesses
-    /// mutate it directly and the nonisolated worker-lane JS-eval methods reach it
-    /// only through the main-actor hop (`v2MainSync`). All keyed dictionaries,
-    /// bounds, and FIFO rules are preserved exactly.
-    let v2BrowserSurfaceState = BrowserAutomationSurfaceState()
-    /// Stateless browser-control logic (JS builders, value normalization,
-    /// eval-envelope unwrapping, diagnostics, failure classification) extracted to
-    /// `CmuxBrowser`. The per-surface mutable state and WebKit evaluation seam stay
-    /// here. The default ``BrowserEvalEnvelope`` carries the exact wire constants
-    /// (`__cmux_t`/`__cmux_v`/`undefined`/`value`) the v2 browser RPC has always
-    /// used, and it vends the shared `undefined` sentinel the eval lane returns, so
-    /// the controller no longer defines its own sentinel or envelope-key statics.
-    nonisolated let v2BrowserControl = BrowserControlService()
     /// The bounded blocking-await primitive (CmuxControlSocket) every worker-lane
     /// browser JS-eval path blocks on. Stateless and `Sendable`, so a single
     /// shared instance serves every call; read from the nonisolated socket-worker
-    /// lane via `v2AwaitCallback`.
+    /// lane via `v2AwaitCallback`. Also injected into ``browserAutomation`` so the
+    /// cookie-store I/O blocks on the same primitive.
     private nonisolated static let browserEvalAwaiter = ControlBrowserEvalAwaiter()
-    /// The cookie source-of-truth for the `browser cookies.*` commands
-    /// (`WKHTTPCookieStore` reads/writes/deletes plus `HTTPCookie` ↔ wire-dict
-    /// mapping), extracted to `CmuxBrowser`. Stateless and `Sendable`; it blocks
-    /// the store callbacks on the same `browserEvalAwaiter` the JS-eval lane uses.
-    nonisolated let v2BrowserCookieRepository = BrowserCookieRepository(
-        awaiter: TerminalController.browserEvalAwaiter
+
+    /// The owner of all per-browser-surface automation state plus the stateless
+    /// substrate the `browser.*` commands read it through, extracted to
+    /// `CmuxBrowser` as a `@MainActor @Observable` store. It owns the per-surface
+    /// caches (element refs, frame selector, init scripts/styles, dialog queue,
+    /// download events, not-supported network log), the ``BrowserControlService``
+    /// script substrate, the ``BrowserCookieRepository`` cookie source of truth,
+    /// the captured-download observer, and the download/dialog/network state
+    /// bookkeeping. The app target keeps only the WebKit JS-eval core
+    /// (`v2RunJavaScript` / `v2RunBrowserJavaScript`), whose main hop propagates
+    /// the app-target socket-command focus-policy stack, and reads/mutates every
+    /// byte of automation state through this instance.
+    let browserAutomation = BrowserAutomationController(
+        cookies: BrowserCookieRepository(awaiter: TerminalController.browserEvalAwaiter)
     )
 
-    private var browserDownloadObserver: NSObjectProtocol?
+    /// The stateless browser-control logic, vended by ``browserAutomation``. A
+    /// thin forwarder so the many app-side eval-core call sites keep reading
+    /// `v2BrowserControl` while the value lives on the state owner.
+    nonisolated var v2BrowserControl: BrowserControlService { browserAutomation.control }
+
+    /// The per-surface automation caches, vended by ``browserAutomation``. A thin
+    /// forwarder so the `@MainActor` witnesses keep reading `v2BrowserSurfaceState`
+    /// while the state lives on the owner.
+    var v2BrowserSurfaceState: BrowserAutomationSurfaceState { browserAutomation.surfaceState }
+
+    /// The cookie source of truth, vended by ``browserAutomation``.
+    nonisolated var v2BrowserCookieRepository: BrowserCookieRepository { browserAutomation.cookies }
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
+        browserAutomation.cleanupSurfaces(surfaceIds)
         for surfaceId in Set(surfaceIds) {
-            v2BrowserSurfaceState.removeSurface(surfaceId)
-
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
     }
@@ -423,18 +436,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
             reading: TerminalControllerSidebarSimulateDragReading(owner: self)
         )
 #endif
-        browserDownloadObserver = NotificationCenter.default.addObserver(
-            forName: .browserDownloadEventDidArrive,
-            object: nil,
-            queue: .main
-        ) { [weak self] note in
-            guard let surfaceId = note.userInfo?["surfaceId"] as? UUID,
-                  let event = note.userInfo?["event"] as? [String: Any] else { return }
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.v2BrowserSurfaceState.appendDownloadEvent(event, surfaceId: surfaceId)
-            }
-        }
+        // The captured-download observer is registered by `browserAutomation`
+        // (CmuxBrowser), which owns the per-surface download backlog it appends to.
     }
     nonisolated func currentSocketPathForRemoteRestore() -> String? {
         socketServer.currentSocketPathForRemoteRestore()
@@ -3127,41 +3130,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case evaluationFailed(String)
     }
 
-    private nonisolated func v2BrowserSelector(_ params: [String: Any]) -> String? {
-        v2String(params, "selector")
-            ?? v2String(params, "sel")
-            ?? v2String(params, "element_ref")
-            ?? v2String(params, "ref")
-    }
-
-    private nonisolated func v2BrowserAllocateElementRef(surfaceId: UUID, selector: String) -> String {
-        v2MainSync {
-            v2BrowserSurfaceState.allocateElementRef(surfaceId: surfaceId, selector: selector)
-        }
-    }
-
-    private nonisolated func v2BrowserResolveSelector(_ rawSelector: String, surfaceId: UUID) -> String? {
-        let trimmed = rawSelector.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let refKey: String? = {
-            if trimmed.hasPrefix("@e") { return trimmed }
-            if trimmed.hasPrefix("e"), Int(trimmed.dropFirst()) != nil { return "@\(trimmed)" }
-            return nil
-        }()
-
-        if let refKey {
-            guard let selector = v2MainSync({
-                v2BrowserSurfaceState.elementRefSelector(refKey: refKey, surfaceId: surfaceId)
-            }) else { return nil }
-            return selector
-        }
-        return trimmed
-    }
-
-    private nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
-        v2MainSync { v2BrowserSurfaceState.frameSelector(surfaceId: surfaceId) }
-    }
+    // `v2BrowserSelector`, `v2BrowserAllocateElementRef`,
+    // `v2BrowserResolveSelector`, and `v2BrowserCurrentFrameSelector` moved to
+    // `BrowserAutomationController` (CmuxBrowser) as `selector(in:)`,
+    // `allocateElementRef(surfaceId:selector:)`, `resolveSelector(_:surfaceId:)`,
+    // and `currentFrameSelector(surfaceId:)` (pure per-surface state reads whose
+    // main hop performs no focus mutation, so the owner's plain main hop is
+    // behavior-faithful to the former `v2MainSync`). Call sites read
+    // `browserAutomation.<x>` directly.
 
     /// A WKWebView that has never committed a navigation has no JavaScript context, so the
     /// first evaluateJavaScript/callAsyncJavaScript call can hang for its full timeout. A
@@ -3239,7 +3215,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // worker lane.
         let asyncFunctionBody = v2BrowserControl.evalFunctionBody(
             script: script,
-            frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId),
+            frameSelector: browserAutomation.currentFrameSelector(surfaceId: surfaceId),
             useEval: useEval
         )
 
@@ -3304,47 +3280,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    nonisolated func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
-        v2MainSync {
-            v2BrowserSurfaceState.recordUnsupportedNetworkRequest(request, surfaceId: surfaceId)
-        }
-    }
-
-    /// The recorded not-supported network-request log for `surfaceId` (empty
-    /// when nothing recorded). Forwards to the per-surface automation state store
-    /// so the `ControlBrowserContext` conformance (a separate file) can serve
-    /// `browser.network.requests`.
-    func v2BrowserUnsupportedNetworkRequests(surfaceId: UUID) -> [[String: Any]] {
-        v2BrowserSurfaceState.unsupportedNetworkRequests(surfaceId: surfaceId)
-    }
-
-    private nonisolated func v2BrowserPendingDialogs(surfaceId: UUID) -> [[String: Any]] {
-        let dialogs = v2MainSync { v2BrowserSurfaceState.pendingDialogs(surfaceId: surfaceId) }
-        return dialogs.map { dialog in
-            [
-                "index": dialog.index,
-                "type": dialog.type,
-                "message": dialog.message,
-                "default_text": v2OrNull(dialog.defaultText)
-            ]
-        }
-    }
-
-    func enqueueBrowserDialog(
-        surfaceId: UUID,
-        type: String,
-        message: String,
-        defaultText: String?,
-        responder: @escaping (_ accept: Bool, _ text: String?) -> Void
-    ) {
-        v2BrowserSurfaceState.enqueueDialog(
-            surfaceId: surfaceId,
-            type: type,
-            message: message,
-            defaultText: defaultText,
-            responder: responder
-        )
-    }
+    // The not-supported-network-request record/read, the pending-dialog wire
+    // projection, the dialog enqueue, and the download pop/wait moved to
+    // `BrowserAutomationController` (CmuxBrowser); call sites read
+    // `browserAutomation.<x>` directly. These are pure per-surface state ops; the
+    // owner's main hop performs no focus mutation, so it is behavior-faithful to
+    // the former `v2MainSync`.
 
     // v2BrowserPopDialog and v2BrowserEnsureInitScriptsApplied were drained with
     // the browser addscript/dialog domain (CmuxControlSocket
@@ -3533,14 +3474,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
         actionName: String,
         scriptBuilder: (_ selectorLiteral: String) -> String
     ) -> V2CallResult {
-        guard let selectorRaw = v2BrowserSelector(params) else {
+        guard let selectorRaw = browserAutomation.selector(in: params) else {
             return .err(code: "invalid_params", message: "Missing selector", data: nil)
         }
 
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
             let browserPanel = ctx.browserPanel
-            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
+            guard let selector = browserAutomation.resolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             let script = scriptBuilder(v2JSONLiteral(selector))
@@ -3710,7 +3651,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                     let name = ((entry["name"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     let depth = max(0, (entry["depth"] as? Int) ?? ((entry["depth"] as? NSNumber)?.intValue ?? 0))
 
-                    let refToken = v2BrowserAllocateElementRef(surfaceId: surfaceId, selector: selector)
+                    let refToken = browserAutomation.allocateElementRef(surfaceId: surfaceId, selector: selector)
                     let shortRef = refToken.hasPrefix("@") ? String(refToken.dropFirst()) : refToken
 
                     var refInfo: [String: Any] = ["role": role]
@@ -3774,7 +3715,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     private nonisolated func v2BrowserWait(params: [String: Any]) -> V2CallResult {
         let timeoutMs = max(1, v2Int(params, "timeout_ms") ?? 5_000)
-        let selectorRaw = v2BrowserSelector(params)
+        let selectorRaw = browserAutomation.selector(in: params)
 
         // The condition expressions are built by CmuxBrowser's
         // ``BrowserControlService`` wait-script builders; only the byte-identical
@@ -3846,7 +3787,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
         let conditionScript: String
         if let selectorRaw {
-            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceIdOut) else {
+            guard let selector = browserAutomation.resolveSelector(selectorRaw, surfaceId: surfaceIdOut) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             conditionScript = v2BrowserControl.waitSelectorPresentScript(selector: selector)
@@ -3911,12 +3852,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 
     private nonisolated func v2BrowserGetCount(params: [String: Any]) -> V2CallResult {
-        guard let selectorRaw = v2BrowserSelector(params) else {
+        guard let selectorRaw = browserAutomation.selector(in: params) else {
             return .err(code: "invalid_params", message: "Missing selector", data: nil)
         }
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
+            guard let selector = browserAutomation.resolveSelector(selectorRaw, surfaceId: surfaceId) else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             let script = v2BrowserControl.getCountScript(selectorLiteral: v2JSONLiteral(selector))
@@ -4314,7 +4255,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         _ body: (_ ctx: V2BrowserPanelContext, _ selector: String) -> ControlBrowserFindResolution
     ) -> ControlBrowserFindResolution {
         v2ControlResolveOnPanel(params) { ctx in
-            guard let selector = v2BrowserResolveSelector(rawSelector, surfaceId: ctx.surfaceId) else {
+            guard let selector = browserAutomation.resolveSelector(rawSelector, surfaceId: ctx.surfaceId) else {
                 return .selectorReferenceNotFound(rawSelector: rawSelector)
             }
             return body(ctx, selector)
@@ -4331,7 +4272,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         text: ControlBrowserFindResultText,
         index: ControlBrowserFindResultIndex?
     ) -> ControlBrowserFindResolution {
-        let ref = v2BrowserAllocateElementRef(surfaceId: ctx.surfaceId, selector: selector)
+        let ref = browserAutomation.allocateElementRef(surfaceId: ctx.surfaceId, selector: selector)
         return .found(ControlBrowserFoundElement(
             workspaceID: ctx.workspaceId,
             workspaceRef: (v2Ref(kind: .workspace, uuid: ctx.workspaceId) as? String) ?? ctx.workspaceId.uuidString,
@@ -4467,12 +4408,12 @@ class TerminalController: MobileViewportSurfaceLimiting {
         dx: Int,
         dy: Int
     ) -> ControlBrowserInteractionResolution {
-        let selectorRaw = v2BrowserSelector(params)
+        let selectorRaw = browserAutomation.selector(in: params)
 
         var success: ControlBrowserPanelActionSuccess?
         let panelResult = v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-            let selector = selectorRaw.flatMap { v2BrowserResolveSelector($0, surfaceId: surfaceId) }
+            let selector = selectorRaw.flatMap { browserAutomation.resolveSelector($0, surfaceId: surfaceId) }
             if selectorRaw != nil && selector == nil {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw ?? ""])
             }
@@ -4593,7 +4534,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 guard let dict = value as? [String: Any],
                       let ok = dict["ok"] as? Bool,
                       ok else {
-                    let pending = v2BrowserPendingDialogs(surfaceId: surfaceId)
+                    let pending = browserAutomation.pendingDialogWireDicts(surfaceId: surfaceId)
                         .compactMap { JSONValue(foundationObject: $0) }
                     return .notFound(pending: pending)
                 }
@@ -4647,7 +4588,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case .success(let resolved):
             let surfaceId = resolved.surfaceId
             let browserPanel = resolved.browserPanel
-            guard let selector = v2BrowserResolveSelector(rawSelector, surfaceId: surfaceId) else {
+            guard let selector = browserAutomation.resolveSelector(rawSelector, surfaceId: surfaceId) else {
                 return .elementRefNotFound(rawSelector: rawSelector)
             }
             let script = v2BrowserControl.frameSelectProbeScript(selectorLiteral: v2JSONLiteral(selector))
@@ -4818,7 +4759,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             ])
         }
 
-        guard let downloadEvent = v2WaitForDownloadEvent(surfaceId: snapshot.surfaceId, timeout: timeout) else {
+        guard let downloadEvent = browserAutomation.waitForDownloadEvent(surfaceId: snapshot.surfaceId, timeout: timeout) else {
             return .err(
                 code: "timeout",
                 message: "No download event observed",
@@ -4918,59 +4859,11 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 surfaceId: surfaceId,
                 surfaceRef: v2Ref(kind: .surface, uuid: surfaceId),
                 queuedEvent: Self.v2WorkerString(params, "path") == nil
-                    ? v2PopBrowserDownloadEvent(surfaceId: surfaceId)
+                    ? browserAutomation.popDownloadEvent(surfaceId: surfaceId)
                     : nil,
                 error: nil
             )
         }
-    }
-
-    private func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
-        v2BrowserSurfaceState.popDownloadEvent(surfaceId: surfaceId)
-    }
-
-    private nonisolated func v2WaitForDownloadEvent(surfaceId: UUID, timeout: TimeInterval) -> [String: Any]? {
-        let lock = NSLock()
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var finished = false
-        nonisolated(unsafe) var event: [String: Any]?
-        var observer: NSObjectProtocol?
-
-        let finishOnce: ([String: Any]?) -> Void = { value in
-            lock.lock()
-            guard !finished else {
-                lock.unlock()
-                return
-            }
-            finished = true
-            event = value
-            lock.unlock()
-            semaphore.signal()
-        }
-
-        observer = NotificationCenter.default.addObserver(
-            forName: .browserDownloadEventDidArrive,
-            object: nil,
-            queue: nil
-        ) { note in
-            guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID,
-                  candidateSurfaceId == surfaceId,
-                  let event = note.userInfo?["event"] as? [String: Any] else {
-                return
-            }
-            finishOnce(event)
-        }
-
-        if let queued = v2MainSync({ v2PopBrowserDownloadEvent(surfaceId: surfaceId) }) {
-            finishOnce(queued)
-        }
-        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            finishOnce(nil)
-        }
-        if let observer {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        return event
     }
 
     /// `browser.import.dialog` witness (``ControlBrowserContext``): validates the
@@ -6408,9 +6301,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 
     deinit {
-        if let browserDownloadObserver {
-            NotificationCenter.default.removeObserver(browserDownloadObserver)
-        }
+        // The captured-download observer is owned and removed by
+        // `browserAutomation` (CmuxBrowser) in its own deinit.
+        //
         // No stop() here: the controller is an app-lifetime singleton, so
         // deinit never runs; listener teardown is applicationWillTerminate's
         // synchronous stop() on the main actor.
