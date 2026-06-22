@@ -119,7 +119,7 @@ struct CrashDiagnosticSessionPolicyTests {
     }
 
     @Test
-    func symlinkedCrashDirectoryIsClassifiedAsCrashDiagnosticStorage() throws {
+    func sessionSnapshotPruningDoesNotResolveSymlinkedCrashDirectories() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-crash-storage-symlink-\(UUID().uuidString)", isDirectory: true)
         let homeDirectory = root.appendingPathComponent("home", isDirectory: true)
@@ -132,7 +132,7 @@ struct CrashDiagnosticSessionPolicyTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        #expect(SessionPersistencePolicy.isCmuxCrashStoragePath(
+        #expect(!SessionPersistencePolicy.isCmuxCrashStoragePath(
             symlink.path,
             homeDirectory: homeDirectory,
             environment: [:]
@@ -148,11 +148,25 @@ struct CrashDiagnosticSessionPolicyTests {
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
         )
 
-        #expect(SessionPersistencePolicy.isCmuxCrashDiagnosticWindow(
+        #expect(!SessionPersistencePolicy.isCmuxCrashDiagnosticWindow(
             window,
             homeDirectory: homeDirectory,
             environment: [:]
         ))
+
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 10,
+            windows: [window]
+        )
+
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(
+            from: snapshot,
+            homeDirectory: homeDirectory,
+            environment: [:]
+        )
+        #expect(!pruned.removedAny)
+        #expect(pruned.snapshot?.windows.first?.tabManager.workspaces.first?.currentDirectory == symlink.path)
     }
 
     @Test

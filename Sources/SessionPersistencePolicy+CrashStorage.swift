@@ -265,16 +265,8 @@ extension SessionPersistencePolicy {
             return true
         }
 
-        let resolvedPath = URL(fileURLWithPath: candidatePath)
-            .resolvingSymlinksInPath()
-            .path(percentEncoded: false)
-        let matches = resolvedPath != candidatePath
-            && isPathComponents(
-                pathComponents(for: resolvedPath),
-                inAnyCrashDirectory: crashDirectoryComponents
-            )
-        pathCache[candidatePath] = matches
-        return matches
+        pathCache[candidatePath] = false
+        return false
     }
 
     private static func isPathComponents(
