@@ -12,10 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `edad0cfec`, which adds
-`ghostty_surface_read_screen_clipboard_text` so bounded visual-line copy-mode
-fallbacks over absolute screen rows use Ghostty's clipboard formatter options
-for trimming, wrapping, and codepoint mapping. The prior `46bd03a7d` head adds
+Current cmux pinned fork head: `e81fb65f`, which bounds
+`ghostty_surface_read_screen_clipboard_text` formatting with the caller's byte
+cap so bounded visual-line copy-mode fallbacks over absolute screen rows keep
+Ghostty's clipboard formatter options without unbounded codepoint-map expansion.
+The prior `edad0cfec` head adds that formatter API for trimming, wrapping, and
+codepoint mapping. The earlier `46bd03a7d` head adds
 `ghostty_surface_read_screen_text` for bounded copy-mode reads from absolute
 screen rows on top of Ghostty fork `main`. The earlier `05c3e2908` head adds
 the Darwin-only `ghostty_surface_set_renderer_realized` C API (a
@@ -31,7 +33,7 @@ the copy-mode read branches `issue-6170-surface-read-screen-text-main` and
 `issue-6170-screen-clipboard-text`, and
 https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
 archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-edad0cfecf2991d808aa22055dff1ad0cc3711a9-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-e81fb65f6351eda2cfbe049ab30c761dfe31d46c-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The prior head was refreshed from upstream `main` on May 1, 2026.
@@ -139,6 +141,7 @@ tend to conflict together during rebases.
   - `0b231db94` (Re-export cmux selection APIs removed from upstream)
   - `8d6ac6e07` (surface: add absolute screen row text read)
   - `edad0cfec` (surface: format screen row clipboard text)
+  - `e81fb65f` (surface: bound screen clipboard text formatting)
 - Files:
   - `include/ghostty.h`
   - `src/apprt/embedded.zig`
@@ -147,7 +150,7 @@ tend to conflict together during rebases.
   - Restores `ghostty_surface_select_cursor_cell` and `ghostty_surface_clear_selection`.
   - Keeps cmux keyboard copy mode working against the refreshed Ghostty base after upstream removed those exports.
   - Adds `ghostty_surface_read_screen_text`, which reads inclusive full-width absolute screen rows without mutating the active selection or routing through the embedded `ghostty_point_s` wrapper. cmux uses this for bounded visual-line copy-mode fallbacks that may include scrollback rows outside the visible viewport.
-  - Adds `ghostty_surface_read_screen_clipboard_text`, which applies Ghostty's plain clipboard formatter to those absolute screen-row selections so cmux's fallback copy path preserves Ghostty's trim, unwrap, and codepoint-map behavior.
+  - Adds `ghostty_surface_read_screen_clipboard_text`, which applies Ghostty's plain clipboard formatter to those absolute screen-row selections so cmux's fallback copy path preserves Ghostty's trim, unwrap, and codepoint-map behavior. The API takes a maximum byte count and formats into a fixed writer before returning an allocated result, so codepoint-map expansion cannot grow memory past the caller's cap.
 
 ### 7) macos-background-from-layer config flag
 

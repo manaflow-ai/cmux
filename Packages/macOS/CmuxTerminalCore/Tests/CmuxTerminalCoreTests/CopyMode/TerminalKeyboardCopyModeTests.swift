@@ -304,4 +304,46 @@ struct TerminalKeyboardCopyModeCursorPackageTests {
         #expect(cursor.move(.down, count: 1, rows: rows, columns: 8) == 1)
         #expect(cursor == TerminalKeyboardCopyModeCursor(row: rows - 1, column: 4))
     }
+
+    @Test func visualLineMovementKeepsOffscreenEndpointAbsolute() {
+        var selection = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: 10,
+            endpointScreenRow: 50
+        )
+
+        let move = selection.moveEndpoint(
+            .down,
+            count: 1,
+            currentColumn: 7,
+            viewportRows: 20,
+            viewportColumns: 80,
+            scrollOffset: 100,
+            totalRows: 200
+        )
+
+        #expect(selection.selectedRows == 10 ... 51)
+        #expect(move.cursor == TerminalKeyboardCopyModeCursor(row: 0, column: 7))
+        #expect(move.scrollDelta == 0)
+    }
+
+    @Test func visualLineMovementScrollsOnlyVisibleEndpointOverflow() {
+        var selection = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: 110,
+            endpointScreenRow: 119
+        )
+
+        let move = selection.moveEndpoint(
+            .down,
+            count: 1,
+            currentColumn: 4,
+            viewportRows: 20,
+            viewportColumns: 80,
+            scrollOffset: 100,
+            totalRows: 200
+        )
+
+        #expect(selection.selectedRows == 110 ... 120)
+        #expect(move.cursor == TerminalKeyboardCopyModeCursor(row: 19, column: 4))
+        #expect(move.scrollDelta == 1)
+    }
 }

@@ -3536,14 +3536,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModePendingViewportJumpFallbackLineDelta: Int?
     private var keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
     private var keyboardCopyModePendingViewportJumpVisualLineReselect = false
+    private var keyboardCopyModePendingViewportJumpVisualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
     private var keyboardCopyModeViewportJumpSyncExpirationTimer: Timer?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
     /// Separate from Ghostty's `has_selection` because non-visual copy mode keeps
     /// the cursor in AppKit overlay state until visual selection starts.
     private var keyboardCopyModeVisualActive = false
-    private var keyboardCopyModeVisualLineActive = false
-    private var keyboardCopyModeVisualLineAnchorScreenRow: UInt64?
-    private var keyboardCopyModeVisualLineEndpointScreenRow: UInt64?
+    private var keyboardCopyModeVisualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
+    private var keyboardCopyModeVisualLineActive: Bool {
+        keyboardCopyModeVisualLineSelection != nil
+    }
     private static let keyboardCopyModeVisualLineFallbackMaxBytes: UInt = 2 * 1024 * 1024
     private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
@@ -4239,9 +4241,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeVisualActive = false
-        keyboardCopyModeVisualLineActive = false
-        keyboardCopyModeVisualLineAnchorScreenRow = nil
-        keyboardCopyModeVisualLineEndpointScreenRow = nil
+        keyboardCopyModeVisualLineSelection = nil
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = false
         keyboardCopyModePendingViewportJumpScrollbarOffset = nil
@@ -4414,10 +4414,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
-    private func beginKeyboardCopyModeViewportJumpCursorSync(
-        fallbackLineDelta: Int? = nil,
-        visualLineReselect: Bool = false
-    ) {
+    private func beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: Int? = nil, visualLineReselect: Bool = false) {
         _ = flushPendingScrollbarIfAvailable()
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
@@ -4425,6 +4422,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         keyboardCopyModePendingViewportJumpFallbackLineDelta = keyboardCopyModeBoundedFallbackLineDelta(fallbackLineDelta)
         keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
         keyboardCopyModePendingViewportJumpVisualLineReselect = visualLineReselect
+        keyboardCopyModePendingViewportJumpVisualLineSelection = visualLineReselect ? keyboardCopyModeVisualLineSelection : nil
         scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration()
     }
 
@@ -4466,6 +4464,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 surface: surface,
                 usePendingScrollFallback: true
             )
+            keyboardCopyModePendingViewportJumpVisualLineSelection = keyboardCopyModeVisualLineSelection
             reselectKeyboardCopyModeVisualLineSelection(surface: surface)
             return
         }
@@ -4509,7 +4508,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard keyboardCopyModeActive, let surface else { return }
         let resolvedNewOffset = newScrollbar?.offset ?? scrollbar?.offset
         if keyboardCopyModePendingViewportJumpVisualLineReselect {
-            updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: surface)
+            if keyboardCopyModePendingViewportJumpVisualLineSelection == keyboardCopyModeVisualLineSelection {
+                updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: surface)
+            }
             reselectKeyboardCopyModeVisualLineSelection(surface: surface)
             return
         }
@@ -4651,153 +4652,82 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return ghostty_surface_has_selection(surface)
     }
 
-    private func keyboardCopyModeScreenRow(
-        forViewportRow viewportRow: Int,
-        metrics: KeyboardCopyModeGridMetrics,
-        scrollOffset overrideScrollOffset: UInt64? = nil
-    ) -> UInt64 {
-        let rowOffset = UInt64(max(0, min(viewportRow, metrics.rows - 1)))
-        let scrollOffset = overrideScrollOffset ?? scrollbar?.offset ?? 0
-        let unclampedRow = scrollOffset > UInt64.max - rowOffset
-            ? UInt64.max
-            : scrollOffset + rowOffset
-        guard let total = scrollbar?.total, total > 0 else { return unclampedRow }
-        return min(unclampedRow, total - 1)
-    }
-
-    private func keyboardCopyModeVisibleScreenRows(
-        metrics: KeyboardCopyModeGridMetrics
-    ) -> ClosedRange<UInt64> {
-        let scrollOffset = scrollbar?.offset ?? 0
-        let rowCount = UInt64(max(metrics.rows, 1))
-        let upperRow = scrollOffset > UInt64.max - (rowCount - 1)
-            ? UInt64.max
-            : scrollOffset + rowCount - 1
-        return scrollOffset ... upperRow
-    }
-
-    private func keyboardCopyModeViewportRow(
-        forScreenRow screenRow: UInt64,
-        metrics: KeyboardCopyModeGridMetrics
-    ) -> Int {
-        let scrollOffset = scrollbar?.offset ?? 0
-        guard screenRow > scrollOffset else { return 0 }
-        return min(metrics.rows - 1, Int(clamping: screenRow - scrollOffset))
-    }
-
     private func keyboardCopyModePendingVisualLineScrollOffset() -> UInt64? {
         guard keyboardCopyModePendingViewportJumpSync,
               keyboardCopyModePendingViewportJumpVisualLineReselect,
               let lineDelta = keyboardCopyModePendingViewportJumpFallbackLineDelta else { return nil }
-        let baseOffset = scrollbar?.offset ?? 0
-        let deltaMagnitude = UInt64(clamping: lineDelta.magnitude)
-        if lineDelta > 0 {
-            let unclampedOffset = baseOffset > UInt64.max - deltaMagnitude
-                ? UInt64.max
-                : baseOffset + deltaMagnitude
-            guard let total = scrollbar?.total, total > 0 else { return unclampedOffset }
-            return min(unclampedOffset, total - 1)
-        }
-        return baseOffset > deltaMagnitude ? baseOffset - deltaMagnitude : 0
+        return TerminalKeyboardCopyModeVisualLineSelection.pendingScrollOffset(
+            baseOffset: scrollbar?.offset ?? 0,
+            lineDelta: lineDelta,
+            totalRows: scrollbar?.total
+        )
     }
 
     private func keyboardCopyModeBoundaryFallbackLineDelta(
         _ direction: TerminalKeyboardCopyModeSelectionMove
     ) -> Int? {
         guard let scrollbar else { return nil }
-        let currentOffset = scrollbar.offset
-        let targetOffset: UInt64
-        switch direction {
-        case .home:
-            targetOffset = 0
-        case .end:
-            targetOffset = scrollbar.total > scrollbar.len ? scrollbar.total - scrollbar.len : 0
-        default:
-            return nil
-        }
-
-        if targetOffset >= currentOffset {
-            return Int(clamping: targetOffset - currentOffset)
-        }
-        return -Int(clamping: currentOffset - targetOffset)
-    }
-
-    // Visual-line mode keeps the full copy range in absolute screen rows; the
-    // live Ghostty selection is refreshed only for the visible intersection.
-    private func keyboardCopyModeVisualLineScreenRows(
-        surface: ghostty_surface_t,
-        usePendingScrollFallback: Bool = false
-    ) -> ClosedRange<UInt64>? {
-        guard keyboardCopyModeVisualLineActive,
-              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return nil }
-        let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
-            .clamped(rows: metrics.rows, columns: metrics.columns)
-        keyboardCopyModeCursor = cursor
-        let pendingScrollOffset = usePendingScrollFallback ? keyboardCopyModePendingVisualLineScrollOffset() : nil
-        let cursorScreenRow = keyboardCopyModeScreenRow(
-            forViewportRow: cursor.row,
-            metrics: metrics,
-            scrollOffset: pendingScrollOffset
+        return TerminalKeyboardCopyModeVisualLineSelection.boundaryFallbackLineDelta(
+            direction,
+            scrollOffset: scrollbar.offset,
+            totalRows: scrollbar.total,
+            visibleRows: scrollbar.len
         )
-        let anchorScreenRow = keyboardCopyModeVisualLineAnchorScreenRow ?? cursorScreenRow
-        let endpointScreenRow = keyboardCopyModeVisualLineEndpointScreenRow ?? cursorScreenRow
-        return min(anchorScreenRow, endpointScreenRow) ... max(anchorScreenRow, endpointScreenRow)
     }
 
-    private func updateKeyboardCopyModeVisualLineEndpointFromCursor(
-        surface: ghostty_surface_t,
-        usePendingScrollFallback: Bool = false
-    ) {
-        guard keyboardCopyModeVisualLineActive,
+    private func updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: ghostty_surface_t, usePendingScrollFallback: Bool = false) {
+        guard var selection = keyboardCopyModeVisualLineSelection,
               let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
         let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
             .clamped(rows: metrics.rows, columns: metrics.columns)
         keyboardCopyModeCursor = cursor
-        let pendingScrollOffset = usePendingScrollFallback ? keyboardCopyModePendingVisualLineScrollOffset() : nil
-        keyboardCopyModeVisualLineEndpointScreenRow = keyboardCopyModeScreenRow(
-            forViewportRow: cursor.row,
-            metrics: metrics,
-            scrollOffset: pendingScrollOffset
+        selection.updateEndpoint(
+            from: cursor,
+            viewportRows: metrics.rows,
+            scrollOffset: usePendingScrollFallback
+                ? keyboardCopyModePendingVisualLineScrollOffset() ?? scrollbar?.offset ?? 0
+                : scrollbar?.offset ?? 0,
+            totalRows: scrollbar?.total
         )
+        keyboardCopyModeVisualLineSelection = selection
     }
 
     private func selectKeyboardCopyModeVisibleVisualLineRange(
         surface: ghostty_surface_t,
         metrics: KeyboardCopyModeGridMetrics
     ) -> Bool {
-        guard let selectedRows = keyboardCopyModeVisualLineScreenRows(surface: surface) else { return false }
-        let visibleRows = keyboardCopyModeVisibleScreenRows(metrics: metrics)
-        let visibleStart = max(selectedRows.lowerBound, visibleRows.lowerBound)
-        let visibleEnd = min(selectedRows.upperBound, visibleRows.upperBound)
-        guard visibleStart <= visibleEnd else {
+        let scrollOffset = scrollbar?.offset ?? 0
+        guard let visibleSelection = keyboardCopyModeVisualLineSelection?.visibleIntersection(
+            scrollOffset: scrollOffset,
+            viewportRows: metrics.rows
+        ) else {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
             return true
         }
 
-        let startRow = Int(clamping: visibleStart - visibleRows.lowerBound)
-        let lineCount = Int(clamping: visibleEnd - visibleStart + 1)
+        let startRow = Int(clamping: visibleSelection.lowerBound - scrollOffset)
+        let lineCount = Int(clamping: visibleSelection.upperBound - visibleSelection.lowerBound + 1)
         return selectKeyboardCopyModeViewportLines(surface: surface, startRow: startRow, lineCount: lineCount)
     }
 
     private func readKeyboardCopyModeVisualLineSelection(surface: ghostty_surface_t) -> String? {
         _ = flushPendingScrollbarIfAvailable()
-        guard let selectedRows = keyboardCopyModeVisualLineScreenRows(
-            surface: surface,
-            usePendingScrollFallback: true
-        ),
+        guard let selectedRows = keyboardCopyModeVisualLineSelection?.selectedRows,
               let metrics = keyboardCopyModeGridMetrics(surface: surface),
-              metrics.columns > 0,
-              let lowerRow = UInt32(exactly: selectedRows.lowerBound),
-              let upperRow = UInt32(exactly: selectedRows.upperBound) else { return nil }
-        let selectedRowCount = selectedRows.upperBound - selectedRows.lowerBound + 1
-        let estimatedBytesPerRow = (UInt64(metrics.columns) * 4) + 1
-        let maxEstimatedRows = UInt64(Self.keyboardCopyModeVisualLineFallbackMaxBytes) / estimatedBytesPerRow
-        // This fallback runs on the AppKit copy path; keep the Ghostty read bounded.
-        guard maxEstimatedRows > 0,
-              selectedRowCount <= maxEstimatedRows else { return nil }
+              let readRows = TerminalKeyboardCopyModeVisualLineSelection.boundedReadRows(
+                selectedRows: selectedRows,
+                columns: metrics.columns,
+                maxBytes: Self.keyboardCopyModeVisualLineFallbackMaxBytes
+              ) else { return nil }
 
         var text = ghostty_text_s()
-        guard ghostty_surface_read_screen_clipboard_text(surface, lowerRow, upperRow, &text) else { return nil }
+        guard ghostty_surface_read_screen_clipboard_text(
+            surface,
+            readRows.lower,
+            readRows.upper,
+            Self.keyboardCopyModeVisualLineFallbackMaxBytes,
+            &text
+        ) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
         guard text.text_len <= Self.keyboardCopyModeVisualLineFallbackMaxBytes,
               let byteCount = Int(exactly: text.text_len) else { return nil }
@@ -4814,11 +4744,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         guard let metrics = keyboardCopyModeGridMetrics(surface: surface),
-              let selectedRows = keyboardCopyModeVisualLineScreenRows(surface: surface) else { return false }
-
-        let visibleRows = keyboardCopyModeVisibleScreenRows(metrics: metrics)
-        return selectedRows.lowerBound >= visibleRows.lowerBound
-            && selectedRows.upperBound <= visibleRows.upperBound
+              let selection = keyboardCopyModeVisualLineSelection else { return false }
+        return selection.fitsVisibleRows(scrollOffset: scrollbar?.offset ?? 0, viewportRows: metrics.rows)
     }
 
     private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t) -> Bool {
@@ -4887,52 +4814,50 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 lineCount: clampedCount
               ) else {
             keyboardCopyModeVisualActive = false
-            keyboardCopyModeVisualLineActive = false
-            keyboardCopyModeVisualLineAnchorScreenRow = nil
-            keyboardCopyModeVisualLineEndpointScreenRow = nil
+            keyboardCopyModeVisualLineSelection = nil
             syncKeyboardCopyModeCursorOverlay(surface: surface)
             return
         }
 
         keyboardCopyModeVisualActive = true
-        keyboardCopyModeVisualLineActive = true
         keyboardCopyModeCursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
             .clamped(rows: metrics.rows, columns: metrics.columns)
         if clampedCount > 1 {
             keyboardCopyModeCursor?.row = min(startRow + clampedCount - 1, metrics.rows - 1)
         }
-        keyboardCopyModeVisualLineAnchorScreenRow = keyboardCopyModeScreenRow(
-            forViewportRow: startRow,
-            metrics: metrics
-        )
-        keyboardCopyModeVisualLineEndpointScreenRow = keyboardCopyModeScreenRow(
-            forViewportRow: keyboardCopyModeCursor?.row ?? startRow,
-            metrics: metrics
+        keyboardCopyModeVisualLineSelection = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: TerminalKeyboardCopyModeVisualLineSelection.screenRow(
+                forViewportRow: startRow,
+                viewportRows: metrics.rows,
+                scrollOffset: scrollbar?.offset ?? 0,
+                totalRows: scrollbar?.total
+            ),
+            endpointScreenRow: TerminalKeyboardCopyModeVisualLineSelection.screenRow(
+                forViewportRow: keyboardCopyModeCursor?.row ?? startRow,
+                viewportRows: metrics.rows,
+                scrollOffset: scrollbar?.offset ?? 0,
+                totalRows: scrollbar?.total
+            )
         )
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
     private func reselectKeyboardCopyModeVisualLineSelection(surface: ghostty_surface_t) {
-        guard keyboardCopyModeVisualLineActive,
+        guard let selection = keyboardCopyModeVisualLineSelection,
               let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
         let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
             .clamped(rows: metrics.rows, columns: metrics.columns)
-        let endpointScreenRow = keyboardCopyModeVisualLineEndpointScreenRow ?? keyboardCopyModeScreenRow(
-            forViewportRow: cursor.row,
-            metrics: metrics
-        )
-        keyboardCopyModeVisualLineEndpointScreenRow = endpointScreenRow
-        keyboardCopyModeCursor = TerminalKeyboardCopyModeCursor(
-            row: keyboardCopyModeViewportRow(forScreenRow: endpointScreenRow, metrics: metrics),
-            column: cursor.column
+        keyboardCopyModeCursor = selection.endpointCursor(
+            column: cursor.column,
+            viewportRows: metrics.rows,
+            viewportColumns: metrics.columns,
+            scrollOffset: scrollbar?.offset ?? 0
         )
         if selectKeyboardCopyModeVisibleVisualLineRange(surface: surface, metrics: metrics) {
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         } else {
             keyboardCopyModeVisualActive = false
-            keyboardCopyModeVisualLineActive = false
-            keyboardCopyModeVisualLineAnchorScreenRow = nil
-            keyboardCopyModeVisualLineEndpointScreenRow = nil
+            keyboardCopyModeVisualLineSelection = nil
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         }
     }
@@ -4977,14 +4902,25 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         count: Int,
         surface: ghostty_surface_t
     ) {
-        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        guard var selection = keyboardCopyModeVisualLineSelection,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
         if direction == .home || direction == .end {
             adjustKeyboardCopyModeVisualLineSelectionToBoundary(direction, surface: surface)
             return
         }
-        var cursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
-        let scrollDelta = cursor.move(direction, count: count, rows: metrics.rows, columns: metrics.columns)
-        keyboardCopyModeCursor = cursor
+        let currentCursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        let move = selection.moveEndpoint(
+            direction,
+            count: count,
+            currentColumn: currentCursor.column,
+            viewportRows: metrics.rows,
+            viewportColumns: metrics.columns,
+            scrollOffset: scrollbar?.offset ?? 0,
+            totalRows: scrollbar?.total
+        )
+        keyboardCopyModeVisualLineSelection = selection
+        keyboardCopyModeCursor = move.cursor
+        let scrollDelta = move.scrollDelta
         if scrollDelta != 0 {
             beginKeyboardCopyModeViewportJumpCursorSync(
                 fallbackLineDelta: scrollDelta,
@@ -5002,7 +4938,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
 
-        updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: surface)
         reselectKeyboardCopyModeVisualLineSelection(surface: surface)
     }
 
@@ -5035,18 +4970,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .startSelection:
             if selectKeyboardCopyModeCursorCell(surface: surface) {
                 keyboardCopyModeVisualActive = true
-                keyboardCopyModeVisualLineActive = false
-                keyboardCopyModeVisualLineAnchorScreenRow = nil
-                keyboardCopyModeVisualLineEndpointScreenRow = nil
+                keyboardCopyModeVisualLineSelection = nil
                 syncKeyboardCopyModeCursorOverlay(surface: surface)
             }
         case .startLineSelection:
             startKeyboardCopyModeLineSelection(surface: surface, lineCount: count)
         case .clearSelection:
             keyboardCopyModeVisualActive = false
-            keyboardCopyModeVisualLineActive = false
-            keyboardCopyModeVisualLineAnchorScreenRow = nil
-            keyboardCopyModeVisualLineEndpointScreenRow = nil
+            keyboardCopyModeVisualLineSelection = nil
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case .copyAndExit:
@@ -5124,7 +5055,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = performBindingAction("scroll_to_bottom")
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case let .jumpToPrompt(delta):
-            beginKeyboardCopyModeViewportJumpCursorSync()
+            beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: keyboardCopyModeVisualLineActive)
             if performBindingAction("jump_to_prompt:\(delta * count)") {
                 resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
             } else {
@@ -5135,7 +5066,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            beginKeyboardCopyModeViewportJumpCursorSync()
+            beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: keyboardCopyModeVisualLineActive)
             if performBindingAction("navigate_search:next", repeatCount: count) {
                 resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
             } else {
@@ -5144,7 +5075,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
         case .searchPrevious:
-            beginKeyboardCopyModeViewportJumpCursorSync()
+            beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: keyboardCopyModeVisualLineActive)
             if performBindingAction("navigate_search:previous", repeatCount: count) {
                 resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
             } else {
