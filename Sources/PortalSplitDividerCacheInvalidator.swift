@@ -42,9 +42,9 @@ final class PortalSplitDividerCacheInvalidator {
                 MainActor.assumeIsolated { onChange() }
             }
         }
-        // Nested splits can be inserted under an existing container after cache
-        // warm-up. Watch that structural edge without subscribing to descendant
-        // frame/bounds churn.
+        // Nested splits can be inserted under known layout containers after cache
+        // warm-up. Keep this bounded to root/direct/split-related containers, not
+        // arbitrary descendants such as WebKit or terminal internals.
         observations.append(contentsOf: subviewObservedViews.map { view in
             view.observe(\.subviews, options: [.new]) { _, _ in
                 MainActor.assumeIsolated { onChange() }

@@ -119,6 +119,13 @@ struct PortalHitTestingPerformanceTests {
         splitView.setPosition(120, ofDividerAt: 0)
         splitView.adjustSubviews()
 
+        let unrelatedContainer = NSView(frame: contentView.bounds)
+        let unrelatedMiddle = NSView(frame: contentView.bounds)
+        let unrelatedLeaf = NSView(frame: contentView.bounds)
+        unrelatedMiddle.addSubview(unrelatedLeaf)
+        unrelatedContainer.addSubview(unrelatedMiddle)
+        contentView.addSubview(unrelatedContainer)
+
         let host = WindowTerminalHostView(frame: contentView.bounds)
         host.addSubview(CapturingView(frame: host.bounds))
         contentView.addSubview(host)
@@ -141,6 +148,12 @@ struct PortalHitTestingPerformanceTests {
         #expect(
             splitView.pointConversionCount == 0,
             "Repeated pointer moves should hit cached divider rectangles instead of converting through each split view."
+        )
+        unrelatedLeaf.addSubview(NSView(frame: NSRect(x: 0, y: 0, width: 1, height: 1)))
+        #expect(host.performHitTest(at: dividerPointInHost, currentEvent: event) == nil)
+        #expect(
+            splitView.rectConversionCount - initialRectConversionCount == 2,
+            "Unrelated deep subtree mutations should not rebuild the cached divider geometry."
         )
     }
 
