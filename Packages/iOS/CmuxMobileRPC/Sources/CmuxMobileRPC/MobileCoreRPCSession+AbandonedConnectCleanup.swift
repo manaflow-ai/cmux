@@ -98,7 +98,7 @@ private struct MobileRPCAbandonedConnectCleaner: Sendable {
         do {
             try await RPCTaskTimeout().value(closeTask, timeoutNanoseconds: timeoutNanoseconds)
         } catch {
-            closeTask.cancel()
+            _ = try? await closeTask.value
         }
     }
 
