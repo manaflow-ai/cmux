@@ -76,17 +76,6 @@ extension VerticalTabsSidebar {
         worktreePath: String,
         worktreeName: String
     ) async {
-        let idsToClose = Set(CmuxExtensionWorktreePrototype.workspaceIdsRooted(
-            inWorktreePath: worktreePath,
-            workspaces: tabManager.tabs.map {
-                (
-                    id: $0.id,
-                    candidateDirectories: $0.extensionWorktreeRemovalCandidateDirectories()
-                )
-            }
-        ))
-        let workspacesToClose = tabManager.tabs.filter { idsToClose.contains($0.id) }
-
         do {
             try await CmuxExtensionWorktreePrototype.removeWorktree(worktreePath: worktreePath, force: false)
         } catch {
@@ -117,6 +106,17 @@ extension VerticalTabsSidebar {
                 return
             }
         }
+
+        let idsToClose = Set(CmuxExtensionWorktreePrototype.workspaceIdsRooted(
+            inWorktreePath: worktreePath,
+            workspaces: tabManager.tabs.map {
+                (
+                    id: $0.id,
+                    candidateDirectories: $0.extensionWorktreeRemovalCandidateDirectories()
+                )
+            }
+        ))
+        let workspacesToClose = tabManager.tabs.filter { idsToClose.contains($0.id) }
 
         if CmuxExtensionWorktreePrototype.replacementWorkspaceNeeded(
             totalWorkspaceCount: tabManager.tabs.count,

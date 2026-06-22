@@ -63,8 +63,8 @@ struct CmuxExtensionWorktreeOpenTerminalArgs: Sendable, Equatable {
 ///
 /// The sidebar "+" creates worktrees at `<parentRepo>/.cmux/worktrees/<branch>`,
 /// so a git root that contains the `/.cmux/worktrees/` segment identifies a
-/// removable, cmux-managed worktree and yields both the worktree path and the
-/// parent repository it belongs to.
+/// removable, cmux-managed worktree. Nested git roots under that directory still
+/// resolve to the first-level managed worktree path and its parent repository.
 struct CmuxExtensionWorktreeIdentity: Sendable, Equatable {
     let worktreePath: String
     let parentRepoPath: String
@@ -160,8 +160,13 @@ enum CmuxExtensionWorktreePrototype {
         let parent = String(standardized[..<range.lowerBound])
         let remainder = standardized[range.upperBound...]
         // Require a non-empty parent repo and a non-empty worktree name segment.
-        guard !parent.isEmpty, !remainder.isEmpty else { return nil }
-        return CmuxExtensionWorktreeIdentity(worktreePath: standardized, parentRepoPath: parent)
+        guard !parent.isEmpty,
+              let worktreeName = remainder.split(separator: "/", maxSplits: 1).first,
+              !worktreeName.isEmpty else {
+            return nil
+        }
+        let worktreePath = parent + managedWorktreeContainerSegment + String(worktreeName)
+        return CmuxExtensionWorktreeIdentity(worktreePath: worktreePath, parentRepoPath: parent)
     }
 
     /// Pure selection of the workspace ids physically inside the given worktree
