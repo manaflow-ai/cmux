@@ -345,6 +345,50 @@ printf 'zip' > "$dest"
 EOF
 chmod +x "$ditto_bin"
 
+sleep_ditto="$TMP_DIR/sleep-ditto"
+sleep_ditto_pid="$TMP_DIR/sleep-ditto.pid"
+sleep_ditto_term="$TMP_DIR/sleep-ditto.term"
+cat > "$sleep_ditto" <<EOF
+#!/usr/bin/env bash
+echo "\$\$" > "$sleep_ditto_pid"
+trap 'echo term > "$sleep_ditto_term"; exit 143' TERM
+while true; do sleep 1; done
+EOF
+chmod +x "$sleep_ditto"
+CMUX_PROFILE_DITTO="$sleep_ditto" "$ROOT_DIR/Resources/bin/submit-cmux-profile" \
+  --profile "$timeout_out" \
+  --package-only &
+sleep_ditto_helper_pid="$!"
+for _ in $(seq 1 50); do
+  [ -s "$sleep_ditto_pid" ] && break
+  sleep 0.1
+done
+if [ ! -s "$sleep_ditto_pid" ]; then
+  echo "FAIL: fake ditto did not start" >&2
+  kill "$sleep_ditto_helper_pid" >/dev/null 2>&1 || true
+  wait "$sleep_ditto_helper_pid" >/dev/null 2>&1 || true
+  exit 1
+fi
+sleep_ditto_child_pid="$(cat "$sleep_ditto_pid")"
+kill "$sleep_ditto_helper_pid"
+set +e
+wait "$sleep_ditto_helper_pid"
+sleep_ditto_helper_status="$?"
+set -e
+for _ in $(seq 1 50); do
+  if ! kill -0 "$sleep_ditto_child_pid" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+if [ "$sleep_ditto_helper_status" -eq 0 ] ||
+   [ ! -f "$sleep_ditto_term" ] ||
+   kill -0 "$sleep_ditto_child_pid" >/dev/null 2>&1; then
+  echo "FAIL: terminating submit helper did not stop ditto child" >&2
+  kill "$sleep_ditto_child_pid" >/dev/null 2>&1 || true
+  exit 1
+fi
+
 package_output="$(CMUX_PROFILE_DITTO="$ditto_bin" "$ROOT_DIR/Resources/bin/submit-cmux-profile" --profile "$timeout_out" --package-only)"
 package_archive="$(printf '%s\n' "$package_output" | sed -n 's/^Archive: //p')"
 if [ ! -f "$package_archive" ] || [ "$(cat "$package_archive")" != "zip" ]; then

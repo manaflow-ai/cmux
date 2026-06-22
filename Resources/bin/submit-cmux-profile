@@ -48,6 +48,18 @@ terminate_children() {
 
 trap terminate_children TERM INT
 
+run_tracked_child() {
+  set +e
+  "$@" &
+  local child_pid="$!"
+  child_pids=("$child_pid")
+  wait "$child_pid"
+  local child_status="$?"
+  child_pids=()
+  set -e
+  return "$child_status"
+}
+
 redact_path() {
   local raw="$1"
   if [ -n "${HOME:-}" ] && [[ "$raw" == "$HOME"* ]]; then
@@ -205,7 +217,7 @@ fi
 
 mkdir -p "$archive_dir"
 rm -f "$archive_path"
-"$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
+run_tracked_child "$ditto_bin" -c -k --sequesterRsrc --keepParent "$profile_dir" "$archive_path"
 
 if [ "$package_only" = "true" ]; then
   printf 'Archive: %s\n' "$archive_path"
@@ -277,16 +289,7 @@ on run argv
 end run
 OSA
 
-set +e
-"$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body_file" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text_file" "$skip_dialog" "$send_message" 2>"$apple_error" &
-osascript_pid="$!"
-child_pids=("$osascript_pid")
-wait "$osascript_pid"
-osascript_status="$?"
-child_pids=()
-set -e
-
-if [ "$osascript_status" -eq 0 ]; then
+if run_tracked_child "$osascript_bin" "$apple_script" "$archive_path" "$recipient" "$subject" "$body_file" "$dialog_text" "$cancel_button" "$open_draft_button" "$dialog_title" "$note_text_file" "$skip_dialog" "$send_message" 2>"$apple_error"; then
   exit 0
 fi
 
