@@ -3991,7 +3991,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testDeferredRevealResetsRetryBudgetWhenHostReattaches() {
-        let (panel, inspector) = makePanelWithInspector(showFailuresAfterEligibility: 1)
+        let (panel, inspector) = makePanelWithInspector(showFailuresAfterEligibility: 2)
         defer { closeBrowserPanel(panel) }
         panel.navigate(to: URL(string: "https://example.com")!)
         panel.webView.removeFromSuperview()
