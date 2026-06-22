@@ -27,18 +27,13 @@ public struct SidebarTabDropIndicatorPredicate {
 
     /// Convenience used by `SidebarEmptyArea`: the empty area's "top" indicator
     /// (drawn above the empty space below all rows) is visible when the drop
-    /// indicator targets nothing (end-of-list) or the bottom edge of the last
-    /// row.
+    /// indicator targets nothing (end-of-list).
     public func emptyAreaTopVisible(
         draggedTabId: UUID?,
         dropIndicator: SidebarDropIndicator?,
         lastTabId: UUID?
     ) -> Bool {
         guard draggedTabId != nil, let indicator = dropIndicator else { return false }
-        if indicator.tabId == nil {
-            return true
-        }
-        guard indicator.edge == .bottom, let lastTabId else { return false }
-        return indicator.tabId == lastTabId
+        return indicator.tabId == nil
     }
 }

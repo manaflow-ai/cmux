@@ -216,9 +216,9 @@ final class SidebarTabDropIndicatorPredicateEmptyAreaTests: XCTestCase {
         )
     }
 
-    func testReturnsTrueWhenIndicatorTargetsLastRowBottomEdge() {
+    func testReturnsFalseWhenIndicatorTargetsLastRowBottomEdge() {
         let lastId = UUID()
-        XCTAssertTrue(
+        XCTAssertFalse(
             SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: lastId, edge: .bottom),
