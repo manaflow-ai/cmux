@@ -602,13 +602,14 @@ def cmux_codex_hook_command(subcommand: str) -> str:
 
 def cmux_codex_feed_command(agent_event: str) -> str:
     routed_arguments = f"hooks feed --source codex --event {agent_event}"
+    noop_command = "{ cat >/dev/null; echo '{}'; }" if agent_event == "PostToolUse" else "echo '{}'"
     return (
         'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
         'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
         '&& [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then { '
         f'if [ -n "${{CMUX_SOCKET_PATH:-}}" ]; then "$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_arguments}; '
         f'else "$cmux_cli" {routed_arguments}; fi; '
-        "} || echo '{}'; else echo '{}'; fi"
+        f"}} || {noop_command}; else {noop_command}; fi"
     )
 
 

@@ -33154,8 +33154,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard !chunk.isEmpty else { return data }
             data.append(chunk)
         }
-        guard data.count <= feedHookMaxStdinBytes else { return nil }
+        guard data.count <= feedHookMaxStdinBytes else {
+            drainFeedHookStdin(handle: handle)
+            return nil
+        }
         return data
+    }
+
+    private static func drainFeedHookStdin(
+        handle: FileHandle = .standardInput
+    ) {
+        while true {
+            let chunk = (try? handle.read(upToCount: 64 * 1024)) ?? Data()
+            guard !chunk.isEmpty else { return }
+        }
     }
 
     private static let feedPostToolUseScalarStringLimitBytes = 512
