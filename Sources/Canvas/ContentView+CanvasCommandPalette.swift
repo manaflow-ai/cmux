@@ -24,22 +24,17 @@ extension ContentView {
     ]
 
     static func commandPaletteCanvasCommandContributions() -> [CommandPaletteCommandContribution] {
-        let subtitle = String(localized: "command.canvas.subtitle", defaultValue: "Canvas")
-        return canvasPaletteCommands.map { command in
-            CommandPaletteCommandContribution(
-                commandId: command.id,
-                title: { _ in command.action.label },
-                subtitle: { _ in subtitle },
-                keywords: command.keywords,
-                when: { snapshot in
-                    guard snapshot.bool(CommandPaletteContextKeys.hasWorkspace) else { return false }
-                    // The mode toggle is always offered; everything else is
-                    // canvas-only.
-                    return command.action == .toggleCanvasLayout
-                        || snapshot.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
-                }
-            )
-        }
+        CommandPaletteCanvasContributionProvider().build(
+            commands: canvasPaletteCommands.map { command in
+                CommandPaletteCanvasContributionProvider.Command(
+                    commandId: command.id,
+                    title: command.action.label,
+                    keywords: command.keywords,
+                    alwaysAvailable: command.action == .toggleCanvasLayout
+                )
+            },
+            subtitle: String(localized: "command.canvas.subtitle", defaultValue: "Canvas")
+        )
     }
 
     func registerCanvasCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {

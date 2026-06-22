@@ -17,12 +17,16 @@ let package = Package(
         // CmuxFoundation backs the FocusGuards/ command-palette focus-stealing
         // NSResponder/NSView guards.
         .package(path: "../CmuxFoundation"),
+        // CmuxSidebar owns the pure RightSidebarMode data core that the
+        // right-sidebar contribution provider maps to palette command IDs.
+        .package(path: "../CmuxSidebar"),
     ],
     targets: [
         .target(
             name: "CmuxCommandPalette",
             dependencies: [
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
+                .product(name: "CmuxSidebar", package: "CmuxSidebar"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
