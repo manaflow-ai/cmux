@@ -61,12 +61,7 @@ final class AgentChatTranscriptService {
         }
     }
 
-    /// Seeds the session registry from the on-disk hook stores. Call once
-    /// at app startup.
-    ///
-    /// - Parameter adoptDetectedAgentSession: Composition-root callback that
-    ///   adopts a title-detected agent for the surface whose title changed,
-    ///   returning whether the surface was resolved and adoption was queued.
+    /// Seeds hook-store sessions and starts title-detected agent adoption.
     func start(adoptDetectedAgentSession: @escaping @MainActor (GhosttyTitleChange) -> Bool) {
         guard ghosttyTitleSubscription == nil else { return }
         titleAdoptionHandler = adoptDetectedAgentSession
@@ -401,6 +396,11 @@ final class AgentChatTranscriptService {
             return
         }
 
+        if record.transcriptPath == nil,
+           let provisionalPath = provisional.transcriptPath,
+           URL(fileURLWithPath: provisionalPath).deletingPathExtension().lastPathComponent == record.sessionID {
+            registry.update(sessionID: record.sessionID) { $0.transcriptPath = provisionalPath }
+        }
         clearTitleDetectionState(surfaceID: surfaceID, releaseTranscriptClaims: true)
         failedResolutions.remove(provisional.sessionID)
         if let tailer = tailers.removeValue(forKey: provisional.sessionID) {
