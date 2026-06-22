@@ -11,6 +11,7 @@ struct AgentHibernationPlannerInput: Sendable {
     let key: AgentHibernationPanelKey
     let hasRestorableAgent: Bool
     let isLive: Bool
+    let hasLiveProcess: Bool
     let isProtected: Bool
     let lifecycle: AgentHibernationLifecycleState
     let hasUnconfirmedTerminalInput: Bool
@@ -214,6 +215,7 @@ final class AgentHibernationController {
                 key: record.key,
                 hasRestorableAgent: true,
                 isLive: isLive,
+                hasLiveProcess: record.hasLiveProcess,
                 isProtected: record.isProtected,
                 lifecycle: record.lifecycle,
                 hasUnconfirmedTerminalInput: record.hasUnconfirmedTerminalInput,
