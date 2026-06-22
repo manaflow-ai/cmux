@@ -276,6 +276,7 @@ enum HostedInspectorDockSide {
 final class WindowBrowserHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
+        let splitBoundsInWindow: NSRect
         let isVertical: Bool
         let isInHostedContent: Bool
         weak var splitView: NSSplitView?
@@ -1258,7 +1259,8 @@ final class WindowBrowserHostView: NSView {
     private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion]) -> DividerHit? {
         let expansion: CGFloat = 5
         for region in regions {
-            if region.rectInWindow.insetBy(dx: -expansion, dy: -expansion).contains(windowPoint) {
+            if region.splitBoundsInWindow.contains(windowPoint),
+               region.rectInWindow.insetBy(dx: -expansion, dy: -expansion).contains(windowPoint) {
                 return DividerHit(
                     kind: region.isVertical ? .vertical : .horizontal,
                     isInHostedContent: region.isInHostedContent
@@ -1391,9 +1393,14 @@ final class WindowBrowserHostView: NSView {
         }
 
         let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-        guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { return nil }
+        let splitBoundsInWindow = splitView.convert(splitView.bounds, to: nil)
+        guard dividerRectInWindow.width > 0,
+              dividerRectInWindow.height > 0,
+              splitBoundsInWindow.width > 0,
+              splitBoundsInWindow.height > 0 else { return nil }
         return DividerRegion(
             rectInWindow: dividerRectInWindow,
+            splitBoundsInWindow: splitBoundsInWindow,
             isVertical: splitView.isVertical,
             isInHostedContent: splitView.isDescendant(of: hostView),
             splitView: splitView,
