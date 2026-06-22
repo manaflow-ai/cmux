@@ -3061,7 +3061,7 @@ final class Workspace: Identifiable, ObservableObject {
                 isAudioPlaying: browserPanel.isPlayingAudio,
                 isPinned: false
             ) {
-                surfaceIdToPanelId[tabId] = browserPanel.id
+                bindSurface(tabId, toPanelId: browserPanel.id)
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
@@ -3093,7 +3093,7 @@ final class Workspace: Identifiable, ObservableObject {
                 isDirty: false,
                 isPinned: false
             ) {
-                surfaceIdToPanelId[tabId] = terminalPanel.id
+                bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
             }
         }
@@ -3280,8 +3280,22 @@ final class Workspace: Identifiable, ObservableObject {
     /// Mapping from bonsplit TabID (surface id) to the owning panel id;
     /// stored in the pane-tree sub-model.
     var surfaceIdToPanelId: [TabID: UUID] {
-        get { paneTree.surfaceIdToPanelId }
-        set { paneTree.surfaceIdToPanelId = newValue }
+        paneTree.surfaceIdToPanelId
+    }
+
+    /// Registers a bonsplit surface as the active owner for a panel.
+    func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
+        paneTree.bindSurface(surfaceId, toPanelId: panelId)
+    }
+
+    /// Removes one bonsplit surface mapping.
+    func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
+        paneTree.removeSurfaceMapping(forSurfaceId: surfaceId)
+    }
+
+    /// Removes every bonsplit surface mapping for a closed panel.
+    func removeSurfaceMappings(forPanelId panelId: UUID) {
+        paneTree.removeSurfaceMappings(forPanelId: panelId)
     }
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
@@ -7015,7 +7029,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: newPanel.isDirty,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = newPanel.id
+        bindSurface(newTab.id, toPanelId: newPanel.id)
         let previousFocusedPanelId = focusedPanelId
 
         // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
@@ -7030,7 +7044,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -7270,7 +7284,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = newPanel.id
+        bindSurface(newTabId, toPanelId: newPanel.id)
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
 
         // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
@@ -7366,7 +7380,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             return nil
         }
-        surfaceIdToPanelId[newTabId] = newPanel.id
+        bindSurface(newTabId, toPanelId: newPanel.id)
         if focus {
             bonsplitController.focusPane(paneId)
         }
@@ -7534,7 +7548,7 @@ final class Workspace: Identifiable, ObservableObject {
         if wasPinned {
             pinnedPanelIds.insert(panelId)
         }
-        surfaceIdToPanelId[tabId] = panelId
+        bindSurface(tabId, toPanelId: panelId)
         seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
 
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
@@ -7655,7 +7669,7 @@ final class Workspace: Identifiable, ObservableObject {
             isAudioPlaying: browserPanel.isPlayingAudio,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = browserPanel.id
+        bindSurface(newTab.id, toPanelId: browserPanel.id)
         let previousFocusedPanelId = focusedPanelId
 
         // Create the split with the browser tab already present.
@@ -7663,7 +7677,7 @@ final class Workspace: Identifiable, ObservableObject {
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
             return nil
@@ -7769,7 +7783,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = browserPanel.id
+        bindSurface(newTabId, toPanelId: browserPanel.id)
         setPreferredBrowserProfileID(browserPanel.profileID)
 
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
@@ -7834,7 +7848,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = extensionBrowserPanel.id
+        bindSurface(newTabId, toPanelId: extensionBrowserPanel.id)
         publishCmuxSurfaceCreated(
             extensionBrowserPanel.id,
             paneId: paneId,
@@ -7918,13 +7932,13 @@ final class Workspace: Identifiable, ObservableObject {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+        bindSurface(newTab.id, toPanelId: markdownPanel.id)
         let previousFocusedPanelId = focusedPanelId
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
             return nil
@@ -7979,7 +7993,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = markdownPanel.id
+        bindSurface(newTabId, toPanelId: markdownPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8031,7 +8045,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = projectPanel.id
+        bindSurface(newTabId, toPanelId: projectPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8091,7 +8105,7 @@ final class Workspace: Identifiable, ObservableObject {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+        bindSurface(newTab.id, toPanelId: markdownPanel.id)
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
@@ -8103,7 +8117,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) != nil else {
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
 
@@ -8189,7 +8203,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = filePreviewPanel.id
+        bindSurface(newTabId, toPanelId: filePreviewPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8261,7 +8275,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = toolPanel.id
+        bindSurface(newTabId, toPanelId: toolPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8320,7 +8334,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = agentPanel.id
+        bindSurface(newTabId, toPanelId: agentPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8369,14 +8383,14 @@ final class Workspace: Identifiable, ObservableObject {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = filePreviewPanel.id
+        bindSurface(newTab.id, toPanelId: filePreviewPanel.id)
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: true)
@@ -9066,7 +9080,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = detached.panelId
+        bindSurface(newTabId, toPanelId: detached.panelId)
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
@@ -9803,7 +9817,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: newPanel.isDirty,
             isPinned: false
         ) {
-            surfaceIdToPanelId[newTabId] = newPanel.id
+            bindSurface(newTabId, toPanelId: newPanel.id)
         }
 
         return newPanel
@@ -10883,14 +10897,14 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: newPanel.isDirty,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = newPanel.id
+        bindSurface(newTab.id, toPanelId: newPanel.id)
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -12342,7 +12356,7 @@ extension Workspace: BonsplitDelegate {
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
                     seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
-                    surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
+                    bindSurface(replacementTab.id, toPanelId: replacementPanel.id)
 
                     bonsplitController.updateTab(
                         replacementTab.id,
@@ -12426,7 +12440,7 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        surfaceIdToPanelId[newTabId] = newPanel.id
+        bindSurface(newTabId, toPanelId: newPanel.id)
         normalizePinnedTabs(in: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG
