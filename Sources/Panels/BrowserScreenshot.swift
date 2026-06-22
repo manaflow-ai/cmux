@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import ObjectiveC
 import QuartzCore
 
@@ -226,7 +227,7 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
     private func drawDimensionsTooltip(for selection: NSRect) {
         let text = "\(Int(selection.width)) x \(Int(selection.height))"
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
+            .font: GlobalFontMagnification.monospacedDigitSystemFont(ofSize: 11, weight: .medium),
             .foregroundColor: NSColor.white,
         ]
         let attributed = NSAttributedString(string: text, attributes: attributes)

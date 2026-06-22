@@ -793,7 +793,8 @@
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
           "warnBeforeClosingTabXButton": "Mostrar una confirmación antes de cerrar una pestaña con el botón de cerrar pestaña.",
           "hideTabCloseButton": "Ocultar los botones de cerrar pestaña en la barra de pestañas del panel.",
-          "forkConversationDefaultDestination": "Destino predeterminado de la acción principal Fork Conversation en el menú contextual de la pestaña. El submenú sigue mostrando todos los destinos."
+          "forkConversationDefaultDestination": "Destino predeterminado de la acción principal Fork Conversation en el menú contextual de la pestaña. El submenú sigue mostrando todos los destinos.",
+          "globalFontMagnification": "Escala en este porcentaje las terminales, títulos de pestañas, barras laterales, ajustes, superposiciones y chrome de la app que pertenecen a cmux. Se excluye el contenido renderizado de las páginas del navegador."
         },
         "terminal": {
           "copyOnSelect": "Copia el texto seleccionado del terminal al portapapeles del sistema cuando se confirma la selección, incluidas las selecciones de palabras y líneas con doble y triple clic.",

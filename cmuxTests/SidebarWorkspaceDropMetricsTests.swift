@@ -275,7 +275,8 @@ import Testing
             branchLinesContainBranch: false,
             pullRequestRows: [],
             listeningPorts: [],
-            finderDirectoryPath: nil
+            finderDirectoryPath: nil,
+            mediaActivity: BrowserMediaActivity()
         )
     }
 }

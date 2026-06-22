@@ -793,7 +793,8 @@
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用分頁關閉按鈕關閉分頁前顯示確認。",
           "hideTabCloseButton": "在窗格分頁列中隱藏分頁關閉按鈕。",
-          "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。"
+          "forkConversationDefaultDestination": "分頁內容選單中主要 Fork Conversation 動作的預設目標。子選單仍會顯示所有目標。",
+          "globalFontMagnification": "依此百分比縮放 cmux 擁有的終端機、分頁標題、側邊欄、設定、覆蓋層和應用程式 chrome。不包含已算繪的瀏覽器頁面內容。"
         },
         "terminal": {
           "copyOnSelect": "確認選取後，將所選終端機文字複製到系統剪貼簿，包括透過按兩下和按三下選取的單字與整行。",

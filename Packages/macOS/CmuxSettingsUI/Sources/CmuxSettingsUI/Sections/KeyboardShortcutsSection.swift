@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -85,7 +86,7 @@ public struct KeyboardShortcutsSection: View {
             }
             .settingsSearchAnchors(["setting:keyboardShortcuts:shortcuts"])
             Text(String(localized: "settings.shortcuts.recordHint", defaultValue: "Click a shortcut value to record. Use X to unbind; it changes to restore after a clear."))
-                .font(.caption)
+                .cmuxFont(.caption)
                 .foregroundColor(.secondary)
                 .padding(.leading, 2)
                 .accessibilityIdentifier("ShortcutRecordingHint")
@@ -108,7 +109,7 @@ public struct KeyboardShortcutsSection: View {
                     String(localized: "settings.shortcuts.chords.docsButton", defaultValue: "Chord docs"),
                     destination: URL(string: "https://cmux.com/docs/keyboard-shortcuts#shortcut-chords")!
                 )
-                .font(.caption)
+                .cmuxFont(.caption)
                 .accessibilityIdentifier("SettingsKeyboardShortcutsChordDocsLink")
 
                 Button(String(localized: "settings.app.settingsFile.openButton", defaultValue: "Open cmux.json")) {
@@ -196,7 +197,7 @@ public struct KeyboardShortcutsSection: View {
                     Text(action.displayName)
                     if let subtitle {
                         Text(subtitle)
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -249,11 +250,11 @@ public struct KeyboardShortcutsSection: View {
             if let validationMessage {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.red)
 
                     Text(validationMessage)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
 
@@ -269,7 +270,7 @@ public struct KeyboardShortcutsSection: View {
                         conflictRejections.removeValue(forKey: action.rawValue)
                     }
                     .buttonStyle(.link)
-                    .font(.caption)
+                    .cmuxFont(.caption)
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 6)

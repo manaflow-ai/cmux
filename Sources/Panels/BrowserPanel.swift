@@ -1,6 +1,7 @@
 import Foundation
 import CmuxCore
 import CmuxBrowser
+import CmuxFoundation
 import CmuxSettings
 import Combine
 import CmuxAppKitSupportUI
@@ -9172,6 +9173,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 
@@ -10831,6 +10833,8 @@ final class BrowserDataImportCoordinator {
         private let backButton = NSButton(title: "", target: nil, action: nil)
         private let cancelButton = NSButton(title: "", target: nil, action: nil)
         private let primaryButton = NSButton(title: "", target: nil, action: nil)
+        private var staticFontActions: [() -> Void] = []
+        private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(
             browsers: [InstalledBrowserCandidate],
@@ -10856,6 +10860,9 @@ final class BrowserDataImportCoordinator {
             )
             super.init()
             setupUI()
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+                self?.handleGlobalFontMagnificationChanged()
+            }
             configureInitialState()
         }
 
@@ -11009,6 +11016,39 @@ final class BrowserDataImportCoordinator {
             updatePanelSize()
         }
 
+        private func registerStaticFont(_ label: NSTextField, size: CGFloat, weight: NSFont.Weight = .regular) {
+            let action: () -> Void = { [weak label] in
+                label?.font = GlobalFontMagnification.systemFont(ofSize: size, weight: weight)
+            }
+            staticFontActions.append(action)
+            action()
+        }
+
+        private func registerStaticControlFont(_ control: NSControl, size: CGFloat = NSFont.systemFontSize) {
+            let action: () -> Void = { [weak control] in
+                control?.font = GlobalFontMagnification.systemFont(ofSize: size)
+            }
+            staticFontActions.append(action)
+            action()
+        }
+
+        private func applyDynamicControlFont(_ control: NSControl, size: CGFloat = NSFont.systemFontSize) {
+            control.font = GlobalFontMagnification.systemFont(ofSize: size)
+        }
+
+        private func handleGlobalFontMagnificationChanged() {
+            staticFontActions.forEach { $0() }
+            switch step {
+            case .source:
+                break
+            case .sourceProfiles:
+                refreshSourceProfilesList()
+            case .dataTypes:
+                rebuildStep3DestinationUI()
+            }
+            updatePanelSize()
+        }
+
         private func setupUI() {
             panel.title = String(
                 localized: "browser.import.title",
@@ -11029,16 +11069,16 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Import Browser Data"
                 )
             )
-            titleLabel.font = NSFont.systemFont(ofSize: 22, weight: .semibold)
+            registerStaticFont(titleLabel, size: 22, weight: .semibold)
 
-            stepLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+            registerStaticFont(stepLabel, size: 13, weight: .semibold)
             stepLabel.textColor = .secondaryLabelColor
 
             setupSourceContainer()
             setupSourceProfilesContainer()
             setupDataTypesContainer()
 
-            validationLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+            registerStaticFont(validationLabel, size: 12, weight: .regular)
             validationLabel.textColor = .systemRed
             validationLabel.isHidden = true
             validationLabel.lineBreakMode = .byWordWrapping
@@ -11049,18 +11089,21 @@ final class BrowserDataImportCoordinator {
             backButton.action = #selector(handleBack)
             backButton.bezelStyle = .rounded
             backButton.title = String(localized: "browser.import.back", defaultValue: "Back")
+            registerStaticControlFont(backButton)
 
             cancelButton.target = self
             cancelButton.action = #selector(handleCancel)
             cancelButton.bezelStyle = .rounded
             cancelButton.title = String(localized: "common.cancel", defaultValue: "Cancel")
             cancelButton.keyEquivalent = "\u{1b}"
+            registerStaticControlFont(cancelButton)
 
             primaryButton.target = self
             primaryButton.action = #selector(handlePrimary)
             primaryButton.bezelStyle = .rounded
             primaryButton.title = String(localized: "browser.import.next", defaultValue: "Next")
             primaryButton.keyEquivalent = "\r"
+            registerStaticControlFont(primaryButton)
 
             let buttonSpacer = NSView(frame: .zero)
 
@@ -11121,9 +11164,11 @@ final class BrowserDataImportCoordinator {
             let sourceLabel = NSTextField(
                 labelWithString: String(localized: "browser.import.source", defaultValue: "Source")
             )
+            registerStaticFont(sourceLabel, size: NSFont.systemFontSize)
             sourceLabel.alignment = .right
             sourceLabel.frame.size.width = 64
 
+            registerStaticControlFont(sourcePopup)
             sourcePopup.setContentHuggingPriority(.defaultLow, for: .horizontal)
             sourcePopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -11136,7 +11181,7 @@ final class BrowserDataImportCoordinator {
             let detectedLabel = NSTextField(
                 wrappingLabelWithString: installedBrowserDetector.summaryText(for: browsers)
             )
-            detectedLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(detectedLabel, size: 11)
             detectedLabel.textColor = .secondaryLabelColor
             detectedLabel.maximumNumberOfLines = 2
             detectedLabel.preferredMaxLayoutWidth = 500
@@ -11155,14 +11200,14 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Source Profiles"
                 )
             )
-            sourceProfilesTitle.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+            registerStaticFont(sourceProfilesTitle, size: 12, weight: .semibold)
 
             sourceProfilesList.orientation = .vertical
             sourceProfilesList.spacing = 6
             sourceProfilesList.alignment = .leading
             sourceProfilesList.translatesAutoresizingMaskIntoConstraints = false
 
-            sourceProfilesEmptyLabel.font = NSFont.systemFont(ofSize: 12)
+            registerStaticFont(sourceProfilesEmptyLabel, size: 12)
             sourceProfilesEmptyLabel.textColor = .secondaryLabelColor
             sourceProfilesEmptyLabel.maximumNumberOfLines = 0
             sourceProfilesEmptyLabel.preferredMaxLayoutWidth = 500
@@ -11190,7 +11235,7 @@ final class BrowserDataImportCoordinator {
                 equalTo: sourceProfilesContainer.widthAnchor
             )
 
-            sourceProfilesHelpLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(sourceProfilesHelpLabel, size: 11)
             sourceProfilesHelpLabel.textColor = .secondaryLabelColor
             sourceProfilesHelpLabel.maximumNumberOfLines = 2
             sourceProfilesHelpLabel.lineBreakMode = .byWordWrapping
@@ -11237,6 +11282,9 @@ final class BrowserDataImportCoordinator {
             cookiesCheckbox.setAccessibilityIdentifier("BrowserImportCookiesCheckbox")
             historyCheckbox.setAccessibilityIdentifier("BrowserImportHistoryCheckbox")
             additionalDataCheckbox.setAccessibilityIdentifier("BrowserImportAdditionalDataCheckbox")
+            registerStaticControlFont(cookiesCheckbox)
+            registerStaticControlFont(historyCheckbox)
+            registerStaticControlFont(additionalDataCheckbox)
             separateProfilesRadio.title = String(
                 localized: "browser.import.destinationMode.separate",
                 defaultValue: "Keep profiles separate"
@@ -11249,6 +11297,8 @@ final class BrowserDataImportCoordinator {
             separateProfilesRadio.action = #selector(handleDestinationModeChanged(_:))
             mergeProfilesRadio.target = self
             mergeProfilesRadio.action = #selector(handleDestinationModeChanged(_:))
+            registerStaticControlFont(separateProfilesRadio)
+            registerStaticControlFont(mergeProfilesRadio)
 
             destinationModeContainer.orientation = .vertical
             destinationModeContainer.spacing = 6
@@ -11258,6 +11308,7 @@ final class BrowserDataImportCoordinator {
 
             mergeDestinationPopup.target = self
             mergeDestinationPopup.action = #selector(handleMergeDestinationChanged(_:))
+            registerStaticControlFont(mergeDestinationPopup)
             mergeDestinationPopup.setContentHuggingPriority(.defaultLow, for: .horizontal)
             mergeDestinationPopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -11269,7 +11320,7 @@ final class BrowserDataImportCoordinator {
             mergeDestinationRow.spacing = 6
             mergeDestinationRow.alignment = .centerY
 
-            destinationHelpLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(destinationHelpLabel, size: 11)
             destinationHelpLabel.textColor = .secondaryLabelColor
             destinationHelpLabel.maximumNumberOfLines = 2
             destinationHelpLabel.preferredMaxLayoutWidth = 500
@@ -11279,6 +11330,7 @@ final class BrowserDataImportCoordinator {
                 defaultValue: "Optional domains only (e.g. github.com, openai.com)"
             )
             domainField.stringValue = ""
+            registerStaticControlFont(domainField)
             domainField.setContentHuggingPriority(.defaultLow, for: .horizontal)
             domainField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -11288,11 +11340,12 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "cmux destination"
                 )
             )
-            destinationTitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+            registerStaticFont(destinationTitleLabel, size: 12, weight: .semibold)
 
             let domainLabel = NSTextField(
                 labelWithString: String(localized: "browser.import.domain", defaultValue: "Limit to")
             )
+            registerStaticFont(domainLabel, size: NSFont.systemFontSize)
             domainLabel.alignment = .right
             domainLabel.frame.size.width = 72
 
@@ -11306,7 +11359,7 @@ final class BrowserDataImportCoordinator {
                 localized: "browser.import.additionalData.note",
                 defaultValue: "Bookmarks, settings, and extensions import are not available yet."
             )
-            additionalDataNoteLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(additionalDataNoteLabel, size: 11)
             additionalDataNoteLabel.textColor = .secondaryLabelColor
             additionalDataNoteLabel.maximumNumberOfLines = 2
             additionalDataNoteLabel.preferredMaxLayoutWidth = 500
@@ -11414,6 +11467,7 @@ final class BrowserDataImportCoordinator {
                 checkbox.identifier = NSUserInterfaceItemIdentifier(profile.id)
                 checkbox.state = selectedIDs.contains(profile.id) ? .on : .off
                 checkbox.lineBreakMode = .byTruncatingTail
+                applyDynamicControlFont(checkbox)
                 sourceProfilesList.addArrangedSubview(checkbox)
                 sourceProfileCheckboxes.append(checkbox)
             }
@@ -11559,10 +11613,12 @@ final class BrowserDataImportCoordinator {
             for (index, entry) in plan.entries.enumerated() {
                 guard let sourceProfile = entry.sourceProfiles.first else { continue }
                 let sourceLabel = NSTextField(labelWithString: sourceProfile.displayName)
+                sourceLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
                 sourceLabel.alignment = .right
                 sourceLabel.frame.size.width = 110
 
                 let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+                applyDynamicControlFont(popup)
                 popup.target = self
                 popup.action = #selector(handleSeparateDestinationChanged(_:))
                 popup.tag = index
@@ -11618,6 +11674,7 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Import into"
                 )
             )
+            destinationLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
             destinationLabel.alignment = .right
             destinationLabel.frame.size.width = 110
 
@@ -11771,8 +11828,9 @@ final class BrowserDataImportCoordinator {
         content.addSubview(spinner)
 
         let titleLabel = NSTextField(labelWithString: message)
-        titleLabel.frame = NSRect(x: 52, y: 56, width: 340, height: 20)
-        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        let titleFont = GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+        titleLabel.font = titleFont
+        titleLabel.frame = NSRect(x: 52, y: 56, width: 340, height: ceil(titleFont.ascender - titleFont.descender + titleFont.leading) + 4)
         content.addSubview(titleLabel)
 
         let subtitleLabel = NSTextField(
@@ -11781,8 +11839,9 @@ final class BrowserDataImportCoordinator {
                 defaultValue: "This can take a few seconds for large profiles."
             )
         )
-        subtitleLabel.frame = NSRect(x: 52, y: 34, width: 340, height: 16)
-        subtitleLabel.font = NSFont.systemFont(ofSize: 11)
+        let subtitleFont = GlobalFontMagnification.systemFont(ofSize: 11)
+        subtitleLabel.font = subtitleFont
+        subtitleLabel.frame = NSRect(x: 52, y: 34, width: 340, height: ceil(subtitleFont.ascender - subtitleFont.descender + subtitleFont.leading) + 4)
         subtitleLabel.textColor = .secondaryLabelColor
         content.addSubview(subtitleLabel)
 

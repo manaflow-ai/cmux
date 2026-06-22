@@ -793,7 +793,8 @@
           "warnBeforeQuit": "Starsza zapasowa wartość logiczna dla potwierdzenia zamknięcia. W nowych konfiguracjach używaj app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Pokaż potwierdzenie przed zamknięciem karty przyciskiem zamykania karty.",
           "hideTabCloseButton": "Ukryj przyciski zamykania kart na pasku kart panelu.",
-          "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe."
+          "forkConversationDefaultDestination": "Domyślne miejsce docelowe głównej akcji Fork Conversation w menu kontekstowym karty. Podmenu nadal pokazuje wszystkie miejsca docelowe.",
+          "globalFontMagnification": "Skaluje o ten procent należące do cmux terminale, tytuły kart, paski boczne, ustawienia, nakładki i chrome aplikacji. Renderowana zawartość stron przeglądarki jest wyłączona."
         },
         "terminal": {
           "copyOnSelect": "Kopiuje zaznaczony tekst terminala do schowka systemowego po zatwierdzeniu zaznaczenia, w tym zaznaczenia słów i wierszy wykonane dwuklikiem lub potrójnym kliknięciem.",

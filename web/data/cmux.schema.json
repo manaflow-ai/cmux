@@ -333,6 +333,15 @@
           "default": true,
           "description": "When enabled, Cmd-clicking .md/.markdown/.mkd/.mdx files opens the rendered cmux markdown viewer panel (with live reload) instead of the generic file preview."
         },
+        "globalFontMagnification": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 200,
+          "multipleOf": 10,
+          "default": 100,
+          "descriptionKey": "schemaDescriptions.app.globalFontMagnification",
+          "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,
