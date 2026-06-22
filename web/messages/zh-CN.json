@@ -1261,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox（测试版）"
+      "textBox": "TextBox（测试版）",
+      "ios": "iOS 应用"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1414,6 +1415,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode：在 cmux 中运行 OpenCode 多 agent",
       "metaDescription": "oh-my-opencode（cmux omo）在 cmux 中运行带 oh-my-openagent 插件的 OpenCode CLI。将 Claude、GPT、Gemini 和 Grok 作为并行 agent 编排，每个都在独立的原生 cmux 分屏中。"
+    },
+    "ios": {
+      "metaTitle": "iOS 应用",
+      "metaDescription": "设置 cmux iOS 配套应用：TestFlight 访问权限、使用 Tailscale 或 WireGuard 自带网络、配对、通知，以及 cmux 存储哪些数据。",
+      "title": "iOS 应用",
+      "intro": "cmux iOS 应用是你 Mac 的配套应用。将 iPhone 或 iPad 与运行 cmux 的 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。",
+      "betaNote": "iOS 应用处于测试版阶段。它通过 TestFlight 以 cmux BETA 的形式发布。",
+      "accessTitle": "获取访问权限",
+      "accessDesc": "该应用通过 TestFlight 分发。<foundersLink>cmux Founders Edition</foundersLink> 包含抢先访问权限，以及其他早期功能。",
+      "prereqTitle": "前提条件",
+      "prereqIntro": "开始之前，你需要：",
+      "prereq1": "一台运行 cmux 并已登录的 Mac。",
+      "prereq2": "一台已从 TestFlight 安装 cmux BETA 应用的 iPhone 或 iPad。",
+      "prereq3": "从手机到 Mac 的网络路径（参见下方的自带网络）。",
+      "networkingTitle": "自带网络",
+      "networkingDesc": "cmux 不提供开箱即用的网络。终端流在你的手机和 Mac 之间直接传输，因此你的手机必须能够在网络上访问到你的 Mac。最简单的方式是使用私有覆盖网络。",
+      "tailscaleTitle": "Tailscale（推荐）",
+      "tailscaleDesc": "在你的 Mac 和手机上都安装 <link>Tailscale</link>，并登录到同一个 tailnet。这样你的手机就可以从任何地方通过 Mac 的 tailnet 地址访问它，无需端口转发。",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "如果你已经在运行 <link>WireGuard</link>，将你的 Mac 和手机置于同一网络，并使用 Mac 的 WireGuard 地址。",
+      "networkingNote": "无论你选择哪种方式，连接都归你所有。cmux 不会在你的设备之间代理或中继终端流量。",
+      "pairTitle": "配对与连接",
+      "pairStep1": "在 Mac 上，打开 cmux 中的 Mobile Connect 窗口。",
+      "pairStep2": "在你的手机上，打开 cmux BETA 应用并确认 Mobile Connect 中显示的配对。",
+      "pairStep3": "配对完成后，你的工作区和终端会通过你的网络出现在手机上。",
+      "pairNote": "配对是按设备进行的。新设备或重新安装的应用需要再次配对。",
+      "notificationsTitle": "通知",
+      "notificationsDesc": "你可以选择将终端通知转发到手机，这样需要关注的面板就会推送到你的设备。开启转发后，通知文本（标题和正文，取自终端输出）会通过 cmux 服务器发送到 Apple 的推送服务以进行投递。在通知设置中开启 Hide content，即可改为发送通用消息，并将终端文本保留在你的设备上。请参阅 <link>通知</link> 了解 cmux 如何触发它们。",
+      "dataTitle": "存储哪些数据",
+      "dataIntro": "cmux 的设计让你的终端只在你的设备之间流转。在 cmux 服务器上，我们只存储登录你的账户和连接你的设备所需的内容：",
+      "data1": "你登录时的账户（邮箱），用于在各设备间识别你。",
+      "data2": "你设备的推送令牌，用于投递转发的终端通知。",
+      "data3": "配对和设备元数据，用于将你的手机连接到你的 Mac。",
+      "dataNot": "你的交互式终端会话、其内容和击键，通过你自己的网络在手机和 Mac 之间直接传输，不会经由 cmux 服务器中继或存储在其上。唯一的例外是转发的通知文本，它会经过 cmux 和 Apple 的推送服务到达你的手机，除非你启用 Hide content（参见上方的通知）。",
+      "enterpriseTitle": "企业与自托管",
+      "enterpriseDesc": "如需自托管或气隙隔离部署，请联系 <link>founders@manaflow.com</link>。"
     }
   },
   "legal": {
