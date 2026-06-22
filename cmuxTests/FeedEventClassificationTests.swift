@@ -106,6 +106,8 @@ struct FeedEventClassificationTests {
         #expect(classify("copilot", "preToolUse", tool: "grep").actionable == false)
         #expect(classify("copilot", "preToolUse", tool: "glob").actionable == false)
         #expect(classify("copilot", "preToolUse", tool: "web_fetch").actionable == false)
+        #expect(classify("copilot", "preToolUse", tool: "ask_user").name == "PermissionRequest")
+        #expect(classify("copilot", "preToolUse", tool: "ask_user").actionable == true)
         #expect(classify("copilot", "preToolUse", tool: "AskUserQuestion").name == "PermissionRequest")
         #expect(classify("copilot", "preToolUse", tool: "AskUserQuestion").actionable == true)
         #expect(classify("copilot", "preToolUse", tool: "ExitPlanMode").name == "PermissionRequest")

@@ -121,7 +121,7 @@ struct FeedEventClassifier {
                 // Copilot's preToolUse fires for every tool. Gate only tools
                 // that need a decision, but keep Copilot on PermissionRequest
                 // so renderAgentDecision emits top-level permissionDecision.
-                if toolName == "ExitPlanMode" || toolName == "AskUserQuestion" ||
+                if toolName == "ExitPlanMode" || toolName == "AskUserQuestion" || toolName == "ask_user" ||
                     Self.isSideEffectingTool(toolName, source: source) {
                     return ("PermissionRequest", true)
                 }
