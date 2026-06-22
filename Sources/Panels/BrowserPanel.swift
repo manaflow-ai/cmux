@@ -3140,6 +3140,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private let usesTransparentBackground: Bool
     private let developerToolsDetachedOpenGracePeriod: TimeInterval = 0.35
     private var developerToolsDetachedOpenGraceDeadline: Date?
+    private var developerToolsRevealDeferredUntilWebViewAttached = false
     private var developerToolsTransitionTargetVisible: Bool?
     private var pendingDeveloperToolsTransitionTargetVisible: Bool?
     private var developerToolsTransitionSettleWorkItem: DispatchWorkItem?
@@ -6348,6 +6349,9 @@ extension BrowserPanel {
     private func setPreferredDeveloperToolsVisible(_ next: Bool) {
         guard preferredDeveloperToolsVisible != next else { return }
         preferredDeveloperToolsVisible = next
+        if !next {
+            developerToolsRevealDeferredUntilWebViewAttached = false
+        }
         DispatchQueue.main.async { [weak self] in
             self?.objectWillChange.send()
         }
@@ -6467,6 +6471,7 @@ extension BrowserPanel {
                 }
             }
             developerToolsLastKnownVisibleAt = Date()
+            developerToolsRevealDeferredUntilWebViewAttached = false
             refreshAttachedDeveloperToolsFrontend(reason: "detachedClose.redock.\(source)")
             cancelDeveloperToolsRestoreRetry()
 #if DEBUG
@@ -6561,6 +6566,7 @@ extension BrowserPanel {
 
     @discardableResult
     private func revealDeveloperTools(_ inspector: NSObject) -> Bool {
+        developerToolsRevealDeferredUntilWebViewAttached = false
         let isVisibleSelector = NSSelectorFromString("isVisible")
         if inspector.cmuxCallBool(selector: isVisibleSelector) ?? false {
             developerToolsDetachedOpenGraceDeadline = nil
@@ -6607,6 +6613,7 @@ extension BrowserPanel {
     }
 
     private func deferDeveloperToolsRevealUntilWebViewAttached(source: String, resetRetryAttempts: Bool = false) {
+        developerToolsRevealDeferredUntilWebViewAttached = true
         if resetRetryAttempts {
             developerToolsRestoreRetryAttempt = 0
         }
@@ -6686,6 +6693,7 @@ extension BrowserPanel {
             setPreferredDeveloperToolsVisible(targetVisible)
             if !targetVisible {
                 developerToolsDetachedOpenGraceDeadline = nil
+                developerToolsRevealDeferredUntilWebViewAttached = false
                 forceDeveloperToolsRefreshOnNextAttach = false
                 cancelDeveloperToolsRestoreRetry()
             }
@@ -6726,6 +6734,7 @@ extension BrowserPanel {
                 _ = revealDeveloperTools(inspector)
             } else {
                 developerToolsDetachedOpenGraceDeadline = nil
+                developerToolsRevealDeferredUntilWebViewAttached = false
             }
         } else {
             if visible {
@@ -6897,6 +6906,7 @@ extension BrowserPanel {
     private var hasActiveDeveloperToolsReattachReason: Bool {
         isDeveloperToolsVisible()
             || forceDeveloperToolsRefreshOnNextAttach
+            || developerToolsRevealDeferredUntilWebViewAttached
             || developerToolsRestoreRetryWorkItem != nil
     }
 
@@ -6975,6 +6985,7 @@ extension BrowserPanel {
             let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
             forceDeveloperToolsRefreshOnNextAttach = false
             developerToolsDetachedOpenGraceDeadline = nil
+            developerToolsRevealDeferredUntilWebViewAttached = false
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
             if shouldForceRefresh {
@@ -6995,7 +7006,9 @@ extension BrowserPanel {
         }
         let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
         forceDeveloperToolsRefreshOnNextAttach = false
-        if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
+        if preferredDeveloperToolsPresentation == .detached &&
+            !detachedOpenStillSettling &&
+            !developerToolsRevealDeferredUntilWebViewAttached {
             setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
             cancelDeveloperToolsRestoreRetry()
@@ -7074,6 +7087,7 @@ extension BrowserPanel {
         preferredDeveloperToolsVisible &&
             (
                 forceDeveloperToolsRefreshOnNextAttach ||
+                developerToolsRevealDeferredUntilWebViewAttached ||
                 developerToolsRestoreRetryWorkItem != nil ||
                 hasPendingDetachedDeveloperToolsWindowCloseResolution ||
                 webView.superview == nil ||
@@ -8076,9 +8090,10 @@ extension BrowserPanel {
         let attached = webView.superview == nil ? 0 : 1
         let inWindow = webView.window == nil ? 0 : 1
         let forceRefresh = forceDeveloperToolsRefreshOnNextAttach ? 1 : 0
+        let deferredReveal = developerToolsRevealDeferredUntilWebViewAttached ? 1 : 0
         let transitionTarget = developerToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
         let pendingTarget = pendingDeveloperToolsTransitionTargetVisible.map { $0 ? "1" : "0" } ?? "nil"
-        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) tx=\(transitionTarget) pending=\(pendingTarget)"
+        return "pref=\(preferred) vis=\(visible) inspector=\(inspector) attached=\(attached) inWindow=\(inWindow) restoreRetry=\(developerToolsRestoreRetryAttempt) forceRefresh=\(forceRefresh) deferredReveal=\(deferredReveal) tx=\(transitionTarget) pending=\(pendingTarget)"
     }
 
     func debugDeveloperToolsGeometrySummary() -> String {
