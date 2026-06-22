@@ -20,7 +20,7 @@ import Testing
         let rich = workspaceRowHeight(
             titleLineCount: 2,
             descriptionLineCount: 2,
-            hasSubtitle: true,
+            subtitleLineCount: 1,
             hasRemoteStatus: true,
             metadataEntryCount: 4,
             metadataEntryIsExpanded: true,
@@ -63,12 +63,20 @@ import Testing
         let withDescription = workspaceRowHeight(descriptionLineCount: 1)
         let withDescriptionAndSubtitle = workspaceRowHeight(
             descriptionLineCount: 1,
-            hasSubtitle: true
+            subtitleLineCount: 1
         )
 
         #expect(workspaceRowHeight() == 34)
         #expect(withDescription == 51)
-        #expect(withDescriptionAndSubtitle == 79)
+        #expect(withDescriptionAndSubtitle == 68)
+    }
+
+    @Test func workspaceRowDropTargetHeightTracksSubtitleLineCount() {
+        let oneLineSubtitle = workspaceRowHeight(subtitleLineCount: 1)
+        let twoLineSubtitle = workspaceRowHeight(subtitleLineCount: 2)
+
+        #expect(oneLineSubtitle == 49)
+        #expect(twoLineSubtitle == 62)
     }
 
     @Test func metadataBlockLineEstimationOnlyScansVisibleCollapsedBlock() {
@@ -173,7 +181,7 @@ import Testing
         fontScale: CGFloat = 1,
         titleLineCount: Int = 1,
         descriptionLineCount: Int = 0,
-        hasSubtitle: Bool = false,
+        subtitleLineCount: Int = 0,
         hasRemoteStatus: Bool = false,
         metadataEntryCount: Int = 0,
         metadataEntryIsExpanded: Bool = false,
@@ -189,7 +197,7 @@ import Testing
             fontScale: fontScale,
             titleLineCount: titleLineCount,
             descriptionLineCount: descriptionLineCount,
-            hasSubtitle: hasSubtitle,
+            subtitleLineCount: subtitleLineCount,
             hasRemoteStatus: hasRemoteStatus,
             metadataEntryCount: metadataEntryCount,
             metadataEntryIsExpanded: metadataEntryIsExpanded,

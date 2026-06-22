@@ -20,7 +20,7 @@ struct SidebarWorkspaceRowDropMetrics {
         fontScale: CGFloat,
         titleLineCount: Int,
         descriptionLineCount: Int,
-        hasSubtitle: Bool,
+        subtitleLineCount: Int,
         hasRemoteStatus: Bool,
         metadataEntryCount: Int,
         metadataEntryIsExpanded: Bool,
@@ -39,8 +39,8 @@ struct SidebarWorkspaceRowDropMetrics {
             height += (CGFloat(descriptionLineCount) * 13 + 2) * scale
             sectionCount += 1
         }
-        if hasSubtitle {
-            height += 24 * scale
+        if subtitleLineCount > 0 {
+            height += CGFloat(min(max(subtitleLineCount, 1), 2)) * 13 * scale
             sectionCount += 1
         }
         if hasRemoteStatus {
@@ -140,6 +140,21 @@ struct SidebarWorkspaceRowDropMetrics {
         )
     }
 
+    static func estimatedSubtitleLineCount(
+        _ subtitle: String?,
+        textWidth: CGFloat? = nil,
+        fontScale: CGFloat = 1
+    ) -> Int {
+        guard let subtitle else { return 0 }
+        return estimatedLineCount(
+            subtitle,
+            maxLines: 2,
+            textWidth: textWidth,
+            fontSize: 10 * max(fontScale, 0.5),
+            glyphWidthFactor: bodyGlyphWidthFactor
+        )
+    }
+
     private static func metadataEntriesHeight(
         entryCount: Int,
         isExpanded: Bool,
@@ -170,14 +185,7 @@ struct SidebarWorkspaceRowDropMetrics {
             maxDisplayedLines: maxMetadataBlockLines,
             maxDisplayedCharacters: maxMetadataBlockCharacters
         )
-        guard displayMarkdown.utf8.count <= maxMetadataBlockCharacters,
-              let rendered = try? AttributedString(
-                markdown: displayMarkdown,
-                options: .init(interpretedSyntax: .full)
-              ) else {
-            return displayMarkdown
-        }
-        return String(rendered.characters)
+        return markdownVisibleTextEstimate(displayMarkdown)
     }
 
     private static func boundedDisplayString(
@@ -210,6 +218,53 @@ struct SidebarWorkspaceRowDropMetrics {
         guard truncated else { return text }
         let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "..." : trimmed + "..."
+    }
+
+    private static func markdownVisibleTextEstimate(_ markdown: String) -> String {
+        var result = ""
+        result.reserveCapacity(markdown.count)
+        var index = markdown.startIndex
+
+        while index < markdown.endIndex {
+            if markdown[index] == "!",
+               let next = markdown.index(index, offsetBy: 1, limitedBy: markdown.endIndex),
+               next < markdown.endIndex,
+               markdown[next] == "[",
+               let link = markdownLinkText(in: markdown, labelStart: markdown.index(after: next)) {
+                result += link.label
+                index = link.end
+                continue
+            }
+
+            if markdown[index] == "[",
+               let link = markdownLinkText(in: markdown, labelStart: markdown.index(after: index)) {
+                result += link.label
+                index = link.end
+                continue
+            }
+
+            result.append(markdown[index])
+            index = markdown.index(after: index)
+        }
+
+        return result
+    }
+
+    private static func markdownLinkText(
+        in markdown: String,
+        labelStart: String.Index
+    ) -> (label: String, end: String.Index)? {
+        guard let labelEnd = markdown[labelStart...].firstIndex(of: "]") else {
+            return nil
+        }
+        let destinationStart = markdown.index(after: labelEnd)
+        guard destinationStart < markdown.endIndex,
+              markdown[destinationStart] == "(",
+              let destinationEnd = markdown[destinationStart...].firstIndex(of: ")") else {
+            return nil
+        }
+        let end = markdown.index(after: destinationEnd)
+        return (String(markdown[labelStart..<labelEnd]), end)
     }
 
     static func rowContentWidth(sidebarWidth: CGFloat) -> CGFloat {
@@ -362,7 +417,11 @@ struct SidebarWorkspaceRowDropMetrics {
                 textWidth: bodyTextWidth,
                 fontScale: scale
             ),
-            hasSubtitle: effectiveSubtitle != nil,
+            subtitleLineCount: estimatedSubtitleLineCount(
+                effectiveSubtitle,
+                textWidth: bodyTextWidth,
+                fontScale: scale
+            ),
             hasRemoteStatus: !settings.hidesAllDetails && settings.showsSSH && snapshot.remoteWorkspaceSidebarText != nil,
             metadataEntryCount: metadataEntryCount,
             metadataEntryIsExpanded: metadataEntryIsExpanded,
