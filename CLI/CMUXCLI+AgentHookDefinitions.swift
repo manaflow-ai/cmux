@@ -383,6 +383,9 @@ extension CMUXCLI {
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
         let command = "cmux hooks feed --source \(def.name) --event \(agentEvent)"
+        if def.name == "copilot", agentEvent == "preToolUse" {
+            return copilotPreToolUseAgentHookShellCommand(command, for: def)
+        }
         switch def.format {
         case .kiroAgentJSON:
             return exitTwoPropagatingAgentHookShellCommand(
@@ -401,6 +404,28 @@ extension CMUXCLI {
         if usesPinnedHookDispatch(def) { return pinnedAgentHookShellCommand(command, for: def) }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
+    }
+
+    private static func copilotPreToolUseAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+        let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
+        let denyOutput = shellSingleQuote(copilotPreToolUseDenyHookOutput())
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -z \"$CMUX_SURFACE_ID\" ] || [ \"$\(def.disableEnvVar)\" = \"1\" ]; then echo '{}'; elif [ -z \"$cmux_cli\" ]; then echo \(denyOutput); else { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo \(denyOutput); fi"
+    }
+
+    private static func copilotPreToolUseDenyHookOutput() -> String {
+        let reason = String(
+            localized: "cli.hooks.feed.permissionDeniedReason",
+            defaultValue: "User denied permission via cmux Feed."
+        )
+        let payload = [
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let output = String(data: data, encoding: .utf8) else {
+            return #"{"permissionDecision":"deny","permissionDecisionReason":"User denied permission via cmux Feed."}"#
+        }
+        return output
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {

@@ -120,8 +120,8 @@ struct CLICopilotHookFeedTests {
             !preservedPreToolUse.contains { ($0["bash"] as? String)?.contains("--telemetry-only") == true },
             "Expected stale cmux telemetry-only preToolUse hook to be removed, saw \(preservedPreToolUse)"
         )
-        #expect(
-            preservedPreToolUse.contains {
+        let cmuxPreToolUseEntry = try #require(
+            preservedPreToolUse.first {
                 ($0["bash"] as? String)?.contains("hooks feed --source copilot --event preToolUse") == true
                     && ($0["bash"] as? String)?.contains("--telemetry-only") == false
                     && ($0["type"] as? String) == "command"
@@ -131,6 +131,26 @@ struct CLICopilotHookFeedTests {
             },
             "Expected direct preToolUse Feed hook with timeout slack, saw \(preservedPreToolUse)"
         )
+        let cmuxPreToolUseCommand = try #require(cmuxPreToolUseEntry["bash"] as? String)
+        let unavailableCmuxRun = Self.runProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", cmuxPreToolUseCommand],
+            environment: [
+                "HOME": root.path,
+                "PATH": root.path,
+                "CMUX_BUNDLED_CLI_PATH": root.appendingPathComponent("missing-cmux").path,
+                "CMUX_SURFACE_ID": "surface:copilot-feed",
+                "CMUX_COPILOT_HOOKS_DISABLED": "0",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: #"{"sessionId":"copilot-session-123","toolName":"bash","toolArgs":{"command":"touch README.md"}}"#,
+            timeout: 5
+        )
+        #expect(!unavailableCmuxRun.timedOut, Comment(rawValue: unavailableCmuxRun.stderr))
+        #expect(unavailableCmuxRun.status == 0, Comment(rawValue: unavailableCmuxRun.stderr))
+        let unavailableCmuxOutput = try #require(Self.jsonObject(unavailableCmuxRun.stdout))
+        #expect(unavailableCmuxOutput["permissionDecision"] as? String == "deny")
+        #expect(unavailableCmuxOutput["permissionDecisionReason"] as? String == "User denied permission via cmux Feed.")
         let errorOccurred = try #require(hooks["errorOccurred"] as? [[String: Any]])
         #expect(
             errorOccurred.contains {
