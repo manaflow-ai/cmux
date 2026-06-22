@@ -223,11 +223,41 @@ import Testing
         let connection = RemoteTmuxControlConnection(
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
         )
+        connection.handleMessageForTesting(.sessionChanged(sessionId: 7, name: "old"))
 
         connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "dev"))
 
         #expect(connection.sessionName == "dev")
         #expect(connection.sessionId == 7)
+    }
+
+    @Test @MainActor func sessionRenamedIgnoresDifferentSessionId() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
+        )
+        connection.handleMessageForTesting(.sessionChanged(sessionId: 7, name: "old"))
+        var observed: (old: String, new: String)?
+        let token = connection.addObserver(onSessionChanged: { old, new in
+            observed = (old, new)
+        })
+        defer { connection.removeObserver(token) }
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 8, name: "other"))
+
+        #expect(connection.sessionName == "old")
+        #expect(connection.sessionId == 7)
+        #expect(observed == nil)
+    }
+
+    @Test @MainActor func sessionRenamedIgnoresIdBearingRenameUntilSessionIdIsKnown() {
+        let connection = RemoteTmuxControlConnection(
+            host: RemoteTmuxHost(destination: "user@host"), sessionName: "old"
+        )
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: 7, name: "dev"))
+
+        #expect(connection.sessionName == "old")
+        #expect(connection.sessionId == nil)
     }
 
     @Test @MainActor func attachBlockDrainQueuesInitialWindowRequest() {

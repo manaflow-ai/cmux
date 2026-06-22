@@ -1152,6 +1152,7 @@ final class RemoteTmuxControlConnection {
             // the name-change observers that re-key controller state and re-title
             // the mirror workspace), but a rename does NOT change the window set,
             // so skip the topology re-fetch.
+            guard shouldApplySessionRenamed(sessionId: id) else { return }
             applySessionNameChange(sessionId: id, name: name, event: "session-renamed", refetchWindows: false)
         case .sessionsChanged:
             record("sessions-changed")
@@ -1222,8 +1223,8 @@ final class RemoteTmuxControlConnection {
     }
 
     /// Shared handling for `%session-changed` and `%session-renamed`: validate the
-    /// name, update the tracked `sessionName` (and `sessionId` when the protocol
-    /// supplies one), then emit the name-change observers (which re-key controller
+    /// name, update the tracked `sessionName` (and `sessionId` for session
+    /// switches), then emit the name-change observers (which re-key controller
     /// state and re-title the mirror workspace). `sessionName` is reused for
     /// attach/reconnect, so a stale value would make the next reconnect target the
     /// wrong session and wrongly declare it gone.
@@ -1247,6 +1248,15 @@ final class RemoteTmuxControlConnection {
         record("\(event)\(idSuffix)")
         observers.emitSessionChanged(oldName: oldName, newName: safeName)
         if refetchWindows { requestWindows() }
+    }
+
+    private func shouldApplySessionRenamed(sessionId renamedSessionId: Int?) -> Bool {
+        guard let renamedSessionId else { return true }
+        guard let currentSessionId = sessionId, currentSessionId == renamedSessionId else {
+            record("session-renamed-ignored $\(renamedSessionId)")
+            return false
+        }
+        return true
     }
 
     private func handleCommandResult(lines: [String], isError: Bool) {
