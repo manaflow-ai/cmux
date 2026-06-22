@@ -1004,12 +1004,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
-    private struct PendingConfiguredShortcutChord {
-        let firstStroke: ShortcutStroke
-        let windowNumber: Int?
+    /// Owns the configured-shortcut chord (two-stroke) state machine. The
+    /// per-keystroke dispatch (`handleCustomShortcut` et al.) stays app-side and
+    /// reaches the chord state through this one held reference, so the hot path
+    /// takes a single property access rather than any new allocation.
+    let shortcutChordCoordinator = ShortcutChordCoordinator<ShortcutStroke>()
+    /// The chord prefix live for the event currently being dispatched.
+    /// Forwards to ``shortcutChordCoordinator`` so every legacy call site reads
+    /// and writes the same state, now owned by the coordinator.
+    var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke? {
+        get { shortcutChordCoordinator.activePrefixForCurrentEvent }
+        set { shortcutChordCoordinator.activePrefixForCurrentEvent = newValue }
     }
-    private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
-    var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
@@ -8514,8 +8520,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func clearConfiguredShortcutChordState() {
-        pendingConfiguredShortcutChord = nil
-        activeConfiguredShortcutChordPrefixForCurrentEvent = nil
+        shortcutChordCoordinator.clear()
     }
 
     /// Coalesce shortcut-default changes and refresh on the next runloop turn to
@@ -8803,13 +8808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let controlDChar = chars == "d" || event.characters == "\u{04}"
         let isControlD = isControlOnly && (controlDChar || event.keyCode == 2)
         let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
-        if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
-        } else {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
-        }
-        pendingConfiguredShortcutChord = nil
+        shortcutChordCoordinator.prepareForEvent(windowNumber: configuredShortcutEventWindowNumber)
         defer { activeConfiguredShortcutChordPrefixForCurrentEvent = nil; clearShortcutEventFocusContextCache(for: event) }
 #if DEBUG
         if isControlD {
@@ -10952,13 +10951,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         let configuredShortcutEventWindowNumber = configuredShortcutChordWindowNumber(for: event)
-        if let pendingConfiguredShortcutChord,
-           pendingConfiguredShortcutChord.windowNumber == configuredShortcutEventWindowNumber {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = pendingConfiguredShortcutChord.firstStroke
-        } else {
-            activeConfiguredShortcutChordPrefixForCurrentEvent = nil
-        }
-        pendingConfiguredShortcutChord = nil
+        shortcutChordCoordinator.prepareForEvent(windowNumber: configuredShortcutEventWindowNumber)
         defer {
             activeConfiguredShortcutChordPrefixForCurrentEvent = nil
             clearShortcutEventFocusContextCache(for: event)
@@ -11088,22 +11081,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         actions: [KeyboardShortcutSettings.Action],
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
-        var seen = Set<StoredShortcut>()
         let configuredShortcuts = actions.map {
             KeyboardShortcutSettings.shortcut(for: $0)
         } + shortcuts
-        for shortcut in configuredShortcuts {
-            guard seen.insert(shortcut).inserted else { continue }
-            guard shortcut.hasChord else { continue }
-            if matchShortcutStroke(event: event, stroke: shortcut.firstStroke) {
-                pendingConfiguredShortcutChord = PendingConfiguredShortcutChord(
-                    firstStroke: shortcut.firstStroke,
-                    windowNumber: configuredShortcutChordWindowNumber(for: event)
-                )
-                return true
-            }
-        }
-        return false
+        return shortcutChordCoordinator.armIfNeeded(
+            candidates: configuredShortcuts,
+            windowNumber: configuredShortcutChordWindowNumber(for: event),
+            isChord: { $0.hasChord },
+            firstStroke: { $0.firstStroke },
+            firstStrokeMatches: { matchShortcutStroke(event: event, stroke: $0) }
+        )
     }
 
     func configuredCmuxShortcutActions(
