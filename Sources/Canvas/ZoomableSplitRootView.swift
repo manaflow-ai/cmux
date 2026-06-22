@@ -431,6 +431,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     }
 
     private func pointerHitTargetsDocumentContent(_ event: NSEvent, in window: NSWindow) -> Bool {
+        guard !Self.containsPaneTabBar(atWindowPoint: event.locationInWindow, in: window) else { return false }
         guard !Self.containsSplitDivider(
             atWindowPoint: event.locationInWindow,
             in: documentView

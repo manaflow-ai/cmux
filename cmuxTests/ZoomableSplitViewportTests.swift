@@ -149,6 +149,44 @@ struct ZoomableSplitViewportTests {
         ))
     }
 
+    @Test func paneTabBarHitIsDetectedForPointerFocusOptOut() throws {
+        let controller = BonsplitController()
+        _ = controller.createTab(title: "Base")
+
+        let hostingView = NSHostingView(
+            rootView: BonsplitView(controller: controller) { _, _ in
+                Color.clear
+            } emptyPane: { _ in
+                Color.clear
+            }
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        let contentView = try #require(window.contentView)
+        hostingView.frame = contentView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostingView)
+
+        window.makeKeyAndOrderFront(nil)
+        contentView.layoutSubtreeIfNeeded()
+        hostingView.layoutSubtreeIfNeeded()
+
+        let tabBarPoint = contentView.convert(
+            NSPoint(x: contentView.bounds.midX, y: contentView.bounds.maxY - 16),
+            to: nil
+        )
+
+        #expect(ZoomableSplitRootView.containsPaneTabBar(
+            atWindowPoint: tabBarPoint,
+            in: window
+        ))
+    }
+
     private func makeRoot() -> ZoomableSplitRootView {
         let root = ZoomableSplitRootView(
             workspace: Workspace(title: "Zoomable split tests"),

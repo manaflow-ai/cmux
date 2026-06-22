@@ -66,6 +66,10 @@ extension ZoomableSplitRootView {
         return false
     }
 
+    static func containsPaneTabBar(atWindowPoint windowPoint: NSPoint, in window: NSWindow) -> Bool {
+        BonsplitTabBarHitRegionRegistry.containsWindowPoint(windowPoint, in: window)
+    }
+
     private static func splitDividerContains(_ point: NSPoint, in splitView: NSSplitView) -> Bool {
         let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
         guard dividerCount > 0 else { return false }
