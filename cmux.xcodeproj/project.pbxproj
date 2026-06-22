@@ -1066,6 +1066,7 @@
 		CA52B0170000000000000000 /* ZoomableSplitHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0170000000000000000 /* ZoomableSplitHostView.swift */; };
 		CA52B0240000000000000000 /* ZoomableSplitRootView+Geometry.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0240000000000000000 /* ZoomableSplitRootView+Geometry.swift */; };
 		CA52B0190000000000000000 /* ZoomableSplitRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0190000000000000000 /* ZoomableSplitRootView.swift */; };
+		CA52B0250000000000000000 /* ZoomableSplitScrollView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA52C0250000000000000000 /* ZoomableSplitScrollView.swift */; };
 		D8F4A111D8F4A111D8F4A111 /* ZoomableSplitViewportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8F4A112D8F4A112D8F4A112 /* ZoomableSplitViewportTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -2132,6 +2133,7 @@
 		CA52C0170000000000000000 /* ZoomableSplitHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitHostView.swift"; sourceTree = "<group>"; };
 		CA52C0240000000000000000 /* ZoomableSplitRootView+Geometry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitRootView+Geometry.swift"; sourceTree = "<group>"; };
 		CA52C0190000000000000000 /* ZoomableSplitRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitRootView.swift"; sourceTree = "<group>"; };
+		CA52C0250000000000000000 /* ZoomableSplitScrollView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ZoomableSplitScrollView.swift"; sourceTree = "<group>"; };
 		D8F4A112D8F4A112D8F4A112 /* ZoomableSplitViewportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZoomableSplitViewportTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -2972,6 +2974,7 @@
 				CA52C0240000000000000000 /* ZoomableSplitRootView+Geometry.swift */,
 				CA52C0170000000000000000 /* ZoomableSplitHostView.swift */,
 				CA52C0190000000000000000 /* ZoomableSplitRootView.swift */,
+				CA52C0250000000000000000 /* ZoomableSplitScrollView.swift */,
 				CA52C0180000000000000000 /* WorkspaceLayoutMode.swift */,
 			);
 			path = Canvas;
@@ -4361,6 +4364,7 @@
 				CA52B0170000000000000000 /* ZoomableSplitHostView.swift in Sources */,
 				CA52B0240000000000000000 /* ZoomableSplitRootView+Geometry.swift in Sources */,
 				CA52B0190000000000000000 /* ZoomableSplitRootView.swift in Sources */,
+				CA52B0250000000000000000 /* ZoomableSplitScrollView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
