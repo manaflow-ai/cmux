@@ -20,7 +20,7 @@ extension CMUXCLI {
         let binaryName: String
         let format: HookFormat
         let events: [HookEvent]
-        let aliases: Set<String>; let requiresVersionKey: Bool
+        let aliases: Set<String>
         let publishesStopNotification: Bool
         /// Whether this agent's `SessionEnd`/`session-end` hook fires once per
         /// conversation turn rather than at a true session teardown.
@@ -53,7 +53,7 @@ extension CMUXCLI {
 
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
-            case nested(timeoutMs: Int)  // Nested type/command/timeout hooks; timeout unit is agent-specific.
+            case nested(timeoutMs: Int), copilotJSON(timeoutSeconds: Int)  // Agent-specific command hook JSON.
             case kiroAgentJSON(timeoutMs: Int) // ~/.kiro/agents/*.json flat command entries with timeout_ms
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
@@ -106,7 +106,7 @@ extension CMUXCLI {
              binaryName: String? = nil,
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
-             aliases: Set<String> = [], requiresVersionKey: Bool = false,
+             aliases: Set<String> = [],
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
              feedHookEvents: [String] = [],
@@ -127,7 +127,7 @@ extension CMUXCLI {
                 let normalized = alias.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
                 return normalized.isEmpty ? nil : normalized
             })
-            self.feedHookEvents = feedHookEvents; self.requiresVersionKey = requiresVersionKey
+            self.feedHookEvents = feedHookEvents
             self.postInstallAction = postInstallAction
             self.postInstallNote = postInstallNote
         }
@@ -313,14 +313,14 @@ extension CMUXCLI {
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
             configDir: ".copilot/hooks", configFile: "cmux.json", configDirEnvOverride: "COPILOT_HOME", configDirEnvOverrideSubpath: "hooks", createConfigDirIfMissing: true,
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
-            hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks copilot", format: .copilotJSON(timeoutSeconds: 5),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            requiresVersionKey: true, feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
             name: "codebuddy", displayName: "CodeBuddy", statusKey: "codebuddy",

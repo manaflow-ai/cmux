@@ -26965,10 +26965,7 @@ struct CMUXCLI {
         Self.hookCommandString(for: def, event: event)
     }
 
-    /// Shell command the agent runs for a Feed bridge event. 120s timeout
-    /// inside the shell is applied via the agent's `timeout` field in the
-    /// nested hook config (see `buildHooksDict`); the shell command
-    /// itself just dispatches.
+    /// Shell command the agent runs for a Feed bridge event.
     func feedHookCommand(for def: AgentHookDef, agentEvent: String) -> String {
         Self.feedHookCommandString(for: def, agentEvent: agentEvent)
     }
@@ -26996,6 +26993,8 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .copilotJSON(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []; entries.append(Self.copilotHookEntry(command: cmd, timeoutSeconds: timeoutSeconds)); result[event.agentEvent] = entries
             case .antigravityJSON(let timeoutSeconds):
                 var entries = result[event.agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -27008,10 +27007,7 @@ struct CMUXCLI {
                 break
             }
         }
-        // Layer in Feed bridge entries. Blocking approval bridges get a long
-        // timeout; Codex telemetry stays short so it never delays Codex's own
-        // approval reviewer. Most nested agents use milliseconds. Codex, Grok,
-        // and Antigravity hook schemas use seconds, so normalize before writing.
+        // Layer in Feed bridge entries; blocking approvals get a long timeout.
         for agentEvent in def.feedHookEvents {
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
             let feedTimeoutMs = feedHookTimeoutMs(for: def, agentEvent: agentEvent)
@@ -27034,6 +27030,8 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .copilotJSON:
+                var entries = result[agentEvent] as? [[String: Any]] ?? []; entries.append(Self.copilotHookEntry(command: feedCmd, timeoutSeconds: Self.timeoutSecondsFromMilliseconds(feedTimeoutMs))); result[agentEvent] = entries
             case .antigravityJSON:
                 var entries = result[agentEvent] as? [[String: Any]] ?? []
                 entries.append(Self.antigravityHookEntry(
@@ -27070,6 +27068,8 @@ struct CMUXCLI {
         let positiveTimeoutMs = max(timeoutMs, 1)
         return ((positiveTimeoutMs - 1) / 1000) + 1
     }
+
+    private static func copilotHookEntry(command: String, timeoutSeconds: Int) -> [String: Any] { ["type": "command", "command": command, "timeoutSec": max(timeoutSeconds, 1)] }
 
     private static func antigravityHookEntry(
         command: String,
@@ -28151,11 +28151,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var cmuxInsertionIndexes: [String: [Int]] = [:]
         for (event, value) in hooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilotJSON:
                 guard let entries = value as? [[String: Any]] else { continue }
                 var rewrittenEntries: [[String: Any]] = []
                 for entry in entries {
-                    if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
+                    if Self.jsonHookValueContainsCmuxOwnedCommand(entry, for: def) {
                         Self.appendCmuxHookInsertionIndex(
                             rewrittenEntries.count,
                             for: event,
@@ -28208,7 +28208,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Add new cmux entries
         for (event, value) in newHooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilotJSON:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
@@ -28234,7 +28234,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         existing["hooks"] = hooks
-        if case .flat = def.format { existing["version"] = 1 }; if def.requiresVersionKey { existing["version"] = 1 }
+        if case .flat = def.format { existing["version"] = 1 }; if case .copilotJSON = def.format { existing["version"] = 1 }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
@@ -28488,10 +28488,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         for (event, value) in hooks {
             switch def.format {
-            case .flat, .kiroAgentJSON:
+            case .flat, .kiroAgentJSON, .copilotJSON:
                 guard var entries = value as? [[String: Any]] else { continue }
                 let before = entries.count
-                entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                entries.removeAll { Self.jsonHookValueContainsCmuxOwnedCommand($0, for: def) }
                 removed += before - entries.count
                 if entries.isEmpty {
                     hooks.removeValue(forKey: event)

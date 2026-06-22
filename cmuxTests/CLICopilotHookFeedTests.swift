@@ -40,15 +40,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(hooks["Notification"], "Missing Notification hook")
         XCTAssertNotNil(hooks["SessionEnd"], "Missing SessionEnd hook")
         let preToolUse = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
-        let preToolUseCommands = preToolUse
-            .compactMap { $0["hooks"] as? [[String: Any]] }
-            .flatMap { $0 }
         XCTAssertTrue(
-            preToolUseCommands.contains {
+            preToolUse.contains {
                 ($0["command"] as? String)?.contains("hooks feed --source copilot --event PreToolUse") == true
-                    && ($0["timeout"] as? Int) == 120_000
+                    && ($0["type"] as? String) == "command"
+                    && ($0["timeoutSec"] as? Int) == 120
+                    && $0["hooks"] == nil
             },
-            "Expected PreToolUse feed hook with 120 000 ms timeout, saw \(preToolUseCommands)"
+            "Expected direct PreToolUse command hook with 120s timeout, saw \(preToolUse)"
         )
     }
 
