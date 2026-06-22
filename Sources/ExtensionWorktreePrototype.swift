@@ -25,6 +25,9 @@ struct CmuxExtensionWorktreeWorkspaceSpawnArgs: Sendable, Equatable {
     /// trailing newline so it executes), or `nil` when there is no setup.
     let initialTerminalInput: String?
     let inheritWorkingDirectory: Bool
+    /// Worktree-created workspaces should stay at a clean shell prompt even
+    /// when there is no setup command to type into the terminal.
+    let autoWelcomeIfNeeded: Bool
 }
 
 extension CmuxExtensionWorktreeCreationResult {
@@ -40,7 +43,8 @@ extension CmuxExtensionWorktreeCreationResult {
             title: workspaceTitle,
             workingDirectory: worktreePath,
             initialTerminalInput: setupCommand.isEmpty ? nil : setupCommand + "\n",
-            inheritWorkingDirectory: false
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
         )
     }
 }
