@@ -28,11 +28,17 @@ final class RemoteTmuxSessionMirror {
     func applySessionNameToWorkspaceTitle(_ name: String) {
         guard let safe = RemoteTmuxHost.controlModeLineSafeName(name) else { return }
         guard let workspace else { return }
-        _ = tabManager?.setCustomTitle(
+        let currentManager = workspace.owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+            ?? tabManager
+        if currentManager?.setCustomTitle(
             tabId: workspace.id,
             title: safe,
             propagateToRemoteTmux: false
-        ) ?? workspace.setCustomTitle(safe)
+        ) == true {
+            return
+        }
+        _ = workspace.setCustomTitle(safe)
     }
 
     private weak var tabManager: TabManager?
