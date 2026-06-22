@@ -28,7 +28,8 @@ extension TabManager {
         select: Bool = true,
         placementOverride: WorkspacePlacement? = nil,
         insertionIndexOverride: Int? = nil,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        customTitle: String? = nil
     ) -> Workspace? {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -74,8 +75,14 @@ extension TabManager {
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self
-            if title != nil {
-                newWorkspace.setCustomTitle(title)
+            // Only intentional names pin `customTitle`. Process-derived titles
+            // are just initial labels; pinning them would block OSC-driven
+            // `applyProcessTitle` updates from reaching the workspace row. See
+            // https://github.com/manaflow-ai/cmux/issues/4946.
+            if let normalizedCustomTitle = customTitle?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !normalizedCustomTitle.isEmpty {
+                newWorkspace.setCustomTitle(normalizedCustomTitle)
             }
             wireClosedBrowserTracking(for: newWorkspace)
 

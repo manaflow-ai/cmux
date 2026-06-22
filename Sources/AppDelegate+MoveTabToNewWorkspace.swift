@@ -93,8 +93,10 @@ extension AppDelegate {
         }
 
         let targetManager = destinationManager ?? source.tabManager
+        let hasCallerTitleArgument = title != nil
+        let explicitTitle = normalizedDetachedWorkspaceTitle(title)
         let destinationTitle = titleForDetachedWorkspace(
-            explicitTitle: title,
+            explicitTitle: explicitTitle,
             workspace: sourceWorkspace,
             panelId: panelId,
             panel: sourcePanel
@@ -103,6 +105,9 @@ extension AppDelegate {
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
         let activationIntent = focusIntentForNewWorkspaceMove(panel: sourcePanel)
         guard let detached = sourceWorkspace.detachSurface(panelId: panelId) else { return nil }
+        let destinationCustomTitle = hasCallerTitleArgument
+            ? explicitTitle
+            : normalizedDetachedWorkspaceTitle(detached.customTitle)
 
         guard let destinationWorkspace = targetManager.addWorkspace(
             fromDetachedSurface: detached,
@@ -110,7 +115,8 @@ extension AppDelegate {
             select: false,
             placementOverride: placementOverride,
             insertionIndexOverride: insertionIndexOverride,
-            focusIntent: activationIntent
+            focusIntent: activationIntent,
+            customTitle: destinationCustomTitle
         ) else {
             rollbackDetachedSurface(
                 detached,
@@ -175,9 +181,8 @@ extension AppDelegate {
         panelId: UUID,
         panel: any Panel
     ) -> String {
-        let trimmedTitle = explicitTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let trimmedTitle, !trimmedTitle.isEmpty {
-            return trimmedTitle
+        if let explicitTitle {
+            return explicitTitle
         }
 
         let fallbackTitle = workspace.panelTitle(panelId: panelId) ?? panel.displayTitle
@@ -187,5 +192,10 @@ extension AppDelegate {
         }
 
         return String(localized: "commandPalette.subtitle.tabFallback", defaultValue: "Tab")
+    }
+
+    private func normalizedDetachedWorkspaceTitle(_ title: String?) -> String? {
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedTitle.isEmpty ? nil : trimmedTitle
     }
 }
