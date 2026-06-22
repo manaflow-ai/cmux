@@ -149,6 +149,10 @@ extension SurfaceResumeCommandCanonicalizer {
     ) -> Int? {
         var index = commandStartWordIndex(in: words)
         guard index < words.count else { return nil }
+        while index < words.count, isEnvironmentAssignment(words[index].value) {
+            index += 1
+        }
+        guard index < words.count else { return nil }
         if words[index].value == "env" || words[index].value == "/usr/bin/env" {
             index += 1
             while index < words.count, isEnvironmentAssignment(words[index].value) {

@@ -65,6 +65,22 @@ import Testing
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
+    @Test func agentHookBindingWithDirectEnvironmentAssignmentRewritesMovedExecutable() throws {
+        let staleExecutablePath = "/Users/me/.nvm/versions/node/v24.2.0/bin/codex"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "CMUX_TRACE=1 '\(staleExecutablePath)' 'resume' 'session-env-cli'",
+            checkpointId: "session-env-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.startupInput)
+
+        #expect(startupInput.contains("CMUX_TRACE=1 codex 'resume' 'session-env-cli'"), "\(startupInput)")
+        #expect(!startupInput.contains(staleExecutablePath), "\(startupInput)")
+    }
+
     @Test func agentHookClaudeBindingWithShellOperatorKeepsOriginalCommandShape() throws {
         let staleExecutablePath = "/Users/me/.nvm/versions/node/v24.2.0/bin/claude"
         let binding = SurfaceResumeBindingSnapshot(
@@ -167,6 +183,15 @@ import Testing
         #expect(!startupInput.contains(movedExecutable.path), "\(startupInput)")
     }
 
+    private struct ResumeShellTimeout: Error, CustomStringConvertible {
+        let shellDescription: String
+        let timeout: TimeInterval
+
+        var description: String {
+            "Resume shell (\(shellDescription)) did not exit within \(Int(timeout))s; treating as hung."
+        }
+    }
+
     private func runWithBoundedWait(
         _ process: Process,
         shellDescription: String,
@@ -177,7 +202,8 @@ import Testing
         try process.run()
         if exited.wait(timeout: .now() + timeout) == .timedOut {
             process.terminate()
-            Issue.record("Resume shell (\(shellDescription)) did not exit within \(Int(timeout))s; treating as hung.")
+            _ = exited.wait(timeout: .now() + 2)
+            throw ResumeShellTimeout(shellDescription: shellDescription, timeout: timeout)
         }
     }
 }
