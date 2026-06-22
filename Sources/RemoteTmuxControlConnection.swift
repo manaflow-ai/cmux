@@ -217,8 +217,8 @@ final class RemoteTmuxControlConnection {
     ///   - onActivePaneChanged: fires when a window's active pane changes
     ///     (`%window-pane-changed`), so consumers can re-project per-pane state
     ///     (e.g. the active pane's directory) onto the window's tab.
-    ///   - onSessionChanged: fires when tmux confirms a session rename via
-    ///     `%session-changed`.
+    ///   - onSessionChanged: fires when tmux confirms a session name change via
+    ///     `%session-changed` or `%session-renamed`.
     ///   - onTopologyChanged: fires when the window/pane topology changes.
     ///   - onExit: fires once when the connection PERMANENTLY ends (a genuine tmux
     ///     `%exit`, or a session found gone on reconnect). A transient transport loss

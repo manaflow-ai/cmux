@@ -260,6 +260,20 @@ import Testing
         #expect(connection.sessionId == nil)
     }
 
+    @Test @MainActor func controllerRekeysCachedConnectionWhenSessionIsRenamed() {
+        let controller = RemoteTmuxController()
+        let host = RemoteTmuxHost(destination: "user@host")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "old")
+        controller.cacheConnectionForTesting(connection)
+
+        #expect(controller.connection(host: host, sessionName: "old") === connection)
+
+        connection.handleMessageForTesting(.sessionRenamed(sessionId: nil, name: "dev", idBearingName: nil))
+
+        #expect(controller.connection(host: host, sessionName: "old") == nil)
+        #expect(controller.connection(host: host, sessionName: "dev") === connection)
+    }
+
     @Test @MainActor func attachBlockDrainQueuesInitialWindowRequest() {
         let connection = RemoteTmuxControlConnection(host: RemoteTmuxHost(destination: "user@host"), sessionName: "work")
         let pipe = Pipe()
