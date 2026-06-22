@@ -3070,28 +3070,49 @@ final class BrowserPanel: Panel, ObservableObject {
             reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
         }
     }
-    /// Document ids of the frames currently reporting playing media. The pane is
-    /// kept alive while this is non-empty.
+    /// Live media activity. ``Workspace`` publishes it to tab/sidebar surfaces.
+    private(set) var mediaActivity = BrowserMediaActivity()
+    var isPlayingAudio: Bool { mediaActivity.isPlayingAudio }
+    var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
+    var isUsingCamera: Bool { mediaActivity.isUsingCamera }
+    var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
+    /// Frame ids reporting playing media; keeps hidden panes alive while non-empty.
     private var playingMediaFrameIDs: Set<String> = []
+    private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
 
-    /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
-    /// the `private(set)` setter stays confined to this file.
-    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool) {
-        if isPlaying {
-            playingMediaFrameIDs.insert(frameID)
-        } else {
-            playingMediaFrameIDs.remove(frameID)
-        }
-        isPlayingMedia = !playingMediaFrameIDs.isEmpty
+    private func setMediaActivity(
+        isPlayingAudio: Bool? = nil,
+        isUsingMicrophone: Bool? = nil,
+        isUsingCamera: Bool? = nil,
+        reason: String
+    ) {
+        var next = mediaActivity
+        if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
+        if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
+        if let isUsingCamera { next.isUsingCamera = isUsingCamera }
+        guard next != mediaActivity else { return }
+        mediaActivity = next
+        onMediaActivityChanged?(next)
+        reevaluateHiddenWebViewDiscardScheduling(reason: reason)
     }
 
-    /// Clears all tracked playing frames (new webview bind or main-frame
-    /// navigation, where the prior frame hooks are gone).
-    func resetMediaPlaybackTracking() {
-        playingMediaFrameIDs.removeAll()
-        isPlayingMedia = false
+    /// Folds a per-frame playback report into retention and audio-glyph state.
+    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool, isAudible: Bool) {
+        if isPlaying { playingMediaFrameIDs.insert(frameID) } else { playingMediaFrameIDs.remove(frameID) }
+        if isPlaying && isAudible { audibleMediaFrameIDs.insert(frameID) } else { audibleMediaFrameIDs.remove(frameID) }
+        isPlayingMedia = !playingMediaFrameIDs.isEmpty
+        refreshAudioMediaActivity(reason: "media_audibility_changed")
     }
+
+    /// Clears tracked frames after a webview bind or main-frame navigation.
+    func resetMediaPlaybackTracking() {
+        (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
+        isPlayingMedia = false
+        refreshAudioMediaActivity(reason: "media_playback_reset")
+    }
+
+    private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: !audibleMediaFrameIDs.isEmpty && !isMuted, reason: reason) }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -3124,9 +3145,14 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
     private let developerToolsTransitionSettleDelay: TimeInterval = 0.15
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
+    private let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
+    // One-shot DispatchSourceTimer bridges WebKit's synchronous window-close
+    // callback to a bounded redock deadline.
+    private var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
+    private var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
     private var browserThemeMode: BrowserThemeMode
@@ -3328,8 +3354,7 @@ final class BrowserPanel: Panel, ObservableObject {
         loadingGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
@@ -4350,8 +4375,7 @@ final class BrowserPanel: Panel, ObservableObject {
         _ = hideDeveloperTools()
         cancelDeveloperToolsRestoreRetry()
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
@@ -4591,6 +4615,19 @@ final class BrowserPanel: Panel, ObservableObject {
         return nil
     }
 
+    /// Tears down every live web-view observer (Swift key-path KVO + Combine
+    /// subscriptions) and clears the derived
+    /// media-activity flags. Invoked at each point a web view is released or
+    /// replaced, so a discarded/closed pane never shows a stale
+    /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
+    /// from the fresh web view.
+    private func detachWebViewObservers() {
+        webViewObservers.removeAll()
+        resetMediaPlaybackTracking()
+        setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
+        webViewCancellables.removeAll()
+    }
+
     private func setupObservers(for webView: WKWebView) {
         let observedWebViewInstanceID = webViewInstanceID
 
@@ -4692,20 +4729,29 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.append(fullscreenObserver)
 
         let cameraCaptureObserver = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingCamera = webView.cameraCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingCamera: isUsingCamera, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(cameraCaptureObserver)
 
         let microphoneCaptureObserver = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingMicrophone = webView.microphoneCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingMicrophone: isUsingMicrophone, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(microphoneCaptureObserver)
+
+        // The capture observers above fire only on `.new`; seed the freshly
+        // bound web view's current capture state so a pane that rebinds while a
+        // call is live shows the glyph without waiting for the next transition.
+        let initialIsUsingCamera = webView.cameraCaptureState != .none
+        let initialIsUsingMicrophone = webView.microphoneCaptureState != .none
+        setMediaActivity(isUsingMicrophone: initialIsUsingMicrophone, isUsingCamera: initialIsUsingCamera, reason: "media_capture_changed")
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
@@ -4915,8 +4961,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 #endif
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
@@ -5128,8 +5173,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -5784,9 +5828,13 @@ final class BrowserPanel: Panel, ObservableObject {
         developerToolsTransitionSettleWorkItem = nil
         developerToolsVisibilityLossCheckWorkItem?.cancel()
         developerToolsVisibilityLossCheckWorkItem = nil
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionTimer = nil
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
@@ -5933,8 +5981,7 @@ extension BrowserPanel {
         lockedPortalHost = nil
 
         let oldWebView = webView
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
@@ -6041,6 +6088,7 @@ extension BrowserPanel {
         let applied = applyMuteState(muted, to: webView, reason: "setMuted")
         if applied, isMuted != muted {
             isMuted = muted
+            refreshAudioMediaActivity(reason: "audio_mute_changed")
         }
         return applied
     }
@@ -6269,6 +6317,14 @@ extension BrowserPanel {
         }
     }
 
+    private func detachedDeveloperToolsWindowsForPanel() -> [NSWindow] {
+        detachedDeveloperToolsWindows().filter(detachedDeveloperToolsWindowBelongsToPanel)
+    }
+
+    private var hasPendingDetachedDeveloperToolsWindowCloseResolution: Bool {
+        detachedDeveloperToolsWindowCloseResolutionTimer != nil
+    }
+
     private func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
         return Self.visibleDescendants(in: container)
@@ -6314,31 +6370,26 @@ extension BrowserPanel {
             guard Thread.isMainThread else { return }
             let handledDetachedInspector = MainActor.assumeIsolated {
                 guard Self.isDetachedInspectorWindow(window) else { return false }
-                return self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
+                return self.handleDetachedDeveloperToolsWindowWillClose(window)
             }
-            guard handledDetachedInspector else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard self.preferredDeveloperToolsPresentation == .detached else { return }
-                guard self.preferredDeveloperToolsVisible else { return }
-                guard !self.isDeveloperToolsVisible() else { return }
-                self.developerToolsDetachedOpenGraceDeadline = nil
-                self.setPreferredDeveloperToolsVisible(false)
-                self.reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
-                self.cancelDeveloperToolsRestoreRetry()
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.devtools detachedClose.manual panel=\(self.id.uuidString.prefix(5)) " +
-                    "\(self.debugDeveloperToolsStateSummary()) \(self.debugDeveloperToolsGeometrySummary())"
-                )
-#endif
-            }
+            _ = handledDetachedInspector
         }
     }
 
     @discardableResult
-    private func closeDeveloperToolsFromDetachedInspectorWindowWillClose(_ window: NSWindow) -> Bool {
-        closeDeveloperToolsFromDetachedInspectorWindow(window, source: "willClose")
+    private func handleDetachedDeveloperToolsWindowWillClose(_ window: NSWindow) -> Bool {
+        guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
+        // Explicit user closes are intercepted in AppDelegate before AppKit posts
+        // willClose. A raw willClose can also be WebKit's redock path, where
+        // closing _inspector here tears down the frontend while attach continues.
+        scheduleDetachedDeveloperToolsWindowCloseResolution(source: "willClose")
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools detachedClose.defer panel=\(id.uuidString.prefix(5)) " +
+            "window=\(window.windowNumber) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
+        return true
     }
 
     @discardableResult
@@ -6363,6 +6414,84 @@ extension BrowserPanel {
         )
 #endif
         return closed
+    }
+
+    private func scheduleDetachedDeveloperToolsWindowCloseResolution(
+        source: String,
+        startedAt: Date = Date()
+    ) {
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
+        let generation = detachedDeveloperToolsWindowCloseResolutionGeneration
+        let delayNanoseconds = Int(developerToolsAttachedManualCloseDetectionDelay * 1_000_000_000)
+        // WebKit exposes no completion callback for re-dock. It closes the
+        // detached window before the attached frontend/layout is observable.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .nanoseconds(delayNanoseconds))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.detachedDeveloperToolsWindowCloseResolutionTimer != nil else { return }
+            guard self.detachedDeveloperToolsWindowCloseResolutionGeneration == generation else { return }
+            self.detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+            self.detachedDeveloperToolsWindowCloseResolutionTimer = nil
+            self.resolveDetachedDeveloperToolsWindowClose(source: source, startedAt: startedAt)
+        }
+        detachedDeveloperToolsWindowCloseResolutionTimer = timer
+        timer.resume()
+    }
+
+    private func resolveDetachedDeveloperToolsWindowClose(source: String, startedAt: Date) {
+        guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+
+        let visible = isDeveloperToolsVisible()
+        let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
+        if visible || hasAttachedLayout {
+            developerToolsDetachedOpenGraceDeadline = nil
+            setPreferredDeveloperToolsVisible(true)
+            if hasAttachedLayout {
+                setPreferredDeveloperToolsPresentation(.attached)
+            } else {
+                syncDeveloperToolsPresentationPreferenceFromUI()
+                if detachedDeveloperToolsWindowsForPanel().isEmpty {
+                    setPreferredDeveloperToolsPresentation(.attached)
+                }
+            }
+            developerToolsLastKnownVisibleAt = Date()
+            cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools detachedClose.redock panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+            )
+#endif
+            return
+        }
+
+        let elapsed = Date().timeIntervalSince(startedAt)
+        // WebKit's attach path is not reflected in cmux's transition flag, so a
+        // no-window/no-layout state remains ambiguous until the bounded deadline.
+        if preferredDeveloperToolsVisible,
+           elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
+            scheduleDetachedDeveloperToolsWindowCloseResolution(
+                source: "\(source).ambiguous",
+                startedAt: startedAt
+            )
+            return
+        }
+
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = nil
+        forceDeveloperToolsRefreshOnNextAttach = false
+        setPreferredDeveloperToolsVisible(false)
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+        cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools detachedClose.manual panel=\(id.uuidString.prefix(5)) " +
+            "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
@@ -6634,6 +6763,9 @@ extension BrowserPanel {
         developerToolsTransitionSettleWorkItem = nil
         pendingDeveloperToolsTransitionTargetVisible = nil
         developerToolsTransitionTargetVisible = nil
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionTimer = nil
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
@@ -6668,6 +6800,9 @@ extension BrowserPanel {
             setPreferredDeveloperToolsVisible(true)
             developerToolsLastKnownVisibleAt = Date()
             cancelDeveloperToolsRestoreRetry()
+            return
+        }
+        if hasPendingDetachedDeveloperToolsWindowCloseResolution {
             return
         }
         if preserveVisibleIntent && preferredDeveloperToolsVisible {
@@ -6777,11 +6912,10 @@ extension BrowserPanel {
             return
         }
 
-        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
-        forceDeveloperToolsRefreshOnNextAttach = false
-
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visible {
+            let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+            forceDeveloperToolsRefreshOnNextAttach = false
             developerToolsDetachedOpenGraceDeadline = nil
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
@@ -6795,6 +6929,11 @@ extension BrowserPanel {
         }
 
         let detachedOpenStillSettling = developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false
+        if hasPendingDetachedDeveloperToolsWindowCloseResolution {
+            return
+        }
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        forceDeveloperToolsRefreshOnNextAttach = false
         if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
             setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
@@ -6870,6 +7009,7 @@ extension BrowserPanel {
             (
                 forceDeveloperToolsRefreshOnNextAttach ||
                 developerToolsRestoreRetryWorkItem != nil ||
+                hasPendingDetachedDeveloperToolsWindowCloseResolution ||
                 webView.superview == nil ||
                 webView.window == nil
             )

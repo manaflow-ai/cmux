@@ -3,12 +3,12 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34336	CLI/cmux.swift
 17697	Sources/AppDelegate.swift
-16052	Sources/ContentView.swift
-13992	Sources/TerminalController.swift
-12695	Sources/Workspace.swift
+16094	Sources/ContentView.swift
+13950	Sources/TerminalController.swift
+12758	Sources/Workspace.swift
 12236	Sources/GhosttyTerminalView.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
-11725	Sources/Panels/BrowserPanel.swift
+11865	Sources/Panels/BrowserPanel.swift
 9335	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8017	CLI/cmux_open.swift
 7988	Sources/Panels/BrowserPanelView.swift
@@ -16,12 +16,12 @@
 7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6220	cmuxTests/GhosttyConfigTests.swift
-6166	Sources/TabManager.swift
+6163	Sources/TabManager.swift
 6072	Sources/TextBoxInput.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
-5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
-5526	cmuxTests/BrowserConfigTests.swift
-4477	Sources/cmuxApp.swift
+5573	cmuxTests/BrowserConfigTests.swift
+5507	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
+4475	Sources/cmuxApp.swift
 4467	Sources/Panels/FilePreviewPanel.swift
 4401	cmuxTests/BrowserPanelTests.swift
 4225	Sources/BrowserWindowPortal.swift
@@ -84,7 +84,7 @@
 1107	Sources/AppDelegate+CmuxSSHURL.swift
 1093	cmuxUITests/BonsplitTabDragUITests.swift
 1087	Packages/macOS/CmuxCommandPalette/Sources/CmuxCommandPalette/Search/CommandPaletteFuzzyMatcher.swift
-1038	Sources/RemoteTmuxController.swift
+1037	Sources/RemoteTmuxController.swift
 1021	cmuxUITests/TerminalCmdClickUITests.swift
 1009	cmuxTests/CmuxTopSnapshotScopeTests.swift
 1006	cmuxTests/CmuxSSHURLRequestTests.swift
@@ -123,9 +123,9 @@
 752	cmuxUITests/CloseWorkspaceCmdDUITests.swift
 746	Sources/App/MenuBarExtraController.swift
 738	Packages/macOS/CMUXProjectModel/Sources/CMUXProjectModel/XcodeProjectAdapter.swift
-736	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 726	cmuxTests/CLICodexHookTimeoutRegressionTests.swift
 722	Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/Store/ChatConversationStore.swift
+718	Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift
 716	Sources/TaskManagerSnapshot.swift
 715	Sources/AppleScriptSupport.swift
 710	Sources/TerminalSSHSessionDetector.swift
