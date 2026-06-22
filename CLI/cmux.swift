@@ -32994,13 +32994,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             eventDict["workspace_id"] = workspaceId
         }
         let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let postToolUseResponseInput = stdinObj["tool_response"]
+            ?? stdinObj["toolResponse"]
+            ?? stdinObj["tool_result"]
+            ?? stdinObj["toolResult"]
         let feedToolInput: Any? = {
             if hookEventName == "PostToolUse" {
-                return stdinObj["tool_response"]
-                    ?? stdinObj["toolResponse"]
-                    ?? stdinObj["tool_result"]
-                    ?? stdinObj["toolResult"]
-                    ?? toolRequestInput
+                return postToolUseResponseInput ?? toolRequestInput
             }
             return toolRequestInput
         }()
@@ -33012,7 +33012,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let feedToolInput {
-            eventDict["tool_input"] = hookEventName == "PostToolUse"
+            let shouldSanitizePostToolUseResponse = source == "codex"
+                && hookEventName == "PostToolUse"
+                && postToolUseResponseInput != nil
+            eventDict["tool_input"] = shouldSanitizePostToolUseResponse
                 ? Self.sanitizedPostToolUseFeedValue(feedToolInput)
                 : feedToolInput
         }

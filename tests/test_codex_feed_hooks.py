@@ -2246,6 +2246,63 @@ def test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path: str, root: Path
         raise AssertionError(f"Codex PostToolUse should forward metadata without stdout: {event!r}")
 
 
+def test_codex_post_tool_use_without_response_keeps_request_input(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-post-tool-request-only",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+            "command": "printf hi",
+            "cwd": "/tmp/request-cwd",
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-posttool-request-only.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"Codex PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    tool_input = event.get("tool_input")
+    if tool_input != payload["tool_input"]:
+        raise AssertionError(f"Codex PostToolUse without response should preserve request input: {event!r}")
+    if isinstance(tool_input, dict) and tool_input.get("_cmux_sanitized") is True:
+        raise AssertionError(f"request input fallback should not be sanitized: {event!r}")
+
+
+def test_non_codex_post_tool_use_keeps_request_input(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "antigravity-session",
+        "hook_event_name": "PostToolUse",
+        "tool_name": "run_command",
+        "tool_input": {
+            "command": "cat important.txt",
+            "cwd": "/tmp/antigravity-cwd",
+            "path": "important.txt",
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-antigravity-posttool.sock",
+        payload,
+        None,
+        source="antigravity",
+    )
+    if stdout != {}:
+        raise AssertionError(f"Antigravity PostToolUse telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    tool_input = event.get("tool_input")
+    if tool_input != payload["tool_input"]:
+        raise AssertionError(f"non-Codex PostToolUse should preserve request input: {event!r}")
+    if isinstance(tool_input, dict) and tool_input.get("_cmux_sanitized") is True:
+        raise AssertionError(f"non-Codex request input should not be sanitized: {event!r}")
+
+
 def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
     stdout, frame = run_feed_hook(
         cli_path,
@@ -2317,6 +2374,8 @@ def main() -> int:
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path, root)
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
+            test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
+            test_non_codex_post_tool_use_keeps_request_input(cli_path, root)
             test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
