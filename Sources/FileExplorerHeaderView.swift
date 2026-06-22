@@ -1,9 +1,11 @@
 import AppKit
+import CmuxFoundation
 
 /// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
 final class FileExplorerHeaderView: NSView {
     private let iconView = NSImageView()
     private let pathLabel = NSTextField(labelWithString: "")
+    private var heightConstraint: NSLayoutConstraint?
     private var displayPath = ""
     private var quickSearchQuery: String?
 
@@ -21,7 +23,7 @@ final class FileExplorerHeaderView: NSView {
         iconView.contentTintColor = .secondaryLabelColor
 
         pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.font = .systemFont(ofSize: 11, weight: .medium)
+        applyFonts()
         pathLabel.textColor = .secondaryLabelColor
         pathLabel.lineBreakMode = .byTruncatingMiddle
         pathLabel.maximumNumberOfLines = 1
@@ -30,8 +32,11 @@ final class FileExplorerHeaderView: NSView {
         addSubview(iconView)
         addSubview(pathLabel)
 
+        let heightConstraint = heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight)
+        self.heightConstraint = heightConstraint
+
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
+            heightConstraint,
 
             iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -43,6 +48,11 @@ final class FileExplorerHeaderView: NSView {
             pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
         ])
         applyHeaderState()
+    }
+
+    func applyFonts() {
+        pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
+        heightConstraint?.constant = RightSidebarChromeMetrics.secondaryBarHeight
     }
 
     func update(displayPath: String) {

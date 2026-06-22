@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -201,7 +202,7 @@ public struct AutomationSection: View {
                 }
                 if let status = socketPasswordStatus {
                     Text(status.message)
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(status.isError ? Color.red : Color.secondary)
                         .padding(.horizontal, 14)
                         .padding(.bottom, 8)
@@ -211,7 +212,7 @@ public struct AutomationSection: View {
             if isAllowAll {
                 SettingsCardDivider()
                 Text(String(localized: "settings.automation.openAccessWarning", defaultValue: "Warning: Full open access makes the control socket world-readable/writable on this Mac and disables auth checks. Use only for local debugging."))
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.red)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
@@ -317,7 +318,7 @@ public struct AutomationSection: View {
     @ViewBuilder
     private func autoNamingFootnote(_ text: String) -> some View {
         Text(text)
-            .font(.caption)
+            .cmuxFont(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)

@@ -407,9 +407,10 @@ func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFl
 /// overflow its reserved slot. The `+ 12` matches the pill's 6pt horizontal padding per side.
 func titlebarHintPillWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
     let pillFontSize = max(8, config.iconSize - 5)
-    let baseFont = NSFont.systemFont(ofSize: pillFontSize, weight: .semibold)
+    let scaledPillFontSize = GlobalFontMagnification.scaledSize(pillFontSize)
+    let baseFont = GlobalFontMagnification.systemFont(ofSize: pillFontSize, weight: .semibold)
     let pillFont = baseFont.fontDescriptor.withDesign(.rounded)
-        .flatMap { NSFont(descriptor: $0, size: pillFontSize) } ?? baseFont
+        .flatMap { NSFont(descriptor: $0, size: scaledPillFontSize) } ?? baseFont
     let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: pillFont]).width
     return ceil(textWidth) + 12
 }
@@ -818,6 +819,7 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
@@ -868,6 +870,7 @@ struct TitlebarControlsView: View {
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
         let _ = shortcutRefreshTick
         let _ = appearanceRefreshTick
+        let _ = globalFontPercent
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
@@ -943,6 +946,7 @@ struct TitlebarControlsView: View {
     private func controlsGroup(config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
+        let badgeBaseFontSize = titlebarNotificationBadgeFontSize(for: config) / max(1, GlobalFontMagnification.scale(for: globalFontPercent))
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
@@ -982,12 +986,11 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
+                            // Fixed-size badge; cap effective glyph size.
+                            .cmuxFont(size: badgeBaseFontSize, weight: .semibold)
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
-                            .background(
-                                Circle().fill(cmuxAccentColor())
-                            )
+                            .background(Circle().fill(cmuxAccentColor()))
                             .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
                     }
                 }
@@ -2184,10 +2187,10 @@ private struct NotificationsPopoverView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .font(.system(size: 14, weight: .semibold))
+                .cmuxFont(size: 14, weight: .semibold)
             if unreadCount > 0 {
                 Text("\(unreadCount)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -2199,10 +2202,10 @@ private struct NotificationsPopoverView: View {
                     Image(systemName: "arrow.down.to.line")
                         .cmuxSymbolRasterSize(10, weight: .semibold)
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                     if !jumpToUnreadShortcut.displayString.isEmpty {
                         Text(jumpToUnreadShortcut.displayString)
-                            .font(.system(size: 10.5, weight: .medium))
+                            .cmuxFont(size: 10.5, weight: .medium)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
@@ -2235,7 +2238,7 @@ private struct NotificationsPopoverView: View {
 
             Button(action: { notificationStore.clearAll() }) {
                 Text(String(localized: "notifications.clearAll", defaultValue: "Clear All"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
             }
@@ -2324,11 +2327,11 @@ private struct NotificationsPopoverView: View {
                 .cmuxSymbolRasterSize(30, weight: .light)
                 .foregroundColor(.secondary.opacity(0.7))
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .cmuxFont(size: 14, weight: .medium)
                 .foregroundColor(.primary)
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -2465,19 +2468,19 @@ private struct NotificationPopoverRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(notification.title)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .cmuxFont(size: 12.5, weight: .semibold)
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10.5))
+                        .cmuxFont(size: 10.5)
                         .foregroundColor(.secondary)
                         .padding(.trailing, 34)
                 }
 
                 if !notification.body.isEmpty {
                     Text(notification.body)
-                        .font(.system(size: 11.5))
+                        .cmuxFont(size: 11.5)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2485,7 +2488,7 @@ private struct NotificationPopoverRow: View {
 
                 if let tabTitle, !tabTitle.isEmpty {
                     Text(tabTitle)
-                        .font(.system(size: 10))
+                        .cmuxFont(size: 10)
                         .foregroundColor(.secondary.opacity(0.85))
                         .lineLimit(1)
                 }
