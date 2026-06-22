@@ -97,6 +97,8 @@ struct SidebarInlineRenameField: NSViewRepresentable {
         /// Routes field-editor commands (Enter / Escape) through the resolver,
         /// committing, cancelling, or moving the caret to the start as resolved.
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard !textView.hasMarkedText() else { return false }
+
             switch resolver.action(for: commandSelector, hasMovedCaretToStart: hasMovedCaretToStart) {
             case .commit:
                 commitOnce(control)

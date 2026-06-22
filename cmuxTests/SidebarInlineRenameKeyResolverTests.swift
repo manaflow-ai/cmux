@@ -44,8 +44,8 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
         )
     }
 
-    func testCoordinatorReturnPassesThroughDuringMarkedTextComposition() {
-        MainActor.assumeIsolated {
+    func testCoordinatorReturnPassesThroughDuringMarkedTextComposition() async {
+        await MainActor.run {
             var commitCount = 0
             var cancelCount = 0
             let coordinator = SidebarInlineRenameField.Coordinator(
@@ -68,8 +68,8 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
         }
     }
 
-    func testCoordinatorEscapePassesThroughDuringMarkedTextComposition() {
-        MainActor.assumeIsolated {
+    func testCoordinatorEscapePassesThroughDuringMarkedTextComposition() async {
+        await MainActor.run {
             var commitCount = 0
             var cancelCount = 0
             let coordinator = SidebarInlineRenameField.Coordinator(
