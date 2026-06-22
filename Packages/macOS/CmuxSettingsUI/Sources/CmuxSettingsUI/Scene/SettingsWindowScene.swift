@@ -33,8 +33,8 @@ public struct SettingsWindowScene: Scene {
 /// scrolling content side-by-side.
 @MainActor
 public struct SettingsWindowRoot: View {
-    let runtime: SettingsRuntime
-    let searchIndex: SettingsSearchIndex
+    private let runtime: SettingsRuntime
+    private let searchIndex: SettingsSearchIndex
 
     public init(runtime: SettingsRuntime) {
         self.runtime = runtime
