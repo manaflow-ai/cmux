@@ -15,14 +15,10 @@ public struct CommandPaletteFuzzyMatcher {
     public let preparedQuery: PreparedQuery
 
     /// Prepares `query` for matching.
-    public init(query: String) {
-        self.preparedQuery = Self.preparedQuery(query)
-    }
+    public init(query: String) { self.preparedQuery = Self.preparedQuery(query) }
 
     /// Binds an already-prepared query.
-    public init(preparedQuery: PreparedQuery) {
-        self.preparedQuery = preparedQuery
-    }
+    public init(preparedQuery: PreparedQuery) { self.preparedQuery = preparedQuery }
 
     /// Scores `candidate` against this matcher's query; nil when it does not
     /// match.
@@ -184,6 +180,8 @@ public struct CommandPaletteFuzzyMatcher {
     public struct PreparedQuery {
         /// The full normalized query text.
         public let normalizedText: String
+        /// Normalized query tokens joined by single spaces.
+        public let normalizedTokenText: String
         /// The prepared tokens, in query order.
         public let tokens: [PreparedToken]
 
@@ -196,13 +194,15 @@ public struct CommandPaletteFuzzyMatcher {
     /// Normalizes and tokenizes `query` for matching.
     public static func preparedQuery(_ query: String) -> PreparedQuery {
         let normalizedQuery = normalizeForSearch(query)
+        let tokens = normalizedQuery
+            .split(separator: " ")
+            .map(String.init)
+            .filter { !$0.isEmpty }
+            .map(PreparedToken.init)
         return PreparedQuery(
             normalizedText: normalizedQuery,
-            tokens: normalizedQuery
-                .split(separator: " ")
-                .map(String.init)
-                .filter { !$0.isEmpty }
-                .map(PreparedToken.init)
+            normalizedTokenText: tokens.map(\.normalizedText).joined(separator: " "),
+            tokens: tokens
         )
     }
 
