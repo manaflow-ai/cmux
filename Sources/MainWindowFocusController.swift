@@ -61,7 +61,17 @@ final class MainWindowFocusController {
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
             syncBonsplitTabShortcutHintEligibility()
+            publishRightSidebarOwnsInputFocus()
         }
+    }
+
+    /// Mirror the exclusive focus intent into `FileExplorerState` so the view
+    /// layer can make main-pane vs right-sidebar (Dock) focus mutually exclusive.
+    private func publishRightSidebarOwnsInputFocus() {
+        let ownsFocus: Bool
+        if case .rightSidebar = intent { ownsFocus = true } else { ownsFocus = false }
+        guard let fileExplorerState, fileExplorerState.rightSidebarOwnsInputFocus != ownsFocus else { return }
+        fileExplorerState.rightSidebarOwnsInputFocus = ownsFocus
     }
     private var rememberedRightSidebarMode: RightSidebarMode?
     private var nextRightSidebarFocusRequestId: UInt64 = 0

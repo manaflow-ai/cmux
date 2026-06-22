@@ -18,6 +18,10 @@ struct DockPanelView: View {
     let windowAppearance: WindowAppearanceSnapshot
     /// Invoked when the user flips the toolbar scope toggle.
     var onSelectScope: (DockScope) -> Void = { _ in }
+    /// True when the right sidebar (this Dock) owns keyboard focus. The Dock
+    /// dims its focus ring when false so Dock and main-pane focus are mutually
+    /// exclusive (the main pane dims its ring when this is true).
+    var rightSidebarOwnsInputFocus: Bool = false
 
     @State private var appearanceConfig = WorkspaceContentView.resolveGhosttyAppearanceConfig(reason: "dock.initial")
 
@@ -67,26 +71,59 @@ struct DockPanelView: View {
         store.applyGhosttyChrome(from: next)
     }
 
-    private var scopeBinding: Binding<DockScope> {
-        Binding(get: { scope }, set: { onSelectScope($0) })
+    /// Tab/folder-style scope switcher (Workspace ↔ Global). The selected scope
+    /// reads as a raised tab connected to the Dock content below.
+    private var scopeToggle: some View {
+        HStack(spacing: 2) {
+            ForEach(DockScope.allCases, id: \.self) { dockScope in
+                scopeTab(dockScope)
+            }
+        }
+        .padding(2)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+        .help(String(
+            localized: "dock.scope.help",
+            defaultValue: "Switch between this workspace's Dock and the Global Dock"
+        ))
+        .accessibilityIdentifier("DockScopeToggle")
+    }
+
+    private func scopeTab(_ dockScope: DockScope) -> some View {
+        let isSelected = scope == dockScope
+        return Button {
+            guard scope != dockScope else { return }
+            onSelectScope(dockScope)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: dockScope.symbolName)
+                    .font(.system(size: 9, weight: .medium))
+                Text(dockScope.label)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+            }
+            .foregroundStyle(isSelected ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(isSelected ? Color(nsColor: appearance.backgroundColor) : .clear)
+                    .shadow(color: isSelected ? .black.opacity(0.18) : .clear, radius: 1, y: 0.5)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(isSelected ? 0.10 : 0), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("DockScopeTab.\(dockScope.rawValue)")
     }
 
     private var toolbar: some View {
         HStack(spacing: 6) {
-            Picker("", selection: scopeBinding) {
-                ForEach(DockScope.allCases, id: \.self) { dockScope in
-                    Text(dockScope.label).tag(dockScope)
-                }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .fixedSize()
-            .help(String(
-                localized: "dock.scope.help",
-                defaultValue: "Switch between this workspace's Dock and the Global Dock"
-            ))
-            .accessibilityIdentifier("DockScopeToggle")
+            scopeToggle
 
             Spacer(minLength: 4)
 
@@ -154,7 +191,8 @@ struct DockPanelView: View {
             DockSplitContentView(
                 store: store,
                 appearance: appearance,
-                windowAppearance: windowAppearance
+                windowAppearance: windowAppearance,
+                rightSidebarOwnsInputFocus: rightSidebarOwnsInputFocus
             )
         }
     }
@@ -166,6 +204,7 @@ private struct DockSplitContentView: View {
     let store: DockSplitStore
     let appearance: PanelAppearance
     let windowAppearance: WindowAppearanceSnapshot
+    let rightSidebarOwnsInputFocus: Bool
 
     /// Portal z-priority for Dock-hosted terminal/browser surfaces. Kept low so
     /// Dock surfaces never overlay main-area surfaces.
@@ -186,7 +225,7 @@ private struct DockSplitContentView: View {
     @ViewBuilder
     private func dockContent(tab: Bonsplit.Tab, paneId: PaneID) -> some View {
         if let panel = store.panel(for: tab.id) {
-            let isFocused = store.panelIsActiveInVisibleDockPane(panel.id)
+            let isFocused = store.panelIsActiveInVisibleDockPane(panel.id) && rightSidebarOwnsInputFocus
             let isSelectedInPane = store.bonsplitController.selectedTab(inPane: paneId)?.id == tab.id
             let isVisibleInUI = store.panelIsSelectedInVisibleDockPane(panel.id)
             let isSplit = store.bonsplitController.allPaneIds.count > 1

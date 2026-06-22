@@ -102,6 +102,59 @@ extension DockSplitStore {
         applyDockSelection(tabId: tab.id, inPane: pane)
     }
 
+    /// Mirrors `Workspace.splitTabBar(_:didSplitPane:…)` so the Dock's split
+    /// buttons (Split Right / Split Down) and drag-to-split behave like the main
+    /// split area. `splitPane` always creates an EMPTY new pane; without this the
+    /// Dock's `autoCloseEmptyPanes` config tears it down immediately, so a split
+    /// appeared to do nothing.
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didSplitPane originalPane: PaneID,
+        newPane: PaneID,
+        orientation: SplitOrientation
+    ) {
+        // Programmatic splits (config seed, `newSplit`, cross-container transfer)
+        // seed their own new-pane tab, so don't auto-create another.
+        guard !isProgrammaticDockSplit else { return }
+
+        if !controller.tabs(inPane: newPane).isEmpty {
+            // Drag-to-split: an existing tab was dragged to a pane edge. Bonsplit
+            // may leave the source pane holding only a placeholder "Empty" tab —
+            // replace it with a real terminal so we never show a tabless pane.
+            repairPlaceholderOnlyDockPane(originalPane)
+            return
+        }
+
+        // Split button: the new pane is empty. Seed a terminal in it, matching
+        // the main area (which always seeds a terminal on a UI split).
+        _ = newSurface(kind: .terminal, inPane: newPane, focus: true)
+    }
+
+    /// Mirrors `Workspace.splitTabBar(_:didMoveTab:…)`: keep the moved panel
+    /// selected/focused in its destination pane and re-render it at the new
+    /// geometry when a tab is dragged between Dock panes.
+    func splitTabBar(
+        _ controller: BonsplitController,
+        didMoveTab tab: Bonsplit.Tab,
+        fromPane source: PaneID,
+        toPane destination: PaneID
+    ) {
+        applyDockSelection(tabId: tab.id, inPane: destination)
+        panel(for: tab.id)?.focus()
+    }
+
+    /// Replaces a pane that holds only placeholder (panel-less) tabs with a real
+    /// Dock terminal, dropping the placeholders. Used after drag-to-split leaves
+    /// the source pane tabless.
+    private func repairPlaceholderOnlyDockPane(_ pane: PaneID) {
+        let tabs = bonsplitController.tabs(inPane: pane)
+        guard !tabs.isEmpty, !tabs.contains(where: { panel(for: $0.id) != nil }) else { return }
+        _ = newSurface(kind: .terminal, inPane: pane, focus: false)
+        for tab in bonsplitController.tabs(inPane: pane) where panel(for: tab.id) == nil {
+            _ = bonsplitController.closeTab(tab.id)
+        }
+    }
+
     func applyVisibility(to panel: any Panel) {
         let shouldBeVisible = panelIsSelectedInVisibleDockPane(panel.id)
         let shouldBeActive = panelIsActiveInVisibleDockPane(panel.id)

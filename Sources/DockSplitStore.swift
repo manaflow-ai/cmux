@@ -46,6 +46,11 @@ final class DockSplitStore: BonsplitDelegate {
     /// Last loaded resolved config identity.
     private var lastLoadedConfigIdentity: DockConfigIdentity?
     @ObservationIgnored var hasAppliedConfigurationSeed = false
+    /// True while a programmatic split (config seed, `newSplit`, cross-container
+    /// transfer) is creating its own panel in the new pane, so the `didSplitPane`
+    /// delegate skips the interactive auto-create / placeholder-repair path.
+    /// Mirrors `Workspace.isProgrammaticSplit`.
+    @ObservationIgnored var isProgrammaticDockSplit = false
     @ObservationIgnored var forceCloseDockTabIds: Set<TabID> = []
     @ObservationIgnored var pendingCloseConfirmDockTabIds: Set<TabID> = []
     @ObservationIgnored var tabCloseButtonCloseDockTabIds: Set<TabID> = []
@@ -316,13 +321,16 @@ final class DockSplitStore: BonsplitDelegate {
             isPinned: false
         )
         surfaceIdToPanelId[newTab.id] = panel.id
-        guard bonsplitController.splitPane(
-            sourcePaneId,
-            orientation: orientation,
-            withTab: newTab,
-            insertFirst: insertFirst,
-            initialDividerPosition: initialDividerPosition
-        ) != nil else {
+        let splitResult = withProgrammaticDockSplit {
+            bonsplitController.splitPane(
+                sourcePaneId,
+                orientation: orientation,
+                withTab: newTab,
+                insertFirst: insertFirst,
+                initialDividerPosition: initialDividerPosition
+            )
+        }
+        guard splitResult != nil else {
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             panels.removeValue(forKey: panel.id)
             panel.close()
@@ -374,6 +382,18 @@ final class DockSplitStore: BonsplitDelegate {
     func recordExplicitPanelCreation() {
         hasAppliedConfigurationSeed = true
         if configurationLoadTask != nil { configurationSeedSuppressionGeneration = configurationLoadGeneration }
+    }
+
+    /// Runs a programmatic split (which provides its own new-pane tab) with
+    /// `isProgrammaticDockSplit` set so `didSplitPane` skips the interactive
+    /// auto-create / placeholder-repair path. `didSplitPane` fires synchronously
+    /// from `splitPane`, so the flag only needs to cover the call itself.
+    @discardableResult
+    func withProgrammaticDockSplit<T>(_ body: () -> T) -> T {
+        let previous = isProgrammaticDockSplit
+        isProgrammaticDockSplit = true
+        defer { isProgrammaticDockSplit = previous }
+        return body()
     }
 
 #if DEBUG
@@ -732,13 +752,16 @@ final class DockSplitStore: BonsplitDelegate {
                     isPinned: false
                 )
                 surfaceIdToPanelId[newTab.id] = panel.id
-                guard bonsplitController.splitPane(
-                    sourcePaneId,
-                    orientation: .vertical,
-                    withTab: newTab,
-                    insertFirst: false,
-                    initialDividerPosition: divider
-                ) != nil else {
+                let seedSplitResult = withProgrammaticDockSplit {
+                    bonsplitController.splitPane(
+                        sourcePaneId,
+                        orientation: .vertical,
+                        withTab: newTab,
+                        insertFirst: false,
+                        initialDividerPosition: divider
+                    )
+                }
+                guard seedSplitResult != nil else {
                     surfaceIdToPanelId.removeValue(forKey: newTab.id)
                     panels.removeValue(forKey: panel.id)
                     panel.close()

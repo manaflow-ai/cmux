@@ -447,7 +447,8 @@ struct RightSidebarPanelView: View {
                         fallbackDirectory: sessionIndexDirectory
                     ),
                     windowAppearance: windowAppearance,
-                    onSelectScope: onSelectScope
+                    onSelectScope: onSelectScope,
+                    rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
                 )
                 .id("dock.workspace.\(workspace.id)")
             } else {
@@ -462,7 +463,8 @@ struct RightSidebarPanelView: View {
                     mode: fileExplorerState.mode,
                     rootDirectory: nil,
                     windowAppearance: windowAppearance,
-                    onSelectScope: onSelectScope
+                    onSelectScope: onSelectScope,
+                    rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus
                 )
                 .id("dock.global")
             } else {

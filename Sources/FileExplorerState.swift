@@ -30,6 +30,14 @@ final class FileExplorerState: ObservableObject {
     @Published private var storedCustomSidebarName: String?
     @Published private var storedDockScope: DockScope
 
+    /// Whether the right sidebar (Files / Find / Dock / …) currently owns
+    /// keyboard/input focus in this window. Driven by `MainWindowFocusController`
+    /// from its exclusive focus `intent`. Used to make main-pane focus and
+    /// right-sidebar (Dock) focus mutually exclusive — the main pane dims its
+    /// focus ring when the sidebar owns focus, and vice versa. Runtime-only (not
+    /// persisted).
+    @Published var rightSidebarOwnsInputFocus: Bool = false
+
     /// Which Dock the right-sidebar Dock panel shows (`.workspace` vs `.global`),
     /// toggled from the Dock toolbar and persisted across launches.
     var dockScope: DockScope {

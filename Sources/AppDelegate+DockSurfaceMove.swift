@@ -38,6 +38,36 @@ extension AppDelegate {
         return nil
     }
 
+    /// Whether the right sidebar (Files / Find / Dock) currently owns input
+    /// focus in `workspace`'s window. Lets the workspace's imperative terminal
+    /// portal active-state reconcile honor the same focus-exclusivity gate the
+    /// SwiftUI render path uses, so a background layout reconcile cannot
+    /// re-activate a main terminal while the sidebar is focused.
+    func rightSidebarOwnsInputFocus(for workspace: Workspace) -> Bool {
+        guard let manager = workspace.owningTabManager,
+              let context = mainWindowContexts.values.first(where: { $0.tabManager === manager }) else {
+            return false
+        }
+        return context.fileExplorerState?.rightSidebarOwnsInputFocus ?? false
+    }
+
+    /// Finds the Dock (global or any workspace's local Dock) that owns a pane.
+    /// Used by the portal drop target to route a tab dropped on a Dock pane to
+    /// the Dock's own controller instead of the workspace's.
+    func dockForPane(_ paneId: PaneID) -> DockSplitStore? {
+        if let globalDock = existingGlobalDock, globalDock.containsPane(paneId.id) {
+            return globalDock
+        }
+        for context in mainWindowContexts.values {
+            for workspace in context.tabManager.tabs {
+                if let dock = workspace._dockSplit, dock.containsPane(paneId.id) {
+                    return dock
+                }
+            }
+        }
+        return nil
+    }
+
     /// Finds a Dock-hosted source for a Bonsplit tab (ignoring workspace panes).
     /// Used by `moveBonsplitTab` to route a Dock→main-area drop.
     func locateDockSurface(tabId: UUID) -> (dock: DockSplitStore, panelId: UUID)? {
@@ -66,6 +96,20 @@ extension AppDelegate {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
+
+        // Reject moving a workspace's LAST main panel into its OWN Dock. It would
+        // empty the workspace's main area, and every alternative is unsafe: closing
+        // the now-empty workspace tears down that same Dock and destroys the just-
+        // moved surface, while seeding a replacement terminal issues a remote
+        // `tmux new-window` for a remote tmux mirror. The surface stays put — move
+        // it after adding another main terminal, or into a different/Global Dock.
+        if case .workspace(_, let workspace, _, _) = source,
+           workspace.panels.count == 1,
+           destinationDock.scope == .workspace,
+           destinationDock.workspaceId == workspace.id {
+            return false
+        }
+
         let target = resolveDockDropDestination(destination)
         guard destinationDock.containsPane(target.pane.id) else { return false }
 
@@ -83,6 +127,11 @@ extension AppDelegate {
 
         if let split = target.split,
            let movedTabId = destinationDock.surfaceId(forPanelId: detached.panelId) {
+            // Not wrapped in `withProgrammaticDockSplit`: this moves the just-attached
+            // tab out of `target.pane` to form the split, which can leave `target.pane`
+            // holding only Bonsplit's placeholder "Empty" tab (when it was empty before
+            // the drop). Letting `didSplitPane` run repairs that placeholder-only pane
+            // into a real terminal (and is a no-op when the pane still has a surface).
             _ = destinationDock.bonsplitController.splitPane(
                 target.pane,
                 orientation: split.orientation,
@@ -91,6 +140,24 @@ extension AppDelegate {
             )
         }
 
+        // The surface was attached into the Dock with focus, so record Dock focus
+        // ownership. Without this, `rightSidebarOwnsInputFocus` stays false and the
+        // focus-exclusivity gate would treat the just-dropped Dock terminal as
+        // inactive (and the main pane would keep focus) even though the drop
+        // requested focus. Resolve the destination Dock's OWN window rather than
+        // the global key window: during a cross-window drag the source window can
+        // still be key, which would publish focus to the wrong window's state.
+        let destinationDockWindow = dockReferenceTabManager(for: destinationDock)
+            .flatMap { windowId(for: $0) }
+            .flatMap { mainWindow(for: $0) }
+        destinationDock.noteKeyboardFocusIntent(
+            window: destinationDockWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        )
+
+        // A move into the source workspace's own Dock that would empty it was
+        // already rejected above, so any now-empty source workspace here moved its
+        // surface into a DIFFERENT container (another Dock or the Global Dock) and
+        // should be cleaned up as usual (the surface survives at the destination).
         cleanupEmptyContainerAfterMove(source)
         return true
     }
