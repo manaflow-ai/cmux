@@ -10588,14 +10588,14 @@ struct CMUXCLI {
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
         if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
           export CMUX_CLOUD_WELCOME_SHOWN=1
-          print -P '%F{cyan}          ::%f'
-          print -P '%F{cyan}            ::::              %F{white}%Bcmux cloud%b%f'
-          print -P '%F{cyan}              ::::::%f'
-          print -P '%F{cyan}                ::::::%f        %F{green}persistent cloud VM%f'
-          print -P '%F{cyan}              ::::::%f          %F{green}ready for coding agents%f'
-          print -P '%F{cyan}            ::::%f'
-          print -P '%F{cyan}          ::%f'
-          print
+          printf '\\033[38;2;0;212;255m          ::\\033[0m\\n'
+          printf '\\033[38;2;24;181;250m            ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'
+          printf '\\033[38;2;48;150;245m              ::::::\\033[0m\\n'
+          printf '\\033[38;2;72;119;241m                ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'
+          printf '\\033[38;2;96;88;239m              ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'
+          printf '\\033[38;2;110;73;238m            ::::\\033[0m\\n'
+          printf '\\033[38;2;124;58;237m          ::\\033[0m\\n'
+          printf '\\n'
         fi
         CMUX_USER_ZSHRC
           fi
@@ -10662,14 +10662,14 @@ struct CMUXCLI {
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
         if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
           export CMUX_CLOUD_WELCOME_SHOWN=1
-          print -P '%F{cyan}          ::%f'
-          print -P '%F{cyan}            ::::              %F{white}%Bcmux cloud%b%f'
-          print -P '%F{cyan}              ::::::%f'
-          print -P '%F{cyan}                ::::::%f        %F{green}persistent cloud VM%f'
-          print -P '%F{cyan}              ::::::%f          %F{green}ready for coding agents%f'
-          print -P '%F{cyan}            ::::%f'
-          print -P '%F{cyan}          ::%f'
-          print
+          printf '\\033[38;2;0;212;255m          ::\\033[0m\\n'
+          printf '\\033[38;2;24;181;250m            ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'
+          printf '\\033[38;2;48;150;245m              ::::::\\033[0m\\n'
+          printf '\\033[38;2;72;119;241m                ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'
+          printf '\\033[38;2;96;88;239m              ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'
+          printf '\\033[38;2;110;73;238m            ::::\\033[0m\\n'
+          printf '\\033[38;2;124;58;237m          ::\\033[0m\\n'
+          printf '\\n'
         fi
         CMUX_USER_ZSHRC
         fi
