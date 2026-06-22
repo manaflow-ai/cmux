@@ -160,7 +160,9 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard let viewport = activeViewport(for: ws) else { return .notCanvasMode }
+        guard let viewport = activeViewport(for: ws) else {
+            return missingViewportResolution(for: ws)
+        }
         guard let target = surfaceID ?? ws.focusedPanelId else {
             return .noFocusedPane
         }
@@ -177,7 +179,9 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard let viewport = activeViewport(for: ws) else { return .notCanvasMode }
+        guard let viewport = activeViewport(for: ws) else {
+            return missingViewportResolution(for: ws)
+        }
         viewport.toggleOverview()
         return .ok(mode: ws.layoutMode.rawValue)
     }
@@ -189,7 +193,9 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard activeViewport(for: ws) != nil else { return .notCanvasMode }
+        guard activeViewport(for: ws) != nil else {
+            return missingViewportResolution(for: ws)
+        }
         let executor = CanvasActionExecutor(workspace: ws)
         switch direction {
         case .zoomIn:
@@ -261,7 +267,9 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard let viewport = activeViewport(for: ws) else { return .notCanvasMode }
+        guard let viewport = activeViewport(for: ws) else {
+            return missingViewportResolution(for: ws)
+        }
         viewport.setViewport(
             center: CGPoint(x: centerX, y: centerY),
             magnification: magnification.map { CGFloat($0) }
@@ -294,6 +302,15 @@ private extension TerminalController {
             workspace.zoomableSplitViewport
         case .splits:
             nil
+        }
+    }
+
+    func missingViewportResolution(for workspace: Workspace) -> ControlCanvasActionResolution {
+        switch workspace.layoutMode {
+        case .canvas, .zoomableSplits:
+            .viewportUnavailable
+        case .splits:
+            .notCanvasMode
         }
     }
 
