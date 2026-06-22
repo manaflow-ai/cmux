@@ -3171,7 +3171,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
-    func testDetachedInspectorWindowUserCloseSynchronouslyClosesOwningInspector() {
+    func testDetachedInspectorWindowWillCloseWaitsForManualCloseState() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let window = NSWindow(
@@ -3180,6 +3180,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.title = "Web Inspector — example.com"
         let frontendWebView = WKWebView(frame: window.contentView?.bounds ?? .zero)
         window.contentView?.addSubview(frontendWebView)
@@ -3192,17 +3193,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
 
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        window.close()
 
         XCTAssertEqual(
             inspector.closeCount,
-            1,
-            "User-closing a detached Web Inspector window must synchronously close the owning _inspector before AppKit/WebKit teardown continues"
+            0,
+            "A raw detached Web Inspector willClose can be WebKit's redock path, so cmux must not synchronously close _inspector before WebKit reports the final state"
         )
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        inspector.close()
+        waitForDeveloperToolsTransitions()
+
+        XCTAssertEqual(inspector.closeCount, 1)
         XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertFalse(panel.preferredDeveloperToolsVisible)
     }
 
-    func testDetachedInspectorWillCloseDuringDockBackClosesInspectorBeforeWebKitAttachContinues() {
+    func testDetachedInspectorWillCloseDuringDockBackPreservesInspectorForWebKitAttach() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let mainWindow = NSWindow(
@@ -3217,6 +3225,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         defer {
             closeWindow(inspectorWindow)
             closeWindow(mainWindow)
@@ -3253,14 +3262,20 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
 
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: inspectorWindow)
+        inspectorWindow.close()
 
         XCTAssertEqual(
             inspector.closeCount,
-            1,
-            "Detached inspector willClose must close the owning inspector instead of letting WebKit continue an unstable in-window attach"
+            0,
+            "Detached inspector willClose during redock must not close _inspector while WebKit is attaching the frontend back into the pane"
         )
-        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        waitForDeveloperToolsTransitions()
+
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
     }
 
     func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {

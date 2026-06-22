@@ -6335,6 +6335,9 @@ extension BrowserPanel {
     @discardableResult
     private func handleDetachedDeveloperToolsWindowWillClose(_ window: NSWindow) -> Bool {
         guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
+        // Explicit user closes are intercepted in AppDelegate before AppKit posts
+        // willClose. A raw willClose can also be WebKit's redock path, where
+        // closing _inspector here tears down the frontend while attach continues.
         scheduleDetachedDeveloperToolsWindowCloseResolution(source: "willClose")
 #if DEBUG
         cmuxDebugLog(
