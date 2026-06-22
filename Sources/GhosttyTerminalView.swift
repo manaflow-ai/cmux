@@ -406,7 +406,7 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey, globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
@@ -2124,7 +2124,7 @@ class GhosttyApp {
             )
             return
         }
-        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
+        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false, globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
         let fallbackForUnspecified = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
             ? defaultBackgroundValues(from: nil)
             : baseline

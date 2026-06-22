@@ -203,7 +203,7 @@ final class HostSettingsActions: SettingsHostActions {
     func surfaceTabBarFontSize() -> SettingsFontSize {
         // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
         SettingsFontSize(
-            points: Self.unscaledConfigFontPoints(GhosttyConfig.load().surfaceTabBarFontSize),
+            points: Double(GhosttyConfig.load().surfaceTabBarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
@@ -336,10 +336,6 @@ final class HostSettingsActions: SettingsHostActions {
         return true
     }
 
-    private static func unscaledConfigFontPoints(_ points: CGFloat) -> Double {
-        guard !GlobalFontMagnification.isDefault else { return Double(points) }
-        return Double(max(1, points / GlobalFontMagnification.scale))
-    }
 }
 
 /// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the

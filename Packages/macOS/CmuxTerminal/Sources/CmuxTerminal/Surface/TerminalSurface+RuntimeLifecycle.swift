@@ -607,7 +607,7 @@ extension TerminalSurface {
         // paths preserve zoom from the source terminal.
         if let inheritedBaseFontPoints = configTemplate?.fontSize,
            inheritedBaseFontPoints > 0 {
-            let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints)
+            let inheritedRuntimeFontPoints = CmuxSurfaceConfigTemplate.runtimeFontSize(fromBasePoints: inheritedBaseFontPoints, percent: globalFontMagnificationPercent())
             let currentFontPoints = GhosttySurfaceRuntimeProbe.currentSurfaceFontSizePoints(createdSurface)
             let shouldReapply = {
                 guard let currentFontPoints else { return true }

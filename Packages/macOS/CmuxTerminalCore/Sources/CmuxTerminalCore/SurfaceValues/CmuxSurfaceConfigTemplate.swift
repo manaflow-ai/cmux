@@ -30,10 +30,19 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
 
     /// Creates a template from a ghostty inherited surface config.
     ///
-    /// - Parameter cConfig: The C config returned by
-    ///   `ghostty_surface_inherited_config`.
-    public init(cConfig: ghostty_surface_config_s) {
-        fontSize = Self.baseFontSize(fromRuntimePoints: cConfig.font_size)
+    /// - Parameters:
+    ///   - cConfig: The C config returned by `ghostty_surface_inherited_config`.
+    ///   - globalFontMagnificationPercent: The magnification percent that was
+    ///     applied to the runtime font size. The default keeps package parsing
+    ///     deterministic at 100%.
+    public init(
+        cConfig: ghostty_surface_config_s,
+        globalFontMagnificationPercent: Int = 100
+    ) {
+        fontSize = Self.baseFontSize(
+            fromRuntimePoints: cConfig.font_size,
+            percent: globalFontMagnificationPercent
+        )
         if let workingDirectory = cConfig.working_directory {
             self.workingDirectory = String(cString: workingDirectory, encoding: .utf8)
         }
@@ -55,12 +64,13 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
         waitAfterCommand = cConfig.wait_after_command
     }
 
-    /// Converts a runtime Ghostty font size back into an unscaled base point size.
+    /// Converts a runtime Ghostty font size back into an unscaled base point size
+    /// at 100% magnification.
     ///
     /// - Parameter runtimePoints: The current runtime point size reported by Ghostty.
-    /// - Returns: The corresponding base point size for the stored global magnification.
+    /// - Returns: The corresponding base point size at 100% magnification.
     public static func baseFontSize(fromRuntimePoints runtimePoints: Float32) -> Float32 {
-        baseFontSize(fromRuntimePoints: runtimePoints, percent: GlobalFontMagnification.storedPercent)
+        baseFontSize(fromRuntimePoints: runtimePoints, percent: GlobalFontMagnification.defaultPercent)
     }
 
     /// Converts a runtime Ghostty font size back into an unscaled base point size.
@@ -76,12 +86,13 @@ public struct CmuxSurfaceConfigTemplate: Sendable {
         return max(1, runtimePoints / scale)
     }
 
-    /// Converts an unscaled base font size into the runtime point size Ghostty expects.
+    /// Converts an unscaled base font size into the runtime point size Ghostty
+    /// expects at 100% magnification.
     ///
     /// - Parameter basePoints: The unscaled base point size.
-    /// - Returns: The runtime point size for the stored global magnification.
+    /// - Returns: The runtime point size at 100% magnification.
     public static func runtimeFontSize(fromBasePoints basePoints: Float32) -> Float32 {
-        runtimeFontSize(fromBasePoints: basePoints, percent: GlobalFontMagnification.storedPercent)
+        runtimeFontSize(fromBasePoints: basePoints, percent: GlobalFontMagnification.defaultPercent)
     }
 
     /// Converts an unscaled base font size into the runtime point size Ghostty expects.

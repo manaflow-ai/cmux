@@ -2991,7 +2991,7 @@ final class Workspace: Identifiable, ObservableObject {
         self.surfaceTabBarDirectory = initialDirectory
 
         // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        let initialSurfaceTabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
@@ -6640,7 +6640,7 @@ final class Workspace: Identifiable, ObservableObject {
         sourceSurface: ghostty_surface_t,
         inheritedConfig: CmuxSurfaceConfigTemplate
     ) -> Float? {
-        let runtimeBasePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface).map { CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: $0) }
+        let runtimeBasePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface).map { CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: $0, percent: GlobalFontMagnification.storedPercent) }
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
             if let runtimeBasePoints, abs(runtimeBasePoints - rooted) > 0.05 {
                 // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
@@ -6659,7 +6659,7 @@ final class Workspace: Identifiable, ObservableObject {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
         if let sourceSurface = terminalPanel.surface.surface,
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
-            let runtimeBasePoints = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: runtimePoints)
+            let runtimeBasePoints = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: runtimePoints, percent: GlobalFontMagnification.storedPercent)
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
             if existing == nil || abs((existing ?? runtimeBasePoints) - runtimeBasePoints) > 0.05 {
                 terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimeBasePoints
