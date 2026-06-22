@@ -3283,14 +3283,17 @@ final class Workspace: Identifiable, ObservableObject {
         paneTree.surfaceIdToPanelId
     }
 
+    /// Registers a bonsplit surface as the active owner for a panel.
     func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
         paneTree.bindSurface(surfaceId, toPanelId: panelId)
     }
 
+    /// Removes one bonsplit surface mapping.
     func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
         paneTree.removeSurfaceMapping(forSurfaceId: surfaceId)
     }
 
+    /// Removes every bonsplit surface mapping for a closed panel.
     func removeSurfaceMappings(forPanelId panelId: UUID) {
         paneTree.removeSurfaceMappings(forPanelId: panelId)
     }
