@@ -96,71 +96,42 @@ extension ContentView {
     }
 
     static func commandPaletteRightSidebarModeCommandContributions() -> [CommandPaletteCommandContribution] {
-        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
-            { _ in value }
-        }
-
-        return RightSidebarMode.availableModes().map { mode in
-            let title = mode.shortcutAction?.label ?? mode.label
-            return CommandPaletteCommandContribution(
-                commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
-                title: constant(title),
-                subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
-                keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
-            )
-        }
+        CommandPaletteRightSidebarContributionProvider().buildModeContributions(
+            commands: RightSidebarMode.availableModes().map { mode in
+                CommandPaletteRightSidebarContributionProvider.ModeCommand(
+                    mode: mode,
+                    title: mode.shortcutAction?.label ?? mode.label
+                )
+            },
+            subtitle: String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
+        )
     }
 
     static func commandPaletteRightSidebarToolPaneCommandContributions() -> [CommandPaletteCommandContribution] {
-        func constant(_ value: String) -> (CommandPaletteContextSnapshot) -> String {
-            { _ in value }
-        }
-
-        return commandPaletteRightSidebarToolPaneCommandDescriptors().map { descriptor in
-            CommandPaletteCommandContribution(
-                commandId: descriptor.commandId,
-                title: constant(descriptor.title),
-                subtitle: constant(String(localized: "command.openRightSidebarToolAsPane.subtitle", defaultValue: "Pane")),
-                keywords: ["open", "pane", "tool", "right", "sidebar", descriptor.mode.rawValue, descriptor.mode.label.lowercased()]
-            )
-        }
+        CommandPaletteRightSidebarContributionProvider().buildToolPaneContributions(
+            commands: commandPaletteRightSidebarToolPaneCommandDescriptors().map { descriptor in
+                CommandPaletteRightSidebarContributionProvider.ToolPaneCommand(
+                    mode: descriptor.mode,
+                    title: descriptor.title,
+                    labelKeyword: descriptor.mode.label.lowercased()
+                )
+            },
+            subtitle: String(localized: "command.openRightSidebarToolAsPane.subtitle", defaultValue: "Pane")
+        )
     }
 
     static func commandPaletteRightSidebarModeCommandID(_ mode: RightSidebarMode) -> String {
-        switch mode {
-        case .files:
-            return "palette.showRightSidebarFiles"
-        case .find:
-            return "palette.showRightSidebarFind"
-        case .sessions:
-            return "palette.showRightSidebarSessions"
-        case .feed:
-            return "palette.showRightSidebarFeed"
-        case .dock:
-            return "palette.showRightSidebarDock"
-        }
+        CommandPaletteRightSidebarContributionProvider().modeCommandID(mode)
     }
 
     static func commandPaletteRightSidebarToolPaneCommandDescriptors() -> [(mode: RightSidebarMode, commandId: String, title: String)] {
-        RightSidebarMode.paneModes.compactMap { mode in
-            guard let commandId = commandPaletteRightSidebarToolPaneCommandID(mode),
+        let provider = CommandPaletteRightSidebarContributionProvider()
+        return RightSidebarMode.paneModes.compactMap { mode in
+            guard let commandId = provider.toolPaneCommandID(mode),
                   let title = commandPaletteRightSidebarToolPaneTitle(mode) else {
                 return nil
             }
             return (mode: mode, commandId: commandId, title: title)
-        }
-    }
-
-    private static func commandPaletteRightSidebarToolPaneCommandID(_ mode: RightSidebarMode) -> String? {
-        switch mode {
-        case .files:
-            return "palette.openFilesPane"
-        case .find:
-            return "palette.openFindPane"
-        case .sessions:
-            return "palette.openVaultPane"
-        case .feed, .dock:
-            return nil
         }
     }
 
@@ -201,8 +172,9 @@ extension ContentView {
     private static func commandPaletteRightSidebarModeShortcutAction(
         forCommandID commandID: String
     ) -> KeyboardShortcutSettings.Action? {
+        let provider = CommandPaletteRightSidebarContributionProvider()
         guard let mode = RightSidebarMode.availableModes().first(where: { mode in
-            Self.commandPaletteRightSidebarModeCommandID(mode) == commandID
+            provider.modeCommandID(mode) == commandID
         }) else {
             return nil
         }
