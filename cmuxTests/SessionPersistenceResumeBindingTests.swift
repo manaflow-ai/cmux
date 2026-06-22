@@ -65,6 +65,20 @@ import Testing
         #expect(!startupInput.contains(executablePath), "\(startupInput)")
     }
 
+    @Test func agentHookClaudeBindingWithShellOperatorKeepsOriginalCommandShape() throws {
+        let staleExecutablePath = "/Users/me/.nvm/versions/node/v24.2.0/bin/claude"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "claude",
+            command: "'\(staleExecutablePath)' '--resume' 'session-operator-cli' && echo done",
+            checkpointId: "session-operator-cli",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        #expect(binding.command.contains("&& echo done"), "\(binding.command)")
+        #expect(binding.command.contains(staleExecutablePath), "\(binding.command)")
+    }
+
     @Test func agentHookSurfaceResumeStartupInputPreservesExistingPATHManagedAgentExecutable() throws {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory

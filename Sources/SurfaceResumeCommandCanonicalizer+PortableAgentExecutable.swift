@@ -119,6 +119,9 @@ extension SurfaceResumeCommandCanonicalizer {
             return command
         }
         var parts = Array(words[commandStartIndex...].map(\.value))
+        guard !containsShellControlSyntax(parts) else {
+            return command
+        }
         parts[executableIndex - commandStartIndex] = "claude"
         let renderedCommand = AgentResumeArgv.renderedPortableClaudeResumeShellCommand(
             parts: parts,
@@ -126,6 +129,19 @@ extension SurfaceResumeCommandCanonicalizer {
         )
         let commandStart = words[commandStartIndex].range.lowerBound
         return String(command[..<commandStart]) + renderedCommand
+    }
+
+    private static func containsShellControlSyntax(_ parts: [String]) -> Bool {
+        parts.contains { part in
+            part == "&&"
+                || part == "||"
+                || part == ";"
+                || part == "|"
+                || part == "&"
+                || part.hasPrefix(">")
+                || part.hasPrefix("<")
+                || part.hasPrefix("2>")
+        }
     }
 
     private static func commandExecutableWordIndex(
