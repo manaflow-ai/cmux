@@ -4447,7 +4447,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
-        keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset ?? 0
+        keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
         keyboardCopyModePendingViewportJumpFallbackLineDelta = keyboardCopyModeBoundedFallbackLineDelta(fallbackLineDelta)
         keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
         keyboardCopyModePendingViewportJumpVisualLineReselect = visualLineReselect
@@ -4669,12 +4669,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ghostty_surface_mouse_pos(surface, Double(endX), Double(endY), mods)
         return ghostty_surface_has_selection(surface)
     }
-
     private func keyboardCopyModePendingVisualLineScrollOffset() -> UInt64? {
         guard keyboardCopyModePendingViewportJumpSync,
-              let lineDelta = keyboardCopyModePendingViewportJumpFallbackLineDelta else { return nil }
+              let lineDelta = keyboardCopyModePendingViewportJumpFallbackLineDelta,
+              let baseOffset = keyboardCopyModePendingViewportJumpScrollbarOffset else { return nil }
         return TerminalKeyboardCopyModeVisualLineSelection.pendingScrollOffset(
-            baseOffset: keyboardCopyModePendingViewportJumpScrollbarOffset ?? scrollbar?.offset ?? 0,
+            baseOffset: baseOffset,
             lineDelta: lineDelta,
             totalRows: scrollbar?.total
         )
