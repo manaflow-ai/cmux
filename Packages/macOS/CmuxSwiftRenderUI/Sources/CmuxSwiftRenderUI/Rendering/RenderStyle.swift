@@ -52,28 +52,6 @@ func dslColor(_ token: String?) -> Color? {
     return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
 }
 
-struct DSLFontSpec {
-    let baseSize: CGFloat
-    let weight: Font.Weight?
-    let design: Font.Design
-}
-
-struct OptionalDSLFont: ViewModifier {
-    let spec: DSLFontSpec?
-
-    func body(content: Content) -> some View {
-        if let spec {
-            content.cmuxFont(
-                size: spec.baseSize,
-                weight: spec.weight ?? .regular,
-                design: spec.design
-            )
-        } else {
-            content
-        }
-    }
-}
-
 /// Resolves a font token (or explicit size) to a magnification-aware font spec.
 func dslFontSpec(named token: String?, size: Double?, weight: Font.Weight? = nil, design: Font.Design = .default) -> DSLFontSpec? {
     if let size { return DSLFontSpec(baseSize: CGFloat(size), weight: weight, design: design) }

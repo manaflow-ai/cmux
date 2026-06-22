@@ -92,6 +92,7 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "openMarkdownInCmuxViewer"
     )
 
+    /// App-wide magnification percent for cmux-owned fonts and chrome.
     public let globalFontMagnification = DefaultsKey<Int>(
         id: "app.globalFontMagnification",
         defaultValue: GlobalFontMagnification.defaultPercent,

@@ -172,14 +172,23 @@ public struct GhosttyConfig {
         let resolvedColorScheme = preferredColorScheme ?? currentColorSchemePreference()
         let magnificationPercent = globalFontMagnificationPercent.map(GlobalFontMagnification.clamp)
         let cacheKey = "\(resolvedColorScheme)#\(magnificationPercent ?? -1)"
-        if useCache, let cached = cachedLoad(for: cacheKey) {
-            return cached
+        if useCache {
+            let cached: GhosttyConfig? = {
+                loadCacheLock.lock()
+                defer { loadCacheLock.unlock() }
+                return cachedConfigsByColorScheme[cacheKey]
+            }()
+            if let cached {
+                return cached
+            }
         }
 
         var loaded = loadFromDisk(resolvedColorScheme)
         if let magnificationPercent { loaded.applyGlobalMagnification(percent: magnificationPercent) }
         if useCache {
-            storeCachedLoad(loaded, for: cacheKey)
+            loadCacheLock.lock()
+            cachedConfigsByColorScheme[cacheKey] = loaded
+            loadCacheLock.unlock()
         }
         return loaded
     }
@@ -188,21 +197,6 @@ public struct GhosttyConfig {
     public static func invalidateLoadCache() {
         loadCacheLock.lock()
         cachedConfigsByColorScheme.removeAll()
-        loadCacheLock.unlock()
-    }
-
-    private static func cachedLoad(for key: String) -> GhosttyConfig? {
-        loadCacheLock.lock()
-        defer { loadCacheLock.unlock() }
-        return cachedConfigsByColorScheme[key]
-    }
-
-    private static func storeCachedLoad(
-        _ config: GhosttyConfig,
-        for key: String
-    ) {
-        loadCacheLock.lock()
-        cachedConfigsByColorScheme[key] = config
         loadCacheLock.unlock()
     }
 

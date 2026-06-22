@@ -1,6 +1,5 @@
 public import AppKit
 public import Foundation
-public import SwiftUI
 
 /// App-wide magnification for cmux-owned chrome and terminal configuration.
 ///
@@ -23,14 +22,19 @@ public struct GlobalFontMagnification {
         self.notificationCenter = notificationCenter
     }
 
+    /// UserDefaults key storing the global font magnification percent.
     public static let percentKey = "globalFontMagnificationPercent"
 
+    /// Default magnification percent.
     public static let defaultPercent: Int = 100
+    /// Minimum supported magnification percent.
     public static let minimumPercent: Int = 50
     /// Capped at 200% so cmux fixed-size chrome does not clip or overflow.
     public static let maximumPercent: Int = 200
+    /// Percent increment used by settings UI and schema validation.
     public static let stepPercent: Int = 10
 
+    /// Notification posted after the global font magnification percent changes.
     public static let didChangeNotification = Notification.Name("cmux.globalFontMagnification.didChange")
 
     /// Raw percent stored in UserDefaults. If the key is unset, treat as 100%.
@@ -246,162 +250,5 @@ public struct GlobalFontMagnification {
     /// Restores the standard stored magnification and posts the live-update notification.
     public static func resetToDefault() {
         Self().resetToDefault()
-    }
-}
-
-/// Observes global font magnification changes for AppKit-backed views.
-///
-/// Retain this object for as long as the observed view or controller needs
-/// live font updates. The handler is delivered on the main actor after
-/// ``GlobalFontMagnification/didChangeNotification`` posts, and observation is
-/// automatically removed when the observer deinitializes.
-public final class GlobalFontMagnificationChangeObserver {
-    private let notificationCenter: NotificationCenter
-    private var notificationObserver: (any NSObjectProtocol)?
-
-    /// Creates an observer that invokes `handler` when the global percent changes.
-    ///
-    /// - Parameters:
-    ///   - notificationCenter: The notification center that posts
-    ///     ``GlobalFontMagnification/didChangeNotification``.
-    ///   - handler: Main-actor work that reapplies derived fonts or layout.
-    public init(notificationCenter: NotificationCenter = .default, handler: @MainActor @escaping () -> Void) {
-        self.notificationCenter = notificationCenter
-        notificationObserver = notificationCenter.addObserver(
-            forName: GlobalFontMagnification.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            MainActor.assumeIsolated {
-                handler()
-            }
-        }
-    }
-
-    deinit {
-        if let notificationObserver {
-            notificationCenter.removeObserver(notificationObserver)
-        }
-    }
-}
-
-private struct CmuxGlobalFontMagnificationPercentKey: EnvironmentKey {
-    static var defaultValue: Int { GlobalFontMagnification.storedPercent }
-}
-
-public extension EnvironmentValues {
-    /// The current clamped global font magnification percent.
-    ///
-    /// cmux scene roots should inject this value with
-    /// ``View/cmuxFontMagnificationEnvironment()`` so repeated row labels can
-    /// read a pure environment value instead of each subscribing to
-    /// `UserDefaults`.
-    var cmuxGlobalFontMagnificationPercent: Int {
-        get { self[CmuxGlobalFontMagnificationPercentKey.self] }
-        set { self[CmuxGlobalFontMagnificationPercentKey.self] = GlobalFontMagnification.clamp(newValue) }
-    }
-}
-
-private struct CmuxFontMagnificationEnvironmentModifier: ViewModifier {
-    @AppStorage(GlobalFontMagnification.percentKey) private var percent = GlobalFontMagnification.defaultPercent
-
-    func body(content: Content) -> some View {
-        content.environment(\.cmuxGlobalFontMagnificationPercent, percent)
-    }
-}
-
-enum CmuxTextStyleMetrics {
-    static func baseSize(for style: Font.TextStyle) -> CGFloat {
-        switch style {
-        case .largeTitle: return 26
-        case .title: return 22
-        case .title2: return 17
-        case .title3: return 15
-        case .headline: return 13
-        case .subheadline: return 11
-        case .body: return 13
-        case .callout: return 12
-        case .footnote: return 10
-        case .caption: return 10
-        case .caption2: return 9
-        @unknown default: return 13
-        }
-    }
-
-    static func baseWeight(for style: Font.TextStyle) -> Font.Weight {
-        switch style {
-        case .headline: return .semibold
-        default: return .regular
-        }
-    }
-}
-
-struct CmuxFontModifier: ViewModifier {
-    @Environment(\.cmuxGlobalFontMagnificationPercent) private var percent
-    let baseSize: CGFloat
-    let weight: Font.Weight
-    let design: Font.Design
-    var monospacedDigit: Bool = false
-
-    func body(content: Content) -> some View {
-        content.font(resolvedFont)
-    }
-
-    private var resolvedFont: Font {
-        var font = Font.system(size: scaledSize, weight: weight, design: design)
-        if monospacedDigit {
-            font = font.monospacedDigit()
-        }
-        return font
-    }
-
-    private var scaledSize: CGFloat {
-        GlobalFontMagnification.scaledSize(baseSize, percent: percent)
-    }
-}
-
-public extension View {
-    /// Injects the global font magnification percent into this view subtree.
-    ///
-    /// Apply this once near each cmux-owned SwiftUI root. Descendant
-    /// ``cmuxFont(size:weight:design:monospacedDigit:)`` calls then read the
-    /// environment value without creating per-label `UserDefaults`
-    /// subscriptions.
-    func cmuxFontMagnificationEnvironment() -> some View {
-        modifier(CmuxFontMagnificationEnvironmentModifier())
-    }
-
-    /// Apply a system font at `size` points, scaled by the global magnification.
-    func cmuxFont(
-        size: CGFloat,
-        weight: Font.Weight = .regular,
-        design: Font.Design = .default,
-        monospacedDigit: Bool = false
-    ) -> some View {
-        modifier(
-            CmuxFontModifier(
-                baseSize: size,
-                weight: weight,
-                design: design,
-                monospacedDigit: monospacedDigit
-            )
-        )
-    }
-
-    /// Apply a text-style-sized system font, scaled by the global magnification.
-    func cmuxFont(
-        _ style: Font.TextStyle,
-        weight: Font.Weight? = nil,
-        design: Font.Design = .default,
-        monospacedDigit: Bool = false
-    ) -> some View {
-        modifier(
-            CmuxFontModifier(
-                baseSize: CmuxTextStyleMetrics.baseSize(for: style),
-                weight: weight ?? CmuxTextStyleMetrics.baseWeight(for: style),
-                design: design,
-                monospacedDigit: monospacedDigit
-            )
-        )
     }
 }
