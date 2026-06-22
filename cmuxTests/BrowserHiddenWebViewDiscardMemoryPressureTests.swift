@@ -117,6 +117,25 @@ struct BrowserHiddenWebViewDiscardMemoryPressureTests {
         }
     }
 
+    @Test func systemMemoryPressureDoesNotDiscardBeforeHiddenStateIsRecorded() {
+        withMemoryPressureHiddenWebViewDiscardPolicyEnabled {
+            let now = Date(timeIntervalSince1970: 1_500)
+            let snapshot = makeMemoryPressureHiddenWebViewDiscardBlockerSnapshot()
+            let manager = BrowserHiddenWebViewDiscardManager()
+            let delegate = MemoryPressureHiddenWebViewDiscardTestDelegate(
+                snapshot: snapshot,
+                hiddenAt: nil
+            )
+            manager.delegate = delegate
+
+            #expect(!manager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now))
+
+            #expect(!manager.hasScheduledDiscard)
+            #expect(delegate.discardRequestCount == 0)
+            #expect(delegate.lastDiscardReason == nil)
+        }
+    }
+
     @Test func systemMemoryPressureDefersImmediateDiscardDuringPostWakeWindow() {
         withMemoryPressureHiddenWebViewDiscardPolicyEnabled {
             let wakeAt = Date(timeIntervalSince1970: 2_000)

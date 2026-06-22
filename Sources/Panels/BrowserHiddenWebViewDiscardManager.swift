@@ -135,6 +135,7 @@ final class BrowserHiddenWebViewDiscardManager {
     func requestImmediateDiscardIfSafe(reason: String, now: Date = Date()) -> Bool {
         guard let delegate else { return false }
         guard blockers(for: delegate.hiddenWebViewDiscardSnapshot).isEmpty else { return false }
+        guard delegate.hiddenWebViewDiscardHiddenAt != nil else { return false }
         // Memory pressure bypasses the hidden-duration delay, not the WebKit post-wake crash guard.
         guard !isInPostWakeDiscardDelay(now: now) else {
             scheduleIfNeeded(reason: reason, now: now)
