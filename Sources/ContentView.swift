@@ -10382,6 +10382,7 @@ struct VerticalTabsSidebar: View {
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot, sidebarWidth: CGFloat
+        let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
         let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
@@ -10404,10 +10405,15 @@ struct VerticalTabsSidebar: View {
         let canCloseWorkspace = workspaceCount > 1
         let workspaceNumberShortcut = self.workspaceNumberShortcut
         let tabItemSettings = tabItemSettingsStore.snapshot
+        let tabIds = tabs.map(\.id)
         let tabIndexById = Dictionary(uniqueKeysWithValues: tabs.enumerated().map {
             ($0.element.id, $0.offset)
         })
         let workspaceById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
+        let pinResolutionContext = WorkspaceActionDispatcher.PinResolutionContext(
+            workspacesById: workspaceById,
+            liveWorkspaceIds: Set(tabIds)
+        )
         let workspaceGroupIdByWorkspaceId = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0.groupId) })
         let orderedSelectedTabs = tabs.filter { selectedTabIds.contains($0.id) }
         let selectedContextTargetIds = orderedSelectedTabs.map(\.id)
@@ -10438,12 +10444,13 @@ struct VerticalTabsSidebar: View {
         } ?? []
         let renderContext = WorkspaceListRenderContext(
             tabs: tabs,
-            tabIds: tabs.map(\.id),
+            tabIds: tabIds,
             sidebarReorderIds: sidebarReorderIds,
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings, sidebarWidth: sidebarWidth,
+            pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
@@ -12083,7 +12090,7 @@ struct VerticalTabsSidebar: View {
             anchorWorkspaceId: tab.id
         )
         let contextMenuPinState = WorkspaceActionDispatcher.pinState(
-            in: tabManager,
+            in: renderContext.pinResolutionContext,
             target: contextMenuPinTarget
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
@@ -13341,18 +13348,6 @@ struct TabItemView: View, Equatable {
             localized: "sidebar.pinnedWorkspaceProtected.tooltip",
             defaultValue: "Pinned workspace. Closing requires confirmation."
         )
-        let audioPlayingTooltip = String(
-            localized: "sidebar.mediaActivity.audio.tooltip",
-            defaultValue: "Playing audio"
-        )
-        let microphoneInUseTooltip = String(
-            localized: "sidebar.mediaActivity.microphone.tooltip",
-            defaultValue: "Microphone in use"
-        )
-        let cameraInUseTooltip = String(
-            localized: "sidebar.mediaActivity.camera.tooltip",
-            defaultValue: "Camera in use"
-        )
         let closeButtonTooltip = workspaceSnapshot.isPinned
             ? protectedWorkspaceTooltip
             : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
@@ -13427,6 +13422,10 @@ struct TabItemView: View, Equatable {
                 // styled like the pin indicator. Audio is the must-have signal;
                 // mic/camera follow the macOS orange/green convention.
                 if workspaceSnapshot.mediaActivity.isPlayingAudio {
+                    let audioPlayingTooltip = String(
+                        localized: "sidebar.mediaActivity.audio.tooltip",
+                        defaultValue: "Playing audio"
+                    )
                     Image(systemName: "speaker.wave.2.fill")
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
                         .foregroundColor(activeSecondaryColor(0.8))
@@ -13435,6 +13434,10 @@ struct TabItemView: View, Equatable {
                 }
 
                 if workspaceSnapshot.mediaActivity.isUsingMicrophone {
+                    let microphoneInUseTooltip = String(
+                        localized: "sidebar.mediaActivity.microphone.tooltip",
+                        defaultValue: "Microphone in use"
+                    )
                     Image(systemName: "mic.fill")
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
                         .foregroundColor(.orange)
@@ -13443,6 +13446,10 @@ struct TabItemView: View, Equatable {
                 }
 
                 if workspaceSnapshot.mediaActivity.isUsingCamera {
+                    let cameraInUseTooltip = String(
+                        localized: "sidebar.mediaActivity.camera.tooltip",
+                        defaultValue: "Camera in use"
+                    )
                     Image(systemName: "video.fill")
                         .font(.system(size: scaledFontSize(9), weight: .semibold))
                         .foregroundColor(.green)

@@ -96,4 +96,28 @@ final class WorkspaceActionDispatcherTests: XCTestCase {
         XCTAssertTrue(workspace.isPinned)
         XCTAssertTrue(result.changedWorkspaceIds.isEmpty)
     }
+
+    func testPrecomputedPinResolutionContextMatchesManagerPathAndReadsLivePinState() throws {
+        let manager = TabManager()
+        let first = try XCTUnwrap(manager.tabs.first)
+        let second = manager.addWorkspace()
+        let missingWorkspaceId = UUID()
+        let target = WorkspaceActionDispatcher.Target(
+            workspaceIds: [second.id, missingWorkspaceId, first.id, second.id],
+            anchorWorkspaceId: second.id
+        )
+        let context = WorkspaceActionDispatcher.PinResolutionContext(workspaces: manager.tabs)
+
+        XCTAssertEqual(
+            WorkspaceActionDispatcher.pinState(in: context, target: target),
+            WorkspaceActionDispatcher.pinState(in: manager, target: target)
+        )
+
+        manager.setPinned(second, pinned: true)
+
+        XCTAssertEqual(
+            WorkspaceActionDispatcher.pinState(in: context, target: .single(second.id))?.pinned,
+            false
+        )
+    }
 }
