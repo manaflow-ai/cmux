@@ -98,9 +98,7 @@ public struct SettingsWindowRoot: View {
     /// Whether the user currently has a non-empty search query. When
     /// false the sidebar should track section selection only; when true
     /// the per-entry selection survives.
-    private var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
+    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     // Legacy uses a non-optional `Binding<String>` because a sidebar
     // selection always points at *some* entry (section row or setting
@@ -199,10 +197,7 @@ public struct SettingsWindowRoot: View {
         .navigationSplitViewColumnWidth(210)
     }
 
-    /// Returns the entries the settings sidebar displays for `query`.
-    func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] {
-        searchIndex.match(query)
-    }
+    func sidebarEntries(matching query: String) -> [SettingsSearchIndex.Entry] { searchIndex.match(query) }
 
     /// Legacy `SettingsSearchEntry` populates `subtitle` with the
     /// parent section's title for setting-type hits and `nil` for
