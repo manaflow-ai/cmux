@@ -12,6 +12,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
     private var initialProviderID: AgentSessionProviderID = .codex
     private var initialModelID: String?
     private var initialOpenCodeProviderID: String?
+    private var initialProviderSelectionID: String?
     private var workingDirectory: String?
     private var theme: AgentSessionWebTheme = .resolve(
         appearance: .fromConfig(GhosttyConfig.load())
@@ -31,7 +32,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             onHasActiveProviderChanged?(processStore.hasActiveProviderSession)
         }
     }
-    var onProviderSelectionChanged: ((AgentSessionProviderID, String?, String?) -> Void)?
+    var onProviderSelectionChanged: ((AgentSessionProviderID, String?, String?, String?) -> Void)?
 
     func bind(
         panelId: UUID,
@@ -40,6 +41,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         initialProviderID: AgentSessionProviderID,
         initialModelID: String?,
         initialOpenCodeProviderID: String?,
+        initialProviderSelectionID: String?,
         workingDirectory: String?,
         theme: AgentSessionWebTheme,
         isFocused: Bool
@@ -56,6 +58,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
         self.initialProviderID = initialProviderID
         self.initialModelID = initialModelID
         self.initialOpenCodeProviderID = initialOpenCodeProviderID
+        self.initialProviderSelectionID = initialProviderSelectionID
         self.workingDirectory = workingDirectory
         isPanelFocused = isFocused
         let themeChanged = self.theme != theme
@@ -551,7 +554,7 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
                     )
                 ]
             ]
-            if let initialProviderSelectionID = initialProviderSelectionID() {
+            if let initialProviderSelectionID = resolvedInitialProviderSelectionID() {
                 context["initialProviderSelectionId"] = initialProviderSelectionID
             }
             if let workingDirectory {
@@ -570,12 +573,14 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             let provider = try request.providerID()
             let modelID = request.modelID()
             let openCodeProviderID = provider == .opencode ? request.openCodeProviderID() : nil
+            let providerSelectionID = request.string("selectionId")
             initialModelID = modelID
             initialOpenCodeProviderID = openCodeProviderID
+            initialProviderSelectionID = providerSelectionID
             initialProviderID = provider
-            onProviderSelectionChanged?(provider, modelID, openCodeProviderID)
+            onProviderSelectionChanged?(provider, modelID, openCodeProviderID, providerSelectionID)
             var reply: [String: Any] = ["providerId": provider.rawValue]
-            if let selectionID = request.string("selectionId") {
+            if let selectionID = providerSelectionID {
                 reply["selectionId"] = selectionID
             }
             return reply
@@ -594,10 +599,12 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             let provider = try request.providerID()
             let modelID = request.modelID()
             let openCodeProviderID = provider == .opencode ? request.openCodeProviderID() : nil
+            let providerSelectionID = request.string("selectionId")
             initialModelID = modelID
             initialOpenCodeProviderID = openCodeProviderID
+            initialProviderSelectionID = providerSelectionID
             initialProviderID = provider
-            onProviderSelectionChanged?(provider, modelID, openCodeProviderID)
+            onProviderSelectionChanged?(provider, modelID, openCodeProviderID, providerSelectionID)
             let configuredExecutablePaths = AgentExecutableResolver.cmuxConfiguredExecutablePaths()
             let plan = try await Task.detached(priority: .userInitiated) {
                 let resolver = AgentExecutableResolver(configuredExecutablePaths: configuredExecutablePaths)
@@ -695,7 +702,10 @@ final class AgentSessionWebRendererCoordinator: NSObject, WKNavigationDelegate, 
             }
     }
 
-    private func initialProviderSelectionID() -> String? {
+    private func resolvedInitialProviderSelectionID() -> String? {
+        if let initialProviderSelectionID {
+            return initialProviderSelectionID
+        }
         if initialProviderID == .opencode,
            let openCodeProviderID = initialOpenCodeProviderID,
            let initialModelID {

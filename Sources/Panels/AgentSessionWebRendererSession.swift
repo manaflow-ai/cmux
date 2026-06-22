@@ -8,7 +8,7 @@ final class AgentSessionWebRendererSession {
             ownedCoordinator.onHasActiveProviderChanged = onHasActiveProviderChanged
         }
     }
-    var onProviderSelectionChanged: ((AgentSessionProviderID, String?, String?) -> Void)? {
+    var onProviderSelectionChanged: ((AgentSessionProviderID, String?, String?, String?) -> Void)? {
         didSet {
             ownedCoordinator.onProviderSelectionChanged = onProviderSelectionChanged
         }
@@ -21,6 +21,7 @@ final class AgentSessionWebRendererSession {
         initialProviderID: AgentSessionProviderID,
         initialModelID: String?,
         initialOpenCodeProviderID: String?,
+        initialProviderSelectionID: String?,
         workingDirectory: String?,
         theme: AgentSessionWebTheme,
         isFocused: Bool
@@ -32,6 +33,7 @@ final class AgentSessionWebRendererSession {
             initialProviderID: initialProviderID,
             initialModelID: initialModelID,
             initialOpenCodeProviderID: initialOpenCodeProviderID,
+            initialProviderSelectionID: initialProviderSelectionID,
             workingDirectory: workingDirectory,
             theme: theme,
             isFocused: isFocused

@@ -147,7 +147,8 @@ struct AgentSessionSocketSurfaceTests {
         panel.rendererSession.onProviderSelectionChanged?(
             .opencode,
             "gemini-2.5-pro",
-            "google"
+            "google",
+            "opencode:google/gemini-2.5-pro"
         )
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
@@ -155,6 +156,7 @@ struct AgentSessionSocketSurfaceTests {
         expectEqual(panelSnapshot.agentSession?.providerID, .opencode)
         expectEqual(panelSnapshot.agentSession?.modelID, "gemini-2.5-pro")
         expectEqual(panelSnapshot.agentSession?.openCodeProviderID, "google")
+        expectEqual(panelSnapshot.agentSession?.providerSelectionID, "opencode:google/gemini-2.5-pro")
 
         let restored = Workspace()
         let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
@@ -164,8 +166,56 @@ struct AgentSessionSocketSurfaceTests {
         expectEqual(restoredPanel.initialProviderID, .opencode)
         expectEqual(restoredPanel.initialModelID, "gemini-2.5-pro")
         expectEqual(restoredPanel.initialOpenCodeProviderID, "google")
+        expectEqual(restoredPanel.initialProviderSelectionID, "opencode:google/gemini-2.5-pro")
         expectEqual(restoredPanel.currentProviderID, .opencode)
         expectEqual(restoredPanel.currentModelID, "gemini-2.5-pro")
         expectEqual(restoredPanel.currentOpenCodeProviderID, "google")
+        expectEqual(restoredPanel.currentProviderSelectionID, "opencode:google/gemini-2.5-pro")
+    }
+
+    @Test
+    func testWorkspaceSessionSnapshotRoundTripsExplicitCodexDefaultSelection() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let paneId = try #require(workspace.bonsplitController.focusedPaneId)
+
+        let panel = try #require(
+            workspace.newAgentSessionSurface(
+                inPane: paneId,
+                providerID: .codex,
+                rendererKind: .react,
+                initialModelID: "gpt-5.5",
+                workingDirectory: "/tmp/cmux-agent-session-default-model",
+                focus: true
+            )
+        )
+
+        panel.rendererSession.onProviderSelectionChanged?(
+            .codex,
+            nil,
+            nil,
+            "codex:default"
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try #require(snapshot.panels.first { $0.id == panel.id })
+        expectEqual(panelSnapshot.agentSession?.providerID, .codex)
+        expectNil(panelSnapshot.agentSession?.modelID)
+        expectNil(panelSnapshot.agentSession?.openCodeProviderID)
+        expectEqual(panelSnapshot.agentSession?.providerSelectionID, "codex:default")
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[panel.id])
+        let restoredPanel = try #require(restored.panels[restoredPanelId] as? AgentSessionPanel)
+
+        expectEqual(restoredPanel.initialProviderID, .codex)
+        expectNil(restoredPanel.initialModelID)
+        expectNil(restoredPanel.initialOpenCodeProviderID)
+        expectEqual(restoredPanel.initialProviderSelectionID, "codex:default")
+        expectEqual(restoredPanel.currentProviderID, .codex)
+        expectNil(restoredPanel.currentModelID)
+        expectNil(restoredPanel.currentOpenCodeProviderID)
+        expectEqual(restoredPanel.currentProviderSelectionID, "codex:default")
     }
 }

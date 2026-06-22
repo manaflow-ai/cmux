@@ -18,6 +18,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             initialProviderID: panel.currentProviderID,
             initialModelID: panel.currentModelID,
             initialOpenCodeProviderID: panel.currentOpenCodeProviderID,
+            initialProviderSelectionID: panel.currentProviderSelectionID,
             workingDirectory: panel.workingDirectory,
             theme: theme,
             isFocused: isFocused
@@ -40,6 +41,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             initialProviderID: panel.currentProviderID,
             initialModelID: panel.currentModelID,
             initialOpenCodeProviderID: panel.currentOpenCodeProviderID,
+            initialProviderSelectionID: panel.currentProviderSelectionID,
             workingDirectory: panel.workingDirectory,
             theme: theme,
             isFocused: isFocused

@@ -10,12 +10,14 @@ final class AgentSessionPanel: Panel {
     let initialProviderID: AgentSessionProviderID
     let initialModelID: String?
     let initialOpenCodeProviderID: String?
+    let initialProviderSelectionID: String?
     let workingDirectory: String?
     let rendererSession = AgentSessionWebRendererSession()
 
     private(set) var currentProviderID: AgentSessionProviderID
     private(set) var currentModelID: String?
     private(set) var currentOpenCodeProviderID: String?
+    private(set) var currentProviderSelectionID: String?
     private(set) var displayTitle: String
     var displayIcon: String? { "sparkles.rectangle.stack" }
     private(set) var isDirty: Bool = false
@@ -31,6 +33,7 @@ final class AgentSessionPanel: Panel {
         initialProviderID: AgentSessionProviderID = .codex,
         initialModelID: String? = nil,
         initialOpenCodeProviderID: String? = nil,
+        initialProviderSelectionID: String? = nil,
         workingDirectory: String? = nil
     ) {
         self.id = UUID()
@@ -39,19 +42,22 @@ final class AgentSessionPanel: Panel {
         self.initialProviderID = initialProviderID
         self.initialModelID = initialModelID
         self.initialOpenCodeProviderID = initialOpenCodeProviderID
+        self.initialProviderSelectionID = initialProviderSelectionID
         self.currentProviderID = initialProviderID
         self.currentModelID = initialModelID
         self.currentOpenCodeProviderID = initialProviderID == .opencode ? initialOpenCodeProviderID : nil
+        self.currentProviderSelectionID = initialProviderSelectionID
         self.workingDirectory = workingDirectory
         self.displayTitle = Self.title(provider: initialProviderID, rendererKind: rendererKind)
         self.rendererSession.onHasActiveProviderChanged = { [weak self] hasActiveProvider in
             self?.setHasActiveProvider(hasActiveProvider)
         }
-        self.rendererSession.onProviderSelectionChanged = { [weak self] providerID, modelID, openCodeProviderID in
+        self.rendererSession.onProviderSelectionChanged = { [weak self] providerID, modelID, openCodeProviderID, providerSelectionID in
             self?.setCurrentProviderSelection(
                 providerID: providerID,
                 modelID: modelID,
-                openCodeProviderID: openCodeProviderID
+                openCodeProviderID: openCodeProviderID,
+                providerSelectionID: providerSelectionID
             )
         }
     }
@@ -89,16 +95,19 @@ final class AgentSessionPanel: Panel {
     private func setCurrentProviderSelection(
         providerID: AgentSessionProviderID,
         modelID: String?,
-        openCodeProviderID: String?
+        openCodeProviderID: String?,
+        providerSelectionID: String?
     ) {
         let normalizedOpenCodeProviderID = providerID == .opencode ? openCodeProviderID : nil
         let providerChanged = currentProviderID != providerID
         let modelChanged = currentModelID != modelID
         let openCodeProviderChanged = currentOpenCodeProviderID != normalizedOpenCodeProviderID
-        guard providerChanged || modelChanged || openCodeProviderChanged else { return }
+        let providerSelectionChanged = currentProviderSelectionID != providerSelectionID
+        guard providerChanged || modelChanged || openCodeProviderChanged || providerSelectionChanged else { return }
         currentProviderID = providerID
         currentModelID = modelID
         currentOpenCodeProviderID = normalizedOpenCodeProviderID
+        currentProviderSelectionID = providerSelectionID
         if providerChanged {
             displayTitle = Self.title(provider: providerID, rendererKind: rendererKind)
             emitDisplayStateChanged()

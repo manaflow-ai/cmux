@@ -602,6 +602,7 @@ extension Workspace {
                 providerID: agentPanel.currentProviderID,
                 modelID: agentPanel.currentModelID,
                 openCodeProviderID: agentPanel.currentOpenCodeProviderID,
+                providerSelectionID: agentPanel.currentProviderSelectionID,
                 workingDirectory: directory
             )
             projectSnapshot = nil
@@ -1476,6 +1477,7 @@ extension Workspace {
                     rendererKind: agentSession.rendererKind,
                     initialModelID: agentSession.modelID,
                     initialOpenCodeProviderID: agentSession.openCodeProviderID,
+                    initialProviderSelectionID: agentSession.providerSelectionID,
                     workingDirectory: agentSession.workingDirectory ?? snapshot.directory,
                     focus: false
                   ) else {
@@ -8321,6 +8323,7 @@ final class Workspace: Identifiable, ObservableObject {
         rendererKind: AgentSessionRendererKind = .react,
         initialModelID: String? = nil,
         initialOpenCodeProviderID: String? = nil,
+        initialProviderSelectionID: String? = nil,
         workingDirectory: String? = nil,
         focus: Bool = true,
         initialDividerPosition: CGFloat? = nil
@@ -8345,6 +8348,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialProviderID: providerID,
             initialModelID: initialModelID,
             initialOpenCodeProviderID: initialOpenCodeProviderID,
+            initialProviderSelectionID: initialProviderSelectionID,
             workingDirectory: directory
         )
         panels[agentPanel.id] = agentPanel
@@ -8397,6 +8401,7 @@ final class Workspace: Identifiable, ObservableObject {
         rendererKind: AgentSessionRendererKind,
         initialModelID: String? = nil,
         initialOpenCodeProviderID: String? = nil,
+        initialProviderSelectionID: String? = nil,
         workingDirectory: String? = nil,
         focus: Bool? = nil,
         targetIndex: Int? = nil
@@ -8413,6 +8418,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialProviderID: providerID,
             initialModelID: initialModelID,
             initialOpenCodeProviderID: initialOpenCodeProviderID,
+            initialProviderSelectionID: initialProviderSelectionID,
             workingDirectory: directory
         )
         panels[agentPanel.id] = agentPanel

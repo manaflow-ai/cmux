@@ -106,6 +106,14 @@ struct AgentExecutableResolverTests {
     }
 
     @Test
+    func testCodexProviderLaunchArgumentsEscapeModelConfigValue() {
+        expectEqual(
+            AgentSessionProviderID.codex.launchArguments(modelID: "gpt-\"5\\danger\nnext"),
+            ["-c", #"model="gpt-\"5\\danger\nnext""#, "app-server", "--listen", "stdio://"]
+        )
+    }
+
+    @Test
     func testReturnsMissingForAbsentExecutable() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
