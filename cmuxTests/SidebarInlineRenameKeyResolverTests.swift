@@ -44,6 +44,52 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testCoordinatorReturnPassesThroughDuringMarkedTextComposition() {
+        var commitCount = 0
+        var cancelCount = 0
+        let coordinator = SidebarInlineRenameField.Coordinator(
+            onCommit: { _ in commitCount += 1 },
+            onCancel: { cancelCount += 1 }
+        )
+        let field = NSTextField(string: "compose")
+        let editor = markedTextEditor()
+
+        let handled = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.insertNewline(_:))
+        )
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(commitCount, 0)
+        XCTAssertEqual(cancelCount, 0)
+        XCTAssertTrue(editor.hasMarkedText())
+    }
+
+    @MainActor
+    func testCoordinatorEscapePassesThroughDuringMarkedTextComposition() {
+        var commitCount = 0
+        var cancelCount = 0
+        let coordinator = SidebarInlineRenameField.Coordinator(
+            onCommit: { _ in commitCount += 1 },
+            onCancel: { cancelCount += 1 }
+        )
+        let field = NSTextField(string: "compose")
+        let editor = markedTextEditor()
+
+        let handled = coordinator.control(
+            field,
+            textView: editor,
+            doCommandBy: #selector(NSResponder.cancelOperation(_:))
+        )
+
+        XCTAssertFalse(handled)
+        XCTAssertEqual(commitCount, 0)
+        XCTAssertEqual(cancelCount, 0)
+        XCTAssertTrue(editor.hasMarkedText())
+    }
+
     func testNormalizeTrimsAndKeepsNonEmpty() {
         XCTAssertEqual(SidebarInlineRenameCommit.normalized("  Renamed  "), "Renamed")
     }
@@ -87,5 +133,15 @@ final class SidebarInlineRenameKeyResolverTests: XCTestCase {
             SidebarInlineRenameCommit.titleToCommit(draft: "vim", baseline: "zsh", baselineHadCustomTitle: false),
             "vim"
         )
+    }
+
+    private func markedTextEditor() -> NSTextView {
+        let editor = NSTextView()
+        editor.setMarkedText(
+            "marked",
+            selectedRange: NSRange(location: 6, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        return editor
     }
 }
