@@ -1,14 +1,16 @@
 internal import Foundation
 
-/// The worker-lane RPC handler for the v2 read-only browser query commands: the
-/// `browser.find.*` semantic-element locators and the `browser.get.*` /
-/// `browser.is.*` getters, lifted byte-faithfully from the former
-/// `TerminalController` `v2BrowserFindRole` / … / `v2BrowserFindNth` and
-/// `v2BrowserGetText` / `v2BrowserGetHTML` / `v2BrowserGetValue` /
-/// `v2BrowserGetAttr` / `v2BrowserGetCount` / `v2BrowserGetBox` /
-/// `v2BrowserGetStyles` / `v2BrowserIsVisible` / `v2BrowserIsEnabled` /
-/// `v2BrowserIsChecked` bodies and their `v2BrowserJSCommandOnSocketWorker`
-/// dispatch.
+/// The worker-lane RPC handler for the v2 read-only / eval-result browser query
+/// commands: the `browser.find.*` semantic-element locators, the
+/// `browser.get.*` / `browser.is.*` getters, and the stateless eval-result reads
+/// `browser.eval` / `browser.snapshot` / `browser.wait`, lifted byte-faithfully
+/// from the former `TerminalController` `v2BrowserFindRole` / … /
+/// `v2BrowserFindNth`, `v2BrowserGetText` / `v2BrowserGetHTML` /
+/// `v2BrowserGetValue` / `v2BrowserGetAttr` / `v2BrowserGetCount` /
+/// `v2BrowserGetBox` / `v2BrowserGetStyles` / `v2BrowserIsVisible` /
+/// `v2BrowserIsEnabled` / `v2BrowserIsChecked`, and `v2BrowserEval` /
+/// `v2BrowserSnapshot` / `v2BrowserWait` bodies and their
+/// `v2BrowserJSCommandOnSocketWorker` dispatch.
 ///
 /// `browser.get.title` is NOT owned here: it reads the browser panel's `pageTitle`
 /// synchronously on the main actor (no page JavaScript), so it stays on the
@@ -20,10 +22,15 @@ internal import Foundation
 /// for `browser.get.attr`), and the `find.*` reply payload shaping (the typed
 /// ``JSONValue`` twin of the legacy `[String: Any]` dictionaries; the resulting
 /// Foundation object, and therefore the encoded wire bytes, is identical). The
-/// `get.*` / `is.*` getters build their entire payload app-side (the shared
-/// selector-action retry loop, the `get.count` `querySelectorAll` read), so the
-/// worker carries their already-shaped result
-/// through ``ControlBrowserQueryReading/resolveQuery(_:)`` verbatim. The app-coupled
+/// `get.*` / `is.*` getters and the `eval`/`snapshot`/`wait` eval-result reads
+/// build their entire payload app-side (the shared selector-action retry loop, the
+/// `get.count` `querySelectorAll` read, the `eval` content-world flagging, the
+/// `snapshot` DOM-walk script, the `wait` condition-poll), so the worker carries
+/// their already-shaped result through
+/// ``ControlBrowserQueryReading/resolveQuery(_:)`` verbatim. `eval` carries its
+/// params verbatim too: the `Missing script` `invalid_params` guard lives in the
+/// `v2BrowserEval` body (unlike `get.attr`, whose guard the worker duplicates).
+/// The app-coupled
 /// work (panel resolution, finder/getter-script construction, JavaScript
 /// evaluation, result decoding, element-ref allocation) is reached strictly
 /// through the ``ControlBrowserQueryReading`` seam. It does no socket I/O and
@@ -49,10 +56,10 @@ public struct ControlBrowserQueryWorker: Sendable {
     }
 
     /// Runs one decoded request if it is a `browser.find.*` / `browser.get.*` /
-    /// `browser.is.*` worker-lane query command, returning the result; returns
-    /// `nil` for any other method so the caller can fall through (the remaining
-    /// JS-evaluating `browser.*` methods are still served by the legacy app-side
-    /// dispatcher).
+    /// `browser.is.*` / `browser.eval` / `browser.snapshot` / `browser.wait`
+    /// worker-lane query command, returning the result; returns `nil` for any
+    /// other method so the caller can fall through (the remaining JS-evaluating
+    /// `browser.*` methods are still served by the legacy app-side dispatcher).
     ///
     /// - Parameter request: The decoded request envelope.
     /// - Returns: The command result, or `nil` if not an owned method.
@@ -104,6 +111,18 @@ public struct ControlBrowserQueryWorker: Sendable {
             return reading.resolveQuery(.isEnabled(params: request.params))
         case "browser.is.checked":
             return reading.resolveQuery(.isChecked(params: request.params))
+        case "browser.eval":
+            // The legacy `v2BrowserEval` body owns the `Missing script`
+            // `invalid_params` guard (re-read inside the body before resolving the
+            // panel), so the worker carries params verbatim and lets the
+            // conformer's body guard stay the single source of truth — exactly the
+            // base dispatch, which called `v2BrowserEval(params:)` with no worker
+            // pre-check.
+            return reading.resolveQuery(.eval(params: request.params))
+        case "browser.snapshot":
+            return reading.resolveQuery(.snapshot(params: request.params))
+        case "browser.wait":
+            return reading.resolveQuery(.wait(params: request.params))
         default:
             return nil
         }

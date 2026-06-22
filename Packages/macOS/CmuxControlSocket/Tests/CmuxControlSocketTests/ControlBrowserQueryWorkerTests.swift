@@ -366,6 +366,9 @@ private func foundElement(
             ("browser.is.visible", { if case .isVisible = $0 { return true }; return false }),
             ("browser.is.enabled", { if case .isEnabled = $0 { return true }; return false }),
             ("browser.is.checked", { if case .isChecked = $0 { return true }; return false }),
+            ("browser.eval", { if case .eval = $0 { return true }; return false }),
+            ("browser.snapshot", { if case .snapshot = $0 { return true }; return false }),
+            ("browser.wait", { if case .wait = $0 { return true }; return false }),
         ]
         for (method, matches) in methods {
             let reading = FakeBrowserQueryReading(
@@ -381,5 +384,71 @@ private func foundElement(
             }
             #expect(matches(last), "\(method) routed to the wrong query case")
         }
+    }
+
+    // MARK: - eval / snapshot / wait (eval-result reads, pre-shaped via resolveQuery)
+
+    /// `browser.eval` carries its params verbatim with NO worker-side
+    /// `Missing script` pre-check: the legacy dispatch called `v2BrowserEval`
+    /// directly, and the body owns the `invalid_params`/`Missing script` guard, so
+    /// even a request with no `script` must still route to `resolveQuery` (the
+    /// conformer's body, here the fake, returns the result).
+    @Test func evalCarriesParamsVerbatimWithoutMissingScriptPreCheck() {
+        let reading = FakeBrowserQueryReading(
+            resolution: .notFound(data: nil),
+            queryResult: .ok(.object(["value": .string("42")]))
+        )
+        let worker = ControlBrowserQueryWorker(reading: reading)
+        let result = worker.handle(request("browser.eval", ["script": .string("1 + 1")]))
+        guard case .eval(let params)? = reading.lastQueryRequest else {
+            Issue.record("expected .eval request")
+            return
+        }
+        #expect(params["script"] == .string("1 + 1"))
+        #expect(result == .ok(.object(["value": .string("42")])))
+    }
+
+    @Test func evalWithMissingScriptStillRoutesToResolveQuery() {
+        let reading = FakeBrowserQueryReading(
+            resolution: .notFound(data: nil),
+            queryResult: .err(code: "invalid_params", message: "Missing script", data: nil)
+        )
+        let worker = ControlBrowserQueryWorker(reading: reading)
+        let result = worker.handle(request("browser.eval"))
+        guard case .eval? = reading.lastQueryRequest else {
+            Issue.record("expected .eval request even with no script (body owns the guard)")
+            return
+        }
+        #expect(result == .err(code: "invalid_params", message: "Missing script", data: nil))
+    }
+
+    @Test func snapshotCarriesParamsVerbatim() {
+        let reading = FakeBrowserQueryReading(
+            resolution: .notFound(data: nil),
+            queryResult: .ok(.object(["snapshot": .string("ok")]))
+        )
+        let worker = ControlBrowserQueryWorker(reading: reading)
+        let result = worker.handle(request("browser.snapshot", ["max_depth": .int(3)]))
+        guard case .snapshot(let params)? = reading.lastQueryRequest else {
+            Issue.record("expected .snapshot request")
+            return
+        }
+        #expect(params["max_depth"] == .int(3))
+        #expect(result == .ok(.object(["snapshot": .string("ok")])))
+    }
+
+    @Test func waitCarriesParamsVerbatim() {
+        let reading = FakeBrowserQueryReading(
+            resolution: .notFound(data: nil),
+            queryResult: .ok(.object(["ready": .bool(true)]))
+        )
+        let worker = ControlBrowserQueryWorker(reading: reading)
+        let result = worker.handle(request("browser.wait", ["url_contains": .string("/done")]))
+        guard case .wait(let params)? = reading.lastQueryRequest else {
+            Issue.record("expected .wait request")
+            return
+        }
+        #expect(params["url_contains"] == .string("/done"))
+        #expect(result == .ok(.object(["ready": .bool(true)])))
     }
 }
