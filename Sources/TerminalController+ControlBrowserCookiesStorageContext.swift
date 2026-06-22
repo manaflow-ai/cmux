@@ -12,11 +12,13 @@ import WebKit
 /// `browserResolvePanelTyped(params:)`, which surfaces each failure category as
 /// a typed value the coordinator maps back to the exact legacy `.err`.
 ///
-/// The per-surface caches (`v2BrowserFrameSelectorBySurface`, the init-script /
-/// dialog-queue caches) stay on `TerminalController`: the JS-evaluating
-/// worker-lane methods (`browser.snapshot` and friends) read the frame-selector
-/// cache through `v2BrowserCurrentFrameSelector`, so it cannot move into the
-/// `@MainActor` coordinator without breaking that out-of-scope reader.
+/// The per-surface caches (frame selector, init scripts/styles, dialog queue,
+/// download events, not-supported network log) live in `v2BrowserSurfaceState`
+/// (a `BrowserAutomationSurfaceState` in `CmuxBrowser`) owned by
+/// `TerminalController`: the JS-evaluating worker-lane methods (`browser.snapshot`
+/// and friends) read the frame-selector cache through
+/// `v2BrowserCurrentFrameSelector`, so it cannot move into the `@MainActor`
+/// coordinator without breaking that out-of-scope reader.
 extension TerminalController {
     /// `[String: JSONValue]` → the Foundation `[String: Any]` the legacy
     /// `v2*` param helpers and resolvers consume (the same bridge the mobile-host

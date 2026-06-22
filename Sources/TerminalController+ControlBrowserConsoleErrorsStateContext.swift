@@ -21,11 +21,11 @@ import WebKit
 ///
 /// These witnesses stay on `TerminalController` (rather than moving the bodies
 /// into the `@MainActor` coordinator) because they touch the `private`
-/// telemetry-hook bootstrap (`v2BrowserEnsureTelemetryHooks`) and the `private`
-/// per-surface frame-selector cache (`v2BrowserFrameSelectorBySurface`), which is
-/// also read by the out-of-scope worker-lane JS-eval methods through
-/// `v2BrowserCurrentFrameSelector`; that cache cannot move into the coordinator
-/// without breaking that reader.
+/// telemetry-hook bootstrap (`v2BrowserEnsureTelemetryHooks`) and the per-surface
+/// frame-selector state (`v2BrowserSurfaceState`, a `BrowserAutomationSurfaceState`
+/// in `CmuxBrowser`), which is also read by the out-of-scope worker-lane JS-eval
+/// methods through `v2BrowserCurrentFrameSelector`; those bodies cannot move into
+/// the coordinator without breaking that reader.
 extension TerminalController {
     // MARK: - console.list / console.clear
 
@@ -123,7 +123,7 @@ extension TerminalController {
                 "url": browserPanel.currentURL?.absoluteString ?? "",
                 "cookies": cookies,
                 "storage": storageValue,
-                "frame_selector": v2OrNull(v2BrowserFrameSelectorBySurface[surfaceId])
+                "frame_selector": v2OrNull(v2BrowserSurfaceState.frameSelector(surfaceId: surfaceId))
             ]
 
             do {
@@ -169,9 +169,9 @@ extension TerminalController {
             let browserPanel = resolved.browserPanel
 
             if let frameSelector = raw["frame_selector"] as? String, !frameSelector.isEmpty {
-                v2BrowserFrameSelectorBySurface[surfaceId] = frameSelector
+                v2BrowserSurfaceState.setFrameSelector(frameSelector, surfaceId: surfaceId)
             } else {
-                v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
+                v2BrowserSurfaceState.clearFrameSelector(surfaceId: surfaceId)
             }
 
             if let urlStr = raw["url"] as? String,

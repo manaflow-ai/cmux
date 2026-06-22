@@ -318,18 +318,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// Read from the nonisolated socket-worker lane, so stored `nonisolated`.
     nonisolated(unsafe) var controlFeedWorker: ControlFeedWorker?
 
-    private struct V2BrowserElementRefEntry {
-        let surfaceId: UUID
-        let selector: String
-    }
-
-    private struct V2BrowserPendingDialog {
-        let type: String
-        let message: String
-        let defaultText: String?
-        let responder: (_ accept: Bool, _ text: String?) -> Void
-    }
-
     private final class V2BrowserUndefinedSentinel: Sendable {}
 
     private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
@@ -337,20 +325,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
     private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
     private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
 
-    private var v2BrowserNextElementOrdinal: Int = 1
-    private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
-    // `internal` (not `private`): the browser console/errors/state witnesses in
-    // `TerminalController+ControlBrowserConsoleErrorsStateContext.swift` read and
-    // mutate this per-surface frame-selector cache (state.save reads it,
-    // state.load writes it), matching the cookies/storage cross-file witness
-    // pattern. Still owned here because the worker-lane JS-eval methods read it
-    // through `v2BrowserCurrentFrameSelector`.
-    var v2BrowserFrameSelectorBySurface: [UUID: String] = [:]
-    private var v2BrowserInitScriptsBySurface: [UUID: [String]] = [:]
-    private var v2BrowserInitStylesBySurface: [UUID: [String]] = [:]
-    private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
-    private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
-    private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
+    /// The per-browser-surface automation state (element refs, frame selector,
+    /// init scripts/styles, dialog queue, download events, not-supported network
+    /// log), extracted to `CmuxBrowser` as a `@MainActor @Observable` store.
+    /// `TerminalController` owns the instance; the `@MainActor` browser witnesses
+    /// mutate it directly and the nonisolated worker-lane JS-eval methods reach it
+    /// only through the main-actor hop (`v2MainSync`). All keyed dictionaries,
+    /// bounds, and FIFO rules are preserved exactly.
+    let v2BrowserSurfaceState = BrowserAutomationSurfaceState()
     private nonisolated let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     /// Stateless browser-control logic (JS builders, value normalization,
     /// diagnostics, failure classification) extracted to `CmuxBrowser`.
@@ -380,13 +362,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
         for surfaceId in Set(surfaceIds) {
-            v2BrowserFrameSelectorBySurface.removeValue(forKey: surfaceId)
-            v2BrowserInitScriptsBySurface.removeValue(forKey: surfaceId)
-            v2BrowserInitStylesBySurface.removeValue(forKey: surfaceId)
-            v2BrowserDialogQueueBySurface.removeValue(forKey: surfaceId)
-            v2BrowserDownloadEventsBySurface.removeValue(forKey: surfaceId)
-            v2BrowserUnsupportedNetworkRequestsBySurface.removeValue(forKey: surfaceId)
-            v2BrowserElementRefs = v2BrowserElementRefs.filter { $0.value.surfaceId != surfaceId }
+            v2BrowserSurfaceState.removeSurface(surfaceId)
 
             controlCommandCoordinator.removeRef(kind: .surface, uuid: surfaceId)
         }
@@ -467,9 +443,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                   let event = note.userInfo?["event"] as? [String: Any] else { return }
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                var queue = self.v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-                queue.append(event)
-                self.v2BrowserDownloadEventsBySurface[surfaceId] = queue
+                self.v2BrowserSurfaceState.appendDownloadEvent(event, surfaceId: surfaceId)
             }
         }
     }
@@ -3230,10 +3204,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     private nonisolated func v2BrowserAllocateElementRef(surfaceId: UUID, selector: String) -> String {
         v2MainSync {
-            let ref = "@e\(v2BrowserNextElementOrdinal)"
-            v2BrowserNextElementOrdinal += 1
-            v2BrowserElementRefs[ref] = V2BrowserElementRefEntry(surfaceId: surfaceId, selector: selector)
-            return ref
+            v2BrowserSurfaceState.allocateElementRef(surfaceId: surfaceId, selector: selector)
         }
     }
 
@@ -3248,14 +3219,16 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }()
 
         if let refKey {
-            guard let entry = v2MainSync({ v2BrowserElementRefs[refKey] }), entry.surfaceId == surfaceId else { return nil }
-            return entry.selector
+            guard let selector = v2MainSync({
+                v2BrowserSurfaceState.elementRefSelector(refKey: refKey, surfaceId: surfaceId)
+            }) else { return nil }
+            return selector
         }
         return trimmed
     }
 
     private nonisolated func v2BrowserCurrentFrameSelector(surfaceId: UUID) -> String? {
-        v2MainSync { v2BrowserFrameSelectorBySurface[surfaceId] }
+        v2MainSync { v2BrowserSurfaceState.frameSelector(surfaceId: surfaceId) }
     }
 
     /// A WKWebView that has never committed a navigation has no JavaScript context, so the
@@ -3450,31 +3423,26 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     nonisolated func v2BrowserRecordUnsupportedRequest(surfaceId: UUID, request: [String: Any]) {
         v2MainSync {
-            var logs = v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
-            logs.append(request)
-            if logs.count > 256 {
-                logs.removeFirst(logs.count - 256)
-            }
-            v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] = logs
+            v2BrowserSurfaceState.recordUnsupportedNetworkRequest(request, surfaceId: surfaceId)
         }
     }
 
     /// The recorded not-supported network-request log for `surfaceId` (empty
-    /// when nothing recorded). Read accessor co-located with the private state so
-    /// the `ControlBrowserContext` conformance (a separate file) can serve
-    /// `browser.network.requests` without widening the storage's visibility.
+    /// when nothing recorded). Forwards to the per-surface automation state store
+    /// so the `ControlBrowserContext` conformance (a separate file) can serve
+    /// `browser.network.requests`.
     func v2BrowserUnsupportedNetworkRequests(surfaceId: UUID) -> [[String: Any]] {
-        v2BrowserUnsupportedNetworkRequestsBySurface[surfaceId] ?? []
+        v2BrowserSurfaceState.unsupportedNetworkRequests(surfaceId: surfaceId)
     }
 
     private nonisolated func v2BrowserPendingDialogs(surfaceId: UUID) -> [[String: Any]] {
-        let queue = v2MainSync { v2BrowserDialogQueueBySurface[surfaceId] ?? [] }
-        return queue.enumerated().map { index, d in
+        let dialogs = v2MainSync { v2BrowserSurfaceState.pendingDialogs(surfaceId: surfaceId) }
+        return dialogs.map { dialog in
             [
-                "index": index,
-                "type": d.type,
-                "message": d.message,
-                "default_text": v2OrNull(d.defaultText)
+                "index": dialog.index,
+                "type": dialog.type,
+                "message": dialog.message,
+                "default_text": v2OrNull(dialog.defaultText)
             ]
         }
     }
@@ -3486,13 +3454,13 @@ class TerminalController: MobileViewportSurfaceLimiting {
         defaultText: String?,
         responder: @escaping (_ accept: Bool, _ text: String?) -> Void
     ) {
-        var queue = v2BrowserDialogQueueBySurface[surfaceId] ?? []
-        queue.append(V2BrowserPendingDialog(type: type, message: message, defaultText: defaultText, responder: responder))
-        if queue.count > 16 {
-            // Keep bounded memory while preserving FIFO semantics for newest entries.
-            queue.removeFirst(queue.count - 16)
-        }
-        v2BrowserDialogQueueBySurface[surfaceId] = queue
+        v2BrowserSurfaceState.enqueueDialog(
+            surfaceId: surfaceId,
+            type: type,
+            message: message,
+            defaultText: defaultText,
+            responder: responder
+        )
     }
 
     // v2BrowserPopDialog and v2BrowserEnsureInitScriptsApplied were drained with
@@ -4960,8 +4928,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// selector, byte-faithful to the former `v2BrowserFrameSelect(params:)`
     /// body. The coordinator owns the `Missing selector` guard, the identity
     /// payload, and the `frame_selector` key. Stays on `TerminalController`
-    /// because it mutates the `private` `v2BrowserFrameSelectorBySurface` cache
-    /// (read by the out-of-scope worker-lane JS-eval methods).
+    /// because it mutates the per-surface frame-selector state (read by the
+    /// out-of-scope worker-lane JS-eval methods).
     func controlBrowserFrameSelect(
         params: [String: JSONValue],
         rawSelector: String
@@ -4983,7 +4951,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 if let dict = value as? [String: Any],
                    let ok = dict["ok"] as? Bool,
                    ok {
-                    v2BrowserFrameSelectorBySurface[surfaceId] = selector
+                    v2BrowserSurfaceState.setFrameSelector(selector, surfaceId: surfaceId)
                     return .selected(
                         workspaceID: resolved.workspace.id,
                         surfaceID: surfaceId,
@@ -5004,7 +4972,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// per-surface pinned frame selector, byte-faithful to the former
     /// `v2BrowserFrameMain(params:)` body. The coordinator owns the identity
     /// payload + the JSON-null `frame_selector`. Stays on `TerminalController`
-    /// because it mutates the `private` `v2BrowserFrameSelectorBySurface` cache.
+    /// because it mutates the per-surface frame-selector state (read by the
+    /// out-of-scope worker-lane JS-eval methods).
     func controlBrowserFrameMain(
         params: [String: JSONValue]
     ) -> ControlBrowserFrameMainResolution {
@@ -5012,7 +4981,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case .failure(let failure):
             return .failed(failure)
         case .success(let resolved):
-            v2BrowserFrameSelectorBySurface.removeValue(forKey: resolved.surfaceId)
+            v2BrowserSurfaceState.clearFrameSelector(surfaceId: resolved.surfaceId)
             return .resolved(
                 workspaceID: resolved.workspace.id,
                 surfaceID: resolved.surfaceId
@@ -5085,12 +5054,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
         let error: V2CallResult?
     }
 
-    private enum V2DownloadFileWaitResult: Sendable {
-        case ready
-        case timeout
-        case watcherSetupFailed(errnoCode: Int32)
-    }
-
     private nonisolated func v2BrowserDownloadWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
         let requestedTimeoutMs = max(
             1,
@@ -5108,7 +5071,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
 
         if let path {
-            switch v2WaitForDownloadFile(path: path, timeout: timeout) {
+            switch BrowserDownloadFileWaiter().wait(forDownloadAt: path, timeout: timeout) {
             case .ready:
                 break
             case .timeout:
@@ -5256,74 +5219,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 
     private func v2PopBrowserDownloadEvent(surfaceId: UUID) -> [String: Any]? {
-        guard let first = v2BrowserDownloadEventsBySurface[surfaceId]?.first else {
-            return nil
-        }
-        var remaining = v2BrowserDownloadEventsBySurface[surfaceId] ?? []
-        remaining.removeFirst()
-        v2BrowserDownloadEventsBySurface[surfaceId] = remaining
-        return first
-    }
-
-    private nonisolated func v2WaitForDownloadFile(path: String, timeout: TimeInterval) -> V2DownloadFileWaitResult {
-        let fm = FileManager.default
-        let pathIsReady = {
-            guard fm.fileExists(atPath: path),
-                  let attrs = try? fm.attributesOfItem(atPath: path),
-                  let size = attrs[.size] as? NSNumber else {
-                return false
-            }
-            return size.intValue > 0
-        }
-        if pathIsReady() {
-            return .ready
-        }
-
-        let watchedPath = URL(fileURLWithPath: path).deletingLastPathComponent().path
-        let fd = open(watchedPath, O_EVTONLY)
-        guard fd >= 0 else {
-            return .watcherSetupFailed(errnoCode: errno)
-        }
-
-        let lock = NSLock()
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var finished = false
-        nonisolated(unsafe) var ready = false
-        let finishOnce: (Bool) -> Void = { value in
-            lock.lock()
-            guard !finished else {
-                lock.unlock()
-                return
-            }
-            finished = true
-            ready = value
-            lock.unlock()
-            semaphore.signal()
-        }
-
-        let watcherQueue = DispatchQueue(label: "com.cmux.browser.download.wait.file")
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: fd,
-            eventMask: [.write, .extend, .attrib, .link, .rename],
-            queue: watcherQueue
-        )
-        source.setEventHandler {
-            if pathIsReady() {
-                finishOnce(true)
-            }
-        }
-        source.setCancelHandler {
-            close(fd)
-        }
-        source.resume()
-        if pathIsReady() {
-            finishOnce(true)
-        }
-        if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            finishOnce(pathIsReady())
-        }
-        source.cancel()
-        return ready ? .ready : .timeout
+        v2BrowserSurfaceState.popDownloadEvent(surfaceId: surfaceId)
     }
 
     private nonisolated func v2WaitForDownloadEvent(surfaceId: UUID, timeout: TimeInterval) -> [String: Any]? {
@@ -5473,8 +5369,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// coordinator emits the `Missing script` param error before this runs and
     /// shapes the identity payload plus `scripts` count. Stays on
     /// `TerminalController` (not the cookies/storage context file) because it
-    /// mutates the `private` per-surface `v2BrowserInitScriptsBySurface` cache,
-    /// which the surface-teardown cleanup also reaches.
+    /// mutates the per-surface init-script state, which the surface-teardown
+    /// cleanup also reaches.
     func controlBrowserAddInitScript(
         params: [String: JSONValue],
         script: String
@@ -5483,9 +5379,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case .failure(let failure):
             return .failed(failure)
         case .success(let resolved):
-            var scripts = v2BrowserInitScriptsBySurface[resolved.surfaceId] ?? []
-            scripts.append(script)
-            v2BrowserInitScriptsBySurface[resolved.surfaceId] = scripts
+            let scriptCount = v2BrowserSurfaceState.appendInitScript(script, surfaceId: resolved.surfaceId)
 
             let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: false)
             resolved.browserPanel.webView.configuration.userContentController.addUserScript(userScript)
@@ -5494,7 +5388,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return .resolved(
                 workspaceID: resolved.workspace.id,
                 surfaceID: resolved.surfaceId,
-                scriptCount: scripts.count
+                scriptCount: scriptCount
             )
         }
     }
@@ -5530,8 +5424,8 @@ class TerminalController: MobileViewportSurfaceLimiting {
     /// evaluates it once, byte-faithful to the former `v2BrowserAddStyle(params:)`
     /// body. The coordinator emits the `Missing css/style content` param error
     /// before this runs and shapes the identity payload plus `styles` count.
-    /// Stays on `TerminalController` because it mutates the `private` per-surface
-    /// `v2BrowserInitStylesBySurface` cache, which surface teardown also reaches.
+    /// Stays on `TerminalController` because it mutates the per-surface init-style
+    /// state, which surface teardown also reaches.
     func controlBrowserAddStyle(
         params: [String: JSONValue],
         css: String
@@ -5540,9 +5434,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         case .failure(let failure):
             return .failed(failure)
         case .success(let resolved):
-            var styles = v2BrowserInitStylesBySurface[resolved.surfaceId] ?? []
-            styles.append(css)
-            v2BrowserInitStylesBySurface[resolved.surfaceId] = styles
+            let styleCount = v2BrowserSurfaceState.appendInitStyle(css, surfaceId: resolved.surfaceId)
 
             let cssLiteral = v2JSONLiteral(css)
             let source = v2BrowserControl.addStyleScript(cssLiteral: cssLiteral)
@@ -5554,7 +5446,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
             return .resolved(
                 workspaceID: resolved.workspace.id,
                 surfaceID: resolved.surfaceId,
-                styleCount: styles.count
+                styleCount: styleCount
             )
         }
     }
@@ -5565,9 +5457,9 @@ class TerminalController: MobileViewportSurfaceLimiting {
     // browser.screencast.start / browser.screencast.stop / browser.input_mouse /
     // browser.input_keyboard / browser.input_touch moved to
     // ControlCommandCoordinator.handleBrowserUnsupported (CmuxControlSocket).
-    // The per-surface unsupported-network-request log stays here
-    // (v2BrowserUnsupportedNetworkRequestsBySurface, cleared on surface
-    // teardown); the coordinator records into / reads it via
+    // The per-surface unsupported-network-request log lives in the
+    // `v2BrowserSurfaceState` automation store (CmuxBrowser), cleared on surface
+    // teardown; the coordinator records into / reads it via
     // ControlBrowserContext.
 
 
