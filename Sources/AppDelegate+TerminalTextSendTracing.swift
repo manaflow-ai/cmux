@@ -3,21 +3,22 @@ import CmuxNotifications
 import Foundation
 
 /// DEBUG-only app-side ``TerminalTextSendTracing`` conformer. Holds the workspace
-/// so it can read live `focusedPanelId`/`focusedTerminalPanel` state, and emits
-/// the byte-identical `cmuxDebugLog` `reactGrab.pasteback h*.*` lines the legacy
-/// inline `sendTextWhenReady` body produced. Only constructed when a
+/// so it can read live `focusedPanelId`/`focusedTerminalPanel` state at emit time,
+/// then hands those values plus the coordinator-supplied values to the package
+/// ``TerminalTextSendTraceLine`` formatter (which owns the byte-exact line shape,
+/// the `shortId` abbreviation, and the `match=` computation) and forwards the
+/// formatted line to the `cmuxDebugLog` sink. Only constructed when a
 /// `preferredPanelID` is present (the reactGrab pasteback flow), matching the
-/// legacy `isReactGrabPasteback` gate.
+/// legacy `isReactGrabPasteback` gate. DEBUG trace output is byte-identical to the
+/// former inline body.
 @MainActor
 final class TerminalTextSendTracer: TerminalTextSendTracing {
     private let tab: Tab
+    private let line: TerminalTextSendTraceLine
 
     init(tab: Tab) {
         self.tab = tab
-    }
-
-    private func shortId(_ id: UUID?) -> String {
-        id.map { String($0.uuidString.prefix(5)) } ?? "nil"
+        self.line = TerminalTextSendTraceLine(workspaceID: tab.id)
     }
 
     func sendStart(
@@ -26,31 +27,22 @@ final class TerminalTextSendTracer: TerminalTextSendTracing {
         surfaceReady: Bool,
         textCount: Int
     ) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h2.send.start " +
-            "workspace=\(shortId(tab.id)) " +
-            "preferred=\(shortId(preferredPanelID)) " +
-            "focused=\(shortId(tab.focusedPanelId)) " +
-            "focusedTerminal=\(shortId(tab.focusedTerminalPanel?.id)) " +
-            "resolved=\(shortId(resolvedPanelID)) " +
-            "surfaceReady=\(surfaceReady ? 1 : 0) len=\(textCount)"
-        )
+        cmuxDebugLog(line.sendStart(
+            preferredPanelID: preferredPanelID,
+            focusedPanelID: tab.focusedPanelId,
+            focusedTerminalPanelID: tab.focusedTerminalPanel?.id,
+            resolvedPanelID: resolvedPanelID,
+            surfaceReady: surfaceReady,
+            textCount: textCount
+        ))
     }
 
     func sendImmediate(targetPanelID: UUID, textCount: Int) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h2.send.immediate " +
-            "workspace=\(shortId(tab.id)) " +
-            "target=\(shortId(targetPanelID)) len=\(textCount)"
-        )
+        cmuxDebugLog(line.sendImmediate(targetPanelID: targetPanelID, textCount: textCount))
     }
 
     func sendSent(targetPanelID: UUID, delayed: Bool, textCount: Int) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h2.send.sent " +
-            "workspace=\(shortId(tab.id)) " +
-            "target=\(shortId(targetPanelID)) mode=\(delayed ? "delayed" : "immediate") len=\(textCount)"
-        )
+        cmuxDebugLog(line.sendSent(targetPanelID: targetPanelID, delayed: delayed, textCount: textCount))
     }
 
     func finishIfReady(
@@ -59,62 +51,37 @@ final class TerminalTextSendTracer: TerminalTextSendTracing {
         surfaceReady: Bool,
         alreadyResolved: Bool
     ) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h2.finishIfReady " +
-            "workspace=\(shortId(tab.id)) " +
-            "preferred=\(shortId(preferredPanelID)) " +
-            "focused=\(shortId(tab.focusedPanelId)) " +
-            "resolved=\(shortId(resolvedPanelID)) " +
-            "surfaceReady=\(surfaceReady ? 1 : 0) alreadyResolved=\(alreadyResolved ? 1 : 0)"
-        )
+        cmuxDebugLog(line.finishIfReady(
+            preferredPanelID: preferredPanelID,
+            focusedPanelID: tab.focusedPanelId,
+            resolvedPanelID: resolvedPanelID,
+            surfaceReady: surfaceReady,
+            alreadyResolved: alreadyResolved
+        ))
     }
 
     func panelsChanged() {
-        cmuxDebugLog(
-            "reactGrab.pasteback h2.panelsChanged " +
-            "workspace=\(shortId(tab.id)) " +
-            "focused=\(shortId(tab.focusedPanelId))"
-        )
+        cmuxDebugLog(line.panelsChanged(focusedPanelID: tab.focusedPanelId))
     }
 
     func surfaceReadyEvent(surfaceID: UUID?, preferredPanelID: UUID?) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h2.surfaceReadyEvent " +
-            "workspace=\(shortId(tab.id)) " +
-            "surface=\(shortId(surfaceID)) " +
-            "target=\(shortId(preferredPanelID)) " +
-            "match=\(surfaceID == preferredPanelID ? 1 : 0)"
-        )
+        cmuxDebugLog(line.surfaceReadyEvent(surfaceID: surfaceID, preferredPanelID: preferredPanelID))
     }
 
     func sendTimeout(preferredPanelID: UUID?) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h2.send.timeout " +
-            "workspace=\(shortId(tab.id)) " +
-            "preferred=\(shortId(preferredPanelID)) " +
-            "focused=\(shortId(tab.focusedPanelId)) " +
-            "focusedTerminal=\(shortId(tab.focusedTerminalPanel?.id))"
-        )
+        cmuxDebugLog(line.sendTimeout(
+            preferredPanelID: preferredPanelID,
+            focusedPanelID: tab.focusedPanelId,
+            focusedTerminalPanelID: tab.focusedTerminalPanel?.id
+        ))
     }
 
     func focusEvent(surfaceID: UUID, preferredPanelID: UUID?) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h1.focusEvent " +
-            "workspace=\(shortId(tab.id)) " +
-            "surface=\(shortId(surfaceID)) " +
-            "target=\(shortId(preferredPanelID)) " +
-            "match=\(surfaceID == preferredPanelID ? 1 : 0)"
-        )
+        cmuxDebugLog(line.focusEvent(surfaceID: surfaceID, preferredPanelID: preferredPanelID))
     }
 
     func firstResponderEvent(surfaceID: UUID, preferredPanelID: UUID?) {
-        cmuxDebugLog(
-            "reactGrab.pasteback h1.firstResponderEvent " +
-            "workspace=\(shortId(tab.id)) " +
-            "surface=\(shortId(surfaceID)) " +
-            "target=\(shortId(preferredPanelID)) " +
-            "match=\(surfaceID == preferredPanelID ? 1 : 0)"
-        )
+        cmuxDebugLog(line.firstResponderEvent(surfaceID: surfaceID, preferredPanelID: preferredPanelID))
     }
 }
 #endif
