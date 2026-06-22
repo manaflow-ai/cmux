@@ -8634,10 +8634,14 @@ private struct SidebarFooterButtons: View {
     let onSendFeedback: () -> Void
     @State private var extensionBrowserAnchorView: NSView?
     @LiveSetting(\.betaFeatures.extensions) private var extensionsExperimentalEnabled
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     var body: some View {
         HStack(spacing: 4) {
-            SidebarHelpMenuButton(onSendFeedback: onSendFeedback)
+            SidebarHelpMenuButton(
+                helpTitle: String(localized: "sidebar.help.button", defaultValue: "Help"),
+                options: helpMenuOptions
+            )
             // The puzzle button opens the extensions browser; it only shows
             // while the experimental Extensions feature is enabled.
             if extensionsExperimentalEnabled {
@@ -8666,214 +8670,127 @@ private struct SidebarFooterButtons: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-}
 
-private enum SidebarHelpMenuAction {
-    case importBrowserData
-    case keyboardShortcuts
-    case docs
-    case changelog
-    case github
-    case githubIssues
-    case discord
-    case checkForUpdates
-    case sendFeedback
-    case welcome
-}
-
-private struct SidebarHelpMenuButton: View {
-    private let docsURL = URL(string: "https://cmux.com/docs")
-    private let changelogURL = URL(string: "https://cmux.com/docs/changelog")
-    private let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
-    private let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
-    private let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
-    private let helpTitle = String(localized: "sidebar.help.button", defaultValue: "Help")
-    private let buttonSize: CGFloat = 22
-    private let iconSize: CGFloat = 11
-    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-
-    let onSendFeedback: () -> Void
-
-    @State private var isPopoverPresented = false
+    private static let docsURL = URL(string: "https://cmux.com/docs")
+    private static let changelogURL = URL(string: "https://cmux.com/docs/changelog")
+    private static let githubURL = URL(string: "https://github.com/manaflow-ai/cmux")
+    private static let githubIssuesURL = URL(string: "https://github.com/manaflow-ai/cmux/issues")
+    private static let discordURL = URL(string: "https://discord.gg/xsgFEVrWCZ")
 
     private var sendFeedbackShortcutHint: String {
         let _ = keyboardShortcutSettingsObserver.revision
         return KeyboardShortcutSettings.shortcut(for: .sendFeedback).displayString
     }
 
-    var body: some View {
-        SidebarFooterIconButton(
-            systemImage: "questionmark.circle",
-            iconSize: iconSize,
-            buttonSize: buttonSize
-        ) {
-            isPopoverPresented.toggle()
-        }
-        .background(ArrowlessPopoverAnchor(
-            isPresented: $isPopoverPresented,
-            preferredEdge: .maxY,
-            detachedGap: 4
-        ) {
-            helpPopover
-        })
-        .accessibilityElement(children: .ignore)
-        .safeHelp(helpTitle)
-        .accessibilityLabel(helpTitle)
-        .accessibilityIdentifier("SidebarHelpMenuButton")
-    }
-
-    private var helpPopover: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            helpOptionRow(
+    /// Builds the ordered help-popover rows, resolving every localized title in
+    /// the app bundle and mapping each row to its app-target effect. External
+    /// links are omitted when their URL fails to construct, matching the legacy
+    /// menu's `if url != nil` gating.
+    private var helpMenuOptions: [SidebarHelpMenuButton.Option] {
+        var options: [SidebarHelpMenuButton.Option] = [
+            SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionWelcome",
                 title: String(localized: "sidebar.help.welcome", defaultValue: "Welcome to cmux!"),
-                action: .welcome,
-                accessibilityIdentifier: "SidebarHelpMenuOptionWelcome",
                 isExternalLink: false
-            )
-            helpOptionRow(
-                title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
-                action: .sendFeedback,
-                accessibilityIdentifier: "SidebarHelpMenuOptionSendFeedback",
-                isExternalLink: false,
-                shortcutHint: sendFeedbackShortcutHint,
-                trailingSystemImage: "bubble.left.and.text.bubble.right"
-            )
-            helpOptionRow(
-                title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
-                action: .keyboardShortcuts,
-                accessibilityIdentifier: "SidebarHelpMenuOptionKeyboardShortcuts",
-                isExternalLink: false
-            )
-            helpOptionRow(
-                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
-                action: .importBrowserData,
-                accessibilityIdentifier: "SidebarHelpMenuOptionImportBrowserData",
-                isExternalLink: false
-            )
-            if docsURL != nil {
-                helpOptionRow(
-                    title: String(localized: "about.docs", defaultValue: "Docs"),
-                    action: .docs,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionDocs",
-                    isExternalLink: true
-                )
-            }
-            if changelogURL != nil {
-                helpOptionRow(
-                    title: String(localized: "sidebar.help.changelog", defaultValue: "Changelog"),
-                    action: .changelog,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionChangelog",
-                    isExternalLink: true
-                )
-            }
-            if githubURL != nil {
-                helpOptionRow(
-                    title: String(localized: "about.github", defaultValue: "GitHub"),
-                    action: .github,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionGitHub",
-                    isExternalLink: true
-                )
-            }
-            if githubIssuesURL != nil {
-                helpOptionRow(
-                    title: String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"),
-                    action: .githubIssues,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionGitHubIssues",
-                    isExternalLink: true
-                )
-            }
-            if discordURL != nil {
-                helpOptionRow(
-                    title: String(localized: "sidebar.help.discord", defaultValue: "Discord"),
-                    action: .discord,
-                    accessibilityIdentifier: "SidebarHelpMenuOptionDiscord",
-                    isExternalLink: true
-                )
-            }
-            helpOptionRow(
-                title: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
-                action: .checkForUpdates,
-                accessibilityIdentifier: "SidebarHelpMenuOptionCheckForUpdates",
-                isExternalLink: false
-            )
-        }
-        .padding(8)
-        .frame(minWidth: 200)
-    }
-
-    private func helpOptionRow(
-        title: String,
-        action: SidebarHelpMenuAction,
-        accessibilityIdentifier: String,
-        isExternalLink: Bool,
-        shortcutHint: String? = nil,
-        trailingSystemImage: String? = nil
-    ) -> some View {
-        SidebarHelpMenuOptionRow(
-            title: title,
-            isExternalLink: isExternalLink,
-            shortcutHint: shortcutHint,
-            trailingSystemImage: trailingSystemImage,
-            accessibilityIdentifier: accessibilityIdentifier
-        ) {
-            isPopoverPresented = false
-            perform(action)
-        }
-    }
-
-    private func perform(_ action: SidebarHelpMenuAction) {
-        switch action {
-        case .importBrowserData:
-            isPopoverPresented = false
-            DispatchQueue.main.async {
-                BrowserDataImportCoordinator.shared.presentImportDialog()
-            }
-        case .keyboardShortcuts:
-            isPopoverPresented = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            ) {
                 Task { @MainActor in
                     if let appDelegate = AppDelegate.shared {
-                        appDelegate.openPreferencesWindow(
-                            debugSource: "sidebarHelpMenu.keyboardShortcuts",
-                            navigationTarget: .keyboardShortcuts
-                        )
-                    } else {
-                        AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+                        appDelegate.openWelcomeWorkspace()
                     }
                 }
-            }
-        case .docs:
-            guard let docsURL else { return }
-            NSWorkspace.shared.open(docsURL)
-        case .changelog:
-            guard let changelogURL else { return }
-            NSWorkspace.shared.open(changelogURL)
-        case .github:
-            guard let githubURL else { return }
-            NSWorkspace.shared.open(githubURL)
-        case .githubIssues:
-            guard let githubIssuesURL else { return }
-            NSWorkspace.shared.open(githubIssuesURL)
-        case .discord:
-            guard let discordURL else { return }
-            NSWorkspace.shared.open(discordURL)
-        case .checkForUpdates:
+            },
+            SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionSendFeedback",
+                title: String(localized: "sidebar.help.sendFeedback", defaultValue: "Send Feedback"),
+                isExternalLink: false,
+                shortcutHint: sendFeedbackShortcutHint,
+                trailingSystemImage: "bubble.left.and.text.bubble.right",
+                action: onSendFeedback
+            ),
+            SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionKeyboardShortcuts",
+                title: String(localized: "settings.section.keyboardShortcuts", defaultValue: "Keyboard Shortcuts"),
+                isExternalLink: false
+            ) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    Task { @MainActor in
+                        if let appDelegate = AppDelegate.shared {
+                            appDelegate.openPreferencesWindow(
+                                debugSource: "sidebarHelpMenu.keyboardShortcuts",
+                                navigationTarget: .keyboardShortcuts
+                            )
+                        } else {
+                            AppDelegate.presentPreferencesWindow(navigationTarget: .keyboardShortcuts)
+                        }
+                    }
+                }
+            },
+            SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionImportBrowserData",
+                title: String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"),
+                isExternalLink: false
+            ) {
+                DispatchQueue.main.async {
+                    BrowserDataImportCoordinator.shared.presentImportDialog()
+                }
+            },
+        ]
+        if let docsURL = Self.docsURL {
+            options.append(SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionDocs",
+                title: String(localized: "about.docs", defaultValue: "Docs"),
+                isExternalLink: true
+            ) {
+                NSWorkspace.shared.open(docsURL)
+            })
+        }
+        if let changelogURL = Self.changelogURL {
+            options.append(SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionChangelog",
+                title: String(localized: "sidebar.help.changelog", defaultValue: "Changelog"),
+                isExternalLink: true
+            ) {
+                NSWorkspace.shared.open(changelogURL)
+            })
+        }
+        if let githubURL = Self.githubURL {
+            options.append(SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionGitHub",
+                title: String(localized: "about.github", defaultValue: "GitHub"),
+                isExternalLink: true
+            ) {
+                NSWorkspace.shared.open(githubURL)
+            })
+        }
+        if let githubIssuesURL = Self.githubIssuesURL {
+            options.append(SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionGitHubIssues",
+                title: String(localized: "sidebar.help.githubIssues", defaultValue: "GitHub Issues"),
+                isExternalLink: true
+            ) {
+                NSWorkspace.shared.open(githubIssuesURL)
+            })
+        }
+        if let discordURL = Self.discordURL {
+            options.append(SidebarHelpMenuButton.Option(
+                id: "SidebarHelpMenuOptionDiscord",
+                title: String(localized: "sidebar.help.discord", defaultValue: "Discord"),
+                isExternalLink: true
+            ) {
+                NSWorkspace.shared.open(discordURL)
+            })
+        }
+        options.append(SidebarHelpMenuButton.Option(
+            id: "SidebarHelpMenuOptionCheckForUpdates",
+            title: String(localized: "command.checkForUpdates.title", defaultValue: "Check for Updates"),
+            isExternalLink: false
+        ) {
             Task { @MainActor in
                 AppDelegate.shared?.checkForUpdates(nil)
             }
-        case .sendFeedback:
-            isPopoverPresented = false
-            onSendFeedback()
-        case .welcome:
-            isPopoverPresented = false
-            Task { @MainActor in
-                if let appDelegate = AppDelegate.shared {
-                    appDelegate.openWelcomeWorkspace()
-                }
-            }
-        }
+        })
+        return options
     }
-
 }
 
 #if DEBUG
