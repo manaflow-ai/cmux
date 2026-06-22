@@ -82,6 +82,7 @@ struct CLICopilotHookFeedTests {
         #expect(hooks["Stop"] == nil, "Copilot must use canonical agentStop/errorOccurred hook names")
         #expect(hooks["SessionEnd"] == nil, "Copilot must use canonical camelCase hook names")
         #expect(hooks["PreToolUse"] == nil, "Copilot must install canonical preToolUse hooks")
+        #expect(hooks["PermissionRequest"] == nil, "Copilot must install canonical permissionRequest hooks")
         let errorOccurred = try #require(hooks["errorOccurred"] as? [[String: Any]])
         #expect(
             errorOccurred.contains {
@@ -102,10 +103,21 @@ struct CLICopilotHookFeedTests {
             },
             "Expected direct preToolUse bash hook with timeout slack, saw \(preToolUse)"
         )
+        let permissionRequest = try #require(hooks["permissionRequest"] as? [[String: Any]])
+        #expect(
+            permissionRequest.contains {
+                ($0["bash"] as? String)?.contains("hooks feed --source copilot --event permissionRequest") == true
+                    && ($0["type"] as? String) == "command"
+                    && ($0["timeoutSec"] as? Int) == 125
+                    && $0["command"] == nil
+                    && $0["hooks"] == nil
+            },
+            "Expected direct permissionRequest bash hook with timeout slack, saw \(permissionRequest)"
+        )
     }
 
     @Test func copilotFeedDecisionEmitsPreToolUsePermissionDecision() throws {
-        func runCopilotDecision(mode: String) throws -> (ProcessRunResult, [String: Any]) {
+        func runCopilotDecision(mode: String, event: String = "preToolUse") throws -> (ProcessRunResult, [String: Any]) {
             let cliPath = try Self.bundledCLIPath()
             let socketPath = Self.makeSocketPath("copilot-feed-decision")
             let listenerFD = try Self.bindUnixSocket(at: socketPath)
@@ -142,7 +154,7 @@ struct CLICopilotHookFeedTests {
 
             let result = Self.runProcess(
                 executablePath: cliPath,
-                arguments: ["hooks", "feed", "--source", "copilot", "--event", "preToolUse"],
+                arguments: ["hooks", "feed", "--source", "copilot", "--event", event],
                 environment: [
                     "HOME": root.path,
                     "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
@@ -196,6 +208,24 @@ struct CLICopilotHookFeedTests {
         #expect(unsupportedOutput["permissionDecision"] as? String == "deny")
         #expect(unsupportedOutput["permissionDecisionReason"] as? String == "User denied permission via cmux Feed.")
         #expect(unsupportedOutput["hookSpecificOutput"] == nil)
+
+        let (permissionAllow, permissionAllowEvent) = try runCopilotDecision(mode: "once", event: "permissionRequest")
+        #expect(!permissionAllow.timedOut, Comment(rawValue: permissionAllow.stderr))
+        #expect(permissionAllow.status == 0, Comment(rawValue: permissionAllow.stderr))
+        #expect(permissionAllowEvent["hook_event_name"] as? String == "PermissionRequest")
+        let permissionAllowOutput = try #require(Self.jsonObject(permissionAllow.stdout))
+        #expect(permissionAllowOutput["behavior"] as? String == "allow")
+        #expect(permissionAllowOutput["permissionDecision"] == nil)
+        #expect(permissionAllowOutput["hookSpecificOutput"] == nil)
+
+        let (permissionDeny, _) = try runCopilotDecision(mode: "deny", event: "permissionRequest")
+        #expect(!permissionDeny.timedOut, Comment(rawValue: permissionDeny.stderr))
+        #expect(permissionDeny.status == 0, Comment(rawValue: permissionDeny.stderr))
+        let permissionDenyOutput = try #require(Self.jsonObject(permissionDeny.stdout))
+        #expect(permissionDenyOutput["behavior"] as? String == "deny")
+        #expect(permissionDenyOutput["message"] as? String == "User denied permission via cmux Feed.")
+        #expect(permissionDenyOutput["permissionDecision"] == nil)
+        #expect(permissionDenyOutput["hookSpecificOutput"] == nil)
     }
 
     private static func bundledCLIPath() throws -> String {

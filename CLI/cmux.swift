@@ -33032,6 +33032,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let out = Self.renderAgentDecision(
                 source: source,
+                rawEventName: rawEvent,
                 hookEventName: hookEventName,
                 toolName: toolName,
                 toolInput: eventDict["tool_input"],
@@ -33093,6 +33094,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// Encodes the user's decision in the agent's expected hook stdout shape.
     private static func renderAgentDecision(
         source: String,
+        rawEventName: String,
         hookEventName: String,
         toolName: String,
         toolInput: Any?,
@@ -33203,10 +33205,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return encode(permissionRequestHookDecision(behavior: "allow"))
             }
             if source == "copilot" {
+                let reason = String(
+                    localized: "cli.hooks.feed.permissionDeniedReason",
+                    defaultValue: "User denied permission via cmux Feed."
+                )
+                if rawEventName == "permissionRequest" || rawEventName == "PermissionRequest" {
+                    if mode == "once" {
+                        return encode(["behavior": "allow"])
+                    }
+                    return encode(["behavior": "deny", "message": reason])
+                }
                 if mode == "once" {
                     return encode(["permissionDecision": "allow"])
                 }
-                let reason = String(localized: "cli.hooks.feed.permissionDeniedReason", defaultValue: "User denied permission via cmux Feed.")
                 return encode(["permissionDecision": "deny", "permissionDecisionReason": reason])
             }
             if source == "hermes-agent" {

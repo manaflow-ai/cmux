@@ -236,6 +236,8 @@ struct FeedEventClassifier {
             // Copilot's canonical hook config uses camelCase event names. Keep
             // the PascalCase spelling for already-installed VS Code compatible
             // hook files.
+            "permissionRequest": .approvalRequest,
+            "PermissionRequest": .approvalRequest,
             "preToolUse": .toolStartMaybeApproval,
             "PreToolUse": .toolStartMaybeApproval,
         ],

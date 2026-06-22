@@ -93,10 +93,12 @@ struct FeedEventClassificationTests {
         #expect(classify("gemini", "PreToolUse", tool: "Read").actionable == false)
     }
 
-    /// Copilot's `preToolUse` hook is the approval gate itself, but it also
-    /// fires before read-only tools. Mutating tools must block with Copilot's
-    /// top-level permission-decision path; read-only tools must fall through.
+    /// Copilot's `permissionRequest` hook blocks before the native permission
+    /// service, and `preToolUse` still gates side-effecting tools before they
+    /// execute. Read-only pre-tool events must fall through as telemetry.
     @Test func copilotPreToolUseIsApprovalRequest() {
+        #expect(classify("copilot", "permissionRequest", tool: "bash").name == "PermissionRequest")
+        #expect(classify("copilot", "permissionRequest", tool: "bash").actionable == true)
         #expect(classify("copilot", "preToolUse", tool: "bash").name == "PermissionRequest")
         #expect(classify("copilot", "preToolUse", tool: "bash").actionable == true)
         #expect(classify("copilot", "preToolUse", tool: "create").actionable == true)
