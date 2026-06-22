@@ -34,11 +34,11 @@ public struct SettingsWindowScene: Scene {
 @MainActor
 public struct SettingsWindowRoot: View {
     let runtime: SettingsRuntime
-    private let searchIndex: SettingsSearchIndex // `SettingsRuntime.catalog` is immutable for this scene lifetime.
+    let searchIndex: SettingsSearchIndex
 
     public init(runtime: SettingsRuntime) {
         self.runtime = runtime
-        self.searchIndex = SettingsSearchIndex(catalog: runtime.catalog)
+        self.searchIndex = runtime.searchIndex
     }
 
     @State private var searchText: String = ""

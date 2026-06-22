@@ -1,4 +1,5 @@
 import CmuxSettings
+import Foundation
 import Testing
 @testable import CmuxSettingsUI
 
@@ -9,6 +10,44 @@ import Testing
 /// it can be tested without touching SwiftUI or AppKit.
 @Suite("SettingsSearchIndex")
 struct SettingsSearchIndexTests {
+    @MainActor
+    @Test func settingsWindowRootsReuseRuntimeCachedIndex() throws {
+        let catalog = SettingCatalog()
+        let suiteName = "SettingsSearchIndexTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let expectedID = "setting:app:issue-3384-cache-sentinel"
+        let searchIndex = SettingsSearchIndex(
+            catalog: catalog,
+            curatedEntries: [
+                .init(
+                    section: .app,
+                    id: "issue-3384-cache-sentinel",
+                    title: "Issue 3384 Cache Sentinel",
+                    synonyms: "issue3384-cache-sentinel"
+                ),
+            ]
+        )
+        let runtime = SettingsRuntime(
+            catalog: catalog,
+            userDefaultsStore: UserDefaultsSettingsStore(defaults: defaults),
+            jsonStore: JSONConfigStore(
+                fileURL: FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).json")
+            ),
+            secretStore: SecretFileStore(
+                baseDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            ),
+            errorLog: SettingsErrorLog(),
+            searchIndex: searchIndex
+        )
+
+        let firstRoot = SettingsWindowRoot(runtime: runtime)
+        let secondRoot = SettingsWindowRoot(runtime: runtime)
+
+        #expect(firstRoot.searchIndex.match("issue3384-cache-sentinel").contains { $0.id == expectedID })
+        #expect(secondRoot.searchIndex.match("issue3384-cache-sentinel").contains { $0.id == expectedID })
+    }
+
     @Test func emptyQueryReturnsAllSectionEntries() {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let result = index.match("")
