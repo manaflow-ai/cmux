@@ -13,94 +13,6 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 }
 #endif
 
-private final class FileExplorerExternalOpenRequest: NSObject {
-    let fileURL: URL
-    let applicationURL: URL?
-
-    init(fileURL: URL, applicationURL: URL?) {
-        self.fileURL = fileURL
-        self.applicationURL = applicationURL
-    }
-}
-
-private func addFileExplorerExternalOpenItems(
-    to menu: NSMenu,
-    fileURL: URL,
-    target: AnyObject,
-    action: Selector
-) {
-    let applications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
-    let primaryApplication = applications.first { $0.isDefault } ?? applications.first
-    let otherApplications = applications.filter { application in
-        application.id != primaryApplication?.id
-    }
-
-    if let primaryApplication {
-        let openItem = NSMenuItem(
-            title: FileExternalOpenText.openInApplication(primaryApplication.displayName),
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(
-            fileURL: fileURL,
-            applicationURL: primaryApplication.url
-        )
-        menu.addItem(openItem)
-
-        guard !otherApplications.isEmpty else { return }
-        let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-        for application in otherApplications {
-            let appItem = NSMenuItem(
-                title: application.displayName,
-                action: action,
-                keyEquivalent: ""
-            )
-            appItem.target = target
-            appItem.representedObject = FileExplorerExternalOpenRequest(
-                fileURL: fileURL,
-                applicationURL: application.url
-            )
-            openWithMenu.addItem(appItem)
-        }
-        let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
-        openWithItem.submenu = openWithMenu
-        menu.addItem(openWithItem)
-    } else {
-        let openItem = NSMenuItem(
-            title: FileExternalOpenText.openExternally,
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
-        menu.addItem(openItem)
-    }
-}
-
-/// Perform the configured double-click action for a FILE in the file explorer.
-///
-/// Shared by every file-activation gesture (the outline view's double-click and
-/// the search results list's double-click / Return) so the behavior stays
-/// consistent across surfaces. Callers must guard for local providers and skip
-/// directories before calling this — only readable local files reach here.
-@MainActor
-private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
-    let action = FileExplorerDoubleClickActionSettings.resolvedAction()
-    let hasPreferredEditor = PreferredEditorSettingsStore(defaults: .standard).resolvedCommand != nil
-    switch FileExplorerDoubleClickActionSettings.fileActivation(
-        action: action,
-        hasPreferredEditorCommand: hasPreferredEditor
-    ) {
-    case .preview:
-        onOpenFilePreview(path)
-    case .defaultEditor:
-        FileExternalOpenAction.openDefault(fileURL: URL(fileURLWithPath: path))
-    case .preferredEditor:
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: path))
-    }
-}
-
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 enum FileExplorerPanelPresentation: Equatable {
@@ -157,6 +69,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         context.coordinator.onFocus = onFocus
         context.coordinator.onContainerChange = onContainerChange
         context.coordinator.onContainerChange?(container)
+        container.updateShortcutPlacement(placement)
         container.updateHeader(store: store)
         container.updatePresentation(presentation)
         context.coordinator.reloadIfNeeded()
@@ -543,7 +456,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
             selectRow(0, in: outlineView, scroll: scroll)
         }
 
-        private func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
+        func resolvedSelectionRow(in outlineView: NSOutlineView) -> Int? {
             if let selectedPath = store.selectedPath,
                let resolution = selectionResolution(for: selectedPath, in: outlineView) {
                 return resolution.row
@@ -630,20 +543,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
             FilePreviewDragPasteboardWriter.discardRegisteredDrag(from: NSPasteboard(name: .drag))
         }
 
-        @MainActor @objc func handleDoubleClick(_ sender: NSOutlineView) {
-            openNode(in: sender, at: sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow)
-        }
-
-        @MainActor private func openNode(in outlineView: NSOutlineView, at row: Int) {
-            guard row >= 0, let node = outlineView.item(atRow: row) as? FileExplorerNode else { return }
-
-            if node.isDirectory {
-                if outlineView.isItemExpanded(node) { outlineView.collapseItem(node) } else if outlineView.isExpandable(node) { outlineView.expandItem(node) }
-                return
-            }
-
-            guard store.provider is LocalFileExplorerProvider else { onOpenFilePreview(node.path); return }
-            performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
+        @MainActor
+        @objc func handleDoubleClick(_ sender: NSOutlineView) {
+            let row = sender.clickedRow >= 0 ? sender.clickedRow : sender.selectedRow
+            openNode(in: sender, at: row)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -658,12 +561,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let isLocal = store.provider is LocalFileExplorerProvider
 
             if !node.isDirectory && isLocal {
-                addFileExplorerExternalOpenItems(
-                    to: menu,
+                FileExplorerExternalOpenMenuItems(
                     fileURL: URL(fileURLWithPath: node.path),
                     target: self,
                     action: #selector(contextMenuOpenExternally(_:))
-                )
+                ).add(to: menu)
             }
 
             if isLocal {
@@ -795,6 +697,7 @@ final class FileExplorerContainerView: NSView {
         self.coordinator = coordinator
 
         super.init(frame: .zero)
+        updateShortcutPlacement(coordinator.placement)
         configureSearchDebounce()
 
         // Header
@@ -1074,6 +977,12 @@ final class FileExplorerContainerView: NSView {
 
     func representedRightSidebarMode() -> RightSidebarMode {
         presentation.rightSidebarMode
+    }
+
+    func updateShortcutPlacement(_ placement: FileExplorerPanelPlacement) {
+        searchField.fileExplorerPanelPlacement = placement
+        outlineView.fileExplorerPanelPlacement = placement
+        searchResultsView.fileExplorerPanelPlacement = placement
     }
 
     func updatePresentation(_ nextPresentation: FileExplorerPanelPresentation) {
@@ -1627,7 +1536,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        guard control === searchField else { return false }
+        guard control === searchField, !textView.hasMarkedText() else { return false }
+        if let event = NSApp.currentEvent, searchField.handleOpenSelectionShortcut(event) { return true }
         switch commandSelector {
         case #selector(NSResponder.insertNewline(_:)):
             guard !textView.hasMarkedText() else { return false }
@@ -1706,12 +1616,11 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        addFileExplorerExternalOpenItems(
-            to: menu,
+        FileExplorerExternalOpenMenuItems(
             fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
             target: self,
             action: #selector(contextMenuOpenSearchResultExternally(_:))
-        )
+        ).add(to: menu)
 
         let revealItem = NSMenuItem(
             title: FileExternalOpenText.revealInFinder,
@@ -1743,632 +1652,5 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         copyRelativePathItem.target = self
         copyRelativePathItem.representedObject = NSNumber(value: row)
         menu.addItem(copyRelativePathItem)
-    }
-}
-
-private final class FileExplorerSearchField: NSSearchField {
-    var onCancel: (() -> Void)?
-    var onMoveSelection: ((Int) -> Void)?
-    var onCommit: (() -> Void)?
-    var onFocus: (() -> Void)?
-
-    override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            onFocus?()
-        }
-        return result
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 {
-            onCancel?()
-            return
-        }
-        if let delta = searchFieldMoveDelta(for: event) {
-            onMoveSelection?(delta)
-            return
-        }
-        if event.keyCode == 36 || event.keyCode == 76 {
-            onCommit?()
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    private func searchFieldMoveDelta(for event: NSEvent) -> Int? {
-        guard event.type == .keyDown else { return nil }
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        let hasCommandOrOption = !flags.intersection([.command, .option]).isEmpty
-        if flags.contains(.control), !hasCommandOrOption {
-            switch event.keyCode {
-            case 45: return 1
-            case 35: return -1
-            default: return nil
-            }
-        }
-        guard flags.intersection([.command, .control, .option]).isEmpty else { return nil }
-        switch event.keyCode {
-        case 125: return 1
-        case 126: return -1
-        default: return nil
-        }
-    }
-}
-
-final class FileExplorerSearchResultsTableView: NSTableView {
-    var onCancel: (() -> Void)?
-    var onMoveSelection: ((Int) -> Void)?
-    var onCommit: (() -> Void)?
-    var onFocus: (() -> Void)?
-    var onModeShortcut: ((RightSidebarMode, NSWindow?) -> Bool)?
-
-    override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            onFocus?()
-            redrawVisibleRows()
-        }
-        return result
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let result = super.resignFirstResponder()
-        if result {
-            redrawVisibleRows()
-        }
-        return result
-    }
-
-    override func keyDown(with event: NSEvent) {
-        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
-            if onModeShortcut?(mode, window) == true {
-                return
-            }
-        }
-        if event.keyCode == 53 {
-            onCancel?()
-            return
-        }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            onMoveSelection?(delta)
-            return
-        }
-        if event.keyCode == 36 || event.keyCode == 76 {
-            onCommit?()
-            return
-        }
-        if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            onMoveSelection?(delta)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-
-    private func redrawVisibleRows() {
-        setNeedsDisplay(bounds)
-        let visibleRows = rows(in: visibleRect)
-        guard visibleRows.location != NSNotFound else { return }
-        let upperBound = min(visibleRows.location + visibleRows.length, numberOfRows)
-        guard visibleRows.location < upperBound else { return }
-        for row in visibleRows.location..<upperBound {
-            rowView(atRow: row, makeIfNecessary: false)?.needsDisplay = true
-        }
-    }
-}
-
-private final class FileExplorerSearchResultCellView: NSTableCellView {
-    private let pathLabel = NSTextField(labelWithString: "")
-    private let previewLabel = NSTextField(labelWithString: "")
-    static var preferredRowHeight: CGFloat { max(46, ceil(13 + lineHeight(for: GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)) + lineHeight(for: GlobalFontMagnification.monospacedSystemFont(ofSize: 11, weight: .regular)))) }
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupViews() {
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        pathLabel.textColor = .labelColor
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-
-        previewLabel.translatesAutoresizingMaskIntoConstraints = false
-        previewLabel.textColor = .secondaryLabelColor
-        previewLabel.lineBreakMode = .byTruncatingTail
-        previewLabel.maximumNumberOfLines = 1
-
-        addSubview(pathLabel)
-        addSubview(previewLabel)
-
-        NSLayoutConstraint.activate([
-            pathLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            pathLabel.topAnchor.constraint(equalTo: topAnchor, constant: 5),
-
-            previewLabel.leadingAnchor.constraint(equalTo: pathLabel.leadingAnchor),
-            previewLabel.trailingAnchor.constraint(equalTo: pathLabel.trailingAnchor),
-            previewLabel.topAnchor.constraint(equalTo: pathLabel.bottomAnchor, constant: 2),
-        ])
-    }
-
-    func configure(with result: FileSearchResult) {
-        pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .semibold)
-        previewLabel.font = GlobalFontMagnification.monospacedSystemFont(ofSize: 11, weight: .regular)
-        pathLabel.stringValue = "\(result.relativePath):\(result.lineNumber)"
-        previewLabel.stringValue = result.preview.isEmpty ? " " : result.preview
-        toolTip = "\(result.path):\(result.lineNumber):\(result.columnNumber)"
-    }
-
-    private static func lineHeight(for font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) }
-}
-
-// MARK: - Header View (AppKit)
-
-/// Pure AppKit header bar with folder icon, path label, and hidden files toggle.
-final class FileExplorerHeaderView: NSView {
-    private let iconView = NSImageView()
-    private let pathLabel = NSTextField(labelWithString: "")
-    private var displayPath = ""
-    private var quickSearchQuery: String?
-
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func setupViews() {
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.contentTintColor = .secondaryLabelColor
-
-        pathLabel.translatesAutoresizingMaskIntoConstraints = false
-        applyFonts()
-        pathLabel.textColor = .secondaryLabelColor
-        pathLabel.lineBreakMode = .byTruncatingMiddle
-        pathLabel.maximumNumberOfLines = 1
-        pathLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-
-        addSubview(iconView)
-        addSubview(pathLabel)
-
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: RightSidebarChromeMetrics.secondaryBarHeight),
-
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 14),
-            iconView.heightAnchor.constraint(equalToConstant: 14),
-
-            pathLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4),
-            pathLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-        ])
-        applyHeaderState()
-    }
-
-    func applyFonts() {
-        pathLabel.font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .medium)
-    }
-
-    func update(displayPath: String) {
-        guard self.displayPath != displayPath else { return }
-        self.displayPath = displayPath
-        applyHeaderState()
-    }
-
-    func updateQuickSearch(query: String?) {
-        guard quickSearchQuery != query else { return }
-        quickSearchQuery = query
-        applyHeaderState()
-    }
-
-    private func applyHeaderState() {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-        if let quickSearchQuery {
-            iconView.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
-            pathLabel.stringValue = "/" + quickSearchQuery
-            pathLabel.toolTip = pathLabel.stringValue
-        } else {
-            iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config)
-            pathLabel.stringValue = displayPath
-            pathLabel.toolTip = displayPath
-        }
-    }
-}
-
-// MARK: - Cell View
-
-final class FileExplorerCellView: NSTableCellView {
-    private let iconView = NSImageView()
-    private let nameLabel = NSTextField(labelWithString: "")
-    private let loadingIndicator = NSProgressIndicator()
-    private var trackingArea: NSTrackingArea?
-    var onHover: ((Bool) -> Void)?
-    private var nameLabelTrailingToLoadingConstraint: NSLayoutConstraint!
-    private var nameLabelTrailingToContainerConstraint: NSLayoutConstraint!
-
-    init(identifier: NSUserInterfaceItemIdentifier) {
-        super.init(frame: .zero)
-        self.identifier = identifier
-        setupViews()
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private var iconWidthConstraint: NSLayoutConstraint!
-    private var iconHeightConstraint: NSLayoutConstraint!
-    private var iconToTextConstraint: NSLayoutConstraint!
-    private var loadingWidthConstraint: NSLayoutConstraint!
-
-    private func setupViews() {
-        iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.imageScaling = .scaleProportionallyDown
-
-        nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        nameLabel.textColor = .labelColor
-        nameLabel.lineBreakMode = .byTruncatingTail
-        nameLabel.maximumNumberOfLines = 1
-
-        loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
-        loadingIndicator.style = .spinning
-        loadingIndicator.controlSize = .small
-        loadingIndicator.isHidden = true
-        loadingIndicator.setAccessibilityIdentifier("FileExplorerLoadingIndicator")
-
-        addSubview(iconView)
-        addSubview(nameLabel)
-        addSubview(loadingIndicator)
-
-        iconWidthConstraint = iconView.widthAnchor.constraint(equalToConstant: 16)
-        iconHeightConstraint = iconView.heightAnchor.constraint(equalToConstant: 16)
-        iconToTextConstraint = nameLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 4)
-        loadingWidthConstraint = loadingIndicator.widthAnchor.constraint(equalToConstant: 0)
-
-        NSLayoutConstraint.activate([
-            iconView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 0),
-            iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconWidthConstraint,
-            iconHeightConstraint,
-
-            iconToTextConstraint,
-            nameLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            loadingIndicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
-            loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
-            loadingWidthConstraint,
-            loadingIndicator.heightAnchor.constraint(equalToConstant: 12),
-        ])
-
-        nameLabelTrailingToLoadingConstraint = nameLabel.trailingAnchor.constraint(
-            equalTo: loadingIndicator.leadingAnchor,
-            constant: -2
-        )
-        nameLabelTrailingToContainerConstraint = nameLabel.trailingAnchor.constraint(
-            equalTo: trailingAnchor,
-            constant: -2
-        )
-        NSLayoutConstraint.activate([
-            nameLabelTrailingToLoadingConstraint,
-            nameLabelTrailingToContainerConstraint
-        ])
-        nameLabelTrailingToLoadingConstraint.isActive = false
-    }
-
-    func configure(with node: FileExplorerNode, gitStatus: GitFileStatus? = nil) {
-        assert(Thread.isMainThread, "AppKit image updates must run on the main thread")
-        let style = FileExplorerStyle.current
-        nameLabel.stringValue = node.name
-        nameLabel.font = style.nameFont
-        iconWidthConstraint.constant = style.iconSize
-        iconHeightConstraint.constant = style.iconSize
-        iconToTextConstraint.constant = style.iconToTextSpacing
-
-        if style == .finder {
-            if node.isDirectory {
-                let folderIcon = NSWorkspace.shared.icon(for: .folder)
-                folderIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = folderIcon
-                iconView.contentTintColor = nil
-            } else {
-                let fileIcon = NSWorkspace.shared.icon(forFileType: (node.name as NSString).pathExtension)
-                fileIcon.size = NSSize(width: style.iconSize, height: style.iconSize)
-                iconView.image = fileIcon
-                iconView.contentTintColor = nil
-            }
-        } else {
-            let symbolConfig = NSImage.SymbolConfiguration(pointSize: style.iconSize, weight: style.iconWeight)
-            if node.isDirectory {
-                iconView.image = NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.folderIconTint
-            } else {
-                iconView.image = NSImage(systemSymbolName: "doc", accessibilityDescription: nil)?
-                    .withSymbolConfiguration(symbolConfig)
-                iconView.contentTintColor = style.fileIconTint
-            }
-        }
-
-        if node.isLoading {
-            loadingWidthConstraint.constant = 12
-            loadingIndicator.isHidden = false
-            loadingIndicator.startAnimation(nil)
-            nameLabelTrailingToLoadingConstraint.isActive = true
-            nameLabelTrailingToContainerConstraint.isActive = false
-        } else {
-            loadingWidthConstraint.constant = 0
-            loadingIndicator.isHidden = true
-            loadingIndicator.stopAnimation(nil)
-            nameLabelTrailingToLoadingConstraint.isActive = false
-            nameLabelTrailingToContainerConstraint.isActive = true
-        }
-
-        if let error = node.error {
-            nameLabel.textColor = .systemRed
-            nameLabel.toolTip = error
-        } else if let gitStatus {
-            nameLabel.textColor = style.gitColor(for: gitStatus)
-            nameLabel.toolTip = node.path
-        } else {
-            nameLabel.textColor = .labelColor
-            nameLabel.toolTip = node.path
-        }
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let existing = trackingArea {
-            removeTrackingArea(existing)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInActiveApp],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        onHover?(true)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        onHover?(false)
-    }
-}
-
-// MARK: - Non-Animating Outline View
-
-/// NSOutlineView subclass that disables expand/collapse animations and adds leading margin.
-final class FileExplorerNSOutlineView: NSOutlineView {
-    /// Leading margin applied to disclosure triangles and content.
-    static let leadingMargin: CGFloat = 8
-    var onQuickSearchChanged: ((String?) -> Void)?
-    private var quickSearchActive = false
-    private var quickSearchQuery = ""
-
-    override func keyDown(with event: NSEvent) {
-        if let mode = AppDelegate.shared?.rightSidebarModeShortcut(for: event) {
-            if fileExplorerCoordinator?.handleModeShortcut(mode, in: window) == true {
-                return
-            }
-        }
-
-        if quickSearchActive, handleQuickSearchKey(event) {
-            return
-        }
-
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            endQuickSearch()
-            fileExplorerCoordinator?.moveSelection(in: self, by: delta)
-            return
-        }
-
-        if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
-            endQuickSearch()
-            fileExplorerCoordinator?.performDisclosureAction(action, in: self)
-            return
-        }
-
-        if RightSidebarKeyboardNavigation.isOpenSelection(event) { endQuickSearch(); fileExplorerCoordinator?.openSelectedItem(in: self); return }
-
-        if RightSidebarKeyboardNavigation.isPlainSlash(event) {
-            beginQuickSearch()
-            return
-        }
-
-        if RightSidebarKeyboardNavigation.isPlainPrintableText(event) {
-            return
-        }
-        super.keyDown(with: event)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if quickSearchActive, handleQuickSearchKey(event) {
-            return true
-        }
-        if let delta = RightSidebarKeyboardNavigation.moveDelta(for: event) {
-            endQuickSearch()
-            fileExplorerCoordinator?.moveSelection(in: self, by: delta)
-            return true
-        }
-        if let action = RightSidebarKeyboardNavigation.disclosureAction(for: event) {
-            endQuickSearch()
-            fileExplorerCoordinator?.performDisclosureAction(action, in: self)
-            return true
-        }
-        if RightSidebarKeyboardNavigation.isOpenSelection(event) { endQuickSearch(); fileExplorerCoordinator?.openSelectedItem(in: self); return true }
-        return super.performKeyEquivalent(with: event)
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let result = super.becomeFirstResponder()
-        if result {
-            redrawVisibleRows()
-        }
-        return result
-    }
-
-    override func resignFirstResponder() -> Bool {
-        let result = super.resignFirstResponder()
-        if result {
-            endQuickSearch()
-            redrawVisibleRows()
-        }
-        return result
-    }
-
-    override func expandItem(_ item: Any?, expandChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.expandItem(item, expandChildren: expandChildren)
-        NSAnimationContext.endGrouping()
-    }
-
-    override func collapseItem(_ item: Any?, collapseChildren: Bool) {
-        NSAnimationContext.beginGrouping()
-        NSAnimationContext.current.duration = 0
-        super.collapseItem(item, collapseChildren: collapseChildren)
-        NSAnimationContext.endGrouping()
-    }
-
-    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
-        var frame = super.frameOfOutlineCell(atRow: row)
-        frame.origin.x += Self.leadingMargin
-        return frame
-    }
-
-    override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
-        var frame = super.frameOfCell(atColumn: column, row: row)
-        let cellShift: CGFloat = Self.leadingMargin - 6
-        frame.origin.x += cellShift
-        frame.size.width -= cellShift
-        return frame
-    }
-
-    private func redrawVisibleRows() {
-        setNeedsDisplay(bounds)
-        let visibleRows = rows(in: visibleRect)
-        guard visibleRows.location != NSNotFound else { return }
-        let upperBound = min(visibleRows.location + visibleRows.length, numberOfRows)
-        guard visibleRows.location < upperBound else { return }
-        for row in visibleRows.location..<upperBound {
-            rowView(atRow: row, makeIfNecessary: false)?.needsDisplay = true
-        }
-    }
-
-    private var fileExplorerCoordinator: FileExplorerPanelView.Coordinator? {
-        dataSource as? FileExplorerPanelView.Coordinator
-    }
-
-    private func beginQuickSearch() {
-        quickSearchActive = true
-        quickSearchQuery = ""
-        onQuickSearchChanged?(quickSearchQuery)
-    }
-
-    private func endQuickSearch() {
-        guard quickSearchActive || !quickSearchQuery.isEmpty else { return }
-        quickSearchActive = false
-        quickSearchQuery = ""
-        onQuickSearchChanged?(nil)
-    }
-
-    private func handleQuickSearchKey(_ event: NSEvent) -> Bool {
-        if event.keyCode == 53 {
-            endQuickSearch()
-            return true
-        }
-        if event.keyCode == 36 || event.keyCode == 76 {
-            endQuickSearch()
-            return true
-        }
-        if event.keyCode == 51 {
-            if !quickSearchQuery.isEmpty {
-                quickSearchQuery.removeLast()
-                onQuickSearchChanged?(quickSearchQuery)
-                fileExplorerCoordinator?.selectBestQuickSearchMatch(in: self, query: quickSearchQuery)
-            }
-            return true
-        }
-        guard RightSidebarKeyboardNavigation.isPlainPrintableText(event) else {
-            return false
-        }
-        guard let text = event.charactersIgnoringModifiers, !text.isEmpty else {
-            return true
-        }
-        quickSearchQuery += text
-        onQuickSearchChanged?(quickSearchQuery)
-        fileExplorerCoordinator?.selectBestQuickSearchMatch(in: self, query: quickSearchQuery)
-        return true
-    }
-}
-
-// MARK: - Row View
-
-final class FileExplorerRowView: NSTableRowView {
-    override func drawSelection(in dirtyRect: NSRect) {
-        guard isSelected else { return }
-        let style = FileExplorerStyle.current
-        let focused = isKeyboardFocusActive
-        let inset = style.selectionInset
-        let insetRect = bounds.insetBy(dx: inset, dy: inset > 0 ? 1 : 0)
-        let path = NSBezierPath(
-            roundedRect: insetRect,
-            xRadius: style.selectionRadius,
-            yRadius: style.selectionRadius
-        )
-
-        selectionFillColor(isFocused: focused).setFill()
-        path.fill()
-    }
-
-    private var isKeyboardFocusActive: Bool {
-        guard let outlineView = enclosingOutlineView else { return false }
-        return window?.isKeyWindow == true && window?.firstResponder === outlineView
-    }
-
-    private var enclosingOutlineView: NSOutlineView? {
-        var view = superview
-        while let candidate = view {
-            if let outlineView = candidate as? NSOutlineView {
-                return outlineView
-            }
-            view = candidate.superview
-        }
-        return nil
-    }
-
-    private func selectionFillColor(isFocused: Bool) -> NSColor {
-        if isFocused {
-            return .controlAccentColor.withAlphaComponent(0.20)
-        }
-        return .labelColor.withAlphaComponent(0.08)
-    }
-
-    override var interiorBackgroundStyle: NSView.BackgroundStyle {
-        isSelected && isKeyboardFocusActive ? .emphasized : .normal
     }
 }
