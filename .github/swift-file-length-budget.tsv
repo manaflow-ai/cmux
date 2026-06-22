@@ -18,13 +18,13 @@
 6220	cmuxTests/GhosttyConfigTests.swift
 6165	Sources/TabManager.swift
 6084	Sources/TextBoxInput.swift
-6060	cmuxTests/TerminalAndGhosttyTests.swift
+6074	cmuxTests/TerminalAndGhosttyTests.swift
 5573	cmuxTests/BrowserConfigTests.swift
 5566	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4487	Sources/Panels/FilePreviewPanel.swift
 4478	Sources/cmuxApp.swift
-4570	cmuxTests/BrowserPanelTests.swift
-4337	Sources/BrowserWindowPortal.swift
+4595	cmuxTests/BrowserPanelTests.swift
+4338	Sources/BrowserWindowPortal.swift
 3934	Sources/Feed/FeedPanelView.swift
 3926	cmuxTests/TabManagerUnitTests.swift
 3896	cmuxTests/WindowAndDragTests.swift
@@ -41,7 +41,7 @@
 2524	cmuxTests/CommandPaletteSearchEngineTests.swift
 2395	Sources/Mobile/MobileHostService.swift
 2328	cmuxTests/CJKIMEInputTests.swift
-2359	Sources/TerminalWindowPortal.swift
+2360	Sources/TerminalWindowPortal.swift
 2257	Sources/TerminalNotificationStore.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2103	Sources/SessionPersistence.swift

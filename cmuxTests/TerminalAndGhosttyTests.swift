@@ -3961,6 +3961,20 @@ final class WindowTerminalHostViewTests: XCTestCase {
             buildCountAfterWarmHit,
             "Hidden split views should invalidate cached terminal divider regions on the next pointer hit"
         )
+        let buildCountAfterHiddenHit = host.debugDividerRegionBuildCountForTesting
+
+        splitView.isHidden = false
+        contentView.layoutSubtreeIfNeeded()
+
+        XCTAssertNil(
+            host.hitTest(dividerPointInHost),
+            "Revealed split dividers should become interactive again without waiting for a resize notification"
+        )
+        XCTAssertGreaterThan(
+            host.debugDividerRegionBuildCountForTesting,
+            buildCountAfterHiddenHit,
+            "Empty terminal divider caches should be rebuilt after hidden split views are revealed"
+        )
 #else
         throw XCTSkip("Debug-only regression test")
 #endif

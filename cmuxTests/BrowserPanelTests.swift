@@ -1540,6 +1540,31 @@ final class WindowBrowserHostViewTests: XCTestCase {
             buildCountAfterInvalidation,
             "Browser divider hit-testing should reuse regions again after the invalidation rebuild"
         )
+
+        splitView.isHidden = true
+        contentView.layoutSubtreeIfNeeded()
+        XCTAssertTrue(
+            host.hitTest(movedDividerPointInHost) === child,
+            "Hidden app split dividers must not keep stale browser pass-through regions active"
+        )
+        let buildCountAfterHiddenHit = host.debugDividerRegionBuildCountForTesting
+        XCTAssertGreaterThan(
+            buildCountAfterHiddenHit,
+            buildCountAfterInvalidation,
+            "Hidden split views should invalidate cached browser divider regions on the next pointer hit"
+        )
+
+        splitView.isHidden = false
+        contentView.layoutSubtreeIfNeeded()
+        XCTAssertNil(
+            host.hitTest(movedDividerPointInHost),
+            "Revealed app split dividers should pass through again without waiting for a resize notification"
+        )
+        XCTAssertGreaterThan(
+            host.debugDividerRegionBuildCountForTesting,
+            buildCountAfterHiddenHit,
+            "Empty browser divider caches should be rebuilt after hidden split views are revealed"
+        )
 #else
         throw XCTSkip("Debug-only regression test")
 #endif

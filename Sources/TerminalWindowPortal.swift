@@ -459,6 +459,7 @@ final class WindowTerminalHostView: NSView {
     private func refreshedCachedDividerRegions(in rootView: NSView) -> [DividerRegion]? {
         guard cachedDividerRegionGeneration == dividerRegionCacheGeneration,
               cachedDividerRegionRootView === rootView,
+              !cachedDividerRegions.isEmpty,
               let window,
               rootView.window === window,
               !Self.isHiddenOrAncestorHidden(rootView) else {
