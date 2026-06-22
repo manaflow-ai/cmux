@@ -468,7 +468,6 @@ actor MobileCoreRPCSession {
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
         cont.resume(returning: .failure(error))
     }
-
     private func cancelPendingRequest(requestID: String) {
         guard let cont = pending.removeValue(forKey: requestID) else { return }
         requestTimeoutTasks.removeValue(forKey: requestID)?.cancel()
@@ -497,5 +496,4 @@ actor MobileCoreRPCSession {
         queuedWriteIDs[write.requestID] = nil
         return pending[write.requestID] != nil
     }
-
 }

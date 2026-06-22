@@ -9,85 +9,11 @@ import Testing
 @testable import cmux
 #endif
 
-private func XCTAssertFalse(
-    _ expression: @autoclosure () throws -> Bool,
-    _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try !expression(), Comment(rawValue: message()))
-}
-
-private func XCTAssertTrue(
-    _ expression: @autoclosure () throws -> Bool,
-    _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try expression(), Comment(rawValue: message()))
-}
-
-private func XCTAssertEqual<T: Equatable>(
-    _ lhs: @autoclosure () throws -> T,
-    _ rhs: @autoclosure () throws -> T,
-    _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try lhs() == rhs(), Comment(rawValue: message()))
-}
-
-private func XCTAssertNotEqual<T: Equatable>(
-    _ lhs: @autoclosure () throws -> T,
-    _ rhs: @autoclosure () throws -> T,
-    _ message: @autoclosure () -> String = ""
-) rethrows {
-    #expect(try lhs() != rhs(), Comment(rawValue: message()))
-}
-
-private func XCTUnwrap<T>(
-    _ expression: @autoclosure () throws -> T?,
-    _ message: @autoclosure () -> String = ""
-) throws -> T {
-    try #require(try expression(), Comment(rawValue: message()))
-}
-
 struct CMUXCLIErrorOutputRegressionTests {
-    private final class TestExpectation {
-        let description: String
-        var expectedFulfillmentCount = 1
-
-        private let semaphore = DispatchSemaphore(value: 0)
-
-        init(description: String) {
-            self.description = description
-        }
-
-        func fulfill() {
-            semaphore.signal()
-        }
-
-        func wait(timeout: TimeInterval) -> Bool {
-            for _ in 0..<expectedFulfillmentCount {
-                if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-                    return false
-                }
-            }
-            return true
-        }
-    }
-
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let timedOut: Bool
-    }
-
-    private func expectation(description: String) -> TestExpectation {
-        TestExpectation(description: description)
-    }
-
-    private func wait(for expectations: [TestExpectation], timeout: TimeInterval) {
-        for expectation in expectations {
-            #expect(
-                expectation.wait(timeout: timeout),
-                Comment(rawValue: "Timed out waiting for \(expectation.description)")
-            )
-        }
     }
 
     @Test func testCLIErrorPathDoesNotCrashWhenStderrIsClosed() throws {
@@ -124,79 +50,6 @@ struct CMUXCLIErrorOutputRegressionTests {
             XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.stdout)
             XCTAssertFalse(result.stdout.contains("Failed to launch"), result.stdout)
         }
-    }
-
-    @Test func testSessionsListReportsCodexIdsMissingFromCodexStore() throws {
-        let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-sessions-list-\(UUID().uuidString)", isDirectory: true)
-        let stateDir = root.appendingPathComponent("state", isDirectory: true)
-        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
-        try FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let sessionId = "019ee74a-3c84-7de3-84f1-ece32f4ecfbb"
-        let workspaceId = "workspace-debug"
-        let surfaceId = "surface-debug"
-        let store: [String: Any] = [
-            "version": 1,
-            "activeSessionsByWorkspace": [
-                workspaceId: [
-                    "sessionId": sessionId,
-                    "updatedAt": 1_781_996_867.0
-                ]
-            ],
-            "activeSessionsBySurface": [
-                surfaceId: [
-                    "sessionId": sessionId,
-                    "updatedAt": 1_781_996_867.0
-                ]
-            ],
-            "sessions": [
-                sessionId: [
-                    "sessionId": sessionId,
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "cwd": "/tmp/cmux/debug",
-                    "startedAt": 1_781_996_800.0,
-                    "updatedAt": 1_781_996_867.0
-                ]
-            ]
-        ]
-        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
-
-        var environment = ProcessInfo.processInfo.environment
-        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
-            environment.removeValue(forKey: key)
-        }
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_AGENT_HOOK_STATE_DIR"] = stateDir.path
-        environment["CODEX_HOME"] = codexHome.path
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["sessions", "list", "--agent", "codex", "--session", sessionId, "--json"],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        let outputData = try XCTUnwrap(result.stdout.data(using: .utf8))
-        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: outputData) as? [String: Any])
-        XCTAssertEqual(object["total_matches"] as? Int, 1)
-        let sessions = try XCTUnwrap(object["sessions"] as? [[String: Any]])
-        let session = try XCTUnwrap(sessions.first)
-        XCTAssertEqual(session["session_id"] as? String, sessionId)
-        XCTAssertEqual(session["workspace_id"] as? String, workspaceId)
-        XCTAssertEqual(session["surface_id"] as? String, surfaceId)
-        XCTAssertEqual(session["active_for_workspace"] as? Bool, true)
-        XCTAssertEqual(session["active_for_surface"] as? Bool, true)
-        XCTAssertEqual(session["codex_indexed"] as? Bool, false)
-        XCTAssertEqual(session["codex_transcript_found"] as? Bool, false)
-        XCTAssertEqual(session["session_home"] as? String, codexHome.path)
     }
 
     @Test func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
@@ -1412,7 +1265,7 @@ struct CMUXCLIErrorOutputRegressionTests {
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
-    private func bundledCLIPath() throws -> String {
+    func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: Self.self)
     }
 
@@ -1569,7 +1422,7 @@ struct CMUXCLIErrorOutputRegressionTests {
         )
     }
 
-    private func runProcess(
+    func runProcess(
         executablePath: String,
         arguments: [String],
         environment: [String: String],

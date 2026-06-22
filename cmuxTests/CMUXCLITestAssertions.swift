@@ -1,0 +1,76 @@
+import Foundation
+import Testing
+
+func XCTAssertFalse(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = ""
+) rethrows {
+    #expect(try !expression(), Comment(rawValue: message()))
+}
+
+func XCTAssertTrue(
+    _ expression: @autoclosure () throws -> Bool,
+    _ message: @autoclosure () -> String = ""
+) rethrows {
+    #expect(try expression(), Comment(rawValue: message()))
+}
+
+func XCTAssertEqual<T: Equatable>(
+    _ lhs: @autoclosure () throws -> T,
+    _ rhs: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = ""
+) rethrows {
+    #expect(try lhs() == rhs(), Comment(rawValue: message()))
+}
+
+func XCTAssertNotEqual<T: Equatable>(
+    _ lhs: @autoclosure () throws -> T,
+    _ rhs: @autoclosure () throws -> T,
+    _ message: @autoclosure () -> String = ""
+) rethrows {
+    #expect(try lhs() != rhs(), Comment(rawValue: message()))
+}
+
+func XCTUnwrap<T>(
+    _ expression: @autoclosure () throws -> T?,
+    _ message: @autoclosure () -> String = ""
+) throws -> T {
+    try #require(try expression(), Comment(rawValue: message()))
+}
+
+final class CMUXTestExpectation {
+    let description: String
+    var expectedFulfillmentCount = 1
+
+    private let semaphore = DispatchSemaphore(value: 0)
+
+    init(description: String) {
+        self.description = description
+    }
+
+    func fulfill() {
+        semaphore.signal()
+    }
+
+    func wait(timeout: TimeInterval) -> Bool {
+        for _ in 0..<expectedFulfillmentCount {
+            if semaphore.wait(timeout: .now() + timeout) == .timedOut {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+func expectation(description: String) -> CMUXTestExpectation {
+    CMUXTestExpectation(description: description)
+}
+
+func wait(for expectations: [CMUXTestExpectation], timeout: TimeInterval) {
+    for expectation in expectations {
+        #expect(
+            expectation.wait(timeout: timeout),
+            Comment(rawValue: "Timed out waiting for \(expectation.description)")
+        )
+    }
+}
