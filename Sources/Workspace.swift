@@ -3417,9 +3417,8 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     // witness; every other access stays within this file.
     var suppressClosedPanelHistory = false
 
-    /// Panel IDs that were in a pane when a pane-close operation was approved.
-    /// Bonsplit pane-close does not emit per-tab didClose callbacks.
-    private var pendingPaneClosePanelIds: [UUID: [UUID]] = [:]
+    /// Pane-close panel ids now live on `splitLifecycle.pendingPaneClosePanelIds`;
+    /// this map stays here because it holds the app-target `ClosedPanelHistoryEntry`.
     private var pendingPaneCloseHistoryEntries: [UUID: [ClosedPanelHistoryEntry]] = [:]
     /// Stages recently-closed browser restore snapshots for `Cmd+Shift+T`. Owns
     /// the per-tab pending map and the snapshot-build decision (lifted to
@@ -10864,7 +10863,7 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
-        let closedPanelIds = pendingPaneClosePanelIds.removeValue(forKey: paneId.id) ?? []
+        let closedPanelIds = splitLifecycle.consumePaneClosePanelIds(forClosed: paneId.id)
         let closedHistoryEntries = pendingPaneCloseHistoryEntries.removeValue(forKey: paneId.id) ?? []
         let shouldScheduleFocusReconcile = !isDetachingCloseTransaction
 
@@ -10923,13 +10922,13 @@ extension Workspace: BonsplitDelegate {
                    requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
                    source: .shortcut
                ) {
-                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                splitLifecycle.clearPaneClosePanelIds(forPane: pane.id)
                 pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
                 return false
             }
         }
         let panelIds = tabs.compactMap { panelIdFromSurfaceId($0.id) }
-        pendingPaneClosePanelIds[pane.id] = panelIds
+        splitLifecycle.recordPaneClosePanelIds(panelIds, forPane: pane.id)
         if suppressClosedPanelHistory || isDetachingCloseTransaction {
             pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
         } else {
