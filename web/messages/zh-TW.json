@@ -484,6 +484,16 @@
         "fullHistoryTitle": "完整的歷史記錄面板",
         "fullHistoryP": "當你需要的不只最後一項時，開啟完整的歷史記錄面板：它依日期分組、可搜尋，列出你關閉和聚焦過的所有內容，附有時間戳記，還有 Clear Closed 操作。",
         "docsCta": "查看<link>鍵盤快捷鍵</link>了解完整清單，包括如何重新綁定歷史記錄導覽。"
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
+        "date": "June 23, 2026",
+        "p1": "People keep asking whether we'll add git worktrees to cmux. We're not going to, because we don't want to impose worktrees on everyone. cmux is <link>a primitive, not a solution</link>.",
+        "p2": "Everyone works differently. Some projects live across several git repos. Some people keep many checkouts of the same repo (my cofounder has clones named cmux0 through cmux40, for reasons I still don't understand). Some people default to SSH and remote development.",
+        "p3": "cmux is just terminals and browsers, with a CLI to drive them. You can write a few bash scripts to manage worktrees, juggle multiple checkouts, or open remote sessions, and lay out your workspace however fits your head.",
+        "p4": "cmux should bend to your workflow instead of forcing one on you. We want cmux to feel like home.",
+        "p5": "<link>cmux-home</link> is one example of what that looks like. It's a small Rust TUI that starts Claude and Codex workspaces and watches their live status, built entirely on cmux primitives. The launcher uses command templates, so you can swap in your own scripts for creating worktrees, picking a checkout, or SSHing into a VM. Fork it and make it yours."
       }
     },
     "zenOfCmux": {
@@ -613,6 +623,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history：重新開啟已關閉的終端機和工作階段",
       "metaDescription": "cmux 會記錄你關閉和聚焦過的內容。用 Cmd+Shift+T 重新開啟已關閉的終端機、瀏覽器、工作區，以及 Claude Code、Codex 和 OpenCode 工作階段，並用 Cmd+[ 和 Cmd+] 在聚焦之間前後切換。"
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux won't impose worktrees on you. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make cmux feel like home."
     }
   },
   "docs": {
