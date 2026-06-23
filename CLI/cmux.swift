@@ -3842,6 +3842,37 @@ struct CMUXCLI {
         case "remotes", "remote":
             try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "mobile":
+            let sub = commandArgs.first?.lowercased()
+            let rest = Array(commandArgs.dropFirst())
+            switch sub {
+            case "set-font":
+                guard let sizeArg = rest.first(where: { !$0.hasPrefix("--") }),
+                      let size = Double(sizeArg), size.isFinite, size > 0 else {
+                    throw CLIError(message: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]")
+                }
+                var params: [String: Any] = ["font_size": size]
+                if let surface = optionValue(rest, name: "--surface") {
+                    params["surface_id"] = surface
+                }
+                if let workspace = optionValue(rest, name: "--workspace") {
+                    params["workspace_id"] = workspace
+                }
+                let response = try client.sendV2(method: "mobile.terminal.set_font", params: params)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let delivered = (response["delivered"] as? Bool) ?? false
+                if delivered {
+                    print("Set mobile terminal font to \(size)pt on connected device(s).")
+                } else {
+                    print("Set mobile terminal font to \(size)pt (no iOS device is currently connected).")
+                }
+            default:
+                throw CLIError(message: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]")
+            }
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
