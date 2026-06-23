@@ -158,7 +158,7 @@ export function DownloadButton({
           </Menu.Trigger>
           <Menu.Portal>
             <Menu.Positioner side="bottom" align="end" sideOffset={8} className="z-[1000]">
-              <Menu.Popup className="z-[1000] min-w-52 rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition-opacity duration-100 ease-out data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
+              <Menu.Popup className="z-[1000] min-w-52 origin-[var(--transform-origin)] rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition duration-150 ease-out data-[ending-style]:scale-[0.96] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.96] data-[starting-style]:opacity-0">
                 <Menu.Item
                   render={
                     onConfirmationPage ? <a href={macHref} /> : <Link href={macHref} />
