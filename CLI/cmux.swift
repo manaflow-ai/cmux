@@ -26789,9 +26789,6 @@ struct CMUXCLI {
         for candidate in [payloadSessionId, resolvedSessionId] {
             guard let candidate else { continue }
             guard let record = try? store.lookup(sessionId: candidate) else { continue }
-            if codexStoredSessionMatchesCurrentFork(record, sanitizedLaunchArguments: sanitizedLaunchArguments) {
-                continue
-            }
             if let forkSurfaceId {
                 if record.surfaceId != forkSurfaceId {
                     return true
@@ -26800,6 +26797,9 @@ struct CMUXCLI {
             }
             if failClosedForStoredSelectorSessions && !hasExplicitParentSessionId {
                 return true
+            }
+            if codexStoredSessionMatchesCurrentFork(record, sanitizedLaunchArguments: sanitizedLaunchArguments) {
+                continue
             }
         }
         return false
