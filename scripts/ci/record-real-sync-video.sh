@@ -368,6 +368,25 @@ ATTACH_URL="$(mint_attach_url "$WORKSPACE_ID" "$SURFACE_ID")"
 
 phase "building and installing real iOS app"
 run_with_timeout 600 ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
+phase "seeding iOS attach launch defaults"
+IOS_DATA_CONTAINER="$(run_with_timeout 30 xcrun simctl get_app_container "$SIMULATOR_ID" "$IOS_BUNDLE_ID" data)"
+IOS_PREFS_PLIST="$IOS_DATA_CONTAINER/Library/Preferences/${IOS_BUNDLE_ID}.plist"
+mkdir -p "$(dirname "$IOS_PREFS_PLIST")"
+python3 - "$IOS_PREFS_PLIST" "$ATTACH_URL" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+attach_url = sys.argv[2]
+data = {}
+if path.exists():
+    with path.open("rb") as handle:
+        data = plistlib.load(handle)
+data["CMUX_DOGFOOD_ATTACH_URL"] = attach_url
+with path.open("wb") as handle:
+    plistlib.dump(data, handle)
+PY
 phase "launching and auto-attaching real iOS app"
 run_with_timeout 30 env \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA=0 \

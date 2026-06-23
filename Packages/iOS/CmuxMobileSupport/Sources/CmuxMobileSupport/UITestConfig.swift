@@ -47,7 +47,8 @@ public struct UITestConfig {
     public static var dogfoodAttachURL: String? {
         dogfoodAttachURL(
             from: ProcessInfo.processInfo.environment,
-            arguments: ProcessInfo.processInfo.arguments
+            arguments: ProcessInfo.processInfo.arguments,
+            defaults: .standard
         )
     }
 
@@ -60,6 +61,14 @@ public struct UITestConfig {
         from env: [String: String],
         arguments: [String] = []
     ) -> String? {
+        dogfoodAttachURL(from: env, arguments: arguments, defaults: nil)
+    }
+
+    static func dogfoodAttachURL(
+        from env: [String: String],
+        arguments: [String] = [],
+        defaults: UserDefaults?
+    ) -> String? {
         #if DEBUG
         // Read the env directly, NOT through the mock-gated value(for:), so the
         // URL is returned with CMUX_UITEST_MOCK_DATA=0 (the real-backend
@@ -67,7 +76,10 @@ public struct UITestConfig {
         if let value = trimmedNonEmpty(env["CMUX_DOGFOOD_ATTACH_URL"]) {
             return value
         }
-        return argumentValue(for: "--cmux-dogfood-attach-url", arguments: arguments)
+        if let value = argumentValue(for: "--cmux-dogfood-attach-url", arguments: arguments) {
+            return value
+        }
+        return trimmedNonEmpty(defaults?.string(forKey: "CMUX_DOGFOOD_ATTACH_URL"))
         #else
         return nil
         #endif
