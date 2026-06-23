@@ -2782,6 +2782,7 @@ struct TextBoxInputContainer: View {
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var hasMarkedText = false
+    @State private var hasPendingProviderLaunch = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
@@ -2834,7 +2835,7 @@ struct TextBoxInputContainer: View {
     }
 
     private var shouldForceTextEntrySubmit: Bool {
-        Self.shouldForceTextEntrySubmit(
+        hasPendingProviderLaunch || Self.shouldForceTextEntrySubmit(
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext
         )
@@ -2986,6 +2987,11 @@ struct TextBoxInputContainer: View {
         }
         .task(id: submitActionImagePathCacheKey) {
             await refreshSubmitActionImageCache(paths: submitActionImagePaths)
+        }
+        .onChange(of: allowsCommandTemplateSubmit) { _, allowsCommandTemplateSubmit in
+            if allowsCommandTemplateSubmit {
+                hasPendingProviderLaunch = false
+            }
         }
     }
 
@@ -3238,11 +3244,13 @@ struct TextBoxInputContainer: View {
             return
         }
         if let launchCommand = providerLaunchCommand(for: effectiveSubmitAction) {
+            hasPendingProviderLaunch = true
             TextBoxSubmit.sendEvents(
                 TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
                 via: surface
             ) { completionContext in
                 if !completionContext.didSubmit {
+                    hasPendingProviderLaunch = false
                     NSSound.beep()
                 }
             }
@@ -3302,6 +3310,7 @@ struct TextBoxInputContainer: View {
                 NSSound.beep()
                 return
             }
+            hasPendingProviderLaunch = false
             if !pendingComments.isEmpty {
                 for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
