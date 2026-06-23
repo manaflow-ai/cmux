@@ -37,20 +37,22 @@ export function DownloadButton({
   // straight at the asset there so it still works as a retry; everywhere else
   // it navigates same-tab to the confirmation page (no popup, no new tab).
   const onConfirmationPage = pathname === DOWNLOAD_CONFIRMATION_PATH;
+  const macHref = onConfirmationPage ? DOWNLOAD_URL : DOWNLOAD_CONFIRMATION_HREF;
 
   // The split button is one pill with two zones (Mac download + platform caret)
   // that tint independently on hover. `overflow-hidden` clips the hover tint to
-  // the rounded corners; a hairline divider keeps the split subtle and clean.
-  const downloadZone = `flex items-center transition-colors hover:bg-background/10 ${
+  // the rounded corners; a faint hairline divider and a dimmed caret keep the
+  // split affordance understated until you reach for it.
+  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.07] ${
     isSmall
       ? "gap-2 pl-4 pr-3 py-1.5 text-xs"
       : "gap-2.5 pl-5 pr-4 py-2.5 text-[15px]"
   }`;
-  const caretZone = `flex items-center justify-center transition-colors hover:bg-background/10 data-[popup-open]:bg-background/10 ${
+  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.07] data-[popup-open]:bg-background/[0.07] ${
     isSmall ? "px-2" : "px-2.5"
   }`;
 
-  const onMacClick = () =>
+  const captureMac = () =>
     posthog.capture("cmuxterm_download_clicked", { location, platform: "mac" });
 
   // The Apple mark artwork has an 814:1000 aspect ratio. Derive the box width
@@ -82,6 +84,7 @@ export function DownloadButton({
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
+      className="opacity-60 transition-opacity group-hover:opacity-100 group-data-[popup-open]:opacity-100"
       aria-hidden="true"
     >
       <path d="M3 4.5 6 7.5 9 4.5" />
@@ -97,22 +100,18 @@ export function DownloadButton({
         style={ctaButtonStyle}
       >
         {onConfirmationPage ? (
-          <a href={DOWNLOAD_URL} onClick={onMacClick} className={downloadZone}>
+          <a href={macHref} onClick={captureMac} className={downloadZone}>
             {macIcon}
             {t("downloadForMac")}
           </a>
         ) : (
-          <Link
-            href={DOWNLOAD_CONFIRMATION_HREF}
-            onClick={onMacClick}
-            className={downloadZone}
-          >
+          <Link href={macHref} onClick={captureMac} className={downloadZone}>
             {macIcon}
             {t("downloadForMac")}
           </Link>
         )}
 
-        <div className="my-1.5 w-px bg-background/20" aria-hidden="true" />
+        <div className="my-2 w-px bg-background/15" aria-hidden="true" />
 
         <Menu.Root>
           <Menu.Trigger className={caretZone} aria-label={t("otherPlatforms")}>
@@ -125,7 +124,20 @@ export function DownloadButton({
               sideOffset={8}
               className="z-[1000]"
             >
-              <Menu.Popup className="z-[1000] min-w-44 rounded-lg border border-border bg-background p-1.5 shadow-xl shadow-black/10 outline-none">
+              <Menu.Popup className="z-[1000] min-w-44 origin-[var(--transform-origin)] rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition-[transform,opacity] duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+                <Menu.Item
+                  render={
+                    onConfirmationPage ? (
+                      <a href={macHref} />
+                    ) : (
+                      <Link href={macHref} />
+                    )
+                  }
+                  onClick={captureMac}
+                  className={menuItemClass}
+                >
+                  <span>{tp("macos")}</span>
+                </Menu.Item>
                 <Menu.Item
                   render={
                     <a
@@ -145,6 +157,7 @@ export function DownloadButton({
                   <span>{tp("ios")}</span>
                   <ExternalLinkIcon />
                 </Menu.Item>
+                <Menu.Separator className="mx-1 my-1.5 h-px bg-border" />
                 {WAITLIST_PLATFORMS.map((platform) => (
                   <Menu.Item
                     key={platform}
@@ -158,6 +171,7 @@ export function DownloadButton({
                     className={menuItemClass}
                   >
                     <span>{tp(platform)}</span>
+                    <span className="text-xs text-muted">{t("waitlistTag")}</span>
                   </Menu.Item>
                 ))}
               </Menu.Popup>

@@ -40,7 +40,8 @@
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
     "viewChangelog": "View Changelog",
-    "otherPlatforms": "Other platforms"
+    "otherPlatforms": "Other platforms",
+    "waitlistTag": "Waitlist"
   },
   "nav": {
     "docs": "Docs",
@@ -1875,6 +1876,7 @@
     "subtext": "Click <link>here</link> if your download hasn't started."
   },
   "platforms": {
+    "macos": "macOS",
     "ios": "iOS",
     "linux": "Linux",
     "android": "Android",

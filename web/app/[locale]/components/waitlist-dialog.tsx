@@ -76,7 +76,11 @@ export function WaitlistDialog({
                   {t("successBody", { platform: platformLabel })}
                 </Dialog.Description>
                 <div className="mt-6 flex justify-end">
-                  <Dialog.Close className="inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium hover:opacity-85 transition-opacity" style={{ color: "var(--background)" }}>
+                  <Dialog.Close
+                    autoFocus
+                    className="inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium hover:opacity-85 transition-opacity"
+                    style={{ color: "var(--background)" }}
+                  >
                     {t("done")}
                   </Dialog.Close>
                 </div>
@@ -106,10 +110,17 @@ export function WaitlistDialog({
                   }}
                   placeholder={t("emailPlaceholder")}
                   aria-invalid={status === "error"}
+                  aria-describedby={status === "error" ? "waitlist-email-error" : undefined}
                   className="mt-1.5 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-foreground aria-[invalid=true]:border-red-500"
                 />
                 {status === "error" ? (
-                  <p className="mt-1.5 text-sm text-red-500">{t("invalidEmail")}</p>
+                  <p
+                    id="waitlist-email-error"
+                    role="alert"
+                    className="mt-1.5 text-sm text-red-500"
+                  >
+                    {t("invalidEmail")}
+                  </p>
                 ) : null}
 
                 <div className="mt-6 flex justify-end gap-2">

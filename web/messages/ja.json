@@ -40,7 +40,8 @@
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
     "viewChangelog": "変更履歴を見る",
-    "otherPlatforms": "その他のプラットフォーム"
+    "otherPlatforms": "その他のプラットフォーム",
+    "waitlistTag": "順番待ち"
   },
   "nav": {
     "docs": "ドキュメント",
@@ -1877,6 +1878,7 @@
     "subtext": "ダウンロードが始まらない場合は<link>こちら</link>をクリックしてください。"
   },
   "platforms": {
+    "macos": "macOS",
     "ios": "iOS",
     "linux": "Linux",
     "android": "Android",
