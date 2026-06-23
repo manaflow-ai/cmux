@@ -23393,7 +23393,15 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                // Reuse the specific body an earlier hook saved (e.g. a blocking
+                // AskUserQuestion/ExitPlanMode PreToolUse) in place of the generic
+                // "needs your attention" text. Only the display body/subtitle is reused;
+                // the blocking classification is unaffected.
+                summary = (
+                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    isBlocking: summary.isBlocking
+                )
             }
 
             let title = String(
@@ -23402,6 +23410,14 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
+            // Only assert `.needsInput` for a genuinely blocking notification. For
+            // every other notification (the routine idle reminder, completion, generic
+            // attention) leave the lifecycle untouched so the Stop hook's `.idle` (or a
+            // PreToolUse `.needsInput`) stays authoritative. `nil` preserves the stored
+            // lifecycle, and the live mutation is skipped, so the pane hibernates after a
+            // turn instead of being clobbered back to needs-input by the reminder.
+            let blockingLifecycle: AgentHibernationLifecycleState? = summary.isBlocking ? .needsInput : nil
+
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -23409,19 +23425,21 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: blockingLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            if let blockingLifecycle {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: blockingLifecycle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -25739,12 +25757,20 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
+    private func summarizeClaudeHookNotification(
+        parsedInput: ClaudeHookParsedInput
+    ) -> (subtitle: String, body: String, isBlocking: Bool) {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
-                return classifyClaudeNotification(signal: fallback, message: fallback)
+                let classified = classifyClaudeNotification(signal: fallback, message: fallback)
+                return (
+                    classified.subtitle,
+                    classified.body,
+                    claudeNotificationIsBlockingPrompt(signal: fallback, message: fallback)
+                )
             }
-            return ("Waiting", "Claude is waiting for your input")
+            // A bare "waiting for input" reminder is an idle agent, not a blocking prompt.
+            return ("Waiting", "Claude is waiting for your input", false)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -25763,7 +25789,33 @@ struct CMUXCLI {
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
         classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+        return (
+            classified.subtitle,
+            classified.body,
+            claudeNotificationIsBlockingPrompt(signal: signal, message: normalizedMessage)
+        )
+    }
+
+    /// Whether a Claude `Notification` hook is a genuinely blocking prompt that the
+    /// user must act on (a permission/approval request, or an error).
+    ///
+    /// The hibernation lifecycle has a single authoritative idle source: the Stop
+    /// hook, which records `.idle` when a turn ends. The Notification hook previously
+    /// hard-set `.needsInput` for every notification, including the routine "waiting
+    /// for your input" reminder Claude fires once idle, which clobbered the Stop
+    /// hook's idle so a Claude pane never hibernated off-screen (only codex did).
+    ///
+    /// Rather than make ambiguous notification prose authoritative for `.idle` (a
+    /// "waiting for your response" prompt and a "waiting for your input" idle reminder
+    /// read alike), the handler only *asserts* `.needsInput` when this returns true,
+    /// and otherwise leaves the lifecycle untouched. So the Stop hook's idle survives
+    /// (the pane hibernates) and an AskUserQuestion/ExitPlanMode `.needsInput` recorded
+    /// in PreToolUse survives (it is never downgraded). Matching on blocking/error
+    /// words is the conservative direction only; it never forces idle.
+    private func claudeNotificationIsBlockingPrompt(signal: String, message: String) -> Bool {
+        let lower = "\(signal) \(message)".lowercased()
+        return lower.contains("permission") || lower.contains("approve") || lower.contains("approval")
+            || lower.contains("error") || lower.contains("failed") || lower.contains("exception")
     }
 
     private func summarizeAgentHookNotification(
