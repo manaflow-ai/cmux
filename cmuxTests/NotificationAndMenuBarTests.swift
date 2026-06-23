@@ -1021,19 +1021,22 @@ final class NotificationDockBadgeTests: XCTestCase {
     }
 
     func testNotificationCustomUnsupportedExtensionsStageAsCaf() {
-        [
-            ("mp3", "caf"),
-            ("M4A", "caf"),
-            ("m4r", "caf"),
-            ("M4R", "caf"),
-            ("wav", "wav"),
-            ("AIFF", "aiff"),
-        ].forEach { sourceExtension, stagedExtension in
-            XCTAssertEqual(
-                NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: sourceExtension),
-                stagedExtension
-            )
-        }
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "mp3"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "M4A"),
+            "caf"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "wav"),
+            "wav"
+        )
+        XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "AIFF"),
+            "aiff"
+        )
 
         let sourceA = URL(fileURLWithPath: "/tmp/custom-a.mp3")
         let sourceB = URL(fileURLWithPath: "/tmp/custom-b.mp3")
