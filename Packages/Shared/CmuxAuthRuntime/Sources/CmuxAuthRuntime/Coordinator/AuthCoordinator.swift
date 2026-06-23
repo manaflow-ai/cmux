@@ -67,6 +67,7 @@ public final class AuthCoordinator {
     let clock: any Clock<Duration>
     private let isOnline: @Sendable () async -> Bool
     private let onSignedIn: @Sendable () async -> Void
+    private let onLocalAuthCleared: @MainActor @Sendable () async -> Void
     let log = AuthDebugLog()
     let phaseTimeoutRegistry = AuthPhaseTimeoutRegistry()
 
@@ -149,6 +150,8 @@ public final class AuthCoordinator {
     ///   - onSignedIn: Hook run after a successful sign-in / session restore, for
     ///     side effects above this package (e.g. push token re-upload). Defaults
     ///     to a no-op.
+    ///   - onLocalAuthCleared: Hook run whenever local auth state is cleared, for
+    ///     revoking app-local credentials scoped to the previous auth epoch.
     public init(
         client: any AuthClient,
         sessionCache: CMUXAuthSessionCache,
@@ -160,7 +163,8 @@ public final class AuthCoordinator {
         timeouts: AuthTimeouts = .default,
         clock: any Clock<Duration> = ContinuousClock(),
         isOnline: @escaping @Sendable () async -> Bool = { true },
-        onSignedIn: @escaping @Sendable () async -> Void = {}
+        onSignedIn: @escaping @Sendable () async -> Void = {},
+        onLocalAuthCleared: @escaping @MainActor @Sendable () async -> Void = {}
     ) {
         self.client = client
         self.sessionCache = sessionCache
@@ -173,6 +177,7 @@ public final class AuthCoordinator {
         self.clock = clock
         self.isOnline = isOnline
         self.onSignedIn = onSignedIn
+        self.onLocalAuthCleared = onLocalAuthCleared
         self.selectedTeamID = teamSelection.selectedTeamID
         primeSessionState()
     }
@@ -478,7 +483,7 @@ public final class AuthCoordinator {
         await client.clearLocalSession()
         finishSignOutCredentialCapture()
         if launch.includesDevAuth { debugCredentials = nil }
-        clearAuthState()
+        await clearAuthStateAwaitingLocalHook()
         await waitForPostSignInHooksAfterSignOut(timeout: teardownTimeout)
 
         // Best-effort bounded server-side teardown with the captured tokens:
@@ -603,6 +608,18 @@ public final class AuthCoordinator {
     }
 
     func clearAuthState(preservePendingCode: Bool = false) {
+        clearAuthStateBase(preservePendingCode: preservePendingCode)
+        Task { await onLocalAuthCleared() }
+        apply(.cleared())
+    }
+
+    func clearAuthStateAwaitingLocalHook(preservePendingCode: Bool = false) async {
+        clearAuthStateBase(preservePendingCode: preservePendingCode)
+        await onLocalAuthCleared()
+        apply(.cleared())
+    }
+
+    private func clearAuthStateBase(preservePendingCode: Bool) {
         sessionGeneration &+= 1
         latestSignInRefreshToken = nil
         if !preservePendingCode { pendingNonce = nil }
@@ -610,7 +627,6 @@ public final class AuthCoordinator {
         sessionCache.clear()
         availableTeams = []
         selectedTeamID = nil
-        apply(.cleared())
     }
 
     func preserveCachedSessionAfterValidationFailure() {

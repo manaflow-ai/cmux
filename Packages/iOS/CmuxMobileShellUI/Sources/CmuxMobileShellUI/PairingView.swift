@@ -300,7 +300,7 @@ struct PairingView: View {
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "This will connect directly to that address and send your cmux account token. Use it only with a trusted VPN, LAN, or device you control."
+            defaultValue: "This will connect directly to that address and use the pairing key to mint a local attach credential. Use it only with a trusted VPN, LAN, or device you control."
         )
     }
 

@@ -1468,6 +1468,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 pairedMacDeviceID: pairedMacDeviceID
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
+            if let emailFailure = Self.emailFailure(
+                for: ticket,
+                actualUserID: identityProvider?.currentUserID,
+                actualEmail: identityProvider?.currentUserEmail
+            ) {
+                applyPairingValidationFailure(emailFailure)
+                connectionState = .disconnected
+                macConnectionStatus = .unavailable
+                clearRemoteConnectionContext()
+                return
+            }
             let noThrowFailure = try await connect(
                 ticket: ticket,
                 trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
@@ -2666,20 +2677,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     .displayName
             }
             do {
+                let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let credentialStore = pairedMacStore as? any MobilePairedMacCredentialStoring
+                let shouldPersistCredential = credentialStore != nil && authToken?.isEmpty == false
                 try await pairedMacStore.upsert(
                     macDeviceID: ticket.macDeviceID,
                     displayName: displayName,
                     routes: ticket.routes,
-                    markActive: true,
+                    markActive: !shouldPersistCredential,
                     stackUserID: stackUserID,
                     teamID: scope?.teamID,
                     now: Date()
                 )
-                if let credentialStore = pairedMacStore as? any MobilePairedMacCredentialStoring,
-                   let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+                if let credentialStore,
+                   let authToken,
                    !authToken.isEmpty {
-                    try? await credentialStore.storeCredential(
+                    try await credentialStore.storeCredential(
                         MobilePairedMacCredential(authToken: authToken, expiresAt: ticket.expiresAt),
+                        macDeviceID: ticket.macDeviceID,
+                        stackUserID: stackUserID,
+                        teamID: scope?.teamID
+                    )
+                    try await pairedMacStore.setActive(
                         macDeviceID: ticket.macDeviceID,
                         stackUserID: stackUserID,
                         teamID: scope?.teamID
@@ -5107,7 +5126,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         actualEmail: String?
     ) -> MobilePairingFailureCategory? {
         if let expectedUserID = Self.mobileShellNormalizedNonEmpty(ticket.macUserID) {
-            guard let actualUserID = Self.mobileShellNormalizedNonEmpty(actualUserID) else { return nil }
+            guard let actualUserID = Self.mobileShellNormalizedNonEmpty(actualUserID) else {
+                return .authFailed
+            }
             guard actualUserID == expectedUserID else {
                 return .authFailed
             }

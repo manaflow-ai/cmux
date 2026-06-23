@@ -544,6 +544,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         return []
     }
 
+    /// Store or remove a local reconnect credential in the wrapped local store.
     public func storeCredential(
         _ credential: MobilePairedMacCredential?,
         macDeviceID: String,
@@ -557,6 +558,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             stackUserID: stackUserID,
             teamID: await resolvedTeam(teamID)
         )
+    }
+
+    /// Remove local reconnect credentials while preserving paired-Mac metadata.
+    public func removeAllCredentials() async throws {
+        guard let credentialStore = inner as? any MobilePairedMacCredentialStoring else { return }
+        try await credentialStore.removeAllCredentials()
     }
 
 }

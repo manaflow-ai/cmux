@@ -517,13 +517,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This will connect directly to that address and send your cmux account token. Use it only with a trusted VPN, LAN, or device you control."
+            "value": "This will connect directly to that address and use the pairing key to mint a local attach credential. Use it only with a trusted VPN, LAN, or device you control."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "そのアドレスへ直接接続し、cmux アカウントトークンを送信します。信頼できる VPN、LAN、または管理しているデバイスでのみ使用してください。"
+            "value": "そのアドレスへ直接接続し、ペアリングキーを使ってローカルの接続認証情報を作成します。信頼できる VPN、LAN、または管理しているデバイスでのみ使用してください。"
           }
         }
       }
@@ -4523,6 +4523,23 @@
         }
       }
     },
+    "mobile.signIn.again": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in again"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もう一度サインイン"
+          }
+        }
+      }
+    },
     "mobile.signIn.restoring": {
       "extractionState": "manual",
       "localizations": {
@@ -4536,6 +4553,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッションを復元しています"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoreTimeout.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check that your Mac is awake and on the same account, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac が起動していて同じアカウントでサインインしていることを確認してから、再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoreTimeout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not restore session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを復元できませんでした"
           }
         }
       }

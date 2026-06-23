@@ -125,6 +125,43 @@ import Testing
         try await reopened.storeCredential(nil, macDeviceID: macDeviceID, stackUserID: "user-1", teamID: "team-a")
     }
 
+    @Test func removeAllCredentialsPreservesPairedMacRows() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let route = try CmxAttachRoute(
+            id: "trusted",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "192.168.1.44", port: 58465)
+        )
+        try await store.upsert(
+            macDeviceID: "mac-lan",
+            displayName: "Studio LAN",
+            routes: [route],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1_900_000_000)
+        )
+        try await store.storeCredential(
+            MobilePairedMacCredential(
+                authToken: "trusted-ticket",
+                expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+            ),
+            macDeviceID: "mac-lan",
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )
+
+        try await store.removeAllCredentials()
+
+        let mac = try #require(await store.activeMac(stackUserID: "user-1", teamID: "team-a"))
+        #expect(mac.macDeviceID == "mac-lan")
+        #expect(mac.displayName == "Studio LAN")
+        #expect(mac.routes.map(\.id) == ["trusted"])
+        #expect(mac.credential == nil)
+    }
+
     @Test func setActiveScopesClearToTargetStackUser() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -429,6 +466,15 @@ import Testing
             teamID: nil,
             now: Date(timeIntervalSince1970: 1)
         )
+        try await store.storeCredential(
+            MobilePairedMacCredential(
+                authToken: "legacy-token",
+                expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+            ),
+            macDeviceID: "legacy-mac",
+            stackUserID: "user-1",
+            teamID: nil
+        )
 
         try await store.upsert(
             macDeviceID: "legacy-mac",
@@ -444,7 +490,12 @@ import Testing
         #expect(claimed.map(\.macDeviceID) == ["legacy-mac"])
         #expect(claimed.first?.teamID == "team-a")
         #expect(claimed.first?.routes.map(\.id) == ["updated"])
-        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.routes.map(\.id) == ["updated"])
+        let active = try await store.activeMac(stackUserID: "user-1", teamID: "team-a")
+        #expect(active?.routes.map(\.id) == ["updated"])
+        #expect(active?.credential?.authToken == "legacy-token")
+
+        try await store.storeCredential(nil, macDeviceID: "legacy-mac", stackUserID: "user-1", teamID: "team-a")
+        #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.credential == nil)
     }
 
     @Test func activatingTeamMacClearsVisibleLegacyActiveMac() async throws {

@@ -208,8 +208,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         guard var request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any] else {
             return requestData
         }
-        let requestNeedsAuth = Self.requestRequiresAuth(request)
-        let requestIsCoveredByAttachTicket = !Self.requestNeedsStackAuthFallback(request, ticket: ticket)
+        let requestNeedsAuth = requestRequiresAuth(request)
+        let requestIsCoveredByAttachTicket = !requestNeedsStackAuthFallback(request, ticket: ticket)
         var auth: [String: Any] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
@@ -263,8 +263,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
            auth["attach_token"] == nil {
             if trustedNetworkAuthConfirmed,
                isTrustedNetworkRoute,
-               Self.isAttachTicketCreateRequest(request),
-               Self.requestHasTrustedNetworkPairingSecret(request) {
+               isAttachTicketCreateRequest(request),
+               requestHasTrustedNetworkPairingSecret(request) {
                 return try JSONSerialization.data(withJSONObject: request)
             }
             throw MobileShellConnectionError.insecureManualRoute
@@ -314,14 +314,35 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         }
     }
 
-    private static func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
+    private func isAttachTicketCreateRequest(_ request: [String: Any]) -> Bool {
+        (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == "mobile.attach_ticket.create"
+    }
+
+    private func requestHasTrustedNetworkPairingSecret(_ request: [String: Any]) -> Bool {
+        guard let params = request["params"] as? [String: Any],
+              let secret = params["trusted_network_pairing_secret"] as? String else {
+            return false
+        }
+        return !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func requestRequiresAuth(_ request: [String: Any]) -> Bool {
+        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only the host probe is generally exempt. `mobile.attach_ticket.create`
+        // has no attach token yet, so encrypted/loopback routes use Stack auth; a
+        // confirmed trusted-network route sends that one request tokenless and relies
+        // on the Mac's short pairing-window mint grant.
+        return method != "mobile.host.status"
+    }
+
+    private func requestNeedsStackAuthFallback(_ request: [String: Any], ticket: CmxAttachTicket) -> Bool {
         guard requestRequiresAuth(request) else {
             return false
         }
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let params = request["params"] as? [String: Any] ?? [:]
-        let workspaceSelection = stringParamSelection(params, keys: ["workspace_id"])
-        let terminalSelection = stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
+        let workspaceSelection = Self.stringParamSelection(params, keys: ["workspace_id"])
+        let terminalSelection = Self.stringParamSelection(params, keys: ["surface_id", "terminal_id", "tab_id"])
         let ticketCoverage = MobileCoreRPCAttachTicketCoverage()
         if workspaceSelection.hasConflict ||
             terminalSelection.hasConflict ||
@@ -331,7 +352,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
         switch method {
         case "mobile.workspace.list", "workspace.list":
-            return false
+            return !ticketCoverage.ticketCoversMacScopedRequest(ticket: ticket)
         case "workspace.create":
             return false
         case "workspace.action", "workspace.close":
@@ -339,6 +360,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value
             )
+        case "workspace.group.collapse", "workspace.group.expand":
+            return !ticketCoverage.ticketCoversMacScopedRequest(ticket: ticket)
         case "mobile.terminal.create", "terminal.create":
             return false
         case "mobile.terminal.input", "terminal.input",
@@ -346,38 +369,27 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
-             "mobile.terminal.scroll", "terminal.scroll":
+             "mobile.terminal.scroll", "terminal.scroll",
+             "mobile.terminal.mouse", "terminal.mouse":
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return false
+            return !ticketCoverage.ticketCoversMacScopedRequest(ticket: ticket)
+        case "notification.dismiss", "notification.reconcile":
+            return !ticketCoverage.ticketCoversMacScopedRequest(ticket: ticket)
+        case "mobile.chat.sessions":
+            return !ticketCoverage.ticketCoversWorkspaceRequest(
+                ticket: ticket,
+                workspaceSelection: workspaceSelection.value
+            )
+        case let method where method?.hasPrefix("mobile.chat.") == true:
+            return !ticketCoverage.ticketCoversMacScopedRequest(ticket: ticket)
         default:
             return true
         }
-    }
-
-    private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
-        let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only the host probe is generally exempt. `mobile.attach_ticket.create`
-        // has no attach token yet, so encrypted/loopback routes use Stack auth;
-        // a confirmed trusted-network route sends that one request tokenless and
-        // relies on the Mac's short pairing-window mint grant.
-        return method != "mobile.host.status"
-    }
-
-    private static func isAttachTicketCreateRequest(_ request: [String: Any]) -> Bool {
-        (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == "mobile.attach_ticket.create"
-    }
-
-    private static func requestHasTrustedNetworkPairingSecret(_ request: [String: Any]) -> Bool {
-        guard let params = request["params"] as? [String: Any],
-              let secret = params["trusted_network_pairing_secret"] as? String else {
-            return false
-        }
-        return !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func stringParamSelection(

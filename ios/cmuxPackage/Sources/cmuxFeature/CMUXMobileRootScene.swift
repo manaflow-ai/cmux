@@ -14,8 +14,6 @@ import SwiftUI
 import CmuxMobileTerminal
 #endif
 
-private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
-
 /// Top-level mobile scene root.
 ///
 /// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh
@@ -86,6 +84,7 @@ public struct CMUXMobileRootScene: View {
         displaySettings: MobileDisplaySettings,
         onboardingStore: MobileOnboardingStore,
         tailscaleStatusMonitor: any TailscaleStatusObserving,
+        pairedMacStore: (any MobilePairedMacStoring)? = nil,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.runtime = runtime
@@ -96,7 +95,7 @@ public struct CMUXMobileRootScene: View {
         self.displaySettings = displaySettings
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
-        self.pairedMacStore = Self.openPairedMacStore()
+        self.pairedMacStore = pairedMacStore ?? auth.pairedMacStore
         self.draftStore = InMemoryTerminalDraftStore()
         #if DEBUG
         self.diagnosticLog = diagnosticLog
@@ -115,24 +114,13 @@ public struct CMUXMobileRootScene: View {
         self.reachability = reachability
         self.analytics = analytics
         self.tailscaleStatusMonitor = nil
-        self.pairedMacStore = Self.openPairedMacStore()
+        self.pairedMacStore = auth.pairedMacStore
         self.draftStore = InMemoryTerminalDraftStore()
         #if DEBUG
         self.diagnosticLog = nil
         #endif
     }
     #endif
-
-    private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
-        do {
-            return try MobilePairedMacStore()
-        } catch {
-            mobileRootSceneLog.error(
-                "failed to open paired mac store: \(String(describing: error), privacy: .public)"
-            )
-            return nil
-        }
-    }
 
     /// Build the team-scoped device-registry client over the auth coordinator.
     ///

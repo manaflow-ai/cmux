@@ -22,7 +22,14 @@ final class MobileAttachTicketStore {
 
     private let lock = NSLock()
     private var recordsByAuthToken: [String: Record] = [:]
-    private var persistentAuthTokens: Set<String> = Self.loadPersistentAuthTokenIndex()
+    private var persistentAuthTokens: Set<String>
+    private var lastPersistentPruneAt: Date?
+    private static let persistentPruneInterval: TimeInterval = 5 * 60
+    private static let maxPersistentRecordCount = 512
+
+    init() {
+        persistentAuthTokens = MobileAttachTicketStore.loadPersistentAuthTokenIndex()
+    }
 
     func createTicket(
         workspaceID: String,
@@ -39,7 +46,8 @@ final class MobileAttachTicketStore {
         lock.lock()
         defer { lock.unlock() }
 
-        pruneExpired(now: now)
+        pruneExpiredLoadedRecords(now: now)
+        pruneExpiredPersistentRecordsIfDue(now: now)
         guard !routes.isEmpty else {
             throw MobileAttachTicketStoreError.noRoutes
         }
@@ -60,6 +68,7 @@ final class MobileAttachTicketStore {
         )
         if let authToken = ticket.authToken {
             let record = Record(ticket: ticket, issuedAt: now)
+            evictOldestPersistentRecordsIfNeeded(reservingSlots: 1)
             recordsByAuthToken[authToken] = record
             persistentAuthTokens.insert(authToken)
             Self.storeRecord(record, authToken: authToken)
@@ -91,12 +100,19 @@ final class MobileAttachTicketStore {
         lock.lock()
         defer { lock.unlock() }
 
-        pruneExpired(now: now)
+        pruneExpiredLoadedRecords(now: now)
         guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !authToken.isEmpty else {
             return nil
         }
-        let record = recordsByAuthToken[authToken] ?? Self.loadRecord(authToken: authToken)
+        let record: Record?
+        if let cachedRecord = recordsByAuthToken[authToken] {
+            record = cachedRecord
+        } else if persistentAuthTokens.contains(authToken) {
+            record = Self.loadRecord(authToken: authToken)
+        } else {
+            record = nil
+        }
         guard let record else {
             return nil
         }
@@ -113,6 +129,18 @@ final class MobileAttachTicketStore {
             createdWorkspaceIDs: record.createdWorkspaceIDs,
             createdTerminalIDs: record.createdTerminalIDs
         )
+    }
+
+    func removeAllRecords() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        for authToken in persistentAuthTokens {
+            Self.deleteRecord(authToken: authToken)
+        }
+        recordsByAuthToken.removeAll()
+        persistentAuthTokens.removeAll()
+        Self.storePersistentAuthTokenIndex(persistentAuthTokens)
     }
 
     func recordCreatedResources(
@@ -172,8 +200,25 @@ final class MobileAttachTicketStore {
         return url
     }
 
-    private func pruneExpired(now: Date) {
-        recordsByAuthToken = recordsByAuthToken.filter { !$0.value.ticket.isExpired(at: now) }
+    private func pruneExpiredLoadedRecords(now: Date) {
+        var changed = false
+        for (authToken, record) in recordsByAuthToken where record.ticket.isExpired(at: now) {
+            recordsByAuthToken[authToken] = nil
+            persistentAuthTokens.remove(authToken)
+            Self.deleteRecord(authToken: authToken)
+            changed = true
+        }
+        if changed {
+            Self.storePersistentAuthTokenIndex(persistentAuthTokens)
+        }
+    }
+
+    private func pruneExpiredPersistentRecordsIfDue(now: Date) {
+        if let lastPersistentPruneAt,
+           now.timeIntervalSince(lastPersistentPruneAt) < Self.persistentPruneInterval {
+            return
+        }
+        lastPersistentPruneAt = now
         var changed = false
         for authToken in Array(persistentAuthTokens) {
             guard let record = recordsByAuthToken[authToken] ?? Self.loadRecord(authToken: authToken) else {
@@ -193,136 +238,159 @@ final class MobileAttachTicketStore {
         }
     }
 
-    private static let recordKeychainService = "com.cmuxterm.mobile.attach-ticket-records"
+    private func evictOldestPersistentRecordsIfNeeded(reservingSlots: Int) {
+        let overflow = persistentAuthTokens.count + reservingSlots - Self.maxPersistentRecordCount
+        guard overflow > 0 else { return }
+
+        var candidates: [(authToken: String, issuedAt: Date)] = []
+        for authToken in persistentAuthTokens {
+            guard let record = recordsByAuthToken[authToken] ?? Self.loadRecord(authToken: authToken) else {
+                persistentAuthTokens.remove(authToken)
+                recordsByAuthToken[authToken] = nil
+                Self.deleteRecord(authToken: authToken)
+                continue
+            }
+            candidates.append((authToken: authToken, issuedAt: record.issuedAt))
+        }
+
+        let evicted = candidates
+            .sorted { lhs, rhs in
+                if lhs.issuedAt == rhs.issuedAt {
+                    return lhs.authToken < rhs.authToken
+                }
+                return lhs.issuedAt < rhs.issuedAt
+            }
+            .prefix(overflow)
+        for candidate in evicted {
+            persistentAuthTokens.remove(candidate.authToken)
+            recordsByAuthToken[candidate.authToken] = nil
+            Self.deleteRecord(authToken: candidate.authToken)
+        }
+    }
+
+    private static let recordKeychainService: String = {
+        let bundleID = Bundle.main.bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let bundleID, !bundleID.isEmpty else {
+            return "com.cmuxterm.mobile.attach-ticket-records"
+        }
+        return "com.cmuxterm.mobile.attach-ticket-records.\(bundleID)"
+    }()
     private static let recordIndexKeychainAccount = "auth-token-index"
-    nonisolated(unsafe) private static var recordFallbackStore: [String: Data] = [:]
+    private static let hexDigits = Array("0123456789abcdef".utf8)
 
     private static func recordKey(for authToken: String) -> String {
         let digest = SHA256.hash(data: Data(authToken.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        var output: [UInt8] = []
+        output.reserveCapacity(SHA256.byteCount * 2)
+        for byte in digest {
+            output.append(hexDigits[Int(byte >> 4)])
+            output.append(hexDigits[Int(byte & 0x0f)])
+        }
+        return String(decoding: output, as: UTF8.self)
     }
 
     private static func storeRecord(_ record: Record, authToken: String) {
         guard let data = try? JSONEncoder().encode(record) else { return }
         let key = recordKey(for: authToken)
         #if canImport(Security)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: recordKeychainService,
-            kSecAttrAccount as String: key,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        let updateStatus = SecItemUpdate(
-            query as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-        if updateStatus == errSecSuccess { return }
-        if updateStatus == errSecMissingEntitlement {
-            recordFallbackStore[key] = data
-            return
-        }
-        guard updateStatus == errSecItemNotFound else { return }
-        var insert = query
-        insert[kSecValueData as String] = data
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
-        if addStatus == errSecMissingEntitlement {
-            recordFallbackStore[key] = data
-        }
-        #else
-        recordFallbackStore[key] = data
+        storeRecordData(data, account: key)
         #endif
     }
 
     private static func loadRecord(authToken: String) -> Record? {
         let key = recordKey(for: authToken)
         #if canImport(Security)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: recordKeychainService,
-            kSecAttrAccount as String: key,
-            kSecUseDataProtectionKeychain as String: true,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-           let data = result as? Data {
-            return try? JSONDecoder().decode(Record.self, from: data)
-        }
-        #endif
-        guard let data = recordFallbackStore[key] else { return nil }
+        guard let data = loadRecordData(account: key) else { return nil }
         return try? JSONDecoder().decode(Record.self, from: data)
+        #else
+        return nil
+        #endif
     }
 
     private static func deleteRecord(authToken: String) {
         let key = recordKey(for: authToken)
         #if canImport(Security)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: recordKeychainService,
-            kSecAttrAccount as String: key,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
-        SecItemDelete(query as CFDictionary)
+        deleteRecordData(account: key)
         #endif
-        recordFallbackStore[key] = nil
     }
 
     private static func loadPersistentAuthTokenIndex() -> Set<String> {
         #if canImport(Security)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: recordKeychainService,
-            kSecAttrAccount as String: recordIndexKeychainAccount,
-            kSecUseDataProtectionKeychain as String: true,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var result: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-           let data = result as? Data,
-           let tokens = try? JSONDecoder().decode(Set<String>.self, from: data) {
-            return tokens
-        }
-        #endif
-        guard let data = recordFallbackStore[recordIndexKeychainAccount],
+        guard let data = loadRecordData(account: recordIndexKeychainAccount),
               let tokens = try? JSONDecoder().decode(Set<String>.self, from: data) else {
             return []
         }
         return tokens
+        #else
+        return []
+        #endif
     }
 
     private static func storePersistentAuthTokenIndex(_ tokens: Set<String>) {
         guard let data = try? JSONEncoder().encode(tokens) else { return }
         #if canImport(Security)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: recordKeychainService,
-            kSecAttrAccount as String: recordIndexKeychainAccount,
-            kSecUseDataProtectionKeychain as String: true,
-        ]
+        storeRecordData(data, account: recordIndexKeychainAccount)
+        #endif
+    }
+
+    #if canImport(Security)
+    private static func storeRecordData(_ data: Data, account: String) {
+        let primaryStatus = storeRecordData(data, account: account, useDataProtectionKeychain: true)
+        if primaryStatus == errSecMissingEntitlement {
+            _ = storeRecordData(data, account: account, useDataProtectionKeychain: false)
+        }
+    }
+
+    private static func storeRecordData(
+        _ data: Data,
+        account: String,
+        useDataProtectionKeychain: Bool
+    ) -> OSStatus {
+        let query = recordKeychainQuery(account: account, useDataProtectionKeychain: useDataProtectionKeychain)
         let updateStatus = SecItemUpdate(
             query as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
-        if updateStatus == errSecSuccess { return }
-        if updateStatus == errSecMissingEntitlement {
-            recordFallbackStore[recordIndexKeychainAccount] = data
-            return
-        }
-        guard updateStatus == errSecItemNotFound else { return }
+        if updateStatus == errSecSuccess { return errSecSuccess }
+        guard updateStatus == errSecItemNotFound else { return updateStatus }
         var insert = query
         insert[kSecValueData as String] = data
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let addStatus = SecItemAdd(insert as CFDictionary, nil)
-        if addStatus == errSecMissingEntitlement {
-            recordFallbackStore[recordIndexKeychainAccount] = data
-        }
-        #else
-        recordFallbackStore[recordIndexKeychainAccount] = data
-        #endif
+        return SecItemAdd(insert as CFDictionary, nil)
     }
+
+    private static func loadRecordData(account: String) -> Data? {
+        loadRecordData(account: account, useDataProtectionKeychain: true)
+            ?? loadRecordData(account: account, useDataProtectionKeychain: false)
+    }
+
+    private static func loadRecordData(account: String, useDataProtectionKeychain: Bool) -> Data? {
+        var query = recordKeychainQuery(account: account, useDataProtectionKeychain: useDataProtectionKeychain)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    private static func deleteRecordData(account: String) {
+        SecItemDelete(recordKeychainQuery(account: account, useDataProtectionKeychain: true) as CFDictionary)
+        SecItemDelete(recordKeychainQuery(account: account, useDataProtectionKeychain: false) as CFDictionary)
+    }
+
+    private static func recordKeychainQuery(account: String, useDataProtectionKeychain: Bool) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: recordKeychainService,
+            kSecAttrAccount as String: account,
+        ]
+        if useDataProtectionKeychain {
+            query[kSecUseDataProtectionKeychain as String] = true
+        }
+        return query
+    }
+    #endif
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {
         let encoder = JSONEncoder()

@@ -7,8 +7,8 @@ import Observation
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
 /// in, then turns on the pairing host, opens a short manual ticket-mint window,
 /// mints an attach ticket when an automatic route exists, and exposes either a
-/// QR payload or manual host/port guidance. The displayed code never expires
-/// and is never regenerated on a timer; Refresh Code re-mints on demand.
+/// QR payload or manual host/port guidance. The displayed manual key is rotated
+/// before expiry while the window is waiting; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
@@ -39,7 +39,9 @@ final class MobilePairingModel {
     }
 
     /// The current render state, observed by ``MobilePairingView``.
-    private(set) var state: State = .loading
+    private(set) var state: State = .loading {
+        didSet { scheduleManualPairingSecretRefreshIfNeeded() }
+    }
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
 
@@ -48,6 +50,9 @@ final class MobilePairingModel {
     /// Observes the host's connection status while a code is shown, flipping the
     /// render state between `.ready` and `.connected`. Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
+    /// Rotates the displayed manual pairing key before its host-side mint grant
+    /// expires, so the UI never shows a stale key while waiting for a phone.
+    private var manualPairingSecretRefreshTimer: Timer?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
@@ -61,9 +66,8 @@ final class MobilePairingModel {
     ///     default argument, since default args are evaluated nonisolated and
     ///     `MobileHostService.shared` is main-actor isolated.)
     ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
-    ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
-    ///     side effect; the displayed v2 pairing QR carries no token and never
-    ///     expires.
+    ///     to 600. Also controls how often the displayed manual pairing key is
+    ///     rotated while waiting.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
@@ -209,13 +213,11 @@ final class MobilePairingModel {
 
     /// Cancels the connection observation. Call when the window closes.
     ///
-    /// There is deliberately no timer to cancel: the displayed code never
-    /// expires and is never regenerated behind the user's back. If a
-    /// Tailscale address changes while the window sits open (rare), the
-    /// Refresh Code button re-mints on demand.
     func stopObserving() {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        manualPairingSecretRefreshTimer?.invalidate()
+        manualPairingSecretRefreshTimer = nil
         host.revokeManualPairingTicketMint()
     }
 
@@ -239,11 +241,18 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                self.state = Self.connectionTransition(
-                    from: self.state,
+                let current = self.state
+                let next = Self.connectionTransition(
+                    from: current,
                     activeConnectionCount: status.activeConnectionCount,
-                    baselineConnectionCount: baseline
+                    baselineConnectionCount: baseline,
+                    refreshReady: { self.refreshTrustedNetworkPairingSecret(for: $0) },
+                    refreshManualOnly: { self.refreshTrustedNetworkPairingSecret(for: $0) }
                 )
+                if Self.shouldRevokeManualPairingGrant(from: current, to: next) {
+                    self.host.revokeManualPairingTicketMint()
+                }
+                self.state = next
             }
         }
     }
@@ -258,20 +267,80 @@ final class MobilePairingModel {
     static func connectionTransition(
         from current: State,
         activeConnectionCount: Int,
-        baselineConnectionCount: Int
+        baselineConnectionCount: Int,
+        refreshReady: (MobilePairingReady) -> MobilePairingReady,
+        refreshManualOnly: (MobilePairingManualOnly) -> MobilePairingManualOnly
     ) -> State {
         let connected = activeConnectionCount > baselineConnectionCount
         switch current {
         case let .ready(ready) where connected:
             return .connected(ready)
         case let .connected(ready) where !connected:
-            return .ready(ready)
+            return .ready(refreshReady(ready))
         case let .manualOnly(manual) where connected:
             return .connectedManual(manual)
         case let .connectedManual(manual) where !connected:
-            return .manualOnly(manual)
+            return .manualOnly(refreshManualOnly(manual))
         default:
             return current
+        }
+    }
+
+    static func shouldRevokeManualPairingGrant(from current: State, to next: State) -> Bool {
+        switch (current, next) {
+        case (.ready, .connected), (.manualOnly, .connectedManual):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func refreshTrustedNetworkPairingSecret(for ready: MobilePairingReady) -> MobilePairingReady {
+        MobilePairingReady(
+            attachURL: ready.attachURL,
+            macName: ready.macName,
+            tailscaleLines: ready.tailscaleLines,
+            manualEntry: ready.manualEntry,
+            trustedNetworkPairingSecret: host.enableManualPairingTicketMint(ttl: ticketTTL)
+        )
+    }
+
+    private func refreshTrustedNetworkPairingSecret(for manual: MobilePairingManualOnly) -> MobilePairingManualOnly {
+        MobilePairingManualOnly(
+            macName: manual.macName,
+            port: manual.port,
+            trustedNetworkPairingSecret: host.enableManualPairingTicketMint(ttl: ticketTTL)
+        )
+    }
+
+    private func scheduleManualPairingSecretRefreshIfNeeded() {
+        manualPairingSecretRefreshTimer?.invalidate()
+        let shouldRefresh: Bool
+        switch state {
+        case .ready, .manualOnly:
+            shouldRefresh = true
+        default:
+            shouldRefresh = false
+        }
+        guard shouldRefresh else {
+            manualPairingSecretRefreshTimer = nil
+            return
+        }
+
+        let generation = refreshGeneration
+        let delaySeconds = max(5, max(30, ticketTTL) - 15)
+        manualPairingSecretRefreshTimer = Timer.scheduledTimer(withTimeInterval: delaySeconds, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.refreshGeneration else { return }
+                switch self.state {
+                case let .ready(ready):
+                    self.state = .ready(self.refreshTrustedNetworkPairingSecret(for: ready))
+                case let .manualOnly(manual):
+                    self.state = .manualOnly(self.refreshTrustedNetworkPairingSecret(for: manual))
+                default:
+                    break
+                }
+            }
         }
     }
 

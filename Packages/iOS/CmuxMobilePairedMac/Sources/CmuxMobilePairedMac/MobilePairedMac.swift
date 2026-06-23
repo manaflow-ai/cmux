@@ -89,18 +89,3 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.credential = credential
     }
 }
-
-public struct MobilePairedMacCredential: Codable, Equatable, Sendable {
-    public var authToken: String
-    public var expiresAt: Date?
-
-    public init(authToken: String, expiresAt: Date?) {
-        self.authToken = authToken
-        self.expiresAt = expiresAt
-    }
-
-    public func isUsable(now: Date = Date()) -> Bool {
-        !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (expiresAt.map { $0 > now } ?? true)
-    }
-}

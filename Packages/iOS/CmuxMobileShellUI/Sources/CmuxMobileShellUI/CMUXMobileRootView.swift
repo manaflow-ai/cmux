@@ -191,19 +191,15 @@ struct CMUXMobileRootView: View {
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
         } else if shouldShowRestoringSession {
-            RestoringSessionView()
+            RestoringSessionView(
+                retry: retryRestoringSession,
+                signOut: signOut,
+                showAddDevice: restoringSessionAddDeviceAction
+            )
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
-                // We know a Mac is being reconnected: it is honest to say so.
-                RestoringSessionView()
-            } else {
-                // Still determining whether a paired Mac exists (install predating
-                // the hint, or a fresh sign-in): a neutral spinner, since we do not
-                // yet know if there is a session to restore.
-                MobilePairedMacDeterminingView()
-            }
+            restoringStoredMacContent
         } else if shouldShowOnboarding {
             // Placed after the reconnect-determining branch so `hasKnownPairedMac`
             // has resolved: a genuine first run (never onboarded, never paired)
@@ -212,15 +208,7 @@ struct CMUXMobileRootView: View {
             // reconnect) is excluded by the gate and falls through to pairing.
             onboardingFlow
         } else if store.connectionState != .connected && !store.hasKnownPairedMac {
-            // ONLY when there are no saved Macs at all: the add-device flow (it
-            // auto-presents the pairing sheet since there is nothing to list).
-            DisconnectedWorkspaceShellView(
-                hasKnownPairedMac: store.hasKnownPairedMac,
-                showAddDevice: showAddDevice,
-                signOut: signOut,
-                setupHelpHighlight: disconnectedSetupHelpHighlight,
-                store: store
-            )
+            disconnectedContent
         } else {
             // Connected, OR we have saved Macs and are auto-connecting in the
             // background: always show the integrated cross-Mac workspace list, so
@@ -230,6 +218,40 @@ struct CMUXMobileRootView: View {
             // tap. Opening a workspace attaches its Mac on demand.
             WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
         }
+    }
+
+    private var restoringSessionAddDeviceAction: (() -> Void)? {
+        guard isAuthenticated else { return nil }
+        return showAddDevice
+    }
+
+    @ViewBuilder
+    private var restoringStoredMacContent: some View {
+        if store.hasKnownPairedMac || store.isReconnectingStoredMac {
+            // We know a Mac is being reconnected: it is honest to say so.
+            RestoringSessionView(
+                retry: retryRestoringSession,
+                signOut: signOut,
+                showAddDevice: showAddDevice
+            )
+        } else {
+            // Still determining whether a paired Mac exists (install predating
+            // the hint, or a fresh sign-in): a neutral spinner, since we do not
+            // yet know if there is a session to restore.
+            MobilePairedMacDeterminingView()
+        }
+    }
+
+    private var disconnectedContent: some View {
+        // ONLY when there are no saved Macs at all: the add-device flow (it
+        // auto-presents the pairing sheet since there is nothing to list).
+        DisconnectedWorkspaceShellView(
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            showAddDevice: showAddDevice,
+            signOut: signOut,
+            setupHelpHighlight: disconnectedSetupHelpHighlight,
+            store: store
+        )
     }
 
     private var addDeviceSheetBinding: Binding<Bool> {
@@ -387,6 +409,20 @@ struct CMUXMobileRootView: View {
         Task {
             await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
         }
+    }
+
+    private func retryRestoringSession() {
+        syncShellAuthentication(isAuthenticated)
+        if authManager.isRestoringSession && !isAuthenticated {
+            Task {
+                await authManager.revalidateSession()
+            }
+            return
+        }
+        if consumePendingURLIfReady() {
+            return
+        }
+        reconnectStoredMacIfNeeded()
     }
 
     private func showAddDevice() {

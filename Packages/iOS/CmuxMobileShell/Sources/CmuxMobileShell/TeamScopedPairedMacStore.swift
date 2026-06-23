@@ -119,6 +119,7 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring, MobilePairedMacC
         try await inner.removeAll()
     }
 
+    /// Store or remove a local reconnect credential in the selected team scope.
     public func storeCredential(
         _ credential: MobilePairedMacCredential?,
         macDeviceID: String,
@@ -132,6 +133,12 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring, MobilePairedMacC
             stackUserID: stackUserID,
             teamID: await resolvedTeam(teamID)
         )
+    }
+
+    /// Remove local reconnect credentials while preserving paired-Mac metadata.
+    public func removeAllCredentials() async throws {
+        guard let credentialStore = inner as? any MobilePairedMacCredentialStoring else { return }
+        try await credentialStore.removeAllCredentials()
     }
 
     private func resolvedTeam(_ teamID: String?) async -> String? {

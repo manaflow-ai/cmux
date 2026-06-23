@@ -37,6 +37,10 @@ struct MobileCoreRPCAttachTicketCoverage {
         return workspaceSelection == ticketWorkspaceID
     }
 
+    func ticketCoversMacScopedRequest(ticket: CmxAttachTicket) -> Bool {
+        ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }

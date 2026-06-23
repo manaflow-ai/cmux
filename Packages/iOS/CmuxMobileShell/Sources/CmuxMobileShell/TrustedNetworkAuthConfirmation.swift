@@ -7,8 +7,3 @@ struct TrustedNetworkAuthConfirmation: Codable, Hashable {
     var host: String
     var port: Int
 }
-
-struct TrustedNetworkAuthConfirmationCandidate {
-    var host: String
-    var port: Int
-}

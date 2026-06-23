@@ -9,7 +9,8 @@ import Testing
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
         clock: any Clock<Duration> = ContinuousClock(),
-        isOnline: @escaping @Sendable () async -> Bool = { true }
+        isOnline: @escaping @Sendable () async -> Bool = { true },
+        onLocalAuthCleared: @escaping @MainActor @Sendable () async -> Void = {}
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let coordinator = AuthCoordinator(
@@ -21,7 +22,8 @@ import Testing
             config: .test,
             launch: launch,
             clock: clock,
-            isOnline: isOnline
+            isOnline: isOnline,
+            onLocalAuthCleared: onLocalAuthCleared
         )
         return (coordinator, store)
     }
@@ -174,6 +176,21 @@ import Testing
         #expect(await client.revokeCount == 1)
         #expect(await client.lastRevokedAccessToken == "access")
         #expect(coordinator.isAuthenticated == false)
+    }
+
+    @Test func signOutRunsLocalAuthClearedHook() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let clearCount = HookCounter()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onLocalAuthCleared: { clearCount.increment() }
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        await coordinator.signOut()
+
+        #expect(clearCount.count == 1)
     }
 
     @Test func refreshOnlySignOutMintsAccessTokenForTeardown() async throws {

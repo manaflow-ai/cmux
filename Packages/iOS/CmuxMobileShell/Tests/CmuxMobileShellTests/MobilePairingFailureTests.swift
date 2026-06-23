@@ -159,6 +159,66 @@ import Testing
         #expect(category == .accountMismatch)
     }
 
+    @MainActor
+    @Test func macUserBoundTicketRejectsMissingPhoneUser() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Mac",
+            macUserID: "mac-user",
+            routes: [route()]
+        )
+
+        let category = MobileShellComposite.emailFailure(
+            for: ticket,
+            actualUserID: nil,
+            actualEmail: "phone@example.com"
+        )
+
+        #expect(category == .authFailed)
+    }
+
+    @MainActor
+    @Test func macUserBoundTicketRejectsDifferentPhoneUser() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Mac",
+            macUserID: "mac-user",
+            routes: [route()]
+        )
+
+        let category = MobileShellComposite.emailFailure(
+            for: ticket,
+            actualUserID: "phone-user",
+            actualEmail: "phone@example.com"
+        )
+
+        #expect(category == .authFailed)
+    }
+
+    @MainActor
+    @Test func macUserBoundTicketAllowsMatchingPhoneUser() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Mac",
+            macUserID: "mac-user",
+            routes: [route()]
+        )
+
+        let category = MobileShellComposite.emailFailure(
+            for: ticket,
+            actualUserID: "mac-user",
+            actualEmail: "phone@example.com"
+        )
+
+        #expect(category == nil)
+    }
+
     @Test func unrecognizedRPCErrorIsActionableUnknownNotEmpty() throws {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.rpcError("weird_code", "something odd"),
