@@ -51,6 +51,9 @@
          location = "group:CmuxMobileDiagnostics">
       </FileRef>
       <FileRef
+         location = "group:CmuxMobileIrohTransport">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobilePairedMac">
       </FileRef>
       <FileRef
