@@ -324,7 +324,12 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             targetHeight: rootTarget.targetHeight,
             preserveTargetEdge: true
         )
-        let indicator = plannedIndicator ?? rootTarget.indicator ?? requestedIndicator
+        let promotesGroupedWorkspace = usesTopLevelRows &&
+            draggedWorkspace.groupId != nil &&
+            groupByAnchorId[draggedWorkspace.id] == nil
+        guard let indicator = plannedIndicator ?? (promotesGroupedWorkspace ? rootTarget.indicator ?? requestedIndicator : nil) else {
+            return nil
+        }
 
         return SidebarWorkspaceReorderDropPlan(
             draggedWorkspaceId: request.draggedWorkspaceId,
@@ -505,22 +510,44 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         sortedTargets: [SidebarWorkspaceReorderDropTarget],
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
     ) -> [UUID: SidebarWorkspaceReorderGroupLayout] {
-        var layouts: [UUID: SidebarWorkspaceReorderGroupLayout] = [:]
-        for (groupId, group) in groupsById {
-            let indices = sortedTargets.indices.filter { sortedTargets[$0].groupId == groupId }
-            guard let firstIndex = indices.first,
-                  let lastIndex = indices.last,
-                  let anchorTarget = sortedTargets.first(where: { $0.workspaceId == group.anchorWorkspaceId }) else {
+        var boundsByGroupId: [UUID: CGRect] = [:]
+        var anchorTargetByGroupId: [UUID: SidebarWorkspaceReorderDropTarget] = [:]
+        var lastIndexByGroupId: [UUID: Int] = [:]
+        for (index, target) in sortedTargets.enumerated() {
+            guard let groupId = target.groupId,
+                  let group = groupsById[groupId] else {
                 continue
             }
-            let bounds = indices.dropFirst().reduce(sortedTargets[firstIndex].frame) { partial, index in
-                partial.union(sortedTargets[index].frame)
+            boundsByGroupId[groupId] = boundsByGroupId[groupId]?.union(target.frame) ?? target.frame
+            lastIndexByGroupId[groupId] = index
+            if target.workspaceId == group.anchorWorkspaceId {
+                anchorTargetByGroupId[groupId] = target
             }
-            let nextRootTarget = sortedTargets[(lastIndex + 1)...].first { $0.groupId == nil }
+        }
+
+        var nextRootTargetByGroupId: [UUID: SidebarWorkspaceReorderDropTarget] = [:]
+        var nextRootTarget: SidebarWorkspaceReorderDropTarget?
+        for index in sortedTargets.indices.reversed() {
+            let target = sortedTargets[index]
+            if let groupId = target.groupId,
+               lastIndexByGroupId[groupId] == index {
+                nextRootTargetByGroupId[groupId] = nextRootTarget
+            }
+            if target.groupId == nil {
+                nextRootTarget = target
+            }
+        }
+
+        var layouts: [UUID: SidebarWorkspaceReorderGroupLayout] = [:]
+        for groupId in groupsById.keys {
+            guard let bounds = boundsByGroupId[groupId],
+                  let anchorTarget = anchorTargetByGroupId[groupId] else {
+                continue
+            }
             layouts[groupId] = SidebarWorkspaceReorderGroupLayout(
                 bounds: bounds,
                 anchorTarget: anchorTarget,
-                nextRootTarget: nextRootTarget
+                nextRootTarget: nextRootTargetByGroupId[groupId]
             )
         }
         return layouts
