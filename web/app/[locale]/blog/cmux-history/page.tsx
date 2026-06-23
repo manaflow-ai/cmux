@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 
@@ -51,6 +52,7 @@ export default function CmuxHistoryBlogPage() {
 
   return (
     <>
+      <BlogSchema postKey="cmuxHistory" path="/blog/cmux-history" datePublished="2026-06-02T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"
