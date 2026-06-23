@@ -6166,12 +6166,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private var isDefaultFreestyleSSHDRemoteWorkspace: Bool {
-        guard remoteConfiguration?.skipDaemonBootstrap == true,
-              remoteConfiguration?.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1",
-              remoteConfiguration?.managedCloudVMID != nil else {
-            return false
-        }
-        return true
+        defaultFreestyleSSHDVMID(from: remoteConfiguration) != nil
     }
 
     private func defaultFreestyleSSHDTerminalStartupCommand(vmID: String) -> String {
@@ -6209,9 +6204,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
         guard let configuration else { return nil }
-        if configuration.skipDaemonBootstrap,
-           configuration.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1",
-           let vmID = configuration.managedCloudVMID {
+        if let vmID = defaultFreestyleSSHDVMID(from: configuration) {
             let command = configuration.terminalStartupCommand?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if command?.contains("vm ssh-attach") == true,
@@ -6223,6 +6216,27 @@ final class Workspace: Identifiable, ObservableObject {
         let command = configuration.terminalStartupCommand?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return command?.isEmpty == false ? command : nil
+    }
+
+    private func defaultFreestyleSSHDVMID(from configuration: WorkspaceRemoteConfiguration?) -> String? {
+        guard let configuration,
+              configuration.skipDaemonBootstrap else {
+            return nil
+        }
+        if configuration.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1",
+           let vmID = configuration.managedCloudVMID {
+            return vmID
+        }
+        let destination = configuration.destination.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffix = "+cmux@vm-ssh.freestyle.sh"
+        guard destination.hasSuffix(suffix) else {
+            return nil
+        }
+        let vmID = String(destination.dropLast(suffix.count))
+        guard vmID.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        return vmID
     }
 
     func discardRemotePTYSessionID(panelId: UUID) {

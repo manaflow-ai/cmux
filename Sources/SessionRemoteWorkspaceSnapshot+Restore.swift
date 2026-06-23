@@ -34,6 +34,7 @@ extension SessionRemoteWorkspaceSnapshot {
             ? Self.normalizedSSHOptions(preservedOptions)
             : preservedOptions
         let managedCloudVMID = WorkspaceRemoteConfiguration.normalizedOptionalValue(managedCloudVMID)
+            ?? Self.legacyDefaultFreestyleVMID(destination: normalizedDestination, skipDaemonBootstrap: skipDaemonBootstrap)
         let defaultFreestyleVMID = skipDaemonBootstrap == true ? managedCloudVMID : nil
         let effectivePersistentDaemonSlot = normalizedPersistentDaemonSlot
             ?? (defaultFreestyleVMID == nil ? nil : Self.defaultFreestylePersistentDaemonSlot)
@@ -157,6 +158,19 @@ extension SessionRemoteWorkspaceSnapshot {
     }
 
     private static let defaultFreestylePersistentDaemonSlot = "cmux-default-freestyle-sshd-v1"
+
+    private static func legacyDefaultFreestyleVMID(destination: String, skipDaemonBootstrap: Bool?) -> String? {
+        guard skipDaemonBootstrap == true else { return nil }
+        let pattern = #"^([A-Za-z0-9._-]+)\+cmux@vm-ssh\.freestyle\.sh$"#
+        guard let match = destination.range(of: pattern, options: .regularExpression) else {
+            return nil
+        }
+        let matched = String(destination[match])
+        guard let plusRange = matched.range(of: "+cmux@vm-ssh.freestyle.sh") else {
+            return nil
+        }
+        return String(matched[..<plusRange.lowerBound])
+    }
 
     private static func defaultFreestyleSSHAttachCommand(vmID: String) -> String {
         let lines = [
