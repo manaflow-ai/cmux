@@ -12,12 +12,12 @@ let package = Package(
         ),
     ],
     dependencies: [
-        .package(path: "../../Packages/CmuxExtensionKit"),
+        .package(path: "../../Packages/macOS/CmuxSidebarProviderKit"),
     ],
     targets: [
         .target(
             name: "CmuxExtensionSidebarExamples",
-            dependencies: ["CmuxExtensionKit"]
+            dependencies: ["CmuxSidebarProviderKit"]
         ),
         .testTarget(
             name: "CmuxExtensionSidebarExamplesTests",

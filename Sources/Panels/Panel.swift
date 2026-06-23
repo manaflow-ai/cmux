@@ -9,6 +9,10 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case customSidebar
+    case agentSession
+    case project
+    case extensionBrowser
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -23,6 +27,14 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
             self = .rightSidebarTool
+            return
+        }
+        if rawValue.lowercased() == Self.customSidebar.rawValue.lowercased() {
+            self = .customSidebar
+            return
+        }
+        if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
+            self = .agentSession
             return
         }
         throw DecodingError.dataCorruptedError(
@@ -59,11 +71,17 @@ public enum FilePreviewPanelFocusIntent: Hashable {
     case quickLook
 }
 
+public enum ProjectPanelFocusIntent: Hashable {
+    case navigator
+    case detail
+}
+
 public enum PanelFocusIntent: Equatable {
     case panel
     case terminal(TerminalPanelFocusIntent)
     case browser(BrowserPanelFocusIntent)
     case filePreview(FilePreviewPanelFocusIntent)
+    case project(ProjectPanelFocusIntent)
 }
 
 public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {

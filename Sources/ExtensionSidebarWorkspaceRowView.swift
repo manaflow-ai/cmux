@@ -1,16 +1,17 @@
+import CmuxFoundation
 import AppKit
-import CmuxExtensionKit
+import CmuxSidebarProviderKit
 import SwiftUI
 import WebKit
 
 struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
-    let row: CmuxExtensionSidebarRenderRow
-    let workspace: CmuxExtensionWorkspaceSnapshot?
+    let row: CmuxSidebarProviderRow
+    let workspace: CmuxSidebarProviderWorkspace?
     let providerId: String
     let relativeNow: Date
     let isSelected: Bool
     let onSelect: (UUID) -> Void
-    let onOpenWindow: (CmuxExtensionWorkspaceSnapshot) -> Void
+    let onOpenWindow: (CmuxSidebarProviderWorkspace) -> Void
     @State private var showsInspector = false
     @State private var inspectorDraft: CmuxExtensionWorkspaceInspectorDraft?
 
@@ -36,14 +37,14 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         HStack(spacing: isSuperCompact ? 5 : 7) {
             VStack(alignment: .leading, spacing: isSuperCompact ? 0 : 2) {
                 Text(row.title)
-                    .font(.system(size: primarySize, weight: .regular))
+                    .cmuxFont(size: primarySize, weight: .regular)
                     .foregroundColor(isSelected ? .primary : .primary.opacity(0.86))
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 if !isSuperCompact, let subtitle = rendered(row.subtitle) {
                     Text(subtitle)
-                        .font(.system(size: secondarySize, weight: .regular))
+                        .cmuxFont(size: secondarySize, weight: .regular)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -53,7 +54,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
 
             if !isSuperCompact, let trailing = rendered(row.trailingText) {
                 Text(trailing)
-                    .font(.system(size: 10.5, weight: .regular))
+                    .cmuxFont(size: 10.5, weight: .regular)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
             }
@@ -69,7 +70,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     showsInspector = true
                 } label: {
                     Image(systemName: accessory.systemImageName)
-                        .font(.system(size: isSuperCompact ? 10 : 12, weight: .regular))
+                        .cmuxFont(size: isSuperCompact ? 10 : 12, weight: .regular)
                         .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
                 }
                 .buttonStyle(.plain)
@@ -108,7 +109,7 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         }
     }
 
-    private func rendered(_ text: CmuxExtensionSidebarRenderText?) -> String? {
+    private func rendered(_ text: CmuxSidebarProviderText?) -> String? {
         guard let text else { return nil }
         switch text {
         case .plain(let value):
@@ -122,14 +123,14 @@ struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
 }
 
 struct CmuxExtensionWorkspaceInspectorDraft: Equatable {
-    var selectedTab: CmuxExtensionWorkspacePopoverTab
+    var selectedTab: CmuxSidebarProviderWorkspacePopoverTab
     var notes: String
     var address: String
     var committedAddress: String
 
     static func initial(
-        workspace: CmuxExtensionWorkspaceSnapshot,
-        selectedTab: CmuxExtensionWorkspacePopoverTab = .notes
+        workspace: CmuxSidebarProviderWorkspace,
+        selectedTab: CmuxSidebarProviderWorkspacePopoverTab = .notes
     ) -> CmuxExtensionWorkspaceInspectorDraft {
         let initialAddress = workspace.pullRequestURLs.first ?? "https://github.com/"
         return CmuxExtensionWorkspaceInspectorDraft(
@@ -168,12 +169,12 @@ enum CmuxExtensionRelativeTimeFormatter {
 }
 
 struct CmuxExtensionWorkspaceInspectorView: View {
-    let workspace: CmuxExtensionWorkspaceSnapshot
+    let workspace: CmuxSidebarProviderWorkspace
     let onOpenWindow: () -> Void
     @Binding private var draft: CmuxExtensionWorkspaceInspectorDraft
 
     init(
-        workspace: CmuxExtensionWorkspaceSnapshot,
+        workspace: CmuxSidebarProviderWorkspace,
         draft: Binding<CmuxExtensionWorkspaceInspectorDraft>,
         onOpenWindow: @escaping () -> Void
     ) {
@@ -186,8 +187,8 @@ struct CmuxExtensionWorkspaceInspectorView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Picker("", selection: $draft.selectedTab) {
-                    Text(String(localized: "sidebar.extension.notesTab", defaultValue: "Notes")).tag(CmuxExtensionWorkspacePopoverTab.notes)
-                    Text(String(localized: "sidebar.extension.browserTab", defaultValue: "Browser")).tag(CmuxExtensionWorkspacePopoverTab.browser)
+                    Text(String(localized: "sidebar.extension.notesTab", defaultValue: "Notes")).tag(CmuxSidebarProviderWorkspacePopoverTab.notes)
+                    Text(String(localized: "sidebar.extension.browserTab", defaultValue: "Browser")).tag(CmuxSidebarProviderWorkspacePopoverTab.browser)
                 }
                 .pickerStyle(.segmented)
 
@@ -205,7 +206,7 @@ struct CmuxExtensionWorkspaceInspectorView: View {
             switch draft.selectedTab {
             case .notes:
                 TextEditor(text: $draft.notes)
-                    .font(.system(size: 13))
+                    .cmuxFont(size: 13)
                     .scrollContentBackground(.hidden)
                     .padding(8)
                     .accessibilityIdentifier("ExtensionSidebarNotesEditor")
@@ -225,7 +226,7 @@ struct CmuxExtensionWorkspaceInspectorView: View {
                             draft.committedAddress = normalized
                         }
                     }
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .padding(.horizontal, 9)
                     .padding(.vertical, 7)
                     .background(Color(nsColor: .controlBackgroundColor))
@@ -238,12 +239,12 @@ struct CmuxExtensionWorkspaceInspectorView: View {
 }
 
 struct CmuxExtensionWorkspaceInspectorWindowContentView: View {
-    let workspace: CmuxExtensionWorkspaceSnapshot
+    let workspace: CmuxSidebarProviderWorkspace
     let onOpenWindow: () -> Void
     @State private var draft: CmuxExtensionWorkspaceInspectorDraft
 
     init(
-        workspace: CmuxExtensionWorkspaceSnapshot,
+        workspace: CmuxSidebarProviderWorkspace,
         onOpenWindow: @escaping () -> Void
     ) {
         self.workspace = workspace
@@ -303,7 +304,7 @@ final class CmuxExtensionSidebarInspectorWindowController {
     private static var controllers: [UUID: NSWindowController] = [:]
     private static var closeObservers: [UUID: NSObjectProtocol] = [:]
 
-    static func show(workspace: CmuxExtensionWorkspaceSnapshot) {
+    static func show(workspace: CmuxSidebarProviderWorkspace) {
         if let controller = controllers[workspace.id] {
             controller.window?.title = workspace.title
             controller.window?.setContentSize(NSSize(width: 620, height: 440))

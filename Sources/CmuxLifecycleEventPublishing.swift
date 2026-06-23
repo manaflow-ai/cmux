@@ -49,11 +49,12 @@ extension TabManager {
     }
 
     func publishCmuxInitialSurfaceCreated(_ workspace: Workspace, selected: Bool) {
-        guard let terminalPanel = workspace.focusedTerminalPanel else { return }
+        guard let panelId = workspace.focusedSurfaceId,
+              let panel = workspace.panels[panelId] else { return }
         workspace.publishCmuxSurfaceCreated(
-            terminalPanel.id,
-            paneId: workspace.paneId(forPanelId: terminalPanel.id),
-            kind: "terminal",
+            panelId,
+            paneId: workspace.paneId(forPanelId: panelId),
+            kind: Workspace.cmuxEventSurfaceKind(panel),
             origin: "workspace_initial",
             focused: selected
         )
@@ -214,6 +215,14 @@ extension Workspace {
             return "file_preview"
         case .rightSidebarTool:
             return "right_sidebar_tool"
+        case .customSidebar:
+            return "custom_sidebar"
+        case .agentSession:
+            return "agent_session"
+        case .project:
+            return "project"
+        case .extensionBrowser:
+            return "extension_browser"
         }
     }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxTestSupport
 import SwiftUI
 
 enum WindowMouseMovedEventsCoordinator {
@@ -412,6 +413,12 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 
 /// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
 /// titlebar space. Treat those as pass-through so explicit sibling checks decide.
+///
+/// Interactive titlebar controls are *not* identified here by their hit view.
+/// They register their region with ``MinimalModeTitlebarControlHitRegionRegistry``
+/// instead, which ``windowDragHandleShouldCaptureHit(_:in:eventType:eventWindow:)``
+/// consults (via `isMinimalModeTitlebarControlHit`) before this sibling walk runs,
+/// so a registered control already makes the drag handle yield.
 func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     let className = String(describing: type(of: view))
     if className.contains("HostContainerView")
@@ -515,7 +522,22 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
     }
 }
 
-struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
+/// Marks the region occupied by an interactive titlebar control so window-drag,
+/// resize-drag, and double-click-zoom routing yields to the control's own clicks.
+///
+/// This is the backing of `titlebarInteractiveControl()`. It is applied as a
+/// `.background(...)` of the control, so it matches the control's frame but never
+/// reparents the control out of its SwiftUI host. The view is transparent to
+/// hit-testing (`hitTest` returns `nil`) — it exists only to register its bounds
+/// with ``MinimalModeTitlebarControlHitRegionRegistry``. Every titlebar
+/// drag/double-click surface consults that registry (via
+/// `isMinimalModeTitlebarControlHit`) and skips any registered region, so the
+/// control keeps receiving mouse-downs in place.
+///
+/// Reparenting interactive controls into a nested `NSHostingView` instead (the
+/// previous approach) silently dropped their clicks when the control lived in the
+/// full-size-content titlebar band, e.g. the right-sidebar mode bar (issue #5099).
+struct TitlebarInteractiveControlRegion: NSViewRepresentable {
     final class RegisteredView: NSView {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -527,6 +549,8 @@ struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override var mouseDownCanMoveWindow: Bool { false }
 
         deinit {
             MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
@@ -683,9 +707,8 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
     static let hostHeight: CGFloat = 28
     static let singleButtonHostWidth: CGFloat = hostHeight
 
-    static func titlebarControlsOpticalYOffset(backingScaleFactor: CGFloat?) -> CGFloat {
-        let scale = max(1.0, backingScaleFactor ?? 1.0)
-        return 1.0 / scale
+    static func titlebarControlsOpticalYOffset(backingScaleFactor _: CGFloat?) -> CGFloat {
+        0
     }
 
     @MainActor
@@ -835,9 +858,9 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .newTab, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
             return true
-        case .toggleSidebar, .showNotifications:
+        case .showNotifications:
             return false
         }
     }
@@ -1024,7 +1047,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
             locationInWindow,
             in: window
         )
-    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+    _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
         let count = (payload["minimalSidebarHoverEventCount"] as? String).flatMap(Int.init) ?? 0
         payload["minimalSidebarHoverEventCount"] = String(count + 1)
         payload["minimalSidebarHoverEventType"] = String(describing: eventType)
@@ -1327,13 +1350,6 @@ struct WindowDragHandleView: NSViewRepresentable {
     }
 }
 
-private func titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
-    window: NSWindow,
-    locationInWindow: NSPoint
-) -> Bool {
-    isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow)
-}
-
 /// Local monitor that guarantees double-clicks in custom titlebar surfaces trigger
 /// the standard macOS titlebar action even when the visible strip is hosted by
 /// higher-level SwiftUI/AppKit container views.
@@ -1373,7 +1389,7 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 coordinator.lastClick = nil
                 return event
             }
-            guard !titlebarDoubleClickMonitorShouldDeferToRegisteredControl(
+            guard !minimalModeTitlebarDoubleClickShouldDefer(
                 window: window,
                 locationInWindow: event.locationInWindow
             ) else {
@@ -1664,14 +1680,17 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 lastTitlebarClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+            guard !minimalModeTitlebarDoubleClickShouldDefer(
+                window: window,
+                locationInWindow: locationInWindow
+            ) else {
                 lastTitlebarClick = nil
                 return event
             }
 
             #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     let count = (payload["minimalTitlebarEventSurfaceMouseDownCount"] as? String).flatMap(Int.init) ?? 0
                     payload["minimalTitlebarEventSurfaceMouseDownCount"] = String(count + 1)
                     payload["minimalTitlebarEventSurfaceLastPoint"] = windowDragHandleFormatPoint(locationInWindow)

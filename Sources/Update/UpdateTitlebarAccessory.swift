@@ -1,11 +1,11 @@
 import AppKit
 import Bonsplit
 import Combine
+import CmuxFoundation
+import CmuxSettings
+import CmuxSettingsUI
+import CmuxTestSupport
 import SwiftUI
-
-final class NonDraggableHostingView<Content: View>: NSHostingView<Content> {
-    override var mouseDownCanMoveWindow: Bool { false }
-}
 
 enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case classic
@@ -311,6 +311,21 @@ struct NotificationsAnchorView: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
+struct TitlebarControlAnchorView: NSViewRepresentable {
+    let onResolve: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = AnchorNSView()
+        view.onLayout = { [weak view] in
+            guard let view else { return }
+            onResolve(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
 final class AnchorNSView: NSView {
     var onLayout: (() -> Void)?
 
@@ -386,6 +401,52 @@ func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFl
     max(14, config.iconSize + 1)
 }
 
+/// Width of a titlebar shortcut-hint pill, measured with the same font `ShortcutHintPill`
+/// renders with (SF Rounded at the pill's font size). Measuring with the default
+/// (non-rounded) system font underestimated command-symbol glyphs and let the pill
+/// overflow its reserved slot. The `+ 12` matches the pill's 6pt horizontal padding per side.
+func titlebarHintPillWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
+    let pillFontSize = max(8, config.iconSize - 5)
+    let scaledPillFontSize = GlobalFontMagnification.scaledSize(pillFontSize)
+    let baseFont = GlobalFontMagnification.systemFont(ofSize: pillFontSize, weight: .semibold)
+    let pillFont = baseFont.fontDescriptor.withDesign(.rounded)
+        .flatMap { NSFont(descriptor: $0, size: scaledPillFontSize) } ?? baseFont
+    let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: pillFont]).width
+    return ceil(textWidth) + 12
+}
+
+/// The rightmost edge the shortcut-hint pills occupy, in the controls' content
+/// coordinate space (measured from the leading edge of the button row), after the
+/// horizontal planner resolves overlaps.
+///
+/// This mirrors `TitlebarControlsView.titlebarHintIntervals` and the
+/// `ShortcutHintHorizontalPlanner` so the accessory reserves exactly enough width for
+/// the real layout. It is computed unconditionally for every command-bound slot (not
+/// gated on modifier state) so the reserved width stays stable whether or not the hints
+/// are currently visible. Returns 0 when no slot would show a hint.
+func titlebarHintLayoutRightmostExtent(
+    config: TitlebarControlsStyleConfig,
+    titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
+) -> CGFloat {
+    let xOffset = CGFloat(ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
+    var intervals: [ClosedRange<CGFloat>] = []
+    for slot in TitlebarShortcutHintActionSlot.allCases {
+        let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
+        guard !shortcut.isUnbound, shortcut.command else { continue }
+        let width = titlebarHintPillWidth(for: shortcut, config: config)
+        intervals.append(
+            TitlebarControlsLayoutMetrics.hintInterval(
+                for: slot,
+                width: width,
+                config: config,
+                xOffset: xOffset
+            )
+        )
+    }
+    guard !intervals.isEmpty else { return 0 }
+    return intervals.map(\.upperBound).max() ?? 0
+}
+
 enum TitlebarShortcutHintMetrics {
     static let verticalGap: CGFloat = -3
 }
@@ -415,16 +476,21 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
             return .focusHistoryForward
         }
     }
+
 }
 
 enum TitlebarControlsLayoutMetrics {
     static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
-    static let hintRightSafetyShift: CGFloat = 10
     static let hintTrailingBaseInset: CGFloat = 8
+    static let trafficLightGap: CGFloat = 2
+    /// Leading inset the controls content sits at inside the accessory; must match the
+    /// `.padding(.leading, …)` applied to `controlsGroup` in the view body.
+    static let hintLeadingPadding: CGFloat = HeaderChromeControlMetrics.titlebarControlsLeadingPadding
+    /// Extra trailing room past the rightmost pill for its capsule stroke and shadow.
+    static let hintShadowMargin: CGFloat = 4
 
     static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
         max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
-            + hintRightSafetyShift
             + hintTrailingBaseInset
     }
 
@@ -434,16 +500,48 @@ enum TitlebarControlsLayoutMetrics {
         return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
     }
 
+    static func buttonCenterX(
+        for slot: TitlebarShortcutHintActionSlot,
+        config: TitlebarControlsStyleConfig
+    ) -> CGFloat {
+        let index = CGFloat(slot.rawValue)
+        return config.groupPadding.leading
+            + (index * (config.buttonSize + config.spacing))
+            + (config.buttonSize / 2.0)
+    }
+
+    static func hintInterval(
+        for slot: TitlebarShortcutHintActionSlot,
+        width: CGFloat,
+        config: TitlebarControlsStyleConfig,
+        xOffset: CGFloat
+    ) -> ClosedRange<CGFloat> {
+        let centerX = buttonCenterX(for: slot, config: config) + xOffset
+        return (centerX - (width / 2.0))...(centerX + (width / 2.0))
+    }
+
     static func contentSize(
         config: TitlebarControlsStyleConfig,
         titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
     ) -> NSSize {
-        NSSize(
-            width: outerLeadingPadding
-                + config.groupPadding.leading
-                + buttonRowWidth(config: config)
-                + config.groupPadding.trailing
-                + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset),
+        // Two width requirements; reserve the larger so neither the buttons nor the
+        // shortcut hints are clipped by the accessory's allocated frame.
+        let buttonReservation = outerLeadingPadding
+            + config.groupPadding.leading
+            + buttonRowWidth(config: config)
+            + config.groupPadding.trailing
+            + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
+        // Drive the reservation from the planner's actual rightmost hint edge so the
+        // overlap-shift the planner applies (which the fixed inset above ignores) is
+        // always covered. This is what prevents the rightmost pill from clipping.
+        let hintReservation = hintLeadingPadding
+            + titlebarHintLayoutRightmostExtent(
+                config: config,
+                titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
+            )
+            + hintShadowMargin
+        return NSSize(
+            width: max(buttonReservation, hintReservation),
             height: max(
                 WindowChromeMetrics.appTitlebarHeight,
                 config.groupPadding.top + config.buttonSize + config.groupPadding.bottom
@@ -453,6 +551,15 @@ enum TitlebarControlsLayoutMetrics {
 
     static func containerHeight(contentHeight: CGFloat, titlebarHeight: CGFloat) -> CGFloat {
         max(contentHeight, titlebarHeight)
+    }
+
+    static func leadingOffset(
+        trafficLightFrame _: NSRect?,
+        debugSnapshot: MinimalModeTitlebarDebugSnapshot
+    ) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+            leadingInset: debugSnapshot.leftControlsLeadingInset
+        )
     }
 
     static func yOffset(
@@ -567,6 +674,7 @@ struct TitlebarControlButton<Content: View>: View {
                 TitlebarControlRightClickView(onRightMouseDown: rightClickAction)
             }
         }
+        .titlebarInteractiveControl()
     }
 }
 
@@ -711,28 +819,41 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
-    @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
+    @State private var modifierKeyMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
-    private let titlebarHintBaseXShift: CGFloat = -10
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
+    @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
 
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
         let shortcut: StoredShortcut
         let width: CGFloat
-        let leftEdge: CGFloat
+        let centerX: CGFloat
 
         var id: String { action.rawValue }
     }
 
+    private var modifierHoldHintsEnabled: Bool {
+        showModifierHoldHints
+    }
+
     private var shouldShowTitlebarShortcutHints: Bool {
-        alwaysShowShortcutHints || modifierKeyMonitor.isModifierPressed
+        alwaysShowShortcutHints || (modifierHoldHintsEnabled && modifierKeyMonitor.isModifierPressed)
+    }
+
+    private func startShortcutHintMonitorIfNeeded() {
+        if modifierHoldHintsEnabled {
+            modifierKeyMonitor.start()
+        } else {
+            modifierKeyMonitor.stop()
+        }
     }
 
     private var shouldShowControls: Bool {
@@ -749,6 +870,7 @@ struct TitlebarControlsView: View {
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
         let _ = shortcutRefreshTick
         let _ = appearanceRefreshTick
+        let _ = globalFontPercent
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
@@ -757,9 +879,7 @@ struct TitlebarControlsView: View {
         )
         let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
         controlsGroup(config: config, foregroundColor: foregroundColor)
-            .padding(.top, -1)
-            .padding(.bottom, 1)
-            .padding(.leading, 4)
+            .padding(.leading, TitlebarControlsLayoutMetrics.hintLeadingPadding)
             .padding(.trailing, titlebarHintTrailingInset)
             .frame(width: contentSize.width, height: contentSize.height, alignment: .leading)
             .fixedSize()
@@ -768,7 +888,7 @@ struct TitlebarControlsView: View {
             .allowsHitTesting(shouldShowControls)
             .animation(.easeInOut(duration: 0.14), value: shouldShowControls)
             .background(
-                WindowAccessor { window in
+                WindowAccessor(refreshID: showModifierHoldHints) { window in
                     let nextWindowNumber = window.windowNumber
                     if hostWindowNumber != nextWindowNumber {
                         DispatchQueue.main.async {
@@ -778,7 +898,7 @@ struct TitlebarControlsView: View {
                             }
                         }
                     }
-                    modifierKeyMonitor.setHostWindow(window)
+                    modifierKeyMonitor.setHostWindow(modifierHoldHintsEnabled ? window : nil)
                 }
                 .frame(width: 0, height: 0)
             )
@@ -801,11 +921,14 @@ struct TitlebarControlsView: View {
                 appearanceRefreshTick &+= 1
             }
             .onAppear {
-                modifierKeyMonitor.start()
+                startShortcutHintMonitorIfNeeded()
             }
             .onDisappear {
                 modifierKeyMonitor.stop()
                 hostWindowNumber = nil
+            }
+            .onChange(of: showModifierHoldHints) { _, _ in
+                startShortcutHintMonitorIfNeeded()
             }
     }
 
@@ -823,6 +946,7 @@ struct TitlebarControlsView: View {
     private func controlsGroup(config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
+        let badgeBaseFontSize = titlebarNotificationBadgeFontSize(for: config) / max(1, GlobalFontMagnification.scale(for: globalFontPercent))
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
@@ -862,12 +986,11 @@ struct TitlebarControlsView: View {
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
-                            .font(.system(size: titlebarNotificationBadgeFontSize(for: config), weight: .semibold))
+                            // Fixed-size badge; cap effective glyph size.
+                            .cmuxFont(size: badgeBaseFontSize, weight: .semibold)
                             .foregroundColor(.white)
                             .frame(width: config.badgeSize, height: config.badgeSize)
-                            .background(
-                                Circle().fill(cmuxAccentColor())
-                            )
+                            .background(Circle().fill(cmuxAccentColor()))
                             .offset(x: config.badgeOffset.width, y: config.badgeOffset.height)
                     }
                 }
@@ -969,24 +1092,15 @@ struct TitlebarControlsView: View {
         let intervals = titlebarHintIntervals(config: config, xOffset: xOffset)
         guard !intervals.isEmpty else { return [] }
 
-        // Keep all titlebar hints on the same Y lane and resolve overlaps by shifting left.
-        let minimumSpacing: CGFloat = 6
-        let assignedRightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(
-            for: intervals.map { $0.interval },
-            minSpacing: minimumSpacing,
-            minLeadingEdge: config.groupPadding.leading
-        )
-
         var items: [TitlebarHintLayoutItem] = []
         items.reserveCapacity(intervals.count)
-        for (index, item) in intervals.enumerated() {
-            let rightEdge = assignedRightEdges[index]
+        for item in intervals {
             items.append(
                 TitlebarHintLayoutItem(
                     action: item.action,
                     shortcut: item.shortcut,
                     width: item.width,
-                    leftEdge: rightEdge - item.width
+                    centerX: (item.interval.lowerBound + item.interval.upperBound) / 2.0
                 )
             )
         }
@@ -1001,31 +1115,26 @@ struct TitlebarControlsView: View {
 
         return TitlebarShortcutHintActionSlot.allCases.compactMap { slot in
             let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
-            guard titlebarShortcutHintShouldShow(
+            guard ShortcutHintTitlebarPolicy.shouldShow(
                 shortcut: shortcut,
                 alwaysShowShortcutHints: alwaysShowShortcutHints,
-                modifierPressed: modifierKeyMonitor.isModifierPressed
+                modifierPressed: modifierKeyMonitor.isModifierPressed,
+                modifierHoldHintsEnabled: modifierHoldHintsEnabled
             ) else { return nil }
 
             let width = titlebarHintWidth(for: shortcut, config: config)
-            let rightEdge = config.groupPadding.leading
-                + titlebarButtonRightEdge(for: slot, config: config)
-                + xOffset
-                + TitlebarControlsLayoutMetrics.hintRightSafetyShift
-                + titlebarHintBaseXShift
-            return (slot.action, shortcut, width, (rightEdge - width)...rightEdge)
+            let interval = TitlebarControlsLayoutMetrics.hintInterval(
+                for: slot,
+                width: width,
+                config: config,
+                xOffset: xOffset
+            )
+            return (slot.action, shortcut, width, interval)
         }
     }
 
     private func titlebarHintWidth(for shortcut: StoredShortcut, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let font = NSFont.systemFont(ofSize: max(8, config.iconSize - 4), weight: .semibold)
-        let textWidth = (shortcut.displayString as NSString).size(withAttributes: [.font: font]).width
-        return ceil(textWidth) + 12
-    }
-
-    private func titlebarButtonRightEdge(for slot: TitlebarShortcutHintActionSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
-        let index = CGFloat(slot.rawValue)
-        return (index + 1) * config.buttonSize + index * config.spacing
+        titlebarHintPillWidth(for: shortcut, config: config)
     }
 
     @ViewBuilder
@@ -1038,18 +1147,17 @@ struct TitlebarControlsView: View {
             + ShortcutHintDebugSettings.clamped(titlebarShortcutHintYOffset)
 
         ZStack(alignment: .topLeading) {
+            Color.clear
             ForEach(items) { item in
-                VStack(alignment: .leading, spacing: 0) {
-                    Color.clear.frame(height: yOffset)
-                    HStack(spacing: 0) {
-                        Color.clear.frame(width: item.leftEdge)
-                        titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
-                            .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
-                            .frame(width: item.width, alignment: .leading)
-                            .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
-                    }
-                }
-                .shortcutHintTransition()
+                titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
+                    .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
+                    .frame(width: item.width, alignment: .center)
+                    .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
+                    .position(
+                        x: item.centerX,
+                        y: yOffset + titlebarShortcutHintHeight(for: config) / 2.0
+                    )
+                    .shortcutHintTransition()
             }
         }
         .shortcutHintVisibilityAnimation(value: shouldShowTitlebarShortcutHints)
@@ -1073,7 +1181,7 @@ struct TitlebarControlsView: View {
         titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
             Image(systemName: systemName)
                 .symbolRenderingMode(.monochrome)
-                .font(.system(size: config.iconSize, weight: TitlebarControlIconStyle.weight))
+                .cmuxSymbolRasterSize(config.iconSize, weight: TitlebarControlIconStyle.weight)
         }
     }
 
@@ -1261,7 +1369,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 }
                 #if DEBUG
                 TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(nextWindowNumber)
                     payload["minimalSidebarHostPinned"] = String(
                         isHoveringHost || nextHoveringWindowChrome || popoverVisibilityState.isShown(in: nextWindowNumber)
@@ -1349,7 +1457,7 @@ struct HiddenTitlebarSidebarControlsView: View {
         .onReceive(MinimalModeSidebarChromeHoverState.shared.$hoveredWindowNumber) { hoveredWindowNumber in
             isHoveringWindowChrome = hostWindowNumber == hoveredWindowNumber
             #if DEBUG
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarObservedHoverWindowNumber"] = hoveredWindowNumber.map(String.init) ?? "nil"
                 payload["minimalSidebarObservedHostWindowNumber"] = hostWindowNumber.map(String.init) ?? "nil"
                 payload["minimalSidebarObservedPinned"] = String(shouldPinControls)
@@ -1565,180 +1673,10 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
             guard window != nil else { return }
             let frameInWindow = convert(bounds, to: nil)
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarHostFrameInWindow"] = NSStringFromRect(frameInWindow)
             }
             #endif
-        }
-    }
-}
-
-@MainActor
-private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
-    @Published private(set) var isModifierPressed = false {
-        didSet {
-            guard oldValue != isModifierPressed else { return }
-            NotificationCenter.default.post(
-                name: .titlebarShortcutHintsVisibilityChanged,
-                object: nil,
-                userInfo: ["visible": isModifierPressed]
-            )
-        }
-    }
-
-    private weak var hostWindow: NSWindow?
-    private var hostWindowDidBecomeKeyObserver: NSObjectProtocol?
-    private var hostWindowDidResignKeyObserver: NSObjectProtocol?
-    private var flagsMonitor: Any?
-    private var keyDownMonitor: Any?
-    private var appResignObserver: NSObjectProtocol?
-    private var pendingShowWorkItem: DispatchWorkItem?
-
-    func setHostWindow(_ window: NSWindow?) {
-        guard hostWindow !== window else { return }
-        removeHostWindowObservers()
-        hostWindow = window
-        guard let window else {
-            cancelPendingHintShow(resetVisible: true)
-            return
-        }
-
-        hostWindowDidBecomeKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didBecomeKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.update(from: NSEvent.modifierFlags, eventWindow: nil)
-            }
-        }
-
-        hostWindowDidResignKeyObserver = NotificationCenter.default.addObserver(
-            forName: NSWindow.didResignKeyNotification,
-            object: window,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingHintShow(resetVisible: true)
-            }
-        }
-
-        update(from: NSEvent.modifierFlags, eventWindow: nil)
-    }
-
-    func start() {
-        guard flagsMonitor == nil else {
-            update(from: NSEvent.modifierFlags, eventWindow: nil)
-            return
-        }
-
-        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
-            self?.update(from: event.modifierFlags, eventWindow: event.window)
-            return event
-        }
-
-        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleKeyDown(event)
-            return event
-        }
-
-        appResignObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didResignActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.cancelPendingHintShow(resetVisible: true)
-            }
-        }
-
-        update(from: NSEvent.modifierFlags, eventWindow: nil)
-    }
-
-    func stop() {
-        if let flagsMonitor {
-            NSEvent.removeMonitor(flagsMonitor)
-            self.flagsMonitor = nil
-        }
-        if let keyDownMonitor {
-            NSEvent.removeMonitor(keyDownMonitor)
-            self.keyDownMonitor = nil
-        }
-        if let appResignObserver {
-            NotificationCenter.default.removeObserver(appResignObserver)
-            self.appResignObserver = nil
-        }
-        removeHostWindowObservers()
-        cancelPendingHintShow(resetVisible: true)
-    }
-
-    private func handleKeyDown(_ event: NSEvent) {
-        guard isCurrentWindow(eventWindow: event.window) else { return }
-        cancelPendingHintShow(resetVisible: true)
-    }
-
-    private func isCurrentWindow(eventWindow: NSWindow?) -> Bool {
-        ShortcutHintModifierPolicy.isCurrentWindow(
-            hostWindowNumber: hostWindow?.windowNumber,
-            hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-            eventWindowNumber: eventWindow?.windowNumber,
-            keyWindowNumber: NSApp.keyWindow?.windowNumber
-        )
-    }
-
-    private func update(from modifierFlags: NSEvent.ModifierFlags, eventWindow: NSWindow?) {
-        guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: modifierFlags),
-              ShortcutHintModifierPolicy.isCurrentWindow(
-                hostWindowNumber: hostWindow?.windowNumber,
-                hostWindowIsKey: hostWindow?.isKeyWindow ?? false,
-                eventWindowNumber: eventWindow?.windowNumber,
-                keyWindowNumber: NSApp.keyWindow?.windowNumber
-              ) else {
-            cancelPendingHintShow(resetVisible: true)
-            return
-        }
-
-        queueHintShow()
-    }
-
-    private func queueHintShow() {
-        if pendingShowWorkItem != nil || isModifierPressed {
-            return
-        }
-
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pendingShowWorkItem = nil
-            guard ShortcutHintModifierPolicy.shouldShowCommandHints(for: NSEvent.modifierFlags),
-                  ShortcutHintModifierPolicy.isCurrentWindow(
-                    hostWindowNumber: self.hostWindow?.windowNumber,
-                    hostWindowIsKey: self.hostWindow?.isKeyWindow ?? false,
-                    eventWindowNumber: nil,
-                    keyWindowNumber: NSApp.keyWindow?.windowNumber
-                  ) else { return }
-            self.isModifierPressed = true
-        }
-
-        pendingShowWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + ShortcutHintModifierPolicy.intentionalHoldDelay, execute: workItem)
-    }
-
-    private func cancelPendingHintShow(resetVisible: Bool) {
-        pendingShowWorkItem?.cancel()
-        pendingShowWorkItem = nil
-        if resetVisible {
-            isModifierPressed = false
-        }
-    }
-
-    private func removeHostWindowObservers() {
-        if let hostWindowDidBecomeKeyObserver {
-            NotificationCenter.default.removeObserver(hostWindowDidBecomeKeyObserver)
-            self.hostWindowDidBecomeKeyObserver = nil
-        }
-        if let hostWindowDidResignKeyObserver {
-            NotificationCenter.default.removeObserver(hostWindowDidResignKeyObserver)
-            self.hostWindowDidResignKeyObserver = nil
         }
     }
 }
@@ -1792,7 +1730,7 @@ enum TitlebarWindowGeometryNotifications {
 }
 
 final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewController, NSPopoverDelegate {
-    private let hostingView: NonDraggableHostingView<TitlebarControlsView>
+    private let hostingView: NonDraggableHostingView<AnyView>
     private let containerView: NSView
     private let notificationStore: TerminalNotificationStore
     private lazy var notificationsPopover: NSPopover = makeNotificationsPopover()
@@ -1808,8 +1746,8 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     var popoverIsShownForTesting: Bool { notificationsPopover.isShown }
     private var showsWorkspaceTitlebar: Bool { !WorkspacePresentationModeSettings.isMinimal() }
 
-    init(notificationStore: TerminalNotificationStore) {
-        let containerView = NSView()
+    init(notificationStore: TerminalNotificationStore, settingsRuntime: SettingsRuntime?) {
+        let containerView = TitlebarAccessoryContainerView()
         self.containerView = containerView
         self.notificationStore = notificationStore
         let toggleSidebar = { [weak containerView] in
@@ -1825,16 +1763,19 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let focusHistoryForward = { [weak containerView] in
             _ = AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: containerView?.window)?.navigateForward()
         }
+        let rootView = TitlebarControlsView(
+            notificationStore: notificationStore,
+            viewModel: viewModel,
+            onToggleSidebar: toggleSidebar,
+            onToggleNotifications: toggleNotifications,
+            onNewTab: newTab,
+            onFocusHistoryBack: focusHistoryBack,
+            onFocusHistoryForward: focusHistoryForward,
+            visibilityMode: .alwaysVisible
+        )
         hostingView = NonDraggableHostingView(
-            rootView: TitlebarControlsView(
-                notificationStore: notificationStore,
-                viewModel: viewModel,
-                onToggleSidebar: toggleSidebar,
-                onToggleNotifications: toggleNotifications,
-                onNewTab: newTab,
-                onFocusHistoryBack: focusHistoryBack,
-                onFocusHistoryForward: focusHistoryForward,
-                visibilityMode: .alwaysVisible
+            rootView: AnyView(
+                rootView.environment(\.settingsRuntime, settingsRuntime)
             )
         )
 
@@ -1842,13 +1783,21 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
 
         view = containerView
         containerView.translatesAutoresizingMaskIntoConstraints = true
-        // Prevent the titlebar accessory from clipping button backgrounds
-        // at the bottom edge (the system constrains accessory height to the
-        // titlebar, which can be slightly shorter than the button frames).
+        // The shortcut-hint pills (and button backgrounds) sit below the button
+        // row and overflow the accessory's titlebar-height content frame on
+        // purpose. macOS 26.5 began re-deriving `layer.masksToBounds` from the
+        // AppKit `clipsToBounds` property on every layout pass, which clobbered
+        // a bare `layer?.masksToBounds = false` write and re-clipped that
+        // overflow (the hint captions got cut off at the bottom). Set
+        // `clipsToBounds = false` on both the container and the hosting view so
+        // the non-clipping intent persists across layout on every macOS version.
         containerView.wantsLayer = true
+        containerView.clipsToBounds = false
         containerView.layer?.masksToBounds = false
         hostingView.translatesAutoresizingMaskIntoConstraints = true
         hostingView.autoresizingMask = []
+        hostingView.clipsToBounds = false
+        hostingView.layer?.masksToBounds = false
         containerView.addSubview(hostingView)
 
         userDefaultsObserver = NotificationCenter.default.addObserver(
@@ -1957,7 +1906,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         guard contentSize.width > 0, contentSize.height > 0 else { return }
         let closeButton = view.window?.standardWindowButton(.closeButton)
         let titlebarView = closeButton?.superview
-        let trafficLightFrame = closeButton?.frame
+        let trafficLightFrame = closeButton.map { button in
+            view.convert(button.convert(button.bounds, to: nil), from: nil)
+        }
 #if DEBUG
         TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: view.window)
 #endif
@@ -1971,8 +1922,9 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             titlebarHeight: titlebarHeight
         )
         let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
-        let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
-            leadingInset: debugSnapshot.leftControlsLeadingInset
+        let xOffset = TitlebarControlsLayoutMetrics.leadingOffset(
+            trafficLightFrame: trafficLightFrame,
+            debugSnapshot: debugSnapshot
         )
         let yOffset = TitlebarControlsLayoutMetrics.yOffset(
             contentHeight: contentSize.height,
@@ -2235,10 +2187,10 @@ private struct NotificationsPopoverView: View {
     private var header: some View {
         HStack(spacing: 8) {
             Text(String(localized: "notifications.title", defaultValue: "Notifications"))
-                .font(.system(size: 14, weight: .semibold))
+                .cmuxFont(size: 14, weight: .semibold)
             if unreadCount > 0 {
                 Text("\(unreadCount)")
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .foregroundColor(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
@@ -2248,12 +2200,12 @@ private struct NotificationsPopoverView: View {
             Button(action: jumpToLatestUnread) {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.down.to.line")
-                        .font(.system(size: 10, weight: .semibold))
+                        .cmuxSymbolRasterSize(10, weight: .semibold)
                     Text(String(localized: "notifications.jumpToLatest", defaultValue: "Jump to Latest"))
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                     if !jumpToUnreadShortcut.displayString.isEmpty {
                         Text(jumpToUnreadShortcut.displayString)
-                            .font(.system(size: 10.5, weight: .medium))
+                            .cmuxFont(size: 10.5, weight: .medium)
                             .foregroundColor(.secondary)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
@@ -2286,7 +2238,7 @@ private struct NotificationsPopoverView: View {
 
             Button(action: { notificationStore.clearAll() }) {
                 Text(String(localized: "notifications.clearAll", defaultValue: "Clear All"))
-                    .font(.system(size: 11))
+                    .cmuxFont(size: 11)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
             }
@@ -2372,14 +2324,14 @@ private struct NotificationsPopoverView: View {
     private func emptyState(systemImage: String, title: String, subtitle: String?) -> some View {
         VStack(spacing: 10) {
             Image(systemName: systemImage)
-                .font(.system(size: 30, weight: .light))
+                .cmuxSymbolRasterSize(30, weight: .light)
                 .foregroundColor(.secondary.opacity(0.7))
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .cmuxFont(size: 14, weight: .medium)
                 .foregroundColor(.primary)
             if let subtitle {
                 Text(subtitle)
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
             }
@@ -2516,19 +2468,19 @@ private struct NotificationPopoverRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(notification.title)
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .cmuxFont(size: 12.5, weight: .semibold)
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 10.5))
+                        .cmuxFont(size: 10.5)
                         .foregroundColor(.secondary)
                         .padding(.trailing, 34)
                 }
 
                 if !notification.body.isEmpty {
                     Text(notification.body)
-                        .font(.system(size: 11.5))
+                        .cmuxFont(size: 11.5)
                         .foregroundColor(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2536,7 +2488,7 @@ private struct NotificationPopoverRow: View {
 
                 if let tabTitle, !tabTitle.isEmpty {
                     Text(tabTitle)
-                        .font(.system(size: 10))
+                        .cmuxFont(size: 10)
                         .foregroundColor(.secondary.opacity(0.85))
                         .lineLimit(1)
                 }
@@ -2556,7 +2508,7 @@ private struct NotificationPopoverRow: View {
                 Circle()
                     .fill(Color.primary.opacity(0.1))
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .cmuxSymbolRasterSize(9, weight: .bold)
                     .foregroundColor(.primary.opacity(0.7))
             }
             .frame(width: 20, height: 20)
@@ -2716,7 +2668,8 @@ private final class HoverTrackingNSView: NSView {
 
 @MainActor
 final class UpdateTitlebarAccessoryController {
-    private weak var updateViewModel: UpdateViewModel?
+    private let updateLog: UpdateLogStore
+    private let settingsRuntime: SettingsRuntime?
     private var didStart = false
     private let attachedWindows = NSHashTable<NSWindow>.weakObjects()
     private var observers: [NSObjectProtocol] = []
@@ -2728,8 +2681,9 @@ final class UpdateTitlebarAccessoryController {
     private var detachedNotificationsPopover: NSPopover?
     private var detachedNotificationsPopoverDelegate: DetachedNotificationsPopoverDelegate?
 
-    init(viewModel: UpdateViewModel) {
-        self.updateViewModel = viewModel
+    init(updateLog: UpdateLogStore, settingsRuntime: SettingsRuntime?) {
+        self.updateLog = updateLog
+        self.settingsRuntime = settingsRuntime
     }
 
     deinit {
@@ -2827,7 +2781,7 @@ final class UpdateTitlebarAccessoryController {
                 if env["CMUX_UI_TEST_MODE"] == "1" {
                     let ids = NSApp.windows.map { $0.identifier?.rawValue ?? "<nil>" }
                     let delayText = String(format: "%.2f", delay)
-                    UpdateLogStore.shared.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
+                    self?.updateLog.append("startup window scan (delay=\(delayText)) count=\(NSApp.windows.count) ids=\(ids.joined(separator: ","))")
                 }
 #endif
             }
@@ -2874,7 +2828,8 @@ final class UpdateTitlebarAccessoryController {
 
         if !window.titlebarAccessoryViewControllers.contains(where: { $0.view.identifier == controlsIdentifier }) {
             let controls = TitlebarControlsAccessoryViewController(
-                notificationStore: TerminalNotificationStore.shared
+                notificationStore: TerminalNotificationStore.shared,
+                settingsRuntime: settingsRuntime
             )
             controls.layoutAttribute = .left
             controls.view.identifier = controlsIdentifier
@@ -2889,7 +2844,7 @@ final class UpdateTitlebarAccessoryController {
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
-            UpdateLogStore.shared.append("attached titlebar accessories to window id=\(ident)")
+            updateLog.append("attached titlebar accessories to window id=\(ident)")
         }
 #endif
     }
@@ -2945,7 +2900,7 @@ final class UpdateTitlebarAccessoryController {
         let env = ProcessInfo.processInfo.environment
         if env["CMUX_UI_TEST_MODE"] == "1" {
             let ident = window.identifier?.rawValue ?? "<nil>"
-            UpdateLogStore.shared.append("removed titlebar accessories from window id=\(ident)")
+            updateLog.append("removed titlebar accessories from window id=\(ident)")
         }
 #endif
     }

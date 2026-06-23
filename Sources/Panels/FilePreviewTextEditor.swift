@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
@@ -18,6 +19,9 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor
     let drawsBackground: Bool
+    /// Whether long lines soft-wrap at the editor's right edge. Sourced from
+    /// the persisted `fileEditor.wordWrap` setting; updates apply live.
+    let wordWrap: Bool
 
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
@@ -40,6 +44,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         panel.attachTextView(textView)
 
         scrollView.documentView = textView
+        textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         Self.applyTheme(
             to: scrollView,
             backgroundColor: themeBackgroundColor,
@@ -61,6 +66,7 @@ struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: 
         guard let textView = scrollView.documentView as? SavingTextView else { return }
         textView.panel = panel
         textView.applyFilePreviewTextEditorInsets()
+        textView.applyFilePreviewWordWrap(wordWrap, scrollView: scrollView)
         panel.attachTextView(textView)
         guard textView.string != panel.textContent else { return }
         context.coordinator.isApplyingPanelUpdate = true
@@ -117,9 +123,33 @@ extension SavingTextView {
     /// be hundreds of thousands of lines. Selection responsiveness on that content is the reason
     /// this configuration is centralized; see `manaflow-ai/cmux#4576`.
     static func makeFilePreviewTextView() -> SavingTextView {
-        let textView = SavingTextView()
-        // Must run before any `textContainer` access below, or the view locks into TextKit 2.
-        textView.enableLargeDocumentSelectionPerformance()
+        // Build an EXPLICIT TextKit 1 stack so this view is never TextKit 2.
+        //
+        // A default `NSTextView()` is TextKit 2: selection/hit-testing then runs through
+        // `NSTextSelectionNavigation`, whose work is O(N) in line-fragment count, so clicking or
+        // drag-selecting in a large document pegs the main thread inside AppKit's modal
+        // mouse-tracking loop and freezes the whole app (`manaflow-ai/cmux#4576`, `#5255`).
+        //
+        // Merely *reading* `.layoutManager` afterward — the previous mitigation — only drops the
+        // view to TextKit 2 *compatibility* mode: `textLayoutManager` stays non-nil and the slow
+        // selection path remains active (confirmed by live `sample` captures of the hung process).
+        // Constructing the view from an `NSTextStorage` / `NSLayoutManager` / `NSTextContainer`
+        // stack is the only way to guarantee `textLayoutManager == nil`, i.e. a pure TextKit 1 view
+        // whose hit-testing uses `NSLayoutManager` (O(log N) with non-contiguous layout).
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        // Lazy glyph layout so multi-hundred-thousand-line documents still open instantly.
+        layoutManager.allowsNonContiguousLayout = true
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(
+            size: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        )
+        // No-wrap baseline; `applyFilePreviewWordWrap(_:scrollView:)` flips this live per the
+        // `fileEditor.wordWrap` setting.
+        textContainer.widthTracksTextView = false
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = SavingTextView(frame: .zero, textContainer: textContainer)
         textView.isEditable = true
         textView.isSelectable = true
         textView.allowsUndo = true
@@ -127,47 +157,46 @@ extension SavingTextView {
         textView.importsGraphics = false
         textView.usesFindPanel = true
         textView.usesFontPanel = false
-        textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.applyCurrentPreviewFont()
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = true
         textView.autoresizingMask = [.width]
-        textView.textContainer?.containerSize = NSSize(
-            width: CGFloat.greatestFiniteMagnitude,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        textView.textContainer?.widthTracksTextView = false
         textView.applyFilePreviewTextEditorInsets()
         return textView
     }
 }
 
 extension NSTextView {
-    /// Drops the text view to TextKit 1 with non-contiguous layout for large-document performance.
-    ///
-    /// TextKit 2's `NSTextSelectionNavigation` hit-tests are O(N) in line-fragment count, so
-    /// drag-selecting deep into a large file pegs the main thread (`manaflow-ai/cmux#4576`).
-    /// Accessing `layoutManager` puts the view in TextKit 1 compatibility mode, where mouse
-    /// hit-testing is roughly O(log N); `allowsNonContiguousLayout` keeps glyph layout lazy so
-    /// large files still open instantly.
-    ///
-    /// Call this before touching `textContainer`/`textLayoutManager` on a freshly created text
-    /// view, otherwise the first TextKit 2 access locks the view into TextKit 2 and
-    /// `layoutManager` returns `nil`.
-    func enableLargeDocumentSelectionPerformance() {
-        guard let layoutManager else {
-            // `layoutManager` is nil only when a TextKit 2 access already locked the view into
-            // TextKit 2, in which case non-contiguous layout was never enabled and large-document
-            // selection regresses to O(N). Release behavior is unchanged (no-op); DEBUG fails loudly
-            // so the call-order violation is caught at its source rather than as a future hang.
-            assertionFailure(
-                "enableLargeDocumentSelectionPerformance() ran after a TextKit 2 access; "
-                    + "call it before touching textContainer/textLayoutManager."
+    /// Configures the text view and its scroll view for soft line wrapping
+    /// (`wrap == true`) or the no-wrap baseline with a horizontal scroller
+    /// (`wrap == false`). Idempotent, so it is safe to call on every SwiftUI
+    /// update; toggling the `fileEditor.wordWrap` setting reflows open editors.
+    func applyFilePreviewWordWrap(_ wrap: Bool, scrollView: NSScrollView) {
+        guard let textContainer else { return }
+        scrollView.hasHorizontalScroller = !wrap
+        isHorizontallyResizable = !wrap
+        if wrap {
+            textContainer.widthTracksTextView = true
+            // `widthTracksTextView` keeps the container pinned to the text view
+            // width, so wrapping is correct even before the scroll view is laid
+            // out. Only snap the frame/container to a real measured width to
+            // avoid collapsing to a zero-width container during `makeNSView`,
+            // before the clip view has a size; `updateNSView` re-runs once laid
+            // out and reflows.
+            let visibleWidth = scrollView.contentSize.width
+            if visibleWidth > 0 {
+                textContainer.size = NSSize(width: visibleWidth, height: .greatestFiniteMagnitude)
+                setFrameSize(NSSize(width: visibleWidth, height: frame.height))
+            }
+        } else {
+            textContainer.widthTracksTextView = false
+            textContainer.size = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
             )
-            return
         }
-        layoutManager.allowsNonContiguousLayout = true
     }
 
     func applyFilePreviewTextEditorInsets() {
@@ -189,8 +218,29 @@ final class SavingTextView: NSTextView {
     weak var panel: (any FilePreviewTextEditingPanel)?
     private var previewFontSize: CGFloat = 13
     private var pendingSaveShortcutChordPrefix: ShortcutStroke?
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
+
+    convenience init() {
+        self.init(frame: .zero, textContainer: nil)
+    }
+
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        super.init(frame: frameRect, textContainer: container)
+        installFontMagnificationObserver()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installFontMagnificationObserver()
+    }
 
     deinit {}
+
+    private func installFontMagnificationObserver() {
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyCurrentPreviewFont()
+        }
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -241,7 +291,11 @@ final class SavingTextView: NSTextView {
         let clamped = min(max(nextFontSize, Self.minimumPreviewFontSize), Self.maximumPreviewFontSize)
         guard clamped.isFinite else { return }
         previewFontSize = clamped
-        let nextFont = NSFont.monospacedSystemFont(ofSize: clamped, weight: .regular)
+        applyCurrentPreviewFont()
+    }
+
+    func applyCurrentPreviewFont() {
+        let nextFont = GlobalFontMagnification.monospacedSystemFont(ofSize: previewFontSize, weight: .regular)
         font = nextFont
         typingAttributes[.font] = nextFont
     }

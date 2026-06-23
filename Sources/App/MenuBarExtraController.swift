@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxFoundation
 import Foundation
 
 @MainActor
@@ -17,6 +18,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
     private var notificationMenuSnapshotCancellable: AnyCancellable?
+    private var globalFontObserver: NSObjectProtocol?
     private let buildHintTitle: String?
 
     private let stateHintItem = NSMenuItem(title: String(localized: "statusMenu.noUnread", defaultValue: "No unread notifications"), action: nil, keyEquivalent: "")
@@ -62,14 +64,12 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         super.init()
 
         buildMenu()
+        statusItem.menu = menu
         if let button = statusItem.button {
             button.imagePosition = .imageOnly
             button.imageScaling = .scaleProportionallyDown
             button.image = MenuBarIconRenderer.makeImage(unreadCount: 0)
             button.toolTip = "cmux"
-            button.target = self
-            button.action = #selector(statusItemButtonAction(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         notificationMenuSnapshotCancellable = notificationStore.$notificationMenuSnapshot
@@ -77,6 +77,13 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
             .sink { [weak self] snapshot in
                 self?.refreshUI(snapshot: snapshot)
             }
+        globalFontObserver = NotificationCenter.default.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshUI() }
+        }
 
         refreshUI()
     }
@@ -106,7 +113,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         taskManagerItem.target = self
         taskManagerItem.action = #selector(taskManagerAction)
         menu.addItem(taskManagerItem)
-
+        menu.addItem(MenuBarProfilingMenuItem.make())
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
         menu.addItem(notificationSectionSeparator)
@@ -155,6 +162,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     func removeFromMenuBar() {
         notificationMenuSnapshotCancellable?.cancel()
         notificationMenuSnapshotCancellable = nil
+        if let globalFontObserver {
+            NotificationCenter.default.removeObserver(globalFontObserver)
+            self.globalFontObserver = nil
+        }
         statusItem.menu = nil
         NSStatusBar.system.removeStatusItem(statusItem)
     }
@@ -239,21 +250,6 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     @objc private func openNotificationItemAction(_ sender: NSMenuItem) {
         guard let payload = sender.representedObject as? NotificationMenuItemPayload else { return }
         onOpenNotification(payload.notification)
-    }
-
-    @objc private func statusItemButtonAction(_ sender: NSStatusBarButton) {
-        guard let event = NSApp.currentEvent else {
-            onShowGlobalSearch(sender, nil)
-            return
-        }
-
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.type == .rightMouseUp || flags.contains(.control) {
-            refreshUI()
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.height), in: sender)
-        } else {
-            onShowGlobalSearch(sender, nil)
-        }
     }
 
     @discardableResult
@@ -409,7 +405,7 @@ enum MenuBarNotificationLineFormatter {
         return NSAttributedString(
             string: menuTitle(notification: notification, tabTitle: tabTitle),
             attributes: [
-                .font: NSFont.menuFont(ofSize: NSFont.systemFontSize),
+                .font: GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize),
                 .foregroundColor: NSColor.labelColor,
                 .paragraphStyle: paragraph,
             ]
@@ -423,7 +419,7 @@ enum MenuBarNotificationLineFormatter {
     private static func wrappedAndTruncated(_ text: String, maxWidth: CGFloat, maxLines: Int) -> String {
         let width = max(60, maxWidth)
         let lines = max(1, maxLines)
-        let font = NSFont.menuFont(ofSize: NSFont.systemFontSize)
+        let font = GlobalFontMagnification.menuFont(ofSize: NSFont.systemFontSize)
         let wrapped = wrappedLines(for: text, maxWidth: width, font: font)
         guard wrapped.count > lines else { return wrapped.joined(separator: "\n") }
 
@@ -536,13 +532,20 @@ enum MenuBarExtraSettings {
 
 enum MenuBarOnlySettings {
     static let menuBarOnlyKey = "menuBarOnly"
+    static let explicitEnableKey = "menuBarOnlyExplicitlyEnabled.v1"
     static let defaultMenuBarOnly = false
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: menuBarOnlyKey) == nil {
-            return defaultMenuBarOnly
+        guard defaults.object(forKey: menuBarOnlyKey) != nil, defaults.bool(forKey: menuBarOnlyKey) else { return defaultMenuBarOnly }
+        if defaults.object(forKey: explicitEnableKey) != nil {
+            return defaults.bool(forKey: explicitEnableKey)
         }
-        return defaults.bool(forKey: menuBarOnlyKey)
+        return !legacyCommandPaletteOneShotLikelyEnabledMenuBarOnly(defaults: defaults)
+    }
+
+    static func setEnabled(_ enabled: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(enabled, forKey: menuBarOnlyKey)
+        defaults.set(enabled, forKey: explicitEnableKey)
     }
 
     static func activationPolicy(defaults: UserDefaults = .standard) -> NSApplication.ActivationPolicy {
@@ -739,7 +742,7 @@ enum MenuBarIconRenderer {
         paragraph.alignment = .center
         let fontSize: CGFloat = text.count > 1 ? config.multiDigitFontSize : config.singleDigitFontSize
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold),
+            .font: NSFont.systemFont(ofSize: fontSize, weight: .bold), // Fixed 18x18 status-item bitmap.
             .foregroundColor: NSColor.systemBlue,
             .paragraphStyle: paragraph,
         ]

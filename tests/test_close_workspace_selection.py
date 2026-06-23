@@ -48,6 +48,28 @@ def _by_index(workspaces: List[WorkspaceTuple], index: int) -> Optional[Workspac
     return next((w for w in workspaces if w[0] == index), None)
 
 
+def _wait_for_selection(
+    client: cmux, expected_id: str, deadline: float = 5.0, interval: float = 0.05
+) -> List[WorkspaceTuple]:
+    """
+    Poll list_workspaces() until the selected workspace id equals expected_id.
+
+    Selection reassignment after close_workspace()/select_workspace() is async,
+    so a fixed sleep races the app under load. Returns the last-read workspace
+    list once the expected selection lands, or after the deadline (the caller's
+    assertions then report the mismatch).
+    """
+    end = time.monotonic() + deadline
+    workspaces = client.list_workspaces()
+    while time.monotonic() < end:
+        sel = _selected(workspaces)
+        if sel is not None and sel[1] == expected_id:
+            return workspaces
+        time.sleep(interval)
+        workspaces = client.list_workspaces()
+    return workspaces
+
+
 def _ensure_workspaces(client: cmux, count: int) -> List[str]:
     """
     Ensure at least `count` workspaces exist. Returns IDs of newly created workspaces.
@@ -83,9 +105,8 @@ def test_close_middle_selects_next(client: cmux) -> TestResult:
             return result
 
         client.close_workspace(sel[1])
-        time.sleep(0.2)
 
-        after = client.list_workspaces()
+        after = _wait_for_selection(client, below[1])
         sel_after = _selected(after)
         if sel_after is None:
             result.failure("No selected workspace after closing selected workspace")
@@ -131,9 +152,8 @@ def test_close_last_selects_previous(client: cmux) -> TestResult:
             return result
 
         client.close_workspace(sel[1])
-        time.sleep(0.2)
 
-        after = client.list_workspaces()
+        after = _wait_for_selection(client, above[1])
         sel_after = _selected(after)
         if sel_after is None:
             result.failure("No selected workspace after closing last selected workspace")
