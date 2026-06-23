@@ -197,6 +197,41 @@ import Testing
         }
     }
 
+    @Test func socketPlacementIndexRejectsFractionalAndBooleanValues() throws {
+        try withWorkspaceTasksBetaEnabled {
+            let invalidValues: [(label: String, value: Any)] = [
+                ("fractional", NSNumber(value: 1.5)),
+                ("boolean", NSNumber(value: true))
+            ]
+            let workspaceId = UUID().uuidString
+            let taskId = UUID().uuidString
+
+            for invalidValue in invalidValues {
+                let addResult = TerminalController.shared.v2WorkspaceTasksAdd(params: [
+                    "workspace_id": workspaceId,
+                    "title": "Invalid \(invalidValue.label)",
+                    "index": invalidValue.value
+                ])
+                guard case let .err(addCode, _, _) = addResult else {
+                    Issue.record("Expected invalid add index error, got \(addResult)")
+                    continue
+                }
+                #expect(addCode == "invalid_params")
+
+                let moveResult = TerminalController.shared.v2WorkspaceTasksMove(params: [
+                    "workspace_id": workspaceId,
+                    "task_id": taskId,
+                    "index": invalidValue.value
+                ])
+                guard case let .err(moveCode, _, _) = moveResult else {
+                    Issue.record("Expected invalid move index error, got \(moveResult)")
+                    continue
+                }
+                #expect(moveCode == "invalid_params")
+            }
+        }
+    }
+
     @Test func detachedWorkspaceTasksSurfaceRebindsToDestinationWorkspace() throws {
         let key = SettingCatalog().betaFeatures.workspaceTasks.userDefaultsKey
         let previousValue = UserDefaults.standard.object(forKey: key)

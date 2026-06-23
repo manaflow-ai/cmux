@@ -13422,8 +13422,7 @@ struct TabItemView: View, Equatable {
             )
             .popover(isPresented: $workspaceTasksPopoverPresented, arrowEdge: .trailing) {
                 WorkspaceTasksPopoverView(workspace: tab) {
-                    workspaceTasksPopoverPresented = false
-                    _ = tab.openOrFocusWorkspaceTasksSurface(focus: true)
+                    openWorkspaceTasksFromSidebarRow(tab: tab, tabManager: tabManager, selectedTabIds: $selectedTabIds, lastSidebarSelectionIndex: $lastSidebarSelectionIndex, isPopoverPresented: $workspaceTasksPopoverPresented)
                 }
             }
         }

@@ -1076,6 +1076,7 @@
 		D5A720010000000000000003 /* WorkspaceTasksPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A710010000000000000003 /* WorkspaceTasksPanel.swift */; };
 		D5A720010000000000000004 /* WorkspaceTasksPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A710010000000000000004 /* WorkspaceTasksPanelView.swift */; };
 		D5B720010000000000000002 /* WorkspaceTasksPopoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B710010000000000000002 /* WorkspaceTasksPopoverView.swift */; };
+		D5B730010000000000000001 /* WorkspaceTasksRowOpenAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B730010000000000000002 /* WorkspaceTasksRowOpenAction.swift */; };
 		D5B720010000000000000008 /* WorkspaceTasksSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B710010000000000000008 /* WorkspaceTasksSectionView.swift */; };
 		D5A730020000000000000001 /* WorkspaceTasksTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A730010000000000000001 /* WorkspaceTasksTests.swift */; };
 		D5B720010000000000000005 /* WorkspaceTasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5B710010000000000000005 /* WorkspaceTasksView.swift */; };
@@ -2160,6 +2161,7 @@
 		D5A710010000000000000003 /* WorkspaceTasksPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceTasksPanel.swift; sourceTree = "<group>"; };
 		D5A710010000000000000004 /* WorkspaceTasksPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceTasksPanelView.swift; sourceTree = "<group>"; };
 		D5B710010000000000000002 /* WorkspaceTasksPopoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceTasksPopoverView.swift; sourceTree = "<group>"; };
+		D5B730010000000000000002 /* WorkspaceTasksRowOpenAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sidebar/WorkspaceTasksRowOpenAction.swift; sourceTree = "<group>"; };
 		D5B710010000000000000008 /* WorkspaceTasksSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceTasksSectionView.swift; sourceTree = "<group>"; };
 		D5A730010000000000000001 /* WorkspaceTasksTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceTasksTests.swift; sourceTree = "<group>"; };
 		D5B710010000000000000005 /* WorkspaceTasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceTasksView.swift; sourceTree = "<group>"; };
@@ -2499,6 +2501,7 @@
 				D5A710010000000000000005 /* WorkspaceRowControlButton.swift */,
 				D5A710010000000000000006 /* WorkspaceRowControlsLayout.swift */,
 				D5A710010000000000000007 /* WorkspaceRowControlsSnapshot.swift */,
+				D5B730010000000000000002 /* WorkspaceTasksRowOpenAction.swift */,
 				D35450020000000000000002 /* SidebarWorkspaceRowHoverTracker.swift */,
 				C9A57104C9A57104C9A57104 /* SidebarWorkspaceGroupConfigOpener.swift */,
 				C9A57106C9A57106C9A57106 /* SidebarWorkspaceGroupContextMenuRunner.swift */,
@@ -4429,6 +4432,7 @@
 				D5A720010000000000000003 /* WorkspaceTasksPanel.swift in Sources */,
 				D5A720010000000000000004 /* WorkspaceTasksPanelView.swift in Sources */,
 				D5B720010000000000000002 /* WorkspaceTasksPopoverView.swift in Sources */,
+				D5B730010000000000000001 /* WorkspaceTasksRowOpenAction.swift in Sources */,
 				D5B720010000000000000008 /* WorkspaceTasksSectionView.swift in Sources */,
 				D5B720010000000000000005 /* WorkspaceTasksView.swift in Sources */,
 			);

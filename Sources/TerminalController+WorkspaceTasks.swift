@@ -41,7 +41,7 @@ extension TerminalController {
         }
         let beforeTaskId = v2UUID(params, "before_task_id") ?? v2UUID(params, "before_id")
         let afterTaskId = v2UUID(params, "after_task_id") ?? v2UUID(params, "after_id")
-        let index = v2Int(params, "index")
+        let index = v2StrictInt(params, "index")
         guard v2WorkspaceTasksPlacementCount(beforeTaskId: beforeTaskId, afterTaskId: afterTaskId, index: index) <= 1 else {
             return .err(
                 code: "invalid_params",
@@ -141,7 +141,7 @@ extension TerminalController {
         }
         let beforeTaskId = v2UUID(params, "before_task_id") ?? v2UUID(params, "before_id")
         let afterTaskId = v2UUID(params, "after_task_id") ?? v2UUID(params, "after_id")
-        let index = v2Int(params, "index")
+        let index = v2StrictInt(params, "index")
         let placementCount = v2WorkspaceTasksPlacementCount(beforeTaskId: beforeTaskId, afterTaskId: afterTaskId, index: index)
         guard placementCount == 1 else {
             return .err(
@@ -386,7 +386,7 @@ extension TerminalController {
         }
 
         if v2HasNonNullParam(params, "index") {
-            guard let index = v2Int(params, "index"), index >= 0 else {
+            guard let index = v2StrictInt(params, "index"), index >= 0 else {
                 return .err(
                     code: "invalid_params",
                     message: String(localized: "socket.workspaceTasks.invalidIndex", defaultValue: "index requires a non-negative integer"),
