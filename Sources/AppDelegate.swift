@@ -1302,7 +1302,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         FeedCoordinator.shared.install(
             store: WorkstreamStore(
                 transport: NullWorkstreamTransport(),
-                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL())
+                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
+                titleProvider: Self.feedWorkstreamTitle(for:)
             )
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
@@ -1545,6 +1546,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+    }
+
+    private nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
+        switch event.hookEventName {
+        case .preCompact, .postCompact:
+            return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
+        case .subagentStart, .subagentStop:
+            return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
+        default:
+            return nil
+        }
     }
 
 #if DEBUG
