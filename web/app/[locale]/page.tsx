@@ -1,8 +1,6 @@
 import { useTranslations, useLocale } from "next-intl";
-import { FadeImage } from "./components/fade-image";
-import { HeroPhone } from "./components/hero-phone";
+import { HeroScreenshot } from "./components/hero-screenshot";
 import Balancer from "react-wrap-balancer";
-import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
@@ -147,15 +145,9 @@ function HomeContent() {
         {/* Screenshot */}
         <div
           data-dev="screenshot"
-          className="relative mt-12 mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
         >
-          <FadeImage
-            src={landingImage}
-            alt="cmux terminal app screenshot"
-            priority
-            className="w-full rounded-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65)]"
-          />
-          <HeroPhone />
+          <HeroScreenshot />
         </div>
 
         {/* FAQ */}

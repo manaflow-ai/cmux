@@ -111,38 +111,20 @@ export function HeroPhone() {
         <div className="absolute -top-7 left-0 whitespace-nowrap rounded bg-black/85 px-2 py-0.5 font-mono text-[11px] text-white">
           right: {pos.right}% · bottom: {pos.bottom}%
         </div>
-        <HeroPhoneStyle />
       </div>
     );
   }
 
   // Default: static, links to the iOS docs (no hover scale).
+  // No own fade: HeroScreenshot fades the Mac + phone together, in sync.
   return (
     <div
       style={style}
-      className={`hero-phone pointer-events-none absolute z-10 drop-shadow-[0_28px_60px_rgba(0,0,0,0.5)] ${sizeClasses}`}
+      className={`pointer-events-none absolute z-10 drop-shadow-[0_28px_60px_rgba(0,0,0,0.5)] ${sizeClasses}`}
     >
       <Link href="/docs/ios" aria-label="cmux on iOS" className="pointer-events-auto block">
         {img}
       </Link>
-      <HeroPhoneStyle />
     </div>
-  );
-}
-
-function HeroPhoneStyle() {
-  return (
-    <style>{`
-      .hero-phone {
-        animation: heroPhoneIn 900ms ease-out 120ms both;
-      }
-      @keyframes heroPhoneIn {
-        from { opacity: 0; }
-        to   { opacity: 1; }
-      }
-      @media (prefers-reduced-motion: reduce) {
-        .hero-phone { animation: none; }
-      }
-    `}</style>
   );
 }
