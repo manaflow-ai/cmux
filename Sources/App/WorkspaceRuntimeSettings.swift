@@ -173,8 +173,13 @@ enum TerminalTextBoxInputSettings {
             return TextBoxSubmitAction.textEntryAction.id
         }
         guard let configured,
-              actions.contains(where: { $0.id == configured }) else {
+              !configured.isEmpty else {
             return defaultSubmitActionID
+        }
+        guard actions.contains(where: { $0.id == configured }) else {
+            return TextBoxSubmitAction.builtInActions.contains(where: { $0.id == configured })
+                ? defaultSubmitActionID
+                : TextBoxSubmitAction.textEntryAction.id
         }
         return configured
     }

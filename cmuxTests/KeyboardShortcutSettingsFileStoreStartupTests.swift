@@ -1302,6 +1302,21 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testTextBoxMissingCustomDefaultSubmitActionFailsClosedToTextEntry() {
+        let defaults = UserDefaults.standard
+        let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
+        let actionsKey = TerminalTextBoxInputSettings.submitActionsKey
+        preservingDefaults(keys: [defaultActionKey, actionsKey]) {
+            defaults.set("missing-router", forKey: defaultActionKey)
+            defaults.set("[]", forKey: actionsKey)
+
+            XCTAssertEqual(
+                TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
+                TextBoxSubmitAction.textEntryAction.id
+            )
+        }
+    }
+
     func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
         let defaults = UserDefaults.standard
         let key = TerminalCopyOnSelectSettings.copyOnSelectKey
