@@ -9121,7 +9121,7 @@ struct CMUXCLI {
 
             var configureParams: [String: Any] = [
                 "workspace_id": workspaceId,
-                "destination": sshOptions.displayDestination,
+                "destination": sshOptions.destination,
                 "auto_connect": deferredRemoteReconnectCommandScript == nil,
             ]
             if let configuredForegroundAuthToken {
@@ -10354,9 +10354,12 @@ struct CMUXCLI {
             "ControlMaster=no",
         ]
         let destination = "\(username)@\(host)"
+        let displayDestination = pinWorkspaceToTop
+            ? String(localized: "cli.cloud.managedDisplayTarget", defaultValue: "cloud VM")
+            : destination
         return SSHCommandOptions(
             destination: destination,
-            displayDestination: destination,
+            displayDestination: displayDestination,
             port: port,
             identityFile: nil,
             workspaceName: workspaceName,

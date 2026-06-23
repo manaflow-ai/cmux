@@ -142,7 +142,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stdout.contains("Created Cloud VM \(vmID)"), result.stdout)
-        XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) target=\(vmID)+cmux@vm-ssh.freestyle.sh state=connecting"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) target=cloud VM state=connecting"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
@@ -359,7 +359,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) target=\(vmID)+cmux@vm-ssh.freestyle.sh state=connecting"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("OK workspace=\(workspaceRef) target=cloud VM state=connecting"), result.stdout)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
