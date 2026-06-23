@@ -4251,10 +4251,8 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
-                "codex resume session",
-                workingDirectory: "/tmp/project"
-            )
+            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
+                .prefixing("codex resume session")
         )
 
         let decoded = try JSONDecoder().decode(
@@ -4273,10 +4271,8 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             decoded.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
-                "codex resume session",
-                workingDirectory: "/tmp/project"
-            )
+            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
+                .prefixing("codex resume session")
         )
     }
 
@@ -4290,10 +4286,8 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
-                "codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4",
-                workingDirectory: "/tmp/project"
-            )
+            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
+                .prefixing("codex resume session --append-system-prompt 'use C:\\tmp' --model gpt-5.4")
         )
     }
 
@@ -4307,10 +4301,8 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
-                "codex resume session && echo done",
-                workingDirectory: "/tmp/project"
-            )
+            TerminalChangeDirectoryPrefix(workingDirectory: "/tmp/project")
+                .prefixing("codex resume session && echo done")
         )
         XCTAssertFalse(binding.command.contains("'&&'"), binding.command)
     }
@@ -4327,10 +4319,8 @@ extension SessionPersistenceTests {
 
         XCTAssertEqual(
             binding.command,
-            TerminalStartupWorkingDirectoryPrefix.prefix(
-                "codex resume session",
-                workingDirectory: cwd
-            )
+            TerminalChangeDirectoryPrefix(workingDirectory: cwd)
+                .prefixing("codex resume session")
         )
         XCTAssertFalse(binding.command.contains(legacyQuotedCwd), binding.command)
     }

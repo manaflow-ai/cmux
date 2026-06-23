@@ -3,7 +3,6 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import Combine
-import Darwin
 import Foundation
 import os
 import SQLite3
@@ -13,49 +12,7 @@ nonisolated private let sessionIndexLogger = Logger(
     category: "SessionIndexStore"
 )
 
-/// Locked cancellation state shared by synchronous `Process` callbacks.
-/// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
-final class SessionIndexRipgrepCancellation: @unchecked Sendable {
-    private let lock = NSLock()
-    private let sendSignal: @Sendable (pid_t, Int32) -> Int32
-    private var activeProcessIdentifier: pid_t?
-    private var finishedProcessIdentifier: pid_t?
-
-    init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
-        self.sendSignal = sendSignal
-    }
-
-    func markStarted(processIdentifier: pid_t) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        if finishedProcessIdentifier == processIdentifier {
-            activeProcessIdentifier = nil
-        } else {
-            activeProcessIdentifier = processIdentifier
-        }
-    }
-
-    func markFinished(processIdentifier: pid_t) {
-        lock.lock()
-        defer { lock.unlock() }
-
-        finishedProcessIdentifier = processIdentifier
-        if activeProcessIdentifier == processIdentifier {
-            activeProcessIdentifier = nil
-        }
-    }
-
-    func cancel() {
-        lock.lock()
-        let processIdentifier = activeProcessIdentifier
-        activeProcessIdentifier = nil
-        lock.unlock()
-
-        guard let processIdentifier else { return }
-        _ = sendSignal(processIdentifier, SIGTERM)
-    }
-}
+// `SessionIndexRipgrepCancellation` moved to CmuxFoundation (Process/).
 
 // MARK: - Parsed metadata cache
 
@@ -964,7 +921,7 @@ final class SessionIndexStore: ObservableObject {
     /// of the file, but the line itself can be 30+ KB (it embeds the full system
     /// prompt). Read up to 64 KB to cover that, parse the JSON, return cwd.
     nonisolated private static func peekCodexSessionMetaCwd(url: URL) -> String? {
-        let head = readFileHead(url: url, byteCap: headByteCap)
+        let head = ripgrepScanner.readFileHead(url: url, byteCap: headByteCap)
         guard let nl = head.firstIndex(of: "\n") else { return nil }
         let firstLine = head[..<nl]
         guard let data = firstLine.data(using: .utf8),
@@ -1308,6 +1265,11 @@ final class SessionIndexStore: ObservableObject {
 
     /// Path to `rg` (ripgrep), if installed. nil when not found — the search
     /// code falls back to the Foundation substring scan.
+    ///
+    /// Stays app-side: it maps `RipgrepExecutableResolver` (which reads app
+    /// `RipgrepIntegrationSettings`) and emits the not-executable warning. It is
+    /// the resolver injected into `ripgrepScanner` so CmuxFoundation never reaches
+    /// app-side ripgrep-path resolution.
     nonisolated private static func resolvedRipgrepPath() -> String? {
         switch RipgrepExecutableResolver.resolution() {
         case .found(let executable):
@@ -1322,84 +1284,12 @@ final class SessionIndexStore: ObservableObject {
         }
     }
 
-    /// Run `rg --files-with-matches --ignore-case --fixed-strings` for `needle`
-    /// under `root`, restricted to `glob` (e.g. `*.jsonl`). Returns matched file
-    /// URLs, or nil if rg isn't available or the run failed (caller falls back).
-    ///
-    /// Async by design so we can wire cancellation: when the awaiting Task is
-    /// cancelled (e.g. user types another key), `onCancel` signals the launched
-    /// rg process instead of letting it grind to completion.
-    nonisolated static func ripgrepMatchingPaths(
-        needle: String, root: String, fileGlob: String, ripgrepPath: String? = nil
-    ) async -> [URL]? {
-        guard let rg = ripgrepPath ?? resolvedRipgrepPath() else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: rg)
-        process.arguments = [
-            "--files-with-matches",
-            "--ignore-case",
-            "--fixed-strings",
-            "--no-messages",
-            "--no-ignore",
-            "--hidden",
-            "--glob", fileGlob,
-            "--",
-            needle,
-            root,
-        ]
-        let outPipe = Pipe()
-        process.standardOutput = outPipe
-        // Discard stderr to /dev/null so its pipe can never deadlock either.
-        if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
-            process.standardError = nullDev
-        }
-        let cancellation = SessionIndexRipgrepCancellation()
-        process.terminationHandler = { process in
-            cancellation.markFinished(processIdentifier: process.processIdentifier)
-        }
-
-        return await withTaskCancellationHandler {
-            guard !Task.isCancelled else { return [] }
-            do {
-                try process.run()
-            } catch {
-                if Task.isCancelled { return [] }
-                return nil as [URL]?
-            }
-            cancellation.markStarted(processIdentifier: process.processIdentifier)
-            if Task.isCancelled {
-                cancellation.cancel()
-            }
-            // Drain stdout BEFORE waitUntilExit. With many matches rg writes
-            // more than the ~64 KB pipe buffer; reading until EOF lets rg
-            // make progress and EOF arrives when rg closes its stdout on exit.
-            // Once the pipe read returns, the process is already exiting,
-            // so waitUntilExit is essentially instant — we just need it to make
-            // terminationStatus observable. (Setting terminationHandler here
-            // would race: if rg already exited, the handler is registered too
-            // late and never fires → deadlock.)
-            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
-            process.waitUntilExit()
-            cancellation.markFinished(processIdentifier: process.processIdentifier)
-            if Task.isCancelled { return [] }
-            // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
-            switch process.terminationStatus {
-            case 0:
-                guard let str = String(data: data, encoding: .utf8) else { return nil as [URL]? }
-                return str.split(separator: "\n", omittingEmptySubsequences: true)
-                    .map { URL(fileURLWithPath: String($0)) }
-            case 1:
-                return []
-            default:
-                return nil
-            }
-        } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. SIGTERM
-            // closes stdout, lets the pipe read return, and unblocks the
-            // body so this call can complete cleanly.
-            cancellation.cancel()
-        }
-    }
+    /// Transcript-scan substrate (rg pre-filter + bounded file-head reads), lifted
+    /// to CmuxFoundation. The ripgrep path is resolved through the app-side
+    /// `resolvedRipgrepPath()` closure injected here.
+    nonisolated static let ripgrepScanner = RipgrepFileScanner(
+        ripgrepPathResolver: { resolvedRipgrepPath() }
+    )
 
     /// Returns Claude session entries paginated by mtime desc.
     /// - When `needle` is empty: fast path. Skips rg, enumerates configured Claude
@@ -1421,7 +1311,7 @@ final class SessionIndexStore: ObservableObject {
         var candidates: [ClaudeSessionCandidate] = []
         if !needle.isEmpty {
             for root in roots {
-                guard let rgPaths = await ripgrepMatchingPaths(
+                guard let rgPaths = await ripgrepScanner.matchingPaths(
                     needle: needle,
                     root: root.projectsRoot,
                     fileGlob: "*.jsonl"
@@ -1504,7 +1394,7 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
-                    let head = readFileHead(url: candidate.url, byteCap: headByteCap)
+                    let head = ripgrepScanner.readFileHead(url: candidate.url, byteCap: headByteCap)
                     let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
                     if !needle.isEmpty && !candidate.prefilteredByRipgrep {
                         let combined = head + "\n" + tail
@@ -1606,7 +1496,7 @@ final class SessionIndexStore: ObservableObject {
         var rgFiltered = false
         var candidates: [(URL, Date)] = []
         if !needle.isEmpty,
-           let rgPaths = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
+           let rgPaths = await ripgrepScanner.matchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") {
             rgFiltered = true
             for url in rgPaths {
                 guard let attrs = try? fm.attributesOfItem(atPath: url.path),
@@ -1639,7 +1529,7 @@ final class SessionIndexStore: ObservableObject {
             if scanned >= searchMaxFiles { break }
             scanned += 1
             if !needle.isEmpty && !rgFiltered {
-                let head = readFileHead(url: url, byteCap: headByteCap)
+                let head = ripgrepScanner.readFileHead(url: url, byteCap: headByteCap)
                 guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
             }
             // Fast cwd reject: session_meta is the FIRST line of every Codex
@@ -1771,18 +1661,7 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: Helpers
 
-    /// Read up to `byteCap` bytes from the start of the file as UTF-8.
-    nonisolated static func readFileHead(url: URL, byteCap: Int) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
-        defer { try? handle.close() }
-        let data: Data
-        if #available(macOS 10.15.4, *) {
-            data = (try? handle.read(upToCount: byteCap)) ?? Data()
-        } else {
-            data = handle.readData(ofLength: byteCap)
-        }
-        return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
-    }
+    // `readFileHead(url:byteCap:)` moved to CmuxFoundation (RipgrepFileScanner).
 
     /// Read up to `byteCap` bytes from the end of the file as UTF-8.
     /// Used to find late-arriving events like pr-link without scanning the whole file.

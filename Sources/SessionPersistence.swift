@@ -1,6 +1,7 @@
 import CmuxPanes
 import CoreGraphics
 import CmuxCore
+import CmuxFoundation
 import Foundation
 import Bonsplit
 import CmuxWorkspaces
@@ -394,10 +395,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
     ) -> String {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard source == "agent-hook" else { return trimmed }
-        return TerminalStartupWorkingDirectoryPrefix.replacingRequiredChangeDirectoryPrefix(
-            in: trimmed,
-            workingDirectory: cwd
-        )
+        return TerminalChangeDirectoryPrefix(workingDirectory: cwd)
+            .replacingRequiredChangeDirectoryPrefix(in: trimmed)
     }
 
     func startupInputWithLauncherScript(
@@ -1301,7 +1300,7 @@ nonisolated enum TerminalStartupReturnShellScript {
     ]
 
     static func commandThenReturnLines(command: String, workingDirectory: String? = nil) -> [String] {
-        let quotedCommand = TerminalStartupShellQuoting.singleQuoted(command)
+        let quotedCommand = command.posixShellQuoted
         var lines = [
             shellLine,
             #"case "${_cmux_resume_shell:t}" in"#,
@@ -1315,7 +1314,7 @@ nonisolated enum TerminalStartupReturnShellScript {
         // default), not the session's directory. Return the outer shell to the session's working
         // directory so killing a resumed agent leaves you where the session lived.
         if let workingDirectory, !workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let quotedDirectory = TerminalStartupShellQuoting.singleQuoted(workingDirectory)
+            let quotedDirectory = workingDirectory.posixShellQuoted
             lines.append(#"{ cd -- \#(quotedDirectory) 2>/dev/null || true; }"#)
         }
         lines.append(#"exec -l "$_cmux_resume_shell""#)

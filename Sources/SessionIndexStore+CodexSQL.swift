@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import SQLite3
 
@@ -217,7 +218,7 @@ extension SessionIndexStore {
         _ needle: String,
         sessionsRoot: String
     ) async -> Set<String>? {
-        guard let matches = await ripgrepMatchingPaths(
+        guard let matches = await ripgrepScanner.matchingPaths(
             needle: needle,
             root: sessionsRoot,
             fileGlob: "*.jsonl"

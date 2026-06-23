@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import PDFKit
 
 final class FilePreviewMagnifyingPDFView: PDFView {
@@ -42,7 +43,7 @@ final class FilePreviewMagnifyingPDFView: PDFView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        if FilePreviewInteraction.hasZoomModifier(event), let onScrollZoom {
+        if event.filePreviewHasZoomModifier, let onScrollZoom {
             onScrollZoom(event)
         } else {
             super.scrollWheel(with: event)

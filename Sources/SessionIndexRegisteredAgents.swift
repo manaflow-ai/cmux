@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 struct GrokSessionRoot: Sendable, Hashable {
@@ -276,7 +277,7 @@ extension SessionIndexStore {
         var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool, root: GrokSessionRoot)] = []
         if !needle.isEmpty {
             for root in roots {
-                guard let rgPaths = await ripgrepMatchingPaths(
+                guard let rgPaths = await ripgrepScanner.matchingPaths(
                     needle: needle,
                     root: root.sessionsRoot,
                     fileGlob: "chat_history.jsonl"
@@ -400,7 +401,7 @@ extension SessionIndexStore {
         var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool)] = []
         if !needle.isEmpty {
             for root in roots {
-                guard let rgPaths = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
+                guard let rgPaths = await ripgrepScanner.matchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
                     candidates.append(
                         contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
                             (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
