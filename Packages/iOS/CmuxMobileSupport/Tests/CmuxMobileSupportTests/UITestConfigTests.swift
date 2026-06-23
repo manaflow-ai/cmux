@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import CmuxMobileSupport
 
 @Suite struct UITestConfigTests {
@@ -103,6 +104,89 @@ import Testing
         #endif
     }
 
+    @Test func dogfoodAttachURLCanComeFromLaunchArgument() {
+        let arguments = [
+            "/path/cmux",
+            "--cmux-dogfood-attach-url",
+            "  cmux-ios-dev://attach?v=1&payload=arg  ",
+        ]
+        #if DEBUG
+        #expect(
+            UITestConfig.dogfoodAttachURL(from: [:], arguments: arguments)
+                == "cmux-ios-dev://attach?v=1&payload=arg"
+        )
+        #else
+        #expect(UITestConfig.dogfoodAttachURL(from: [:], arguments: arguments) == nil)
+        #endif
+    }
+
+    @Test func dogfoodAttachURLEnvironmentWinsOverLaunchArgument() {
+        let env = ["CMUX_DOGFOOD_ATTACH_URL": "cmux-ios://attach?v=1&payload=env"]
+        let arguments = [
+            "/path/cmux",
+            "--cmux-dogfood-attach-url",
+            "cmux-ios-dev://attach?v=1&payload=arg",
+        ]
+        #if DEBUG
+        #expect(
+            UITestConfig.dogfoodAttachURL(from: env, arguments: arguments)
+                == "cmux-ios://attach?v=1&payload=env"
+        )
+        #else
+        #expect(UITestConfig.dogfoodAttachURL(from: env, arguments: arguments) == nil)
+        #endif
+    }
+
+    @Test func dogfoodAttachURLCanComeFromUserDefaults() {
+        let (suiteName, defaults) = temporaryDefaults()
+        defaults.set("  cmux-ios-dev://attach?v=1&payload=defaults  ", forKey: "CMUX_DOGFOOD_ATTACH_URL")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #if DEBUG
+        #expect(
+            UITestConfig.dogfoodAttachURL(from: [:], defaults: defaults)
+                == "cmux-ios-dev://attach?v=1&payload=defaults"
+        )
+        #else
+        #expect(UITestConfig.dogfoodAttachURL(from: [:], defaults: defaults) == nil)
+        #endif
+    }
+
+    @Test func dogfoodAttachURLLaunchArgumentWinsOverUserDefaults() {
+        let (suiteName, defaults) = temporaryDefaults()
+        defaults.set("cmux-ios-dev://attach?v=1&payload=defaults", forKey: "CMUX_DOGFOOD_ATTACH_URL")
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let arguments = [
+            "/path/cmux",
+            "--cmux-dogfood-attach-url",
+            "cmux-ios-dev://attach?v=1&payload=arg",
+        ]
+
+        #if DEBUG
+        #expect(
+            UITestConfig.dogfoodAttachURL(from: [:], arguments: arguments, defaults: defaults)
+                == "cmux-ios-dev://attach?v=1&payload=arg"
+        )
+        #else
+        #expect(UITestConfig.dogfoodAttachURL(from: [:], arguments: arguments, defaults: defaults) == nil)
+        #endif
+    }
+
+    @Test func dogfoodAttachURLIsNilWhenLaunchArgumentValueIsMissingOrBlank() {
+        #expect(
+            UITestConfig.dogfoodAttachURL(
+                from: [:],
+                arguments: ["/path/cmux", "--cmux-dogfood-attach-url"]
+            ) == nil
+        )
+        #expect(
+            UITestConfig.dogfoodAttachURL(
+                from: [:],
+                arguments: ["/path/cmux", "--cmux-dogfood-attach-url", "   "]
+            ) == nil
+        )
+    }
+
     @Test func dogfoodAttachURLIsNilWhenAbsent() {
         #expect(UITestConfig.dogfoodAttachURL(from: [:]) == nil)
     }
@@ -110,5 +194,16 @@ import Testing
     @Test func dogfoodAttachURLIsNilWhenBlank() {
         let env = ["CMUX_DOGFOOD_ATTACH_URL": "   "]
         #expect(UITestConfig.dogfoodAttachURL(from: env) == nil)
+    }
+
+    private func temporaryDefaults() -> (String, UserDefaults) {
+        let name = defaultsSuiteName
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return (name, defaults)
+    }
+
+    private var defaultsSuiteName: String {
+        "UITestConfigTests.\(UUID().uuidString)"
     }
 }

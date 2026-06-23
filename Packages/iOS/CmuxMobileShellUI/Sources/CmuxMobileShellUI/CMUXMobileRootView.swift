@@ -4,12 +4,15 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
+import OSLog
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
+
+private let mobileRootLog = Logger(subsystem: "ai.manaflow.cmux", category: "mobile.root")
 
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
@@ -110,6 +113,9 @@ struct CMUXMobileRootView: View {
             // so kick off the stored-Mac reconnect here too. Without this the
             // restoring gate could stay on RestoringSessionView forever because
             // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
+            if connectUITestAttachURLIfNeeded() {
+                return
+            }
             reconnectStoredMacIfNeeded()
         }
         #if os(iOS)
@@ -392,13 +398,16 @@ struct CMUXMobileRootView: View {
 
     private func connectAttachURL(_ rawURL: String) {
         guard !authManager.isRestoringSession else {
+            mobileRootLog.debug("parking attach URL while auth session restores")
             pendingAttachURL = rawURL
             return
         }
+        mobileRootLog.debug("connecting raw attach URL")
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
+            mobileRootLog.debug("raw attach URL connection finished: \(attachResultDescription(result), privacy: .public)")
             if result == .needsUserApproval {
                 isShowingAddDeviceSheet = true
             }
@@ -491,22 +500,28 @@ struct CMUXMobileRootView: View {
         #if DEBUG
         // Auto-pair when an attach URL is supplied at launch. Two sources:
         //   - CMUX_DOGFOOD_ATTACH_URL (UITestConfig.dogfoodAttachURL): NOT gated on
-        //     mock data, so it fires against the real backend. The dev-launch
-        //     tooling (scripts/mobile-dev-launch.sh, scripts/dev-setup.sh) signs in
-        //     for real (CMUX_UITEST_STACK_* with CMUX_UITEST_MOCK_DATA=0) and wants
-        //     the phone to auto-pair to the freshly built Mac dev app. With mock
-        //     off, UITestConfig.attachURL is always nil, so this dedicated accessor
-        //     is what un-breaks real-backend auto-pair.
+        //     mock data, so it fires against the real backend. A raw attach URL is
+        //     handled through the same temporary-auth path as `.onOpenURL`, so
+        //     cloud/dev launches do not need Stack credentials just to consume a
+        //     Mac-issued attach ticket.
         //   - CMUX_UITEST_ATTACH_URL (UITestConfig.attachURL): gated on mock data,
         //     kept intact for the XCUITest harness.
         // No-op unless one of those env vars is set, so normal launches are
         // unaffected.
         guard !didConsumeUITestAttachURL,
-              isAuthenticated,
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
         didConsumeUITestAttachURL = true
+        mobileRootLog.debug("consuming launch attach URL")
+        if isRawAttachURL(attachURL) {
+            connectAttachURL(attachURL)
+            return true
+        }
+        guard isAuthenticated else {
+            pendingAttachURL = attachURL
+            return true
+        }
         Task {
             await store.connectPairingURL(attachURL)
         }
@@ -514,5 +529,18 @@ struct CMUXMobileRootView: View {
         #else
         return false
         #endif
+    }
+
+    private func attachResultDescription(_ result: MobilePairingURLConnectionResult) -> String {
+        switch result {
+        case .connected:
+            return "connected"
+        case .failed:
+            return "failed"
+        case .needsUserApproval:
+            return "needsUserApproval"
+        case .superseded:
+            return "superseded"
+        }
     }
 }

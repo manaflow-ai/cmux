@@ -29,6 +29,21 @@ on:
         options:
           - macos
           - ios
+          - ios-video
+          - sync-video
+      test_filter:
+        description: iOS UI test class or class/method used to drive ios-video
+        required: false
+        default: "cmuxUITests/cmuxUITests/testStackAuthEntryUsesStableIdentifiers"
+        type: string
+      device_family:
+        description: Simulator family used by ios-video
+        required: false
+        default: iphone
+        type: choice
+        options:
+          - iphone
+          - ipad
       runner:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
@@ -84,7 +99,7 @@ jobs:
         run: ./scripts/install-zig-ci.sh
 
       - name: Provision GhosttyKit (macOS)
-        if: ${{ inputs.platform == 'macos' }}
+        if: ${{ inputs.platform == 'macos' || inputs.platform == 'sync-video' }}
         run: ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
       - name: Mark deps-ready
@@ -151,6 +166,224 @@ jobs:
           mkdir -p artifact
           ( cd "$out" && ditto -c -k --keepParent "$(basename "$archive")" "$GITHUB_WORKSPACE/artifact/archive.zip" )
 
+      # --- real sync video: launch real macOS+iOS apps, attach, record both screens ---
+      - name: Grant TCC screen recording permission
+        if: ${{ inputs.platform == 'sync-video' }}
+        run: |
+          set -euo pipefail
+          FFMPEG_BIN="$(command -v ffmpeg || true)"
+          if [ -z "$FFMPEG_BIN" ]; then
+            brew install ffmpeg
+            FFMPEG_BIN="$(command -v ffmpeg)"
+          fi
+          SYS_TCC="/Library/Application Support/com.apple.TCC/TCC.db"
+          if [ -f "$SYS_TCC" ]; then
+            for client in "$FFMPEG_BIN" /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg /usr/sbin/screencapture; do
+              sudo sqlite3 "$SYS_TCC" \
+                "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture', '$client', 1, 2, 4, 1, NULL, NULL, 0, 'UNUSED', NULL, 0, $(date +%s));" 2>&1 || true
+            done
+          fi
+          USER_TCC="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+          if [ -f "$USER_TCC" ]; then
+            for client in "$FFMPEG_BIN" /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg; do
+              sqlite3 "$USER_TCC" \
+                "INSERT OR REPLACE INTO access (service, client, client_type, auth_value, auth_reason, auth_version, csreq, policy_id, indirect_object_identifier_type, indirect_object_identifier, indirect_object_code_identity, flags, last_modified) VALUES ('kTCCServiceScreenCapture', '$client', 1, 2, 4, 1, NULL, NULL, 0, 'UNUSED', NULL, 0, $(date +%s));" 2>&1 || true
+            done
+          fi
+          APPROVALS_PLIST="$HOME/Library/Group Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist"
+          if [ -d "$(dirname "$APPROVALS_PLIST")" ]; then
+            defaults write "$APPROVALS_PLIST" "$FFMPEG_BIN" -date "3000-01-01T00:00:00Z" 2>&1 || true
+          fi
+
+      - name: Record real macOS and iOS sync video
+        if: ${{ inputs.platform == 'sync-video' }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+          DEVICE_FAMILY: ${{ inputs.device_family }}
+          ARTIFACT_DIR: ${{ github.workspace }}/artifact
+          SYNC_MARKER: real-cmux-left-right-cloud-demo
+        run: scripts/ci/record-real-sync-video.sh
+
+      # --- iOS video: run a real simulator UI test while recording the screen ---
+      - name: Record iOS simulator video
+        if: ${{ inputs.platform == 'ios-video' }}
+        env:
+          BUILD_TAG: ${{ inputs.tag }}
+          DEVICE_FAMILY: ${{ inputs.device_family }}
+          TEST_FILTER: ${{ inputs.test_filter }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+
+          ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
+          if ! ios_ready; then
+            echo "iOS platform not registered; installing via downloadPlatform iOS"
+            xcodebuild -downloadPlatform iOS 2>&1 | tr '\r' '\n' | grep -ivE 'Preparing to download|registering download' | tail -8 || true
+            ios_ready || { echo "iOS platform still not registered; simulator video would fail" >&2; exit 1; }
+          fi
+
+          ./scripts/ensure-ghosttykit.sh
+
+          SIMULATOR_ENV="${RUNNER_TEMP:-$PWD/.tmp}/simulator-${DEVICE_FAMILY}.env"
+          mkdir -p "$(dirname "$SIMULATOR_ENV")"
+          python3 - <<'PY' > "$SIMULATOR_ENV"
+          import json
+          import os
+          import shlex
+          import subprocess
+          import sys
+
+          family = os.environ["DEVICE_FAMILY"]
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          devices = [
+              device
+              for runtimes in data.get("devices", {}).values()
+              for device in runtimes
+              if device.get("isAvailable", True)
+          ]
+          prefix = "iPad" if family == "ipad" else "iPhone"
+          preferred = ["iPad Pro 13-inch (M4)", "iPad Air 13-inch (M3)"] if family == "ipad" else ["iPhone 17", "iPhone 16"]
+          selected = next((d for name in preferred for d in devices if d.get("name") == name), None)
+          selected = selected or next((d for d in devices if d.get("name", "").startswith(prefix)), None)
+          created = False
+          if selected is None:
+              runtimes_data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "available", "-j"]))
+              runtimes = [
+                  runtime
+                  for runtime in runtimes_data.get("runtimes", [])
+                  if runtime.get("isAvailable", True)
+                  and (
+                      runtime.get("platform") == "iOS"
+                      or runtime.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS")
+                  )
+              ]
+              if not runtimes:
+                  raise SystemExit(f"No available iOS simulator runtime for {family}")
+
+              def version_key(runtime):
+                  return tuple(int(part) for part in runtime.get("version", "0").split(".") if part.isdigit())
+
+              runtime = sorted(runtimes, key=version_key, reverse=True)[0]
+              device_types_data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"]))
+              device_types = [
+                  device_type
+                  for device_type in device_types_data.get("devicetypes", [])
+                  if device_type.get("name", "").startswith(prefix)
+              ]
+              device_type = next((d for name in preferred for d in device_types if d.get("name") == name), None)
+              device_type = device_type or next(iter(device_types), None)
+              if device_type is None:
+                  raise SystemExit(f"No available {prefix} simulator device type")
+              udid = subprocess.check_output([
+                  "xcrun",
+                  "simctl",
+                  "create",
+                  f"cmux Video {device_type['name']}",
+                  device_type["identifier"],
+                  runtime["identifier"],
+              ], text=True).strip()
+              selected = {"udid": udid, "name": f"cmux Video {device_type['name']}"}
+              created = True
+              print(
+                  f"Created {selected['name']} ({udid}) with {runtime['identifier']}",
+                  file=sys.stderr,
+              )
+          print(f"SIMULATOR_ID={shlex.quote(selected['udid'])}")
+          print(f"SIMULATOR_NAME={shlex.quote(selected['name'])}")
+          print(f"SIMULATOR_CREATED={'1' if created else '0'}")
+          PY
+          # shellcheck disable=SC1090
+          . "$SIMULATOR_ENV"
+
+          IOS_DERIVED_DATA="${RUNNER_TEMP:-$PWD/.tmp}/cmux-ios-video"
+          RESULT_BUNDLE="$GITHUB_WORKSPACE/artifact/cmux-ios-video.xcresult"
+          VIDEO_PATH="$GITHUB_WORKSPACE/artifact/cmux-ios-${BUILD_TAG}.mp4"
+          FINAL_VIDEO_PATH="$VIDEO_PATH"
+          SCREENSHOT_PATH="$GITHUB_WORKSPACE/artifact/cmux-ios-${BUILD_TAG}.png"
+          RECORD_LOG="$GITHUB_WORKSPACE/artifact/record-video.log"
+          TEST_LOG="$GITHUB_WORKSPACE/artifact/xcodebuild-test.log"
+          mkdir -p artifact "$IOS_DERIVED_DATA"
+          rm -rf "$RESULT_BUNDLE" "$VIDEO_PATH" "$SCREENSHOT_PATH"
+
+          xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          xcrun simctl erase "$SIMULATOR_ID"
+          xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
+          xcrun simctl bootstatus "$SIMULATOR_ID" -b
+          xcrun simctl ui "$SIMULATOR_ID" appearance dark || true
+
+          XCODEBUILD_BASE=(
+            -workspace ios/cmux.xcworkspace
+            -scheme cmux-ios
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID"
+            -derivedDataPath "$IOS_DERIVED_DATA"
+          )
+          if [ -n "${TEST_FILTER:-}" ]; then
+            ONLY_TESTING=(-only-testing:"$TEST_FILTER")
+          else
+            ONLY_TESTING=(-only-testing:cmuxUITests/cmuxUITests/testStackAuthEntryUsesStableIdentifiers)
+          fi
+
+          xcodebuild "${XCODEBUILD_BASE[@]}" "${ONLY_TESTING[@]}" build-for-testing
+
+          recorder_pid=""
+          cleanup_video_run() {
+            if [ -n "$recorder_pid" ] && kill -0 "$recorder_pid" >/dev/null 2>&1; then
+              kill -INT "$recorder_pid" >/dev/null 2>&1 || true
+              wait "$recorder_pid" >/dev/null 2>&1 || true
+            fi
+            xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            if [ "${SIMULATOR_CREATED:-0}" = "1" ]; then
+              xcrun simctl delete "$SIMULATOR_ID" >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup_video_run EXIT
+
+          xcrun simctl io "$SIMULATOR_ID" recordVideo --codec=h264 --force "$VIDEO_PATH" 2> "$RECORD_LOG" &
+          recorder_pid="$!"
+          for _ in $(seq 1 80); do
+            grep -q "Recording started" "$RECORD_LOG" 2>/dev/null && break
+            sleep 0.25
+          done
+          grep -q "Recording started" "$RECORD_LOG" 2>/dev/null || {
+            echo "simctl recordVideo did not report startup" >&2
+            cat "$RECORD_LOG" >&2 || true
+            exit 1
+          }
+
+          test_rc=0
+          set +e
+          xcodebuild "${XCODEBUILD_BASE[@]}" "${ONLY_TESTING[@]}" \
+            -resultBundlePath "$RESULT_BUNDLE" \
+            test-without-building 2>&1 | tee "$TEST_LOG"
+          test_rc="${PIPESTATUS[0]}"
+          set -e
+          if ! grep -Eq 'Executed [1-9][0-9]* tests?, with 0 failures' "$TEST_LOG"; then
+            echo "ios-video did not execute any selected UI tests" >&2
+            test_rc=65
+          fi
+
+          xcrun simctl io "$SIMULATOR_ID" screenshot --type=png "$SCREENSHOT_PATH" || true
+          cleanup_video_run
+          trap - EXIT
+
+          [ -s "$VIDEO_PATH" ] || { echo "video not produced: $VIDEO_PATH" >&2; exit 1; }
+          cat > "$GITHUB_WORKSPACE/artifact/metadata.json" <<JSON
+          {
+            "tag": "$BUILD_TAG",
+            "platform": "$PLATFORM",
+            "runner": "${{ inputs.runner }}",
+            "sourceRef": "${{ inputs.ref }}",
+            "deviceFamily": "$DEVICE_FAMILY",
+            "simulatorId": "$SIMULATOR_ID",
+            "simulatorName": "$SIMULATOR_NAME",
+            "testFilter": "${TEST_FILTER:-cmuxUITests/cmuxUITests/testStackAuthEntryUsesStableIdentifiers}",
+            "video": "$(basename "$FINAL_VIDEO_PATH")",
+            "testExitCode": $test_rc
+          }
+          JSON
+
+          exit "$test_rc"
+
       - name: Write timings.json
         if: ${{ always() }}
         run: |
@@ -181,6 +414,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifact
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: reload-${{ inputs.tag }}-${{ inputs.platform }}
