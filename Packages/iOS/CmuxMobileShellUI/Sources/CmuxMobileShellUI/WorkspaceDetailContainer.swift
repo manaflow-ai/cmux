@@ -14,6 +14,7 @@ struct WorkspaceDetailContainer: View {
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let signOut: (() -> Void)?
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
@@ -45,7 +46,8 @@ struct WorkspaceDetailContainer: View {
                 closeWorkspace: closeWorkspaceClosure,
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext
+                safeAreaContext: safeAreaContext,
+                signOut: signOut
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {

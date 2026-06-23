@@ -78,9 +78,6 @@ struct WorkspaceShellView: View {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
-        .overlay(alignment: .top) {
-            MobileConnectionRecoveryBanner(store: store, signOut: signOut)
-        }
     }
 
     private var stackLayout: some View {
@@ -342,7 +339,8 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            safeAreaContext: safeAreaContext
+            safeAreaContext: safeAreaContext,
+            signOut: signOut
         )
     }
 }

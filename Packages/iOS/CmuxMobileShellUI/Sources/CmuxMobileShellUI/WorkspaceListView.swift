@@ -155,6 +155,17 @@ struct WorkspaceListView: View {
 
     var body: some View {
         List {
+            if let store, showsConnectionRecoveryRow {
+                Section {
+                    MobileConnectionRecoveryBanner(
+                        store: store,
+                        signOut: signOut,
+                        rendersInline: true
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .listRowSeparator(.hidden)
+                }
+            }
             if connectionStatus != .connected {
                 Section {
                     MobileMacConnectionStatusRow(
@@ -250,6 +261,13 @@ struct WorkspaceListView: View {
             }
         }
         #endif
+    }
+
+    private var showsConnectionRecoveryRow: Bool {
+        guard let store else { return false }
+        return store.connectionRequiresReauth
+            || store.connectionRecoveryFailed
+            || store.isRecoveringConnection
     }
 
     #if os(iOS)

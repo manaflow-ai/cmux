@@ -27,6 +27,7 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let signOut: (() -> Void)?
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
@@ -381,6 +382,9 @@ struct WorkspaceDetailView: View {
                     }
                 }
             }
+        }
+        .overlay(alignment: .top) {
+            MobileConnectionRecoveryBanner(store: store, signOut: signOut)
         }
         #if os(iOS) && DEBUG
         // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
