@@ -121,6 +121,16 @@ struct WorkspaceDetailView: View {
     #endif
 
     var body: some View {
+        Group {
+            detailSurfaceContent
+        }
+        .overlay(alignment: .top) {
+            recoveryBanner
+        }
+    }
+
+    @ViewBuilder
+    private var detailSurfaceContent: some View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
@@ -135,6 +145,17 @@ struct WorkspaceDetailView: View {
         #else
         detailContent()
         #endif
+    }
+
+    private var recoveryBanner: some View {
+        MobileConnectionRecoveryBanner(
+            connectionRequiresReauth: store.connectionRequiresReauth,
+            connectionRecoveryFailed: store.connectionRecoveryFailed,
+            isRecoveringConnection: store.isRecoveringConnection,
+            connectionError: store.connectionError,
+            retry: { store.retryMobileConnection() },
+            signOut: signOut
+        )
     }
 
     #if os(iOS)
@@ -383,16 +404,6 @@ struct WorkspaceDetailView: View {
                     }
                 }
             }
-        }
-        .overlay(alignment: .top) {
-            MobileConnectionRecoveryBanner(
-                connectionRequiresReauth: store.connectionRequiresReauth,
-                connectionRecoveryFailed: store.connectionRecoveryFailed,
-                isRecoveringConnection: store.isRecoveringConnection,
-                connectionError: store.connectionError,
-                retry: { store.retryMobileConnection() },
-                signOut: signOut
-            )
         }
         #if os(iOS) && DEBUG
         // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
