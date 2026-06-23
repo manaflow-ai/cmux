@@ -27,6 +27,11 @@ const englishOnlyPages = [
   "/privacy-policy",
   "/terms-of-service",
   "/eula",
+  "/best-terminal-for-mac",
+  "/built-on-ghostty",
+  "/claude-code-terminal",
+  "/codex-cli",
+  "/opencode",
 ] as const;
 
 export const agentReadablePages = [
@@ -90,6 +95,11 @@ export const agentReadablePages = [
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
   { path: "/assets", title: "Brand Assets" },
+  { path: "/best-terminal-for-mac", title: "Best terminal for Mac" },
+  { path: "/built-on-ghostty", title: "Built on Ghostty" },
+  { path: "/claude-code-terminal", title: "Terminal for Claude Code" },
+  { path: "/codex-cli", title: "Terminal for Codex CLI" },
+  { path: "/opencode", title: "Terminal for OpenCode" },
   { path: "/privacy-policy", title: "Privacy Policy" },
   { path: "/terms-of-service", title: "Terms of Service" },
   { path: "/eula", title: "EULA" },

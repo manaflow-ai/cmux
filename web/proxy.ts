@@ -41,12 +41,18 @@ export default function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Legal pages are English-only. Redirect /<locale>/legal-page to /legal-page,
-  // and skip next-intl for /legal-page so locale detection can't redirect back.
+  // English-only pages: legal pages plus the SEO landing pages. Redirect
+  // /<locale>/page to /page, and skip next-intl for /page so locale detection
+  // can't redirect back. Keeps a single canonical URL per page.
   const englishOnlyPages = new Set([
     "/privacy-policy",
     "/terms-of-service",
     "/eula",
+    "/best-terminal-for-mac",
+    "/built-on-ghostty",
+    "/claude-code-terminal",
+    "/codex-cli",
+    "/opencode",
   ]);
   if (englishOnlyPages.has(pathname)) {
     const url = request.nextUrl.clone();
