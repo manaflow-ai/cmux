@@ -1,11 +1,9 @@
 import CmuxSettingsUI
 import SwiftUI
 
-struct WorkspaceTasksPanelView: View {
-    let panel: WorkspaceTasksPanel
+struct WorkspaceTasksPopoverView: View {
     let workspace: Workspace
-    let appearance: PanelAppearance
-    let onRequestPanelFocus: () -> Void
+    let openSurface: () -> Void
 
     @State private var addDraft = ""
     @State private var insertionAfterTaskId: UUID?
@@ -21,16 +19,15 @@ struct WorkspaceTasksPanelView: View {
                     addDraft: $addDraft,
                     insertionAfterTaskId: $insertionAfterTaskId,
                     insertionDraft: $insertionDraft,
-                    showsOpenAsTabButton: false,
+                    showsOpenAsTabButton: true,
                     actions: actions
                 )
             } else {
                 WorkspaceTasksDisabledView()
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: appearance.backgroundColor))
-        .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
+        .frame(width: 380, height: 460)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var actions: WorkspaceTasksActions {
@@ -55,12 +52,7 @@ struct WorkspaceTasksPanelView: View {
                     _ = workspace.moveWorkspaceTask(id: taskId, index: index)
                 }
             },
-            openSurface: {}
+            openSurface: openSurface
         )
-    }
-
-    private func requestPanelFocusIfNeeded() {
-        guard !panel.isFocusedInWorkspace else { return }
-        onRequestPanelFocus()
     }
 }

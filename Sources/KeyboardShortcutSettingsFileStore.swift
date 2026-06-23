@@ -667,7 +667,7 @@ final class CmuxSettingsFileStore {
         }
 
         if let rawValues = jsonStringArray(section["workspaceControls"]) {
-            let normalized = WorkspaceRowControlOption.sanitizedRawValues(rawValues)
+            let normalized = WorkspaceRowControlSanitizer().sanitizedRawValues(rawValues)
             snapshot.managedUserDefaults[
                 SidebarCatalogSection().workspaceControls.userDefaultsKey
             ] = .stringArray(normalized.map(\.rawValue))

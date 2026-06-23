@@ -11,11 +11,11 @@ extension Workspace {
     }
 
     var openWorkspaceTasks: [WorkspaceTask] {
-        workspaceTasks.filter { $0.isOpen }
+        workspaceTaskList.openTasks
     }
 
     var archivedWorkspaceTasks: [WorkspaceTask] {
-        workspaceTasks.filter { $0.isArchived }
+        workspaceTaskList.archivedTasks
     }
 
     @discardableResult

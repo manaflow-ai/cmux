@@ -11,16 +11,21 @@ struct WorkspaceRowControlOptionTests {
     }
 
     @Test func sanitizedAlwaysIncludesCloseAndCapsControls() {
-        let controls = WorkspaceRowControlOption.sanitized([.tasks, .tasks, .close])
+        let controls = WorkspaceRowControlSanitizer().sanitized([.tasks, .tasks, .close])
         #expect(controls == [.tasks, .close])
 
-        let missingClose = WorkspaceRowControlOption.sanitized([.tasks])
+        let missingClose = WorkspaceRowControlSanitizer().sanitized([.tasks])
         #expect(missingClose == [.close, .tasks])
     }
 
     @Test func sanitizedRawValuesDropsUnknownEntries() {
-        let controls = WorkspaceRowControlOption.sanitizedRawValues(["tasks", "unknown", "close", "tasks"])
+        let controls = WorkspaceRowControlSanitizer().sanitizedRawValues(["tasks", "unknown", "close", "tasks"])
         #expect(controls == [.tasks, .close])
+    }
+
+    @Test func sanitizedPrioritizesCloseWhenCapWouldExcludeIt() {
+        let controls = WorkspaceRowControlSanitizer(maximumVisibleControls: 1).sanitized([.tasks, .close])
+        #expect(controls == [.close])
     }
 
     @Test func defaultsToCloseWhenUnset() async {

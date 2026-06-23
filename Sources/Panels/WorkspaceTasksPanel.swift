@@ -1,12 +1,16 @@
 import AppKit
-import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class WorkspaceTasksPanel: Panel, ObservableObject {
+@Observable
+final class WorkspaceTasksPanel: Panel {
+    // `Panel` still inherits `ObservableObject`; this class satisfies that
+    // requirement through `Panel` while keeping task-list state on `Workspace`.
     let id = UUID()
     let panelType: PanelType = .workspaceTasks
 
+    @ObservationIgnored
     private(set) weak var workspace: Workspace?
 
     init(workspace: Workspace) {

@@ -17,7 +17,7 @@ struct WorkspaceRowControlsSnapshot: Equatable {
             let taskFiltered = workspaceTasksBetaEnabled
                 ? configuredControls
                 : configuredControls.filter { $0 != .tasks }
-            controls = WorkspaceRowControlOption.sanitized(taskFiltered)
+            controls = WorkspaceRowControlSanitizer().sanitized(taskFiltered)
         } else {
             controls = WorkspaceRowControlOption.defaultControls
         }

@@ -177,7 +177,7 @@ public struct SidebarSection: View {
     }
 
     private var sanitizedWorkspaceControls: [WorkspaceRowControlOption] {
-        WorkspaceRowControlOption.sanitized(workspaceControls.current)
+        WorkspaceRowControlSanitizer().sanitized(workspaceControls.current)
     }
 
     private func workspaceControlBinding(_ option: WorkspaceRowControlOption) -> Binding<Bool> {
@@ -188,7 +188,7 @@ public struct SidebarSection: View {
                 if enabled {
                     next.append(option)
                 }
-                workspaceControls.set(WorkspaceRowControlOption.sanitized(next))
+                workspaceControls.set(WorkspaceRowControlSanitizer().sanitized(next))
             }
         )
     }

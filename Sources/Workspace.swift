@@ -2207,7 +2207,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// User-owned task list scoped to this workspace. Open tasks have no
     /// `archivedAt`; completed tasks remain in the same list with `archivedAt`
     /// set so every entry point uses one mutation path.
-    @Published var workspaceTasks: [WorkspaceTask] = []
+    let workspaceTaskList = WorkspaceTaskList()
+    var workspaceTasks: [WorkspaceTask] {
+        get { workspaceTaskList.tasks }
+        set { workspaceTaskList.tasks = newValue }
+    }
     // Legacy in-memory state for old helpers/tests. Product UI, rendering, and
     // session persistence no longer honor per-workspace scrollbar overrides.
     @Published private(set) var terminalScrollBarHidden: Bool = false

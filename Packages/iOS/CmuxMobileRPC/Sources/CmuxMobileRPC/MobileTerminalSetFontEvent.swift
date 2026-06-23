@@ -6,8 +6,13 @@ public import Foundation
 /// connected iOS device(s). The payload carries the absolute point size and an
 /// optional `surface_id` / `workspace_id` scope.
 public struct MobileTerminalSetFontEvent: Decodable, Sendable {
+    /// Absolute terminal font size in points.
     public let fontSize: Double
+    /// Optional terminal surface scope. When absent, the event may target a
+    /// workspace or every mounted terminal surface.
     public let surfaceID: String?
+    /// Optional workspace scope used when the event should update every mounted
+    /// terminal surface for one workspace.
     public let workspaceID: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -16,6 +21,7 @@ public struct MobileTerminalSetFontEvent: Decodable, Sendable {
         case workspaceID = "workspace_id"
     }
 
+    /// Creates an event payload by decoding the socket push-event JSON body.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         fontSize = try container.decode(Double.self, forKey: .fontSize)
@@ -23,6 +29,10 @@ public struct MobileTerminalSetFontEvent: Decodable, Sendable {
         workspaceID = try container.decodeIfPresent(String.self, forKey: .workspaceID)
     }
 
+    /// Decode a terminal font-size event from a raw JSON payload.
+    /// - Parameter data: The event payload JSON.
+    /// - Returns: The decoded event.
+    /// - Throws: A decoding error if the payload is not a JSON object.
     public static func decode(_ data: Data) throws -> MobileTerminalSetFontEvent {
         try JSONDecoder().decode(Self.self, from: data)
     }
