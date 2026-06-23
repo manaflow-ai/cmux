@@ -198,7 +198,8 @@ final class TerminalOutputCollector {
     let preferences = try #require(await store.fetchNotificationPreferencesFromMac())
     let request = try #require(try await responses.sentRequests().first)
 
-    #expect(preferences.isEnabled)
+    #expect(!preferences.isEnabled)
+    #expect(preferences.isForwardingEnabled)
     #expect(preferences.forwardingMode == .onlyWhenAway)
     #expect(!preferences.hidesContent)
     #expect(request.method == "notification.settings.get")
@@ -4112,6 +4113,8 @@ private struct InertPushRegistration: PushRegistering {
     #expect(defaults.object(forKey: MobileNotificationPreferences.forwardingModeKey) == nil)
     #expect(defaults.object(forKey: MobileNotificationPreferences.hideContentKey) == nil)
     #expect(!coordinator.notificationPreferences.isEnabled)
+    #expect(!coordinator.notificationPreferences.isForwardingEnabled)
+    #expect(!coordinator.notificationPreferences.receivesNotifications)
     #expect(coordinator.notificationPreferences.forwardingMode == .always)
     #expect(!coordinator.notificationPreferences.hidesContent)
 }
@@ -4173,6 +4176,8 @@ private struct InertPushRegistration: PushRegistering {
     #expect(requests.contains { $0.method == "notification.settings.get" })
     #expect(!requests.contains { $0.method == "notification.settings.set" })
     #expect(coordinator.notificationPreferences.isEnabled)
+    #expect(coordinator.notificationPreferences.isForwardingEnabled)
+    #expect(coordinator.notificationPreferences.receivesNotifications)
     #expect(coordinator.notificationPreferences.forwardingMode == .onlyWhenAway)
     #expect(coordinator.notificationPreferences.hidesContent)
 }
@@ -4235,9 +4240,87 @@ private struct InertPushRegistration: PushRegistering {
 
     #expect(requests.contains { $0.method == "notification.settings.get" })
     #expect(!requests.contains { $0.method == "notification.settings.set" })
-    #expect(!coordinator.notificationPreferences.isEnabled)
+    #expect(coordinator.notificationPreferences.isEnabled)
+    #expect(!coordinator.notificationPreferences.isForwardingEnabled)
+    #expect(!coordinator.notificationPreferences.receivesNotifications)
     #expect(coordinator.notificationPreferences.forwardingMode == .onlyWhenAway)
     #expect(coordinator.notificationPreferences.hidesContent)
+}
+
+@Test @MainActor func pendingNotificationForwardingSyncRetriesOnReconnect() async throws {
+    let suite = "MobilePushCoordinatorPendingForwardingSync.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
+    defaults.set(true, forKey: MobileNotificationPreferences.forwardingEnabledKey)
+    defaults.set(MobileNotificationForwardingMode.always.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
+    defaults.set(false, forKey: MobileNotificationPreferences.hideContentKey)
+
+    let coordinator = MobilePushCoordinator(
+        registration: InertPushRegistration(),
+        defaults: defaults
+    )
+    _ = await coordinator.setForwardingMode(.always)
+
+    let route = try hostPortRoute(
+        kind: .debugLoopback,
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date.now.addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(result: [
+            "enabled": false,
+            "mode": MobileNotificationForwardingMode.onlyWhenAway.rawValue,
+            "hide_content": true,
+        ]),
+        try rpcResultFrame(result: [
+            "enabled": true,
+            "mode": MobileNotificationForwardingMode.always.rawValue,
+            "hide_content": false,
+        ]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
+    store.remoteClient = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
+
+    coordinator.bind(store: store)
+
+    for _ in 0..<200 {
+        if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.set" }) {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    let requests = try await responses.sentRequests()
+    let setRequest = try #require(requests.first { $0.method == "notification.settings.set" })
+
+    #expect(requests.contains { $0.method == "notification.settings.get" })
+    #expect(setRequest.notificationEnabled == true)
+    #expect(setRequest.notificationMode == MobileNotificationForwardingMode.always.rawValue)
+    #expect(setRequest.hideNotificationContent == false)
+    #expect(coordinator.notificationPreferences.isEnabled)
+    #expect(coordinator.notificationPreferences.isForwardingEnabled)
+    #expect(coordinator.notificationPreferences.receivesNotifications)
+    #expect(coordinator.notificationPreferences.forwardingMode == .always)
+    #expect(!coordinator.notificationPreferences.hidesContent)
 }
 
 @Test @MainActor func localNotificationOptOutDoesNotDisableMacForwardingGate() async throws {
@@ -4299,6 +4382,8 @@ private struct InertPushRegistration: PushRegistering {
     #expect(requests.contains { $0.method == "notification.settings.get" })
     #expect(!requests.contains { $0.method == "notification.settings.set" })
     #expect(!coordinator.notificationPreferences.isEnabled)
+    #expect(coordinator.notificationPreferences.isForwardingEnabled)
+    #expect(!coordinator.notificationPreferences.receivesNotifications)
 }
 
 @Test @MainActor func foregroundPresentationOnlySuppressesCurrentTerminal() {

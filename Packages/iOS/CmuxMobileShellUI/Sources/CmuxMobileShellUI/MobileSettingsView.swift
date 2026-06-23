@@ -413,7 +413,7 @@ struct MobileSettingsView: View {
     }
 
     private func loadNotificationPreferences(_ preferences: MobileNotificationPreferences) {
-        notificationsEnabled = preferences.isEnabled
+        notificationsEnabled = preferences.receivesNotifications
         notificationMode = preferences.forwardingMode
         hideNotificationContent = preferences.hidesContent
     }

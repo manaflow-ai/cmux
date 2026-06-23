@@ -5,25 +5,36 @@ public import Foundation
 public struct MobileNotificationPreferences: Equatable, Sendable {
     /// Local iOS APNs opt-in key, shared with the push-registration service.
     public static let enabledKey = "cmux.notifications.pushEnabled"
+    /// Mac forwarding master toggle mirrored from `PhonePushSettings.forwardEnabledKey`.
+    public static let forwardingEnabledKey = "forwardNotificationsToPhone"
     /// Forwarding mode key mirrored to the Mac's `PhonePushSettings.forwardModeKey`.
     public static let forwardingModeKey = "forwardNotificationsToPhoneMode"
     /// Hide-content key mirrored to the Mac's `PhonePushSettings.hideContentKey`.
     public static let hideContentKey = "forwardNotificationsHideContent"
 
-    /// Whether iOS push registration and Mac forwarding are enabled.
+    /// Whether this iPhone is locally opted into APNs registration.
     public var isEnabled: Bool
+    /// Whether the paired Mac currently forwards notifications to phones.
+    public var isForwardingEnabled: Bool
     /// When the Mac should forward terminal notifications to the phone.
     public var forwardingMode: MobileNotificationForwardingMode
     /// Whether the Mac should send generic notification text instead of terminal content.
     public var hidesContent: Bool
 
+    /// Whether this phone should effectively receive forwarded notifications.
+    public var receivesNotifications: Bool {
+        isEnabled && isForwardingEnabled
+    }
+
     /// Creates a notification-preferences value.
     public init(
         isEnabled: Bool,
+        isForwardingEnabled: Bool = true,
         forwardingMode: MobileNotificationForwardingMode,
         hidesContent: Bool
     ) {
         self.isEnabled = isEnabled
+        self.isForwardingEnabled = isForwardingEnabled
         self.forwardingMode = forwardingMode
         self.hidesContent = hidesContent
     }
@@ -34,6 +45,7 @@ public struct MobileNotificationPreferences: Equatable, Sendable {
         let rawMode = defaults.string(forKey: Self.forwardingModeKey)
         self.init(
             isEnabled: defaults.bool(forKey: Self.enabledKey),
+            isForwardingEnabled: defaults.object(forKey: Self.forwardingEnabledKey) as? Bool ?? false,
             forwardingMode: rawMode.flatMap(MobileNotificationForwardingMode.init(rawValue:))
                 ?? MobileNotificationForwardingMode.defaultMode,
             hidesContent: defaults.bool(forKey: Self.hideContentKey)
@@ -44,6 +56,7 @@ public struct MobileNotificationPreferences: Equatable, Sendable {
     /// - Parameter defaults: The defaults suite backing the iOS settings UI.
     public func persist(to defaults: UserDefaults) {
         defaults.set(isEnabled, forKey: Self.enabledKey)
+        defaults.set(isForwardingEnabled, forKey: Self.forwardingEnabledKey)
         defaults.set(forwardingMode.rawValue, forKey: Self.forwardingModeKey)
         defaults.set(hidesContent, forKey: Self.hideContentKey)
     }

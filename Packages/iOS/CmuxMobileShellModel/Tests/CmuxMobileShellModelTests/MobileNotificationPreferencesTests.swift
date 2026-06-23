@@ -18,6 +18,8 @@ import Testing
         let preferences = MobileNotificationPreferences(defaults: defaults)
 
         #expect(!preferences.isEnabled)
+        #expect(!preferences.isForwardingEnabled)
+        #expect(!preferences.receivesNotifications)
         #expect(preferences.forwardingMode == .always)
         #expect(!preferences.hidesContent)
     }

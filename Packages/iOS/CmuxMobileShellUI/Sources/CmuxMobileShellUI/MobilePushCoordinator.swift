@@ -66,6 +66,7 @@ public final class MobilePushCoordinator {
     private static let pendingDeeplinkLifetime: TimeInterval = 120
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var notificationSettingsSyncGeneration: UInt64 = 0
+    private static let forwardingSyncPendingKey = "forwardNotificationsToPhoneSyncPending"
 
     /// Creates a push coordinator.
     /// - Parameters:
@@ -183,6 +184,7 @@ public final class MobilePushCoordinator {
         await registration.setEnabled(true)
         var preferences = notificationPreferences
         preferences.isEnabled = true
+        preferences.isForwardingEnabled = true
         if let forwardingMode {
             preferences.forwardingMode = forwardingMode
         }
@@ -191,13 +193,14 @@ public final class MobilePushCoordinator {
         }
         preferences.persist(to: defaults)
         UIApplication.shared.registerForRemoteNotifications()
-        await syncNotificationPreferencesToMac(preferences, generation: generation)
+        await syncExplicitNotificationPreferencesToMac(preferences, generation: generation)
         return true
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
         _ = claimNotificationSettingsSyncGeneration()
+        defaults.removeObject(forKey: Self.forwardingSyncPendingKey)
         await registration.setEnabled(false)
         var preferences = notificationPreferences
         preferences.isEnabled = false
@@ -214,7 +217,7 @@ public final class MobilePushCoordinator {
         var preferences = notificationPreferences
         preferences.forwardingMode = mode
         preferences.persist(to: defaults)
-        return await syncNotificationPreferencesToMac(preferences, generation: generation) ?? preferences
+        return await syncExplicitNotificationPreferencesToMac(preferences, generation: generation) ?? preferences
     }
 
     /// Update whether forwarded notifications should hide terminal content.
@@ -224,7 +227,7 @@ public final class MobilePushCoordinator {
         var preferences = notificationPreferences
         preferences.hidesContent = hidesContent
         preferences.persist(to: defaults)
-        return await syncNotificationPreferencesToMac(preferences, generation: generation) ?? preferences
+        return await syncExplicitNotificationPreferencesToMac(preferences, generation: generation) ?? preferences
     }
 
     /// Reconcile local iOS settings with the connected Mac. Passive reconcile is
@@ -247,7 +250,11 @@ public final class MobilePushCoordinator {
             return notificationPreferences
         }
         var localPreferences = notificationPreferences
-        localPreferences.isEnabled = localOptIn && macPreferences.isEnabled
+        localPreferences.isEnabled = localOptIn
+        if hasPendingForwardingSync, localPreferences.isEnabled {
+            return await syncNotificationPreferencesToMac(localPreferences, generation: generation) ?? localPreferences
+        }
+        localPreferences.isForwardingEnabled = macPreferences.isForwardingEnabled
         localPreferences.forwardingMode = macPreferences.forwardingMode
         localPreferences.hidesContent = macPreferences.hidesContent
         localPreferences.persist(to: defaults)
@@ -396,6 +403,10 @@ public final class MobilePushCoordinator {
         defaults.object(forKey: MobileNotificationPreferences.enabledKey) as? Bool
     }
 
+    private var hasPendingForwardingSync: Bool {
+        defaults.bool(forKey: Self.forwardingSyncPendingKey)
+    }
+
     private func claimNotificationSettingsSyncGeneration() -> UInt64 {
         notificationSettingsSyncGeneration &+= 1
         return notificationSettingsSyncGeneration
@@ -403,6 +414,15 @@ public final class MobilePushCoordinator {
 
     private func isCurrentNotificationSettingsSync(_ generation: UInt64) -> Bool {
         generation == notificationSettingsSyncGeneration
+    }
+
+    @discardableResult
+    private func syncExplicitNotificationPreferencesToMac(
+        _ preferences: MobileNotificationPreferences,
+        generation: UInt64
+    ) async -> MobileNotificationPreferences? {
+        defaults.set(true, forKey: Self.forwardingSyncPendingKey)
+        return await syncNotificationPreferencesToMac(preferences, generation: generation)
     }
 
     @discardableResult
@@ -416,6 +436,7 @@ public final class MobilePushCoordinator {
         guard isCurrentNotificationSettingsSync(generation) else {
             return nil
         }
+        defaults.removeObject(forKey: Self.forwardingSyncPendingKey)
         macPreferences.persist(to: defaults)
         return macPreferences
     }

@@ -32,7 +32,7 @@ extension MobileShellComposite {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.settings.set",
                 params: [
-                    "enabled": preferences.isEnabled,
+                    "enabled": preferences.isForwardingEnabled,
                     "mode": preferences.forwardingMode.rawValue,
                     "hide_content": preferences.hidesContent,
                     "client_id": clientID,
@@ -42,7 +42,8 @@ extension MobileShellComposite {
             guard remoteClient === client else { return nil }
             let response = try MobileNotificationSettingsResponse.decode(data)
             return MobileNotificationPreferences(
-                isEnabled: response.isEnabled,
+                isEnabled: preferences.isEnabled,
+                isForwardingEnabled: response.isEnabled,
                 forwardingMode: response.forwardingMode,
                 hidesContent: response.hidesContent
             )
@@ -67,7 +68,8 @@ extension MobileShellComposite {
             guard remoteClient === client else { return nil }
             let response = try MobileNotificationSettingsResponse.decode(data)
             return MobileNotificationPreferences(
-                isEnabled: response.isEnabled,
+                isEnabled: false,
+                isForwardingEnabled: response.isEnabled,
                 forwardingMode: response.forwardingMode,
                 hidesContent: response.hidesContent
             )
