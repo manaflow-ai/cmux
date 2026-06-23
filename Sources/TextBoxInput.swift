@@ -1232,32 +1232,6 @@ func shouldSynchronizeExternalTextToTextBox(
     inlineAttachmentCount == 0 && !hasMarkedText && plainText != externalText
 }
 
-func shouldShowTextBoxPlaceholder(
-    text: String,
-    attachmentCount: Int,
-    hasMarkedText: Bool
-) -> Bool {
-    text.isEmpty && attachmentCount == 0 && !hasMarkedText
-}
-
-func shouldEnableTextBoxSubmit(
-    text: String,
-    attachmentCount: Int,
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload
-        && !hasMarkedText
-        && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0)
-}
-
-func shouldSubmitTextBox(
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload && !hasMarkedText
-}
-
 func textBoxCommandShortcutKey(
     for event: NSEvent,
     translateKey: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:),
@@ -2516,7 +2490,7 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = shouldEnableTextBoxSubmit(
+        let canSend = pendingProviderLaunchAction == nil && shouldEnableTextBoxSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
@@ -2742,6 +2716,10 @@ struct TextBoxInputContainer: View {
             hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
             hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
         ) else {
+            NSSound.beep()
+            return
+        }
+        guard pendingProviderLaunchAction == nil else {
             NSSound.beep()
             return
         }
