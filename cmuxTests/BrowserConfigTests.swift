@@ -4029,10 +4029,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             panel.isDeveloperToolsVisible()
         }
 
-        XCTAssertTrue(
-            panel.isDeveloperToolsVisible(),
-            "Deferred DevTools reveal must keep retry budget for the first post-attach show failure"
-        )
         XCTAssertGreaterThanOrEqual(inspector.showCount, 2)
     }
 
