@@ -4523,6 +4523,227 @@
         }
       }
     },
+    "mobile.notifications.disabledHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn this on to receive completed agent and workspace notifications on this iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したエージェントとワークスペースの通知をこの iPhone で受け取るにはオンにしてください。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.unsupportedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Mac to manage phone notifications from iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone から電話通知を管理するには、この Mac の cmux をアップデートしてください。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.hideContent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Notification Content"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知内容を非表示"
+          }
+        }
+      }
+    },
+    "mobile.notifications.mode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When to Notify"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知するタイミング"
+          }
+        }
+      }
+    },
+    "mobile.notifications.mode.always": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Always"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に通知"
+          }
+        }
+      }
+    },
+    "mobile.notifications.mode.always.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your Mac forwards notifications to this iPhone even when it was recently used."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac を最近使用していても、この iPhone に通知を転送します。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.mode.onlyWhenAway": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only When Away from Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac から離れているときのみ"
+          }
+        }
+      }
+    },
+    "mobile.notifications.mode.onlyWhenAway.hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phone notifications can be suppressed while the Mac is awake, unlocked, or recently used."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac が起動中、ロック解除中、または最近使用された場合は、iPhone 通知が抑制されることがあります。"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント通知"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "On"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
+          }
+        }
+      }
+    },
+    "mobile.notifications.status.syncing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同期中"
+          }
+        }
+      }
+    },
+    "mobile.settings.notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通知"
+          }
+        }
+      }
+    },
     "terminal.input_accessory.paste": {
       "extractionState": "manual",
       "localizations": {
