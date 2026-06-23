@@ -12873,6 +12873,10 @@ class TerminalController {
             result = v2MobileNotificationDismiss(params: request.params)
         case "notification.reconcile":
             result = v2MobileNotificationReconcile(params: request.params)
+        case "notification.settings.get":
+            result = v2MobileNotificationSettingsGet(params: request.params)
+        case "notification.settings.set":
+            result = v2MobileNotificationSettingsSet(params: request.params)
         case "dogfood.feedback.submit":
             result = await v2MobileDogfoodFeedbackSubmit(params: request.params)
         default:

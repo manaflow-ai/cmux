@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAuthRuntime
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
 import SwiftUI
@@ -27,6 +28,9 @@ struct MobileSettingsView: View {
     /// `isEnabled` as a non-observable `UserDefaults` read, so reading it
     /// directly in `body` would not re-render when it flips.
     @State private var notificationsEnabled = false
+    @State private var notificationMode = MobileNotificationForwardingMode.defaultMode
+    @State private var hideNotificationContent = false
+    @State private var notificationSettingsSyncing = false
     @State private var showingHostPicker = false
     @State private var showingOnboarding = false
     @State private var showingSetupHelp = false
@@ -206,15 +210,19 @@ struct MobileSettingsView: View {
                 }
 
                 Section(L10n.string("mobile.settings.notifications", defaultValue: "Notifications")) {
+                    LabeledContent {
+                        Text(notificationStatusText)
+                            .foregroundStyle(notificationsEnabled ? .primary : .secondary)
+                    } label: {
+                        Label(
+                            L10n.string("mobile.notifications.status", defaultValue: "Agent Notifications"),
+                            systemImage: notificationsEnabled ? "bell.badge" : "bell.slash"
+                        )
+                    }
+                    .accessibilityIdentifier("MobileSettingsNotificationsStatus")
+
                     Button {
-                        Task {
-                            if notificationsEnabled {
-                                await pushCoordinator.disable()
-                                notificationsEnabled = false
-                            } else {
-                                notificationsEnabled = await pushCoordinator.enable()
-                            }
-                        }
+                        toggleNotifications()
                     } label: {
                         Label(
                             notificationsEnabled
@@ -224,6 +232,51 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
+                    .disabled(notificationSettingsSyncing)
+
+                    if notificationsEnabled {
+                        Picker(selection: $notificationMode) {
+                            Text(L10n.string("mobile.notifications.mode.always", defaultValue: "Always"))
+                                .tag(MobileNotificationForwardingMode.always)
+                            Text(L10n.string(
+                                "mobile.notifications.mode.onlyWhenAway",
+                                defaultValue: "Only When Away from Mac"
+                            ))
+                            .tag(MobileNotificationForwardingMode.onlyWhenAway)
+                        } label: {
+                            Text(L10n.string("mobile.notifications.mode", defaultValue: "When to Notify"))
+                        }
+                        .onChange(of: notificationMode) { mode in
+                            guard !notificationSettingsSyncing else { return }
+                            updateNotificationMode(mode)
+                        }
+                        .accessibilityIdentifier("MobileSettingsNotificationsMode")
+                        .disabled(notificationSettingsSyncing)
+
+                        Toggle(isOn: $hideNotificationContent) {
+                            Text(L10n.string(
+                                "mobile.notifications.hideContent",
+                                defaultValue: "Hide Notification Content"
+                            ))
+                        }
+                        .onChange(of: hideNotificationContent) { hidesContent in
+                            guard !notificationSettingsSyncing else { return }
+                            updateNotificationHideContent(hidesContent)
+                        }
+                        .accessibilityIdentifier("MobileSettingsNotificationsHideContent")
+                        .disabled(notificationSettingsSyncing)
+
+                        Text(notificationModeExplanation)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(L10n.string(
+                            "mobile.notifications.disabledHint",
+                            defaultValue: "Turn this on to receive completed agent and workspace notifications on this iPhone."
+                        ))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section(L10n.string("mobile.settings.about", defaultValue: "About")) {
@@ -240,7 +293,10 @@ struct MobileSettingsView: View {
                     .accessibilityIdentifier("MobileSettingsVersionRow")
                 }
             }
-            .onAppear { notificationsEnabled = pushCoordinator.isEnabled }
+            .onAppear {
+                loadNotificationPreferences(pushCoordinator.notificationPreferences)
+                refreshNotificationPreferencesFromMac()
+            }
             .navigationTitle(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -313,6 +369,81 @@ struct MobileSettingsView: View {
         let name = authManager.currentUser?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let name, !name.isEmpty { return name }
         return L10n.string("mobile.settings.account", defaultValue: "Account")
+    }
+
+    private var notificationStatusText: String {
+        if notificationSettingsSyncing {
+            return L10n.string("mobile.notifications.status.syncing", defaultValue: "Syncing")
+        }
+        if notificationsEnabled {
+            return L10n.string("mobile.notifications.status.on", defaultValue: "On")
+        }
+        return L10n.string("mobile.notifications.status.off", defaultValue: "Off")
+    }
+
+    private var notificationModeExplanation: String {
+        switch notificationMode {
+        case .always:
+            return L10n.string(
+                "mobile.notifications.mode.always.hint",
+                defaultValue: "Your Mac forwards notifications to this iPhone even when it was recently used."
+            )
+        case .onlyWhenAway:
+            return L10n.string(
+                "mobile.notifications.mode.onlyWhenAway.hint",
+                defaultValue: "Phone notifications can be suppressed while the Mac is awake, unlocked, or recently used."
+            )
+        }
+    }
+
+    private func loadNotificationPreferences(_ preferences: MobileNotificationPreferences) {
+        notificationsEnabled = preferences.isEnabled
+        notificationMode = preferences.forwardingMode
+        hideNotificationContent = preferences.hidesContent
+    }
+
+    private func refreshNotificationPreferencesFromMac() {
+        Task {
+            notificationSettingsSyncing = true
+            let preferences = await pushCoordinator.reconcileNotificationPreferencesWithMac()
+            loadNotificationPreferences(preferences)
+            notificationSettingsSyncing = false
+        }
+    }
+
+    private func toggleNotifications() {
+        Task {
+            notificationSettingsSyncing = true
+            if notificationsEnabled {
+                await pushCoordinator.disable()
+                loadNotificationPreferences(pushCoordinator.notificationPreferences)
+            } else {
+                let enabled = await pushCoordinator.enable()
+                notificationsEnabled = enabled
+                loadNotificationPreferences(pushCoordinator.notificationPreferences)
+            }
+            notificationSettingsSyncing = false
+        }
+    }
+
+    private func updateNotificationMode(_ mode: MobileNotificationForwardingMode) {
+        guard notificationsEnabled else { return }
+        Task {
+            notificationSettingsSyncing = true
+            let preferences = await pushCoordinator.setForwardingMode(mode)
+            loadNotificationPreferences(preferences)
+            notificationSettingsSyncing = false
+        }
+    }
+
+    private func updateNotificationHideContent(_ hidesContent: Bool) {
+        guard notificationsEnabled else { return }
+        Task {
+            notificationSettingsSyncing = true
+            let preferences = await pushCoordinator.setHidesContent(hidesContent)
+            loadNotificationPreferences(preferences)
+            notificationSettingsSyncing = false
+        }
     }
 
     #if DEBUG

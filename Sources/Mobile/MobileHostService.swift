@@ -1402,6 +1402,8 @@ final class MobileHostService {
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
             return nil
+        case "notification.settings.get", "notification.settings.set":
+            return nil
         case "mobile.host.status":
             return nil
         default:
