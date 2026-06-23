@@ -484,6 +484,16 @@
         "fullHistoryTitle": "Il pannello della cronologia completa",
         "fullHistoryP": "Quando ti serve più dell’ultimo elemento, apri il pannello della cronologia completa: una vista cercabile e raggruppata per giorno di tutto ciò che hai chiuso e messo a fuoco, con marche temporali e un’azione Clear Closed.",
         "docsCta": "Consulta le <link>scorciatoie da tastiera</link> per l’elenco completo, incluso come riassegnare la navigazione della cronologia."
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "Non aggiungiamo i worktree a cmux. È una primitiva, quindi puoi creare script per i tuoi worktree, più checkout o lo sviluppo remoto e renderlo casa tua.",
+        "date": "23 giugno 2026",
+        "p1": "Ci chiedono di continuo se aggiungeremo i worktree di Git a cmux. Non lo faremo, perché non vogliamo imporre i worktree a nessuno. cmux è <link>una primitiva, non una soluzione</link>.",
+        "p2": "Ognuno lavora in modo diverso. Alcuni progetti sono distribuiti su più repository Git. Alcuni tengono molti checkout dello stesso repository (il mio cofondatore ha cloni chiamati da cmux0 a cmux40, per ragioni che ancora non capisco). Alcuni usano per impostazione predefinita SSH e lo sviluppo remoto.",
+        "p3": "cmux è solo terminali e browser, con una CLI per pilotarli. Con qualche script bash puoi gestire i worktree, destreggiarti tra più checkout o aprire sessioni remote, e disporre il tuo spazio di lavoro come preferisci.",
+        "p4": "cmux dovrebbe adattarsi al tuo flusso di lavoro invece di forzartene uno. Vogliamo che cmux dia la sensazione di casa.",
+        "p5": "<link>cmux-home</link> ne è un esempio. È un piccolo TUI in Rust che avvia gli spazi di lavoro di Claude e Codex e ne monitora lo stato in tempo reale, costruito interamente sulle primitive di cmux. Il launcher usa modelli di comando, così puoi inserire i tuoi script per creare worktree, scegliere un checkout o connetterti via SSH a una VM. Forkalo e rendilo tuo."
       }
     },
     "zenOfCmux": {
@@ -613,6 +623,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: riapri terminali e sessioni chiusi",
       "metaDescription": "cmux tiene una cronologia di ciò che hai chiuso e messo a fuoco. Riapri terminali, browser, workspace e sessioni di Claude Code, Codex e OpenCode chiusi con Cmd+Shift+T e sposta il focus avanti e indietro con Cmd+[ e Cmd+]."
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux non ti impone i worktree. È una primitiva, quindi puoi creare script per i tuoi worktree, più checkout o lo sviluppo remoto e rendere cmux casa tua."
     }
   },
   "docs": {

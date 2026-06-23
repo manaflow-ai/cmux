@@ -484,6 +484,16 @@
         "fullHistoryTitle": "O painel de histórico completo",
         "fullHistoryP": "Quando você precisa de mais do que o último item, abra o painel de histórico completo: uma visão pesquisável e agrupada por dia de tudo o que você fechou e focou, com carimbos de data/hora e uma ação Clear Closed.",
         "docsCta": "Veja os <link>atalhos de teclado</link> para a lista completa, incluindo como remapear a navegação do histórico."
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "Não vamos adicionar worktrees ao cmux. É uma primitiva, então você pode criar scripts para seus próprios worktrees, vários checkouts ou desenvolvimento remoto e fazer dele a sua casa.",
+        "date": "23 de junho de 2026",
+        "p1": "Vivem nos perguntando se vamos adicionar worktrees do Git ao cmux. Não vamos, porque não queremos impor worktrees a ninguém. O cmux é <link>uma primitiva, não uma solução</link>.",
+        "p2": "Cada um trabalha de um jeito. Alguns projetos se espalham por vários repositórios Git. Algumas pessoas mantêm muitos checkouts do mesmo repositório (meu cofundador tem clones chamados de cmux0 a cmux40, por razões que ainda não entendo). Algumas adotam SSH e desenvolvimento remoto por padrão.",
+        "p3": "O cmux é só terminais e navegadores, com uma CLI para controlá-los. Com alguns scripts em bash você gerencia worktrees, alterna entre vários checkouts ou abre sessões remotas, e organiza seu espaço de trabalho do jeito que faz sentido para você.",
+        "p4": "O cmux deve se moldar ao seu fluxo de trabalho em vez de impor um. Queremos que o cmux pareça um lar.",
+        "p5": "O <link>cmux-home</link> é um exemplo disso. É um pequeno TUI em Rust que inicia espaços de trabalho do Claude e do Codex e acompanha o status deles ao vivo, construído inteiramente sobre as primitivas do cmux. O launcher usa modelos de comando, então você pode trocar pelos seus próprios scripts para criar worktrees, escolher um checkout ou conectar via SSH a uma VM. Faça um fork e torne-o seu."
       }
     },
     "zenOfCmux": {
@@ -613,6 +623,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: reabra terminais e sessões fechados",
       "metaDescription": "O cmux mantém um histórico do que você fechou e focou. Reabra terminais, navegadores, workspaces e sessões do Claude Code, Codex e OpenCode fechados com Cmd+Shift+T e mova o foco para trás e para frente com Cmd+[ e Cmd+]."
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "O cmux não impõe worktrees a você. É uma primitiva, então você pode criar scripts para seus próprios worktrees, vários checkouts ou desenvolvimento remoto e fazer do cmux a sua casa."
     }
   },
   "docs": {

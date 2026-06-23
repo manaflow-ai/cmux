@@ -484,6 +484,16 @@
         "fullHistoryTitle": "完整的歷史記錄面板",
         "fullHistoryP": "當你需要的不只最後一項時，開啟完整的歷史記錄面板：它依日期分組、可搜尋，列出你關閉和聚焦過的所有內容，附有時間戳記，還有 Clear Closed 操作。",
         "docsCta": "查看<link>鍵盤快捷鍵</link>了解完整清單，包括如何重新綁定歷史記錄導覽。"
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "我們不會為 cmux 加入 worktree。它是一種基礎元件，你可以自己用腳本實作 worktree、多份檢出或遠端開發，把它變成自己的家。",
+        "date": "2026 年 6 月 23 日",
+        "p1": "常有人問我們會不會為 cmux 加入 git worktree。我們不會，因為我們不想把 worktree 強加給所有人。cmux 是<link>一種基礎元件，而不是一套方案</link>。",
+        "p2": "每個人的工作方式都不一樣。有些專案分散在多個 git 儲存庫裡。有些人會保留同一個儲存庫的許多份檢出（我的共同創辦人有從 cmux0 到 cmux40 命名的複製，原因我至今仍不明白）。有些人預設使用 SSH 與遠端開發。",
+        "p3": "cmux 只是終端機和瀏覽器，再加上一個用來操作它們的 CLI。你可以寫幾個 bash 腳本來管理 worktree、在多份檢出之間切換或開啟遠端工作階段，並依自己的習慣安排工作區。",
+        "p4": "cmux 應該順應你的工作流程，而不是強迫你接受某一種。我們希望 cmux 用起來像家一樣。",
+        "p5": "<link>cmux-home</link> 就是一個例子。它是一個小巧的 Rust TUI，用來啟動 Claude 和 Codex 工作區並即時查看它們的狀態，完全建構在 cmux 的基礎元件之上。啟動器使用命令範本，你可以換成自己的腳本來建立 worktree、選擇檢出或 SSH 連線到 VM。把它 fork 下來，變成你自己的。"
       }
     },
     "zenOfCmux": {
@@ -613,6 +623,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history：重新開啟已關閉的終端機和工作階段",
       "metaDescription": "cmux 會記錄你關閉和聚焦過的內容。用 Cmd+Shift+T 重新開啟已關閉的終端機、瀏覽器、工作區，以及 Claude Code、Codex 和 OpenCode 工作階段，並用 Cmd+[ 和 Cmd+] 在聚焦之間前後切換。"
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux 不會把 worktree 強加給你。它是一種基礎元件，你可以自己用腳本實作 worktree、多份檢出或遠端開發，把 cmux 變成自己的家。"
     }
   },
   "docs": {

@@ -484,6 +484,16 @@
         "fullHistoryTitle": "Das vollständige Verlaufsfenster",
         "fullHistoryP": "Wenn du mehr als das letzte Element brauchst, öffne das vollständige Verlaufsfenster: eine durchsuchbare, nach Tagen gruppierte Ansicht von allem, was du geschlossen und fokussiert hast, mit Zeitstempeln und einer Aktion „Clear Closed“.",
         "docsCta": "Die vollständige Liste, einschließlich wie du die Verlaufsnavigation neu belegst, findest du in den <link>Tastenkürzeln</link>."
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "Wir fügen cmux keine Worktrees hinzu. Es ist ein Primitiv, also kannst du dir eigene Worktrees, mehrere Checkouts oder Remote-Entwicklung selbst skripten und es zu deinem Zuhause machen.",
+        "date": "23. Juni 2026",
+        "p1": "Wir werden immer wieder gefragt, ob wir Git-Worktrees zu cmux hinzufügen. Werden wir nicht, weil wir Worktrees niemandem aufzwingen wollen. cmux ist <link>ein Primitiv, keine Lösung</link>.",
+        "p2": "Jeder arbeitet anders. Manche Projekte verteilen sich über mehrere Git-Repos. Manche behalten viele Checkouts desselben Repos (mein Mitgründer hat Klone namens cmux0 bis cmux40, aus Gründen, die ich bis heute nicht verstehe). Manche setzen standardmäßig auf SSH und Remote-Entwicklung.",
+        "p3": "cmux ist nur Terminals und Browser, mit einer CLI, um sie zu steuern. Mit ein paar Bash-Skripten kannst du Worktrees verwalten, mehrere Checkouts jonglieren oder Remote-Sitzungen öffnen und deinen Arbeitsbereich so anordnen, wie es für dich passt.",
+        "p4": "cmux sollte sich deinem Workflow anpassen, statt dir einen aufzuzwingen. Wir wollen, dass sich cmux wie ein Zuhause anfühlt.",
+        "p5": "<link>cmux-home</link> ist ein Beispiel dafür. Es ist ein kleines Rust-TUI, das Claude- und Codex-Workspaces startet und ihren Live-Status beobachtet, vollständig auf cmux-Primitiven aufgebaut. Der Launcher nutzt Befehlsvorlagen, sodass du eigene Skripte zum Erstellen von Worktrees, Auswählen eines Checkouts oder SSH in eine VM einsetzen kannst. Forke es und mach es zu deinem."
       }
     },
     "zenOfCmux": {
@@ -613,6 +623,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: geschlossene Terminals und Sitzungen wieder öffnen",
       "metaDescription": "cmux führt einen Verlauf darüber, was du geschlossen und fokussiert hast. Öffne geschlossene Terminals, Browser, Workspaces sowie Claude-Code-, Codex- und OpenCode-Sitzungen mit Cmd+Shift+T wieder und bewege den Fokus mit Cmd+[ und Cmd+] vor und zurück."
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux zwingt dir keine Worktrees auf. Es ist ein Primitiv, also kannst du dir eigene Worktrees, mehrere Checkouts oder Remote-Entwicklung selbst skripten und cmux zu deinem Zuhause machen."
     }
   },
   "docs": {

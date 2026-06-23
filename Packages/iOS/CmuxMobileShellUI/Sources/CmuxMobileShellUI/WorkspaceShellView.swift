@@ -15,6 +15,8 @@ struct WorkspaceShellView: View {
     var isInitialConnectionLoading = false
     var initialConnectionTimedOut = false
     var retryInitialConnection: (() -> Void)?
+    /// Present the add-device (pairing) flow from the Computers screen. `nil`
+    /// hides the add affordance.
     var showAddDevice: (() -> Void)?
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
@@ -45,6 +47,10 @@ struct WorkspaceShellView: View {
     }
 
     var body: some View {
+        layoutContent
+    }
+
+    private var layoutContent: some View {
         Group {
             if usesCompactStack {
                 stackLayout
@@ -96,6 +102,8 @@ struct WorkspaceShellView: View {
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
+                reconnect: reconnectClosure,
+                showAddDevice: showAddDevice,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
@@ -104,8 +112,7 @@ struct WorkspaceShellView: View {
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection,
-                showAddDevice: showAddDevice
+                retryInitialConnection: retryInitialConnection
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -182,6 +189,8 @@ struct WorkspaceShellView: View {
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
+                reconnect: reconnectClosure,
+                showAddDevice: showAddDevice,
                 store: store,
                 renameWorkspace: renameWorkspaceClosure,
                 setPinned: setWorkspacePinnedClosure,
@@ -190,8 +199,7 @@ struct WorkspaceShellView: View {
                 toggleGroupCollapsed: toggleGroupCollapsedClosure,
                 isInitialConnectionLoading: isInitialConnectionLoading,
                 initialConnectionTimedOut: initialConnectionTimedOut,
-                retryInitialConnection: retryInitialConnection,
-                showAddDevice: showAddDevice
+                retryInitialConnection: retryInitialConnection
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
@@ -228,31 +236,28 @@ struct WorkspaceShellView: View {
         }
     }
 
-    /// Rename/pin closures, present only when the connected Mac advertises the
-    /// `workspace.actions.v1` capability so the row affordances stay hidden on
-    /// older Macs that lack the handler. Built as explicit closure literals (not
-    /// a method-reference ternary, which the compiler fails to type-check inside
-    /// the large `WorkspaceListView` initializer).
+    /// Workspace action closures, always present for the real store. Row and
+    /// detail affordances gate themselves on each workspace's owning-Mac
+    /// capability snapshot, so a secondary Mac is not hidden behind the
+    /// foreground Mac's advertised capabilities. Built as explicit closure
+    /// literals (not method-reference ternaries, which the compiler fails to
+    /// type-check inside the large `WorkspaceListView` initializer).
     private var renameWorkspaceClosure: ((MobileWorkspacePreview.ID, String) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, title in Task { await store.renameWorkspace(id: id, title: title) } }
     }
 
     private var setWorkspacePinnedClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceActions else { return nil }
         let store = store
         return { id, pinned in Task { await store.setWorkspacePinned(id: id, pinned) } }
     }
 
     private var setWorkspaceUnreadClosure: ((MobileWorkspacePreview.ID, Bool) -> Void)? {
-        guard store.supportsWorkspaceReadStateActions else { return nil }
         let store = store
         return { id, unread in Task { await store.setWorkspaceUnread(id: id, unread) } }
     }
 
     private var closeWorkspaceClosure: ((MobileWorkspacePreview.ID) -> Void)? {
-        guard store.supportsWorkspaceCloseActions else { return nil }
         let store = store
         return { id in Task { await store.closeWorkspace(id: id) } }
     }
@@ -263,7 +268,15 @@ struct WorkspaceShellView: View {
     /// reference) is what crosses into the `List`-hosting view.
     private var refreshWorkspacesClosure: @Sendable () async -> Void {
         let store = store
-        return { await store.refreshWorkspaces() }
+        // Reconnect-or-refresh: when offline, pull-to-refresh re-attempts the saved
+        // active Mac instead of no-opping, so the offline list can recover itself.
+        return { await store.reconnectOrRefresh() }
+    }
+
+    /// Manual reconnect for the offline status row's Reconnect button.
+    private var reconnectClosure: () -> Void {
+        let store = store
+        return { Task { await store.reconnectOrRefresh() } }
     }
 
     /// Group collapse/expand closure. Present when the Mac advertises

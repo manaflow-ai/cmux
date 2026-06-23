@@ -4,7 +4,10 @@ import SwiftUI
 
 /// A workspace-list row that surfaces a problem connection state (reconnecting
 /// or offline) above the workspaces, so the user can tell a healthy link from a
-/// recovering or dropped one.
+/// recovering or dropped one. When offline and a `reconnect` action is provided,
+/// it offers an explicit Reconnect button so a returning user whose auto-
+/// reconnect failed is never stranded on a list with no way to act (the
+/// integrated list stays the only surface, no separate picker screen).
 struct MobileMacConnectionStatusRow: View {
     let host: String
     let status: MobileMacConnectionStatus
@@ -13,6 +16,13 @@ struct MobileMacConnectionStatusRow: View {
     var descriptionOverride: String?
     var retry: (() -> Void)?
     var addDevice: (() -> Void)?
+    /// Manual reconnect for the offline (`.unavailable`) state. `nil` in previews
+    /// and where reconnect is not applicable.
+    var reconnect: (() -> Void)?
+
+    private var hasActions: Bool {
+        retry != nil || addDevice != nil || (status == .unavailable && reconnect != nil)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -44,7 +54,7 @@ struct MobileMacConnectionStatusRow: View {
                 Spacer(minLength: 8)
             }
 
-            if retry != nil || addDevice != nil {
+            if hasActions {
                 HStack(spacing: 10) {
                     if let retry {
                         Button(action: retry) {
@@ -63,12 +73,21 @@ struct MobileMacConnectionStatusRow: View {
                         .controlSize(.small)
                         .accessibilityIdentifier("MobileInitialConnectionAddDevice")
                     }
+
+                    if status == .unavailable, let reconnect {
+                        Button(action: reconnect) {
+                            Text(L10n.string("mobile.workspace.reconnect", defaultValue: "Reconnect"))
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("MobileMacReconnectButton")
+                    }
                 }
                 .padding(.leading, 34)
             }
         }
         .padding(.vertical, 8)
-        .accessibilityElement(children: retry == nil && addDevice == nil ? .combine : .contain)
+        .accessibilityElement(children: hasActions ? .contain : .combine)
         .accessibilityIdentifier("MobileMacConnectionStatus")
     }
 }

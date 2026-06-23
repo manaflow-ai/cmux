@@ -484,6 +484,16 @@
         "fullHistoryTitle": "Potpuni panel historije",
         "fullHistoryP": "Kada vam treba više od posljednje stavke, otvorite potpuni panel historije: pretraživi prikaz grupisan po danima svega što ste zatvorili i fokusirali, s vremenskim oznakama i akcijom Clear Closed.",
         "docsCta": "Pogledajte <link>prečice na tastaturi</link> za potpunu listu, uključujući kako ponovo dodijeliti navigaciju historijom."
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "Ne dodajemo worktree u cmux. To je primitiv, pa možeš sam skriptirati vlastite worktree, više checkout-a ili udaljeni razvoj i učiniti ga svojim domom.",
+        "date": "23. juni 2026.",
+        "p1": "Ljudi nas stalno pitaju hoćemo li dodati git worktree u cmux. Nećemo, jer ne želimo nikome nametati worktree. cmux je <link>primitiv, a ne rješenje</link>.",
+        "p2": "Svako radi drugačije. Neki projekti su raspoređeni preko više git repozitorija. Neki drže mnogo checkout-a istog repozitorija (moj suosnivač ima klonove nazvane od cmux0 do cmux40, iz razloga koje još uvijek ne razumijem). Neki podrazumijevano koriste SSH i udaljeni razvoj.",
+        "p3": "cmux su samo terminali i preglednici, uz CLI za upravljanje njima. Uz nekoliko bash skripti možeš upravljati worktree-jevima, žonglirati s više checkout-a ili otvarati udaljene sesije, i posložiti radni prostor onako kako tebi odgovara.",
+        "p4": "cmux bi se trebao prilagoditi tvom toku rada umjesto da ti nameće svoj. Želimo da se cmux osjeća kao dom.",
+        "p5": "<link>cmux-home</link> je jedan primjer toga. To je mali Rust TUI koji pokreće Claude i Codex radne prostore i prati njihov status uživo, u potpunosti izgrađen na cmux primitivama. Pokretač koristi predloške naredbi, pa možeš ubaciti vlastite skripte za kreiranje worktree-jeva, odabir checkout-a ili SSH povezivanje na VM. Forkaj ga i učini ga svojim."
       }
     },
     "zenOfCmux": {
@@ -613,6 +623,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: ponovno otvaranje zatvorenih terminala i sesija",
       "metaDescription": "cmux vodi historiju onoga što ste zatvorili i fokusirali. Ponovo otvorite zatvorene terminale, preglednike, workspace-ove i sesije Claude Code, Codex i OpenCode pomoću Cmd+Shift+T, a fokus pomjerajte naprijed i nazad pomoću Cmd+[ i Cmd+]."
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux ti ne nameće worktree. To je primitiv, pa možeš sam skriptirati vlastite worktree, više checkout-a ili udaljeni razvoj i učiniti cmux svojim domom."
     }
   },
   "docs": {
