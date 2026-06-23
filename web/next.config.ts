@@ -21,7 +21,7 @@ const nextConfig: NextConfig = {
     // transparent rounded window corners) it rings far less than WebP at the
     // same size. Allow q100 so the hero can opt out of lossy degradation.
     formats: ["image/avif", "image/webp"],
-    qualities: [75, 100],
+    qualities: [75, 85],
     remotePatterns: [
       {
         protocol: "https",
