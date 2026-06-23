@@ -106,14 +106,25 @@ extension TerminalController {
         let shouldEagerLoadTerminal = v2Bool(params, "eager_load_terminal") ?? !shouldFocus
         let shouldAutoRefreshMetadata = v2Bool(params, "auto_refresh_metadata") ?? true
         if let groupId {
-            let groupExists = v2MainSync {
-                tabManager.workspaceGroups.contains(where: { $0.id == groupId })
+            let validation = v2MainSync {
+                let groupExists = tabManager.workspaceGroups.contains(where: { $0.id == groupId })
+                let referenceIsMember = groupReferenceWorkspaceId.map { referenceWorkspaceId in
+                    tabManager.tabs.contains { $0.id == referenceWorkspaceId && $0.groupId == groupId }
+                } ?? true
+                return (groupExists: groupExists, referenceIsMember: referenceIsMember)
             }
-            guard groupExists else {
+            guard validation.groupExists else {
                 return .err(
                     code: "not_found",
                     message: "Group not found",
                     data: ["group_id": groupId.uuidString]
+                )
+            }
+            guard validation.referenceIsMember else {
+                return .err(
+                    code: "invalid_params",
+                    message: "group_reference_workspace_id must be a member of the target group",
+                    data: ["group_reference_workspace_id": groupReferenceWorkspaceId?.uuidString ?? ""]
                 )
             }
         }

@@ -124,6 +124,29 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == nil)
     }
 
+    @Test func workspaceGroupAddRejectsReferenceOutsideTargetGroup() throws {
+        let (coordinator, context) = coordinator()
+        let groupID = UUID()
+        let workspaceID = UUID()
+        let referenceWorkspaceID = UUID()
+        context.addWorkspaceToGroupResolution = .invalidReferenceWorkspace
+
+        guard case .err(let code, let message, let data) = coordinator.handle(request("workspace.group.add", [
+            "group_id": .string(groupID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "placement": .string("afterCurrent"),
+            "reference_workspace_id": .string(referenceWorkspaceID.uuidString),
+        ])) else {
+            Issue.record("unexpected workspace.group.add result")
+            return
+        }
+
+        #expect(code == "invalid_params")
+        #expect(message == "reference_workspace_id must be a member of the target group")
+        #expect(data == .object(["reference_workspace_id": .string(referenceWorkspaceID.uuidString)]))
+        #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == referenceWorkspaceID)
+    }
+
     @Test func workspaceGroupAddRejectsInvalidPlacement() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()

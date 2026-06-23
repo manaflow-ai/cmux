@@ -202,6 +202,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
         guard let tab = tabManager.tabs.first(where: { $0.id == workspaceID }), hasGroup else {
             return .notFound
         }
+        if let referenceWorkspaceID,
+           !tabManager.tabs.contains(where: { $0.id == referenceWorkspaceID && $0.groupId == groupID }) {
+            return .invalidReferenceWorkspace
+        }
         // addWorkspaceToGroup silently no-ops for anchors of other groups.
         // Confirm membership actually changed before reporting success.
         tabManager.addWorkspaceToGroup(

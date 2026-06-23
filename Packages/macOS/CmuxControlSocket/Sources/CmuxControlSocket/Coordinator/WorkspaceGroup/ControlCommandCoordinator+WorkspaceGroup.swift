@@ -294,6 +294,12 @@ extension ControlCommandCoordinator {
             return .ok(identity)
         case .notFound:
             return .err(code: "not_found", message: "Group or workspace not found", data: identity)
+        case .invalidReferenceWorkspace:
+            return .err(
+                code: "invalid_params",
+                message: "reference_workspace_id must be a member of the target group",
+                data: .object(["reference_workspace_id": .string(referenceWorkspaceID?.uuidString ?? "")])
+            )
         case .workspaceIsOtherGroupAnchor:
             return .err(code: "invalid_state", message: workspaceGroupStrings().workspaceIsOtherGroupAnchor, data: identity)
         }
