@@ -1,5 +1,6 @@
 import AppKit
 import CMUXProjectModel
+import CmuxPanes
 import SwiftUI
 
 /// Top-level SwiftUI view for a ``ProjectPanel``.

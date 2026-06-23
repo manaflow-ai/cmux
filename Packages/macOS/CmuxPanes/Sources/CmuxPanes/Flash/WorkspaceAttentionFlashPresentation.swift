@@ -1,5 +1,6 @@
 public import AppKit
 public import CoreGraphics
+public import CmuxCore
 public import CmuxTerminalCore
 
 /// The accent palette used by a panel attention-flash ring.
@@ -36,6 +37,35 @@ public struct WorkspaceAttentionFlashPresentation: Equatable, Sendable {
         self.accent = accent
         self.glowOpacity = glowOpacity
         self.glowRadius = glowRadius
+    }
+
+    /// The ring style flashed for a notification arrival (the steady unread
+    /// indicator ring): a subtle blue glow. Faithful lift of the legacy
+    /// presentation constant, now owned by the value type it produces instead of
+    /// a no-case namespace enum.
+    public static let notificationRing = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.35,
+        glowRadius: 3
+    )
+
+    /// The ring style flashed for an active attention pulse: a brighter, wider
+    /// blue glow than ``notificationRing``.
+    public static let flashRing = WorkspaceAttentionFlashPresentation(
+        accent: .notificationBlue,
+        glowOpacity: 0.6,
+        glowRadius: 6
+    )
+
+    /// The ring style to flash for a given attention reason. Every current
+    /// reason maps to ``flashRing``; the switch is retained so a future reason
+    /// must consciously choose its style. Faithful lift of the legacy
+    /// `WorkspaceAttentionCoordinator.flashStyle(for:)`.
+    public static func flashRing(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
+        switch reason {
+        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
+            return flashRing
+        }
     }
 
     /// Lowers this presentation into the `Sendable` ring presentation consumed

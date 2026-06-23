@@ -1,5 +1,6 @@
 import AppKit
 import CMUXProjectModel
+import CmuxPanes
 import SwiftUI
 
 /// Files tab inside ``ProjectPanelView``.

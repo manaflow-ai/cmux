@@ -16,10 +16,17 @@ public import CmuxCore
 /// observable UI state, so the contract lives on the main actor like its
 /// callers.
 ///
-/// `ObservableObject` is retained as a faithful lift of the existing protocol
-/// shape; the concrete conformers are still `ObservableObject`. Migrating the
-/// protocol and conformers to `@Observable` is a separate, behavior-affecting
-/// modernization, not part of this byte-identical move.
+/// TODO(refactor): the `ObservableObject` refinement is a known convention
+/// violation, not a desired end state. The conventions ban
+/// `ObservableObject`/`@Published`/`objectWillChange`; the migration target is
+/// `@Observable`. It is retained here ONLY because all five concrete conformers
+/// (`TerminalPanel`/`BrowserPanel`/`MarkdownPanel`/`FilePreviewPanel`/
+/// `AgentSessionPanel`) are still `ObservableObject` with dozens of `@Published`
+/// properties, and their SwiftUI consumers observe them via `@ObservedObject`.
+/// Dropping the refinement requires migrating every conformer to `@Observable`
+/// and every `@ObservedObject var panel:` view to `@Bindable`/`@State`, which is
+/// behavior-affecting and belongs in a dedicated Observable-migration PR (it is
+/// not a byte-identical move). Do not treat this refinement as a pattern to copy.
 @MainActor
 public protocol Panel: AnyObject, Identifiable, ObservableObject where ID == UUID {
     /// Unique identifier for this panel

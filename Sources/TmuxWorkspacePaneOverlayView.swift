@@ -20,7 +20,7 @@ struct TmuxWorkspacePaneOverlayView: View {
             TimelineView(TmuxWorkspacePaneFlashTimelineSchedule(startDate: flashStartedAt)) { timeline in
                 overlayCanvas(timelineDate: timeline.date)
                     .onChange(of: timeline.date) { _, date in
-                        if date.timeIntervalSince(flashStartedAt) >= FocusFlashPattern.duration {
+                        if date.timeIntervalSince(flashStartedAt) >= FocusFlashPattern.standard.duration {
                             completedFlashStartedAt = flashStartedAt
                         }
                     }
@@ -37,7 +37,7 @@ struct TmuxWorkspacePaneOverlayView: View {
               let flashStartedAt else { return false }
         guard completedFlashStartedAt != flashStartedAt,
               ringPath(for: flashRect) != nil else { return false }
-        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
+        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.standard.duration)
     }
 
     private func overlayCanvas(timelineDate: Date?) -> some View {
@@ -50,7 +50,7 @@ struct TmuxWorkspacePaneOverlayView: View {
                   let flashStartedAt,
                   let timelineDate else { return }
             let elapsed = timelineDate.timeIntervalSince(flashStartedAt)
-            let opacity = FocusFlashPattern.opacity(at: elapsed)
+            let opacity = FocusFlashPattern.standard.opacity(at: elapsed)
             guard opacity > 0.001 else { return }
             drawFlashRing(
                 in: &context,
@@ -63,7 +63,7 @@ struct TmuxWorkspacePaneOverlayView: View {
 
     private func drawUnreadRing(in context: inout GraphicsContext, rect: CGRect) {
         guard let path = ringPath(for: rect) else { return }
-        let presentation = WorkspaceAttentionCoordinator.notificationRingStyle
+        let presentation = WorkspaceAttentionFlashPresentation.notificationRing
         let strokeColor = Color(nsColor: presentation.accent.strokeColor)
 
         var glowContext = context
@@ -87,7 +87,7 @@ struct TmuxWorkspacePaneOverlayView: View {
         reason: WorkspaceAttentionFlashReason
     ) {
         guard let path = ringPath(for: rect) else { return }
-        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
+        let presentation = WorkspaceAttentionFlashPresentation.flashRing(for: reason)
         let strokeColor = Color(nsColor: presentation.accent.strokeColor)
 
         var glowContext = context
@@ -122,7 +122,7 @@ private struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
         let interval = mode == .lowFrequency ? 1.0 / 10.0 : 1.0 / 60.0
         return Entries(
             nextDate: firstDate,
-            endDate: startDate.addingTimeInterval(FocusFlashPattern.duration),
+            endDate: startDate.addingTimeInterval(FocusFlashPattern.standard.duration),
             interval: interval
         )
     }

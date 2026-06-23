@@ -1,4 +1,5 @@
 import CMUXProjectModel
+import CmuxPanes
 import SwiftUI
 
 /// Build Settings tab inside ``ProjectPanelView``.

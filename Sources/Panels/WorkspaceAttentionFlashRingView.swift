@@ -6,7 +6,7 @@ struct WorkspaceAttentionFlashRingView: View {
     var reason: WorkspaceAttentionFlashReason = .navigation
 
     var body: some View {
-        let presentation = WorkspaceAttentionCoordinator.flashStyle(for: reason)
+        let presentation = WorkspaceAttentionFlashPresentation.flashRing(for: reason)
         let color = Color(nsColor: presentation.accent.strokeColor)
 
         RoundedRectangle(cornerRadius: CGFloat(FocusFlashPattern.ringCornerRadius))

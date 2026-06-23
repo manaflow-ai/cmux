@@ -247,9 +247,9 @@ struct MarkdownPanelView: View {
     private func triggerFocusFlashAnimation() {
         focusFlashAnimationGeneration &+= 1
         let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.values.first ?? 0
+        focusFlashOpacity = FocusFlashPattern.standard.values.first ?? 0
 
-        for segment in FocusFlashPattern.segments {
+        for segment in FocusFlashPattern.standard.segments {
             DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
                 guard focusFlashAnimationGeneration == generation else { return }
                 withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {

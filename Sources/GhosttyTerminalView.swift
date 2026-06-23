@@ -5539,9 +5539,9 @@ final class GhosttySurfaceScrollView: NSView {
     private static func flashPresentation(for style: FlashStyle) -> WorkspaceAttentionFlashPresentation {
         switch style {
         case .navigation:
-            return WorkspaceAttentionCoordinator.flashStyle(for: .navigation)
+            return WorkspaceAttentionFlashPresentation.flashRing(for: .navigation)
         case .notification:
-            return WorkspaceAttentionCoordinator.flashStyle(for: .notificationArrival)
+            return WorkspaceAttentionFlashPresentation.flashRing(for: .notificationArrival)
         }
     }
 
@@ -5855,7 +5855,7 @@ final class GhosttySurfaceScrollView: NSView {
         dropZoneOverlayView.layer?.cornerRadius = 8
         dropZoneOverlayView.isHidden = true
         ringChrome.configureNotificationRing(
-            presentation: WorkspaceAttentionCoordinator.notificationRingStyle.ringPresentation()
+            presentation: WorkspaceAttentionFlashPresentation.notificationRing.ringPresentation()
         )
         ringChrome.configureFlash(
             presentation: Self.flashPresentation(for: .navigation).ringPresentation()
@@ -7117,7 +7117,7 @@ final class GhosttySurfaceScrollView: NSView {
         ringChrome.triggerFlash(
             style: style.paneFlashStyle,
             presentation: Self.flashPresentation(for: style).ringPresentation(),
-            animation: FocusFlashPattern.paneAnimationSpec
+            animation: FocusFlashPattern.standard.paneAnimationSpec
         )
     }
 
