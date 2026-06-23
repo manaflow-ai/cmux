@@ -120,6 +120,24 @@ extension CmuxSettingsFileStore {
                     "command": NotificationSoundSettings.defaultCustomCommand,
                     "hooksMode": "append",
                     "hooks": [],
+                    "muteDurations": [
+                        [
+                            "label": "15 Minutes",
+                            "minutes": 15,
+                        ],
+                        [
+                            "label": "1 Hour",
+                            "hours": 1,
+                        ],
+                        [
+                            "label": "4 Hours",
+                            "hours": 4,
+                        ],
+                        [
+                            "label": "8 Hours",
+                            "hours": 8,
+                        ],
+                    ],
                 ],
             ],
             [

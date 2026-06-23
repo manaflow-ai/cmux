@@ -22,7 +22,6 @@ import CMUXAgentLaunch
 import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
-
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
     case freshInstall
@@ -31,7 +30,6 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
     case userExplicitColors
 
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .realUserConfig:
@@ -7223,7 +7221,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
         )
-        appendMoveCurrentSurfaceMoveMenuItems(to: menu); menu.addItem(.separator())
+        appendMoveCurrentSurfaceMoveMenuItems(to: menu)
+        appendCurrentSurfaceNotificationMuteMenuItems(to: menu)
+        menu.addItem(.separator())
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
             action: #selector(resetTerminal(_:)),

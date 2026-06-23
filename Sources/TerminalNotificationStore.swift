@@ -37,35 +37,6 @@ extension UNUserNotificationCenter {
     }
 }
 
-enum NotificationBadgeSettings {
-    static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
-    static let defaultDockBadgeEnabled = true
-
-    static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: dockBadgeEnabledKey) == nil {
-            return defaultDockBadgeEnabled
-        }
-        return defaults.bool(forKey: dockBadgeEnabledKey)
-    }
-}
-
-enum NotificationPaneRingSettings {
-    static let enabledKey = "notificationPaneRingEnabled"
-    static let defaultEnabled = true
-}
-
-enum NotificationPaneFlashSettings {
-    static let enabledKey = "notificationPaneFlashEnabled"
-    static let defaultEnabled = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
-        }
-        return defaults.bool(forKey: enabledKey)
-    }
-}
-
 enum TaggedRunBadgeSettings {
     static let environmentKey = "CMUX_TAG"
     private static let maxTagLength = 10
@@ -463,6 +434,8 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
+    @Published var notificationMuteExpirationsByWorkspaceId: [UUID: Date] = [:]
+    @Published var notificationMuteExpirationsBySurfaceId: [UUID: Date] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
@@ -1093,10 +1066,15 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
     ) {
+        let shouldMuteNotificationSideEffects = activeNotificationMuteExpiration(
+            forTabId: request.tabId,
+            surfaceId: request.surfaceId,
+            now: now
+        ) != nil
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId
-        )
+        ) || shouldMuteNotificationSideEffects
         let notification = TerminalNotification(
             id: UUID(),
             tabId: request.tabId,
@@ -1115,6 +1093,7 @@ final class TerminalNotificationStore: ObservableObject {
             recordNotification(
                 notification,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+                shouldMuteNotificationSideEffects: shouldMuteNotificationSideEffects,
                 effects: effects,
                 now: now,
                 cooldownReservation: cooldownReservation
@@ -1128,6 +1107,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
 #endif
         if effects.reorderWorkspace,
+           !shouldMuteNotificationSideEffects,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
@@ -1136,6 +1116,14 @@ final class TerminalNotificationStore: ObservableObject {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
             restoreCooldownReservation(cooldownReservation)
+        }
+        guard !shouldMuteNotificationSideEffects else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.sideEffects.skip workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") reason=muted"
+            )
+#endif
+            return
         }
         deliverNotificationSideEffects(
             notification,
@@ -1147,6 +1135,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func recordNotification(
         _ notification: TerminalNotification,
         shouldSuppressExternalDelivery: Bool,
+        shouldMuteNotificationSideEffects: Bool,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?
@@ -1164,11 +1153,12 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if shouldSuppressExternalDelivery, !shouldMuteNotificationSideEffects, effects.markUnread {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
         if effects.reorderWorkspace,
+           !shouldMuteNotificationSideEffects,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
@@ -1228,6 +1218,14 @@ final class TerminalNotificationStore: ObservableObject {
                     )
                 )
             }
+        }
+        guard !shouldMuteNotificationSideEffects else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.sideEffects.skip workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") reason=muted"
+            )
+#endif
+            return
         }
         deliverNotificationSideEffects(
             notification,
@@ -2133,6 +2131,7 @@ final class TerminalNotificationStore: ObservableObject {
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
     }
+
 #endif
 
     private func refreshDockBadge() {
