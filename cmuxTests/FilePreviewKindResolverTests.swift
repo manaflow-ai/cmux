@@ -1,3 +1,4 @@
+import CmuxPanes
 import Foundation
 import Testing
 
@@ -19,10 +20,10 @@ struct FilePreviewKindResolverTests {
             defer { try? FileManager.default.removeItem(at: url) }
 
             #expect(
-                FilePreviewKindResolver.initialMode(for: url) == .text,
+                FilePreviewMode.initial(for: url) == .text,
                 "Expected .\(fileExtension) to avoid the QuickLook/media backend before async resolution."
             )
-            #expect(FilePreviewKindResolver.mode(for: url) == .text)
+            #expect(FilePreviewMode.resolved(for: url) == .text)
         }
     }
 
@@ -35,8 +36,8 @@ struct FilePreviewKindResolverTests {
             )
             defer { try? FileManager.default.removeItem(at: url) }
 
-            #expect(FilePreviewKindResolver.initialMode(for: url) == .media)
-            #expect(FilePreviewKindResolver.mode(for: url) == .media)
+            #expect(FilePreviewMode.initial(for: url) == .media)
+            #expect(FilePreviewMode.resolved(for: url) == .media)
         }
     }
 
@@ -48,8 +49,8 @@ struct FilePreviewKindResolverTests {
         )
         defer { try? FileManager.default.removeItem(at: url) }
 
-        #expect(FilePreviewKindResolver.initialMode(for: url) == .text)
-        #expect(FilePreviewKindResolver.mode(for: url) == .media)
+        #expect(FilePreviewMode.initial(for: url) == .text)
+        #expect(FilePreviewMode.resolved(for: url) == .media)
     }
 
     @MainActor
@@ -108,7 +109,7 @@ struct FilePreviewKindResolverTests {
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         try handle.write(contentsOf: mpegTransportStreamData(packetSize: packetSize, syncOffset: syncOffset))
-        try handle.truncate(atOffset: FilePreviewTextLoader.maximumLoadedTextBytes + 1)
+        try handle.truncate(atOffset: URL.filePreviewMaximumLoadedTextBytes + 1)
         return url
     }
 
@@ -138,7 +139,7 @@ struct FilePreviewKindResolverTests {
 }
 
 private actor DeferredTextLoader {
-    private let result: FilePreviewTextLoader.Result
+    private let result: FilePreviewTextLoadResult
     private var didStart = false
     private var didComplete = false
     private var isReleased = false
@@ -146,11 +147,11 @@ private actor DeferredTextLoader {
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
     private var completionContinuations: [CheckedContinuation<Void, Never>] = []
 
-    init(result: FilePreviewTextLoader.Result) {
+    init(result: FilePreviewTextLoadResult) {
         self.result = result
     }
 
-    func load(url: URL) async -> FilePreviewTextLoader.Result {
+    func load(url: URL) async -> FilePreviewTextLoadResult {
         _ = url
         didStart = true
         startContinuations.forEach { $0.resume() }

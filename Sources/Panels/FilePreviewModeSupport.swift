@@ -1,4 +1,4 @@
-import Foundation
+import CmuxPanes
 
 extension FilePreviewMode {
     var socketName: String {

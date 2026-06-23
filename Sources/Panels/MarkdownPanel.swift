@@ -322,7 +322,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         let encoding = textEncoding
 
         return Task { [weak self, currentContent, fileURL, encoding, generation] in
-            let result = await FilePreviewTextSaver.save(content: currentContent, to: fileURL, encoding: encoding)
+            let result = await fileURL.saveFilePreviewText(currentContent, encoding: encoding)
             guard let self, self.activeSaveGeneration == generation else { return }
             self.activeSaveGeneration = nil
             self.isSaving = false
@@ -383,7 +383,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
     }
 
-    private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoader.Result {
+    private static func loadMarkdownFile(at path: String) -> FilePreviewTextLoadResult {
         guard let data = FileManager.default.contents(atPath: path) else {
             return .unavailable
         }

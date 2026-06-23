@@ -2871,7 +2871,10 @@ struct BrowserPanelView: View {
         guard let engine = remoteSuggestionsEngine else { return }
         isLoadingRemoteSuggestions = true
         suggestionTask = Task {
-            let remote = await BrowserSearchSuggestionService.shared.suggestions(engine: engine, query: query)
+            let suggestionService = BrowserSearchSuggestionService(
+                userAgent: BrowserUserAgentSettings.safariUserAgent
+            )
+            let remote = await suggestionService.suggestions(engine: engine, query: query)
             if Task.isCancelled { return }
 
             await MainActor.run {
