@@ -26718,7 +26718,9 @@ struct CMUXCLI {
         sessionId: String,
         store: ClaudeHookSessionStore,
         env: [String: String],
-        fallbackPID: Int?
+        fallbackPID: Int?,
+        authoritativeForkSurfaceId: String? = nil,
+        failClosedForStoredSelectorSessions: Bool = true
     ) -> Bool {
         guard def.name == "codex",
               subcommand == "session-start" || subcommand == "active" || subcommand == "session-end" else {
@@ -26735,15 +26737,37 @@ struct CMUXCLI {
         guard codexLaunchIsForkSession(env: env, fallbackPID: fallbackPID) else {
             return false
         }
-        let currentSurfaceId = normalizedHookValue(env["CMUX_SURFACE_ID"])
+        let launchArguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID)
+        let forkSurfaceId = normalizedHookValue(authoritativeForkSurfaceId)
         for candidate in [payloadSessionId, resolvedSessionId] {
             guard let candidate else { continue }
             guard let record = try? store.lookup(sessionId: candidate) else { continue }
-            if let currentSurfaceId, record.surfaceId != currentSurfaceId {
+            if codexStoredSessionMatchesCurrentFork(record, launchArguments: launchArguments) {
+                continue
+            }
+            if let forkSurfaceId {
+                if record.surfaceId != forkSurfaceId {
+                    return true
+                }
+            }
+            if failClosedForStoredSelectorSessions {
                 return true
             }
         }
         return false
+    }
+
+    private func codexStoredSessionMatchesCurrentFork(
+        _ record: ClaudeHookSessionRecord,
+        launchArguments: [String]?
+    ) -> Bool {
+        guard let launchArguments,
+              codexForkCommandIndex(in: launchArguments) != nil,
+              let storedArguments = record.launchCommand?.arguments,
+              codexForkCommandIndex(in: storedArguments) != nil else {
+            return false
+        }
+        return storedArguments == launchArguments
     }
 
     private func agentLaunchCommandFromEnvironment(
@@ -29649,7 +29673,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             sessionId: sessionId,
             store: store,
             env: env,
-            fallbackPID: inferredPID
+            fallbackPID: inferredPID,
+            failClosedForStoredSelectorSessions: false
         )
         if isCodexForkParentLifecycle {
             telemetry.breadcrumb("codex-hook.\(subcommand).fork-parent-skipped")

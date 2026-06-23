@@ -3502,6 +3502,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         for forkLaunch in forkLaunches {
             var forkEnvironment = environment
             forkEnvironment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(forkLaunch.arguments)
+            if forkLaunch.label.contains("selector") {
+                forkEnvironment["CMUX_SURFACE_ID"] = parentSurfaceId
+            }
 
             let sessionStart = runProcess(
                 executablePath: cliPath,
@@ -3595,6 +3598,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "runtimeStatus": "active",
                     "startedAt": now,
                     "updatedAt": now,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "fork", parentSessionId],
+                        "workingDirectory": root.path,
+                        "capturedAt": now,
+                        "source": "test",
+                    ],
                 ],
             ],
         ]
