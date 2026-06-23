@@ -8,6 +8,10 @@ SYNC_MARKER="${SYNC_MARKER:-cmux-real-sync-video}"
 
 mkdir -p "$ARTIFACT_DIR"
 
+phase() {
+  echo "==> $*"
+}
+
 sanitize_tag() {
   local raw="$1"
   local cleaned
@@ -118,8 +122,12 @@ PY
 }
 
 wait_for_socket() {
+  phase "waiting for tagged socket $SOCKET_PATH"
   for _ in $(seq 1 120); do
-    [[ -S "$SOCKET_PATH" ]] && return 0
+    if [[ -S "$SOCKET_PATH" ]]; then
+      phase "tagged socket is ready"
+      return 0
+    fi
     sleep 0.5
   done
   echo "Tagged cmux socket did not appear: $SOCKET_PATH" >&2
@@ -236,42 +244,41 @@ color=c=0x0b0f14:s=1920x1080:r=30:d=24[bg];\
   [[ -s "$FINAL_VIDEO" ]]
 }
 
+phase "checking ffmpeg"
 require_ffmpeg
 
 ios_ready() { xcrun simctl runtime list 2>/dev/null | grep -qiE "iOS [0-9].*\(Ready\)"; }
 if ! ios_ready; then
+  phase "installing iOS simulator platform"
   xcodebuild -downloadPlatform iOS 2>&1 | tr '\r' '\n' | grep -ivE 'Preparing to download|registering download' | tail -8 || true
   ios_ready || { echo "iOS platform is not registered" >&2; exit 1; }
 fi
 
+phase "selecting simulator"
 eval "$(select_simulator)"
 export SIMULATOR_ID SIMULATOR_NAME SIMULATOR_CREATED
+phase "booting simulator $SIMULATOR_NAME ($SIMULATOR_ID)"
 xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
 xcrun simctl erase "$SIMULATOR_ID"
 xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
-xcrun simctl bootstatus "$SIMULATOR_ID" -b
+timeout 120s xcrun simctl bootstatus "$SIMULATOR_ID" -b
 xcrun simctl ui "$SIMULATOR_ID" appearance dark || true
 
+phase "enabling macOS mobile pairing host"
 defaults write "$MAC_BUNDLE_ID" mobile.iOSPairingHost.enabled -bool true
 ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
 MAC_RELOAD_LOG="$ARTIFACT_DIR/reload-macos.log"
-./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround --launch 2>&1 | tee "$MAC_RELOAD_LOG"
+phase "building and launching tagged macOS cmux"
+timeout 600s ./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround --launch 2>&1 | tee "$MAC_RELOAD_LOG"
 wait_for_socket
 
-osascript <<OSA >/dev/null 2>&1 || true
+phase "activating tagged macOS cmux"
+timeout 15s osascript <<OSA >/dev/null 2>&1 || true
 tell application id "$MAC_BUNDLE_ID" to activate
-tell application "System Events"
-  tell application process "cmux DEV $TAG_SLUG"
-    set frontmost to true
-    try
-      set position of window 1 to {60, 80}
-      set size of window 1 to {1180, 760}
-    end try
-  end tell
-end tell
 OSA
 
+phase "creating real cmux terminal workspace"
 WORKSPACE_JSON="$(cmux_tagged --json --id-format uuids new-workspace --name "iOS sync demo" --cwd "$PWD" --focus true)"
 WORKSPACE_ID="$(printf '%s\n' "$WORKSPACE_JSON" | json_field workspace_id)"
 SURFACE_ID="$(printf '%s\n' "$WORKSPACE_JSON" | json_field surface_id)"
@@ -283,19 +290,24 @@ for _ in $(seq 1 40); do
   sleep 0.25
 done
 
+phase "minting terminal-scoped attach URL"
 ATTACH_URL="$(mint_attach_url "$WORKSPACE_ID" "$SURFACE_ID")"
 [[ -n "$ATTACH_URL" ]] || { echo "Failed to mint attach URL" >&2; exit 1; }
 
-ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
+phase "building and installing real iOS app"
+timeout 600s ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
+phase "launching and attaching real iOS app"
 xcrun simctl terminate "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl launch "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null
 sleep 2
-xcrun simctl openurl "$SIMULATOR_ID" "$ATTACH_URL"
+timeout 30s xcrun simctl openurl "$SIMULATOR_ID" "$ATTACH_URL"
 sleep 5
 
+phase "starting macOS and iOS recordings"
 start_macos_recording
 start_ios_recording
 
+phase "sending synced terminal input through real macOS cmux"
 cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "clear\r"
 sleep 1
 cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "printf 'real cmux desktop <> iOS\\n'\r"
@@ -309,12 +321,15 @@ cmux_tagged read-screen --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" --li
 xcrun simctl io "$SIMULATOR_ID" screenshot --type=png "$ARTIFACT_DIR/ios-final.png" || true
 screencapture -x "$ARTIFACT_DIR/macos-final.png" || true
 
+phase "stopping recorders"
 stop_recorders
 
 [[ -s "$MAC_RAW_VIDEO" ]] || { echo "macOS recording missing: $MAC_RAW_VIDEO" >&2; exit 1; }
 [[ -s "$IOS_RAW_VIDEO" ]] || { echo "iOS recording missing: $IOS_RAW_VIDEO" >&2; exit 1; }
+phase "stitching left-right video"
 stitch_videos
 
+phase "writing metadata"
 python3 - "$METADATA_PATH" <<PY
 import json
 import pathlib
