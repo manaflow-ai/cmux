@@ -532,7 +532,10 @@ function HomeContent() {
           <DownloadButton location="bottom" />
           <GitHubButton />
         </div>
-        <div className="flex justify-center gap-4 mt-6">
+        <div className="mt-6 flex justify-center">
+          <WaitlistCallout location="bottom" />
+        </div>
+        <div className="flex justify-center gap-4 mt-10">
           <Link
             href="/docs"
             className="text-sm text-muted hover:text-foreground transition-colors underline underline-offset-2 decoration-border hover:decoration-foreground"
@@ -545,9 +548,6 @@ function HomeContent() {
           >
             {tc("viewChangelog")}
           </Link>
-        </div>
-        <div className="mt-4 flex justify-center">
-          <WaitlistCallout location="bottom" />
         </div>
       </main>
     </div>

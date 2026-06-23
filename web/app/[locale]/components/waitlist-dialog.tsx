@@ -25,28 +25,34 @@ const SUBMIT_DELAY_MS = 750;
 
 export function WaitlistDialog({
   target,
-  targetLabel,
   open,
   onOpenChange,
   location,
 }: {
   /** Platform the signup is for, or `"any"` for the generic entry. */
   target: WaitlistTarget | null;
-  /** Localized platform name, used in the per-platform copy (ignored for `"any"`). */
-  targetLabel: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   location: string;
 }) {
+  // Keep the last opened target (with a per-open key) mounted through the
+  // modal's exit animation, instead of vanishing the instant the parent clears
+  // `target`. A fresh key on each open resets the body's form state.
+  const [session, setSession] = useState({ target, key: 0 });
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open && target) {
+      setSession((s) => ({ target, key: s.key + 1 }));
+    }
+  }
+
   return (
     <Modal open={open} onOpenChange={onOpenChange}>
-      {/* Remount the body per open so its email/status state starts fresh
-          (the modal popup stays mounted to play the exit animation). */}
-      {target ? (
+      {session.target ? (
         <WaitlistBody
-          key={target}
-          target={target}
-          targetLabel={targetLabel}
+          key={session.key}
+          target={session.target}
           location={location}
         />
       ) : null}
@@ -56,31 +62,31 @@ export function WaitlistDialog({
 
 function WaitlistBody({
   target,
-  targetLabel,
   location,
 }: {
   target: WaitlistTarget;
-  targetLabel: string;
   location: string;
 }) {
   const t = useTranslations("waitlist");
   const tp = useTranslations("platforms");
+  const isAny = target === "any";
+  const targetLabel = isAny ? "" : tp(target);
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<
     "idle" | "error" | "submitting" | "done"
   >("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isAny = target === "any";
-  // The generic dialog lets the visitor pick which platforms to join (all
-  // checked by default); a per-platform entry is fixed to that one platform.
+  // The generic dialog forces the visitor to choose which platforms to join
+  // (none checked by default); a per-platform entry is fixed to that one.
   const [selected, setSelected] = useState<Set<WaitlistPlatform>>(
-    () => new Set(WAITLIST_PLATFORMS),
+    () => new Set(),
   );
+  const [platformError, setPlatformError] = useState(false);
   const chosen = isAny
     ? WAITLIST_PLATFORMS.filter((p) => selected.has(p))
     : [target as WaitlistPlatform];
-  const noneChosen = chosen.length === 0;
   const togglePlatform = (p: WaitlistPlatform) => {
+    setPlatformError(false);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(p)) next.delete(p);
@@ -91,7 +97,11 @@ function WaitlistBody({
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (status === "submitting" || noneChosen) return;
+    if (status === "submitting") return;
+    if (isAny && chosen.length === 0) {
+      setPlatformError(true);
+      return;
+    }
     const trimmed = email.trim();
     if (!EMAIL_PATTERN.test(trimmed)) {
       setStatus("error");
@@ -148,17 +158,16 @@ function WaitlistBody({
         </Dialog.Description>
 
         {isAny ? (
-          <fieldset className="mt-5">
+          <fieldset className="relative mt-5">
             <legend className="text-sm font-medium">{t("platformsLabel")}</legend>
             <div className="mt-2 flex flex-col">
               {WAITLIST_PLATFORMS.map((p) => (
                 <label
                   key={p}
-                  htmlFor={`wl-${p}`}
                   className="flex cursor-pointer select-none items-center gap-2.5 py-1.5"
                 >
                   <Checkbox.Root
-                    id={`wl-${p}`}
+                    aria-label={tp(p)}
                     checked={selected.has(p)}
                     onCheckedChange={() => togglePlatform(p)}
                     disabled={submitting}
@@ -184,6 +193,15 @@ function WaitlistBody({
                 </label>
               ))}
             </div>
+            {/* Absolute so the validation message never shifts the layout. */}
+            {platformError ? (
+              <p
+                role="alert"
+                className="absolute left-0 top-full text-sm text-red-500"
+              >
+                {t("selectPlatform")}
+              </p>
+            ) : null}
           </fieldset>
         ) : null}
 
@@ -230,7 +248,7 @@ function WaitlistBody({
           </Dialog.Close>
           <button
             type="submit"
-            disabled={submitting || noneChosen}
+            disabled={submitting}
             aria-busy={submitting}
             className="relative inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-100 disabled:hover:opacity-100"
             style={{ color: "var(--background)" }}

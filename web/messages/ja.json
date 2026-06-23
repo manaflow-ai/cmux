@@ -1890,6 +1890,7 @@
     "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
     "calloutText": "Linux・Windows・Android 版も準備中です。",
     "platformsLabel": "対象プラットフォーム",
+    "selectPlatform": "1つ以上選択してください。",
     "emailLabel": "メールアドレス",
     "emailPlaceholder": "you@example.com",
     "join": "リストに登録",

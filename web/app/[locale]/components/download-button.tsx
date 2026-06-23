@@ -221,7 +221,6 @@ export function DownloadButton({
 
       <WaitlistDialog
         target={waitlistPlatform}
-        targetLabel={waitlistPlatform ? tp(waitlistPlatform) : ""}
         open={waitlistPlatform !== null}
         onOpenChange={(open) => {
           if (!open) setWaitlistPlatform(null);

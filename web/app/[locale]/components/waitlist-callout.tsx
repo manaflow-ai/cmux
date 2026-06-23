@@ -41,7 +41,6 @@ export function WaitlistCallout({
 
       <WaitlistDialog
         target={open ? "any" : null}
-        targetLabel=""
         open={open}
         onOpenChange={setOpen}
         location={location}
