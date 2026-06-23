@@ -38,8 +38,9 @@ test("file tree sticky overlays use a non-transparent surface", () => {
   const css = fileTreeUnsafeCSS();
 
   expect(css).toContain("background-color: var(--cmux-diff-sidebar-bg)");
+  expect(css).toContain("--cmux-diff-tree-sticky-bg: var(--cmux-diff-bg)");
   expect(css).toContain("[data-file-tree-sticky-overlay-content]");
-  expect(css).toContain("background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-sidebar-bg)) !important");
+  expect(css).toContain("background-color: var(--cmux-diff-tree-sticky-bg) !important");
   expect(css).toContain("box-shadow: 0 1px 0 var(--trees-border-color)");
 });
 
@@ -80,6 +81,26 @@ test("Ghostty Shiki theme maps Markdown token scopes", () => {
   expect(scopes).toContain("markup.underline.link");
   expect(scopes).toContain("markup.list");
   expect(scopes).toContain("markup.table");
+});
+
+test("Ghostty Shiki theme keeps transparent rendering separate from contrast checks", () => {
+  const theme = shikiThemeFromGhostty(
+    {
+      name: "low-contrast-dark",
+      ghosttyName: "Low Contrast Dark",
+      type: "dark",
+      background: "#000000",
+      foreground: "#111111",
+      palette: { "2": "#111111" },
+    },
+    { backgroundOpacity: 1 },
+  );
+
+  expect(theme.colors["editor.background"]).toBe("transparent");
+  expect(theme.colors["terminal.background"]).toBe("transparent");
+  expect(theme.colors["editor.foreground"]).toBe("#ffffff");
+  expect(theme.colors["terminal.ansiGreen"]).toBe("#ffffff");
+  expect(theme.tokenColors[0]?.settings.background).toBe("transparent");
 });
 
 test("worker highlighter options carry preloaded diff languages", () => {

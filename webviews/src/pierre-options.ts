@@ -151,6 +151,7 @@ export function fileTreeUnsafeCSS(): string {
       display: block;
       height: 100%;
       min-height: 0;
+      --cmux-diff-tree-sticky-bg: var(--cmux-diff-bg);
       background-color: var(--cmux-diff-sidebar-bg);
     }
     [data-file-tree-search-container][data-open='false'] {
@@ -183,7 +184,7 @@ export function fileTreeUnsafeCSS(): string {
       font-weight: 500;
     }
     [data-file-tree-sticky-overlay-content] {
-      background-color: var(--cmux-diff-tree-sticky-bg, var(--cmux-diff-sidebar-bg)) !important;
+      background-color: var(--cmux-diff-tree-sticky-bg) !important;
       box-shadow: 0 1px 0 var(--trees-border-color);
     }
   `;
@@ -191,17 +192,18 @@ export function fileTreeUnsafeCSS(): string {
 
 export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearance) {
   const palette = theme.palette ?? {};
-  const background = appearanceBackgroundColor(theme.background, appearance);
-  const foreground = readableColor(theme.foreground, background, theme.type === "light" ? "#000000" : "#ffffff");
-  const tokenColor = (value: unknown, fallback = foreground) => readableColor(value, background, fallback);
+  const renderedBackground = appearanceBackgroundColor(theme.background, appearance);
+  const contrastBackground = themeBackgroundForContrast(theme);
+  const foreground = readableColor(theme.foreground, contrastBackground, theme.type === "light" ? "#000000" : "#ffffff");
+  const tokenColor = (value: unknown, fallback = foreground) => readableColor(value, contrastBackground, fallback);
   return {
     name: theme.name,
     displayName: theme.ghosttyName,
     type: theme.type,
     colors: {
-      "editor.background": background,
+      "editor.background": renderedBackground,
       "editor.foreground": foreground,
-      "terminal.background": background,
+      "terminal.background": renderedBackground,
       "terminal.foreground": foreground,
       "terminal.ansiBlack": tokenColor(palette["0"]),
       "terminal.ansiRed": tokenColor(palette["1"]),
@@ -226,7 +228,7 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       "editor.selectionForeground": theme.selectionForeground,
     },
     tokenColors: [
-      { settings: { foreground, background } },
+      { settings: { foreground, background: renderedBackground } },
       { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: tokenColor(palette["8"]), fontStyle: "italic" } },
       { scope: ["string", "constant.other.symbol"], settings: { foreground: tokenColor(palette["2"]) } },
       { scope: ["constant.numeric", "constant.language", "support.constant"], settings: { foreground: tokenColor(palette["3"]) } },
@@ -265,4 +267,11 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       { scope: ["invalid", "message.error"], settings: { foreground: tokenColor(palette["9"], tokenColor(palette["1"])) } },
     ],
   };
+}
+
+function themeBackgroundForContrast(theme: any): string {
+  if (typeof theme.background === "string" && theme.background.trim() !== "") {
+    return theme.background.trim();
+  }
+  return theme.type === "light" ? "#ffffff" : "#000000";
 }
