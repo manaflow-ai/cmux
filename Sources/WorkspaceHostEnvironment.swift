@@ -55,6 +55,14 @@ protocol WorkspaceHostEnvironment: AnyObject {
     /// on the delegate; the optionality lives on the host-environment reference.
     var focusLog: FocusLogStore { get }
 
+    /// The process-wide live agent-session index cache (formerly the
+    /// `SharedLiveAgentIndex.shared` singleton). De-singletonized per the
+    /// no-singleton policy: the app owns exactly one instance at the composition
+    /// root and vends it here, so `Workspace` observes the same per-process cache
+    /// the former global provided without naming a global. Non-optional on the
+    /// delegate; the optionality lives only on the host-environment reference.
+    var sharedLiveAgentIndex: SharedLiveAgentIndex { get }
+
     /// Resolves the tab manager owning the given workspace/tab id (legacy
     /// `AppDelegate.shared?.tabManagerFor(tabId:)`).
     func tabManagerFor(tabId: UUID) -> TabManager?

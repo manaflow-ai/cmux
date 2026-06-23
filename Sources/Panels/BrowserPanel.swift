@@ -416,30 +416,6 @@ enum BrowserLinkOpenSettings {
     }
 }
 
-enum BrowserAvailabilitySettings {
-    static let disabledKey = "browserDisabledOverride"
-    static let didChangeNotification = Notification.Name("cmux.browserAvailabilityDidChange")
-    static let defaultDisabled = false
-
-    static func isDisabled(defaults: UserDefaults = .standard) -> Bool {
-        // No synchronize() on read: it forces a blocking prefs-plist reload on a path hit from link-open/pane-create; UserDefaults stays coherent in-process and via cfprefsd.
-        if defaults.object(forKey: disabledKey) == nil {
-            return defaultDisabled
-        }
-        return defaults.bool(forKey: disabledKey)
-    }
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        !isDisabled(defaults: defaults)
-    }
-
-    static func setDisabled(_ disabled: Bool, defaults: UserDefaults = .standard) {
-        // `set` already persists; `synchronize()` is a deprecated no-op-style fsync.
-        defaults.set(disabled, forKey: disabledKey)
-        NotificationCenter.default.post(name: didChangeNotification, object: nil)
-    }
-}
-
 func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     var preparedRequest = request
     // Match browser behavior for ordinary loads while preserving method/body/headers.

@@ -600,7 +600,7 @@ extension Workspace {
         // is acceptable here because restore prefers the always-fresh in-memory
         // resumeBinding and only consults this agent snapshot when no binding exists, so
         // cmux-launched agents reopen correctly regardless of cache freshness.
-        let agentIndex = SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh()
+        let agentIndex = hostEnvironment?.sharedLiveAgentIndex.currentIndexSchedulingRefresh()
             ?? RestorableAgentSessionIndex.load()
         let restorableAgent = agentIndex.snapshot(workspaceId: id, panelId: panelId)
         guard let snapshot = sessionPanelSnapshot(
@@ -1578,14 +1578,19 @@ typealias ClosedBrowserPanelRestoreSnapshot = CmuxBrowser.ClosedBrowserPanelRest
 /// long fallback TTL for pull access. This replaced a 1s pull TTL that reloaded
 /// near-continuously while the sidebar was visible, because each load outlasts a 1s TTL.
 ///
-/// `ObservableObject` conformance lets each workspace forward `objectWillChange` when a
-/// reload lands so ContentView re-renders and bonsplit's TabBarView picks up the new
+/// `@Observable` conformance lets each workspace observe the cache via
+/// `withObservationTracking` and bump an Observation-tracked revision when a reload
+/// lands, so ContentView re-renders and bonsplit's TabBarView picks up the new
 /// snapshot on the same frame.
+///
+/// De-singletonized (no-singleton policy): there is no `static let shared`. The
+/// app constructs ONE instance at the composition root and injects it where the
+/// former `.shared` accessor read it. Per-process freshness semantics are preserved
+/// because exactly one instance exists for the process.
 @MainActor
-final class SharedLiveAgentIndex: ObservableObject {
-    static let shared = SharedLiveAgentIndex()
-
-    @Published private(set) var index: RestorableAgentSessionIndex?
+@Observable
+final class SharedLiveAgentIndex {
+    private(set) var index: RestorableAgentSessionIndex?
     private var loadedAt: Date?
     private var refreshTask: Task<Void, Never>?
     // A hook-store change arrived while a reload was in flight; reload again after.
@@ -1599,7 +1604,7 @@ final class SharedLiveAgentIndex: ObservableObject {
     // slower TTL, and only powers the tab-menu fork fallback for live agents cmux
     // never recorded a hook for (e.g. `sr claude` / direct `codex`, which bypass
     // the cmux wrapper's SessionStart hook).
-    @Published private(set) var processDetectedIndex: RestorableAgentSessionIndex?
+    private(set) var processDetectedIndex: RestorableAgentSessionIndex?
     private var processDetectedLoadedAt: Date?
     private var processDetectedRefreshTask: Task<Void, Never>?
     private static let processDetectedCacheTTL: TimeInterval = 30.0
@@ -1613,7 +1618,10 @@ final class SharedLiveAgentIndex: ObservableObject {
     private var directoryWatchSource: DispatchSourceFileSystemObject?
     private let watchQueue = DispatchQueue(label: "com.cmuxterm.app.sharedLiveAgentIndexWatch")
 
-    private init() {}
+    /// Constructed once at the app composition root and injected where the former
+    /// `SharedLiveAgentIndex.shared` singleton was read. Not private: the
+    /// no-singleton policy requires an app-owned instance rather than a global.
+    init() {}
 
     /// Read the cached snapshot for the given (workspaceId, panelId). Never blocks.
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
@@ -1635,7 +1643,7 @@ final class SharedLiveAgentIndex: ObservableObject {
     /// The tab-menu fork affordance reads this as a fallback when neither the
     /// restored snapshot nor the hook-store index resolves the panel, so the
     /// expensive process scan is paid only on demand. When the scan lands, the
-    /// `@Published` change re-renders subscribed workspaces and the menu item
+    /// Observation change re-renders subscribed workspaces and the menu item
     /// appears without a second right-click.
     func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         scheduleProcessDetectedRefreshIfStale()
@@ -1676,12 +1684,15 @@ final class SharedLiveAgentIndex: ObservableObject {
         refreshTask = Task { @MainActor [weak self] in
             let newIndex = await Task.detached(priority: .utility) {
                 // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
-                // for load(); everything else should read SharedLiveAgentIndex.shared).
+                // for load(); everything else should read the app-owned
+                // SharedLiveAgentIndex instance vended by the host environment).
                 RestorableAgentSessionIndex.load()
             }.value
             guard let self else { return }
-            // Assigning to `@Published` fires objectWillChange, which subscribed
-            // workspaces forward as their own objectWillChange so SwiftUI re-renders.
+            // Assigning to this `@Observable` stored property fires Observation
+            // change notifications; each workspace observes `index` via
+            // `withObservationTracking` and bumps `liveAgentIndexRevision` so its
+            // SwiftUI body re-renders.
             self.index = newIndex
             self.loadedAt = Date()
             self.refreshTask = nil
@@ -3153,12 +3164,13 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
         // availability the moment a background refresh lands. `WorkspaceContentView`
         // reads `liveAgentIndexRevision` in its `body`, so Observation re-renders
         // it on each bump — the `@Observable` equivalent of the former
-        // `SharedLiveAgentIndex -> self.objectWillChange` forward. (Migrating off
-        // this Combine seam entirely is deferred until `SharedLiveAgentIndex`
-        // itself moves from `ObservableObject` to `@Observable`.)
-        sharedLiveAgentIndexCancellable = SharedLiveAgentIndex.shared.objectWillChange.sink { [weak self] _ in
-            self?.liveAgentIndexRevision &+= 1
-        }
+        // `SharedLiveAgentIndex -> self.objectWillChange` forward. Now that
+        // `SharedLiveAgentIndex` is `@MainActor @Observable`, the former Combine
+        // `objectWillChange.sink` is replaced by a self-re-arming
+        // `withObservationTracking`: each fire bumps the revision and re-registers,
+        // so every subsequent `index`/`processDetectedIndex` reload is observed,
+        // matching the `@Published`-fan-out cadence of the retired Combine seam.
+        beginObservingSharedLiveAgentIndex()
 
         // Seed the `$property` Combine bridges with their post-init values.
         // `didSet` does not fire for assignments inside `init`, so a subscriber
@@ -3187,7 +3199,31 @@ final class Workspace: Identifiable, WorkspaceUnreadHosting, SurfaceMetadataHost
     /// `objectWillChange.send()` forward.
     private(set) var liveAgentIndexRevision: Int = 0
 
-    private var sharedLiveAgentIndexCancellable: AnyCancellable?
+    /// Observe the de-singletonized `SharedLiveAgentIndex` (vended by the host
+    /// environment) and bump `liveAgentIndexRevision` whenever its tracked state
+    /// changes, re-arming after each fire. `withObservationTracking` fires once per
+    /// registration, so the `onChange` closure must re-register to keep observing
+    /// subsequent reloads; this reproduces the continuous fan-out the retired
+    /// `SharedLiveAgentIndex.objectWillChange.sink` provided. The tracked reads
+    /// (`index`, `processDetectedIndex`) cover both refresh paths — the hook-store
+    /// reload and the lazy process-detection scan — exactly the two `@Published`
+    /// properties whose `objectWillChange` the Combine seam forwarded.
+    private func beginObservingSharedLiveAgentIndex() {
+        guard let sharedLiveAgentIndex = hostEnvironment?.sharedLiveAgentIndex else { return }
+        withObservationTracking {
+            _ = sharedLiveAgentIndex.index
+            _ = sharedLiveAgentIndex.processDetectedIndex
+        } onChange: { [weak self] in
+            // `onChange` fires synchronously inside the mutation (before the new
+            // value is committed) and is not actor-isolated, so hop back to the
+            // MainActor to mutate this `@MainActor` state and re-arm.
+            Task { @MainActor in
+                guard let self else { return }
+                self.liveAgentIndexRevision &+= 1
+                self.beginObservingSharedLiveAgentIndex()
+            }
+        }
+    }
 
     // `isolated deinit` keeps teardown on the MainActor. As a plain
     // `@MainActor ObservableObject` the deinit was implicitly MainActor-isolated;

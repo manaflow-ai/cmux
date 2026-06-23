@@ -1136,19 +1136,18 @@ private extension CmuxVaultAgentSessionIDSource {
             guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
             return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
         case .piSessionFile:
+            let locator = PiSessionLocator(fileManager: fileManager)
             if let session = process.piCompatibleSessionID {
-                let sessionId = PiSessionLocator.resolvedSessionPath(
+                let sessionId = locator.resolvedSessionPath(
                     session,
                     for: process,
-                    registration: registration,
-                    fileManager: fileManager
+                    registration: registration
                 ) ?? session
                 return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
             }
-            guard let sessionId = PiSessionLocator.latestSessionPath(
+            guard let sessionId = locator.latestSessionPath(
                 for: process,
-                registration: registration,
-                fileManager: fileManager
+                registration: registration
             ) else {
                 return nil
             }
@@ -1276,36 +1275,32 @@ private extension Array where Element == String {
     }
 }
 
-enum PiSessionLocator {
-    static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
-        let standardizedHome = (homeDirectory as NSString).standardizingPath
-        return (standardizedHome as NSString).appendingPathComponent(".pi/agent/sessions")
+/// App-side resolver for the process- and registration-coupled pieces of a
+/// `pi`-compatible agent's session layout. Selects the candidate session
+/// directory from argv/env overrides, omp-specific roots, and the registration's
+/// configured directory, then forwards the pure path/file math
+/// (`projectDirectoryName`, `defaultSessionsRoot`, `newestJSONLFile`) to the
+/// process-independent `PiSessionResolver` in `CMUXAgentLaunch`.
+struct PiSessionLocator {
+    private let fileManager: FileManager
+    private let resolver: PiSessionResolver
+
+    init(fileManager: FileManager) {
+        self.fileManager = fileManager
+        self.resolver = PiSessionResolver(fileManager: fileManager)
     }
 
-    static func projectDirectoryName(for workingDirectory: String) -> String? {
-        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let withoutLeadingSlash = trimmed.hasPrefix("/") ? String(trimmed.dropFirst()) : trimmed
-        let sanitized = withoutLeadingSlash
-            .replacingOccurrences(of: "/", with: "-")
-            .replacingOccurrences(of: ":", with: "-")
-        guard !sanitized.isEmpty else { return nil }
-        return "--\(sanitized)--"
-    }
-
-    fileprivate static func latestSessionPath(
+    func latestSessionPath(
         for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        registration: CmuxVaultAgentRegistration
     ) -> String? {
-        newestJSONLFile(in: candidateSessionDirectory(for: process, registration: registration), fileManager: fileManager)?.path
+        resolver.newestJSONLFile(in: candidateSessionDirectory(for: process, registration: registration))?.path
     }
 
-    fileprivate static func resolvedSessionPath(
+    func resolvedSessionPath(
         _ session: String,
         for process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
+        registration: CmuxVaultAgentRegistration
     ) -> String? {
         let trimmed = session.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -1344,7 +1339,7 @@ enum PiSessionLocator {
         return exactNewest?.url.path ?? partialNewest?.url.path
     }
 
-    private static func candidateSessionDirectory(
+    private func candidateSessionDirectory(
         for process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration
     ) -> String {
@@ -1353,16 +1348,16 @@ enum PiSessionLocator {
             ?? configuredSessionDirectory(for: registration)
             ?? ompAgentSessionsRoot(for: process, registration: registration)
             ?? registration.sessionDirectory
-            ?? defaultSessionsRoot()
+            ?? resolver.defaultSessionsRoot()
         let expandedRoot = (sessionRoot as NSString).expandingTildeInPath
         if let cwd = process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"],
-           let projectDirectory = projectDirectoryName(for: cwd) {
+           let projectDirectory = resolver.projectDirectoryName(for: cwd) {
             return (expandedRoot as NSString).appendingPathComponent(projectDirectory)
         }
         return expandedRoot
     }
 
-    private static func ompAgentSessionsRoot(
+    private func ompAgentSessionsRoot(
         for process: VaultObservedAgentProcess,
         registration: CmuxVaultAgentRegistration
     ) -> String? {
@@ -1387,7 +1382,7 @@ enum PiSessionLocator {
         return (agentRoot as NSString).appendingPathComponent("sessions")
     }
 
-    private static func configuredSessionDirectory(for registration: CmuxVaultAgentRegistration) -> String? {
+    private func configuredSessionDirectory(for registration: CmuxVaultAgentRegistration) -> String? {
         guard let sessionDirectory = registration.sessionDirectory else { return nil }
         if registration.id == "omp",
            sessionDirectory == CmuxVaultAgentRegistration.builtInOmp.sessionDirectory {
@@ -1396,31 +1391,8 @@ enum PiSessionLocator {
         return sessionDirectory
     }
 
-    private static func nonEmptyEnvironmentValue(_ name: String, in environment: [String: String]) -> String? {
+    private func nonEmptyEnvironmentValue(_ name: String, in environment: [String: String]) -> String? {
         let trimmed = environment[name]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    static func newestJSONLFile(in directory: String, fileManager: FileManager = .default) -> URL? {
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: directory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fileManager.enumerator(
-                  at: URL(fileURLWithPath: directory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
-        }
-
-        var newest: (url: URL, modified: Date)?
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            if newest == nil || modified > newest!.modified {
-                newest = (url, modified)
-            }
-        }
-        return newest?.url
     }
 }

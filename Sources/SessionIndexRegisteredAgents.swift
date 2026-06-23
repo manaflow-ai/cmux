@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxFoundation
 import Foundation
 
@@ -563,7 +564,7 @@ extension SessionIndexStore {
         }
         if case .piSessionFile = registration.sessionIdSource,
            let cwdFilter,
-           let projectDirectory = PiSessionLocator.projectDirectoryName(for: cwdFilter) {
+           let projectDirectory = PiSessionResolver().projectDirectoryName(for: cwdFilter) {
             return [(root as NSString).appendingPathComponent(projectDirectory)]
         }
         return [root]

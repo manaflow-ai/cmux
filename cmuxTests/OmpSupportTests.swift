@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 import Testing
 
@@ -29,7 +30,7 @@ struct OmpSupportTests {
             defer { try? FileManager.default.removeItem(at: root) }
             let workspace = root.appendingPathComponent("repo", isDirectory: true)
             let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
-            let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+            let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
             let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
             try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -72,7 +73,7 @@ struct OmpSupportTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
         let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
         let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -101,7 +102,7 @@ struct OmpSupportTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
         let agentRoot = root.appendingPathComponent("omp-agent", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
         let projectSessions = agentRoot
             .appendingPathComponent("sessions", isDirectory: true)
             .appendingPathComponent(projectDirectory, isDirectory: true)
@@ -132,7 +133,7 @@ struct OmpSupportTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let home = root.appendingPathComponent("home", isDirectory: true)
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
         let projectSessions = home
             .appendingPathComponent(".custom-omp", isDirectory: true)
             .appendingPathComponent("agent", isDirectory: true)
@@ -167,7 +168,7 @@ struct OmpSupportTests {
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
         let customRoot = root.appendingPathComponent("custom-sessions", isDirectory: true)
         let environmentRoot = root.appendingPathComponent("environment-sessions", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
         let customProjectSessions = customRoot.appendingPathComponent(projectDirectory, isDirectory: true)
         let environmentProjectSessions = environmentRoot
             .appendingPathComponent("sessions", isDirectory: true)
@@ -215,7 +216,7 @@ struct OmpSupportTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
         let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
         let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -251,7 +252,7 @@ struct OmpSupportTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
         let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
         let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -288,7 +289,7 @@ struct OmpSupportTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = root.appendingPathComponent("repo", isDirectory: true)
         let sessionsRoot = root.appendingPathComponent("sessions", isDirectory: true)
-        let projectDirectory = try #require(PiSessionLocator.projectDirectoryName(for: workspace.path))
+        let projectDirectory = try #require(PiSessionResolver().projectDirectoryName(for: workspace.path))
         let projectSessions = sessionsRoot.appendingPathComponent(projectDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: projectSessions, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
