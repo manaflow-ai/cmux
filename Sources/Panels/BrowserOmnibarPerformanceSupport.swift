@@ -25,22 +25,6 @@ struct BrowserOpenTabSuggestionSnapshot: Equatable {
     }
 }
 
-struct OmnibarOpenTabMatch: Equatable {
-    let tabId: UUID
-    let panelId: UUID
-    let url: String
-    let title: String?
-    let isKnownOpenTab: Bool
-
-    init(tabId: UUID, panelId: UUID, url: String, title: String?, isKnownOpenTab: Bool = true) {
-        self.tabId = tabId
-        self.panelId = panelId
-        self.url = url
-        self.title = title
-        self.isKnownOpenTab = isKnownOpenTab
-    }
-}
-
 extension BrowserHistoryStore {
     static func uiTestSeedEntriesIfConfigured() -> [Entry]? {
         let env = ProcessInfo.processInfo.environment
@@ -87,14 +71,14 @@ final class BrowserOpenTabSuggestionIndex {
         seedIfNeeded(seedSnapshots)
 
         let loweredQuery = trimmedQuery.lowercased()
-        let singleCharacterQuery = omnibarSingleCharacterQuery(for: trimmedQuery)
+        let singleCharacterQuery = trimmedQuery.omnibarSingleCharacterQuery
         var matches: [OmnibarOpenTabMatch] = []
         matches.reserveCapacity(min(limit, suggestionOrder.count + 1))
         var seenKeys = Set<String>()
 
         func snapshotMatches(_ snapshot: BrowserOpenTabSuggestionSnapshot) -> Bool {
             if let singleCharacterQuery {
-                return omnibarHasSingleCharacterPrefixMatch(
+                return BrowserOmnibarSuggestionBuilder.hasSingleCharacterPrefixMatch(
                     query: singleCharacterQuery,
                     url: snapshot.url,
                     title: snapshot.title

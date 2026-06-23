@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxCommandPalette
 import Foundation
 import CmuxSettings
@@ -872,11 +873,11 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: browserImport,
                 keywords: ["browser.showImportHintOnBlankTabs", "browser", "import", "hint", "blank", "tabs", "onboarding"],
-                defaultValue: BrowserImportHintSettings.defaultShowOnBlankTabs,
-                defaultsKey: BrowserImportHintSettings.showOnBlankTabsKey,
+                defaultValue: BrowserImportHintRepository.defaultShowOnBlankTabs,
+                defaultsKey: BrowserImportHintRepository.showOnBlankTabsKey,
                 didSet: { newValue, defaults, _ in
                     if newValue {
-                        defaults.set(false, forKey: BrowserImportHintSettings.dismissedKey)
+                        defaults.set(false, forKey: BrowserImportHintRepository.dismissedKey)
                     }
                 }
             ),

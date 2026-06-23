@@ -1978,20 +1978,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isRunningUnderXCTest {
             if let rawVariant = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_VARIANT"] {
                 UserDefaults.standard.set(
-                    BrowserImportHintSettings.variant(for: rawVariant).rawValue,
-                    forKey: BrowserImportHintSettings.variantKey
+                    BrowserImportHintRepository().variant(for: rawVariant).rawValue,
+                    forKey: BrowserImportHintRepository.variantKey
                 )
             }
             if let rawShow = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_SHOW"] {
                 UserDefaults.standard.set(
                     rawShow == "1",
-                    forKey: BrowserImportHintSettings.showOnBlankTabsKey
+                    forKey: BrowserImportHintRepository.showOnBlankTabsKey
                 )
             }
             if let rawDismissed = env["CMUX_UI_TEST_BROWSER_IMPORT_HINT_DISMISSED"] {
                 UserDefaults.standard.set(
                     rawDismissed == "1",
-                    forKey: BrowserImportHintSettings.dismissedKey
+                    forKey: BrowserImportHintRepository.dismissedKey
                 )
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
@@ -13269,7 +13269,7 @@ extension AppDelegate: BrowserDebugContext {
     }
 
     func resetBrowserImportHintDebugState() {
-        BrowserImportHintSettings.reset()
+        BrowserImportHintRepository().reset()
     }
 }
 

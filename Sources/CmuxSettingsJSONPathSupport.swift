@@ -1,3 +1,4 @@
+import CmuxBrowser
 import CmuxSettings
 import Foundation
 
@@ -289,7 +290,7 @@ enum BrowserSettingsFileMapping {
             jsonKey: "interceptTerminalOpenCommandInCmuxBrowser",
             defaultsKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey
         ),
-        .init(jsonKey: "showImportHintOnBlankTabs", defaultsKey: BrowserImportHintSettings.showOnBlankTabsKey),
+        .init(jsonKey: "showImportHintOnBlankTabs", defaultsKey: BrowserImportHintRepository.showOnBlankTabsKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [

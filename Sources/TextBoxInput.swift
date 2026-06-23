@@ -1,6 +1,7 @@
 import CmuxPanes
 import CmuxRemoteSession
 import AppKit
+import CmuxFoundation
 import CmuxTerminal
 import Carbon.HIToolbox
 import CmuxSettingsUI
@@ -36,25 +37,6 @@ private enum TextBoxLayout {
 
     static func textInset(forLineCount lineCount: Int) -> NSSize {
         lineCount <= minLines ? textInset : multilineTextInset
-    }
-}
-
-struct TextBoxFailedSubmitRollbackSnapshot: Equatable {
-    let revision: UInt64
-    let text: String
-    let attachmentCount: Int
-
-    var isEmpty: Bool {
-        text.isEmpty && attachmentCount == 0
-    }
-}
-
-enum TextBoxFailedSubmitRollbackPolicy {
-    static func shouldRestore(
-        rollbackSnapshot: TextBoxFailedSubmitRollbackSnapshot,
-        currentSnapshot: TextBoxFailedSubmitRollbackSnapshot
-    ) -> Bool {
-        currentSnapshot.revision == rollbackSnapshot.revision && currentSnapshot.isEmpty
     }
 }
 
@@ -2994,9 +2976,8 @@ struct TextBoxInputContainer: View {
                         workspaceId: poolWorkspaceId
                     )
                 }
-                guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
-                    rollbackSnapshot: rollbackSnapshot,
-                    currentSnapshot: currentRollbackSnapshot()
+                guard rollbackSnapshot.shouldRestore(
+                    current: currentRollbackSnapshot()
                 ) else {
                     NSSound.beep()
                     return
