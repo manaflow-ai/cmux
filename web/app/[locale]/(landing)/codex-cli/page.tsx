@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "../../../../i18n/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
 import { LandingCTA } from "../landing-ui";
+import { LandingFaq, LandingSchema } from "../landing-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -20,6 +21,7 @@ export default function CodexCliPage() {
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
+      <LandingSchema namespace="landing.codex" path="/codex-cli" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
 
@@ -47,12 +49,14 @@ export default function CodexCliPage() {
       <h2>{t("scriptTitle")}</h2>
       <p>{t("scriptBody")}</p>
 
+      <LandingFaq namespace="landing.codex" />
+
       <LandingCTA
         related={[
+          { href: "/agents", label: tl("agents") },
           { href: "/claude-code-terminal", label: tl("claude") },
           { href: "/opencode", label: tl("opencode") },
           { href: "/docs/agent-integrations/oh-my-codex", label: tl("ohMyCodex") },
-          { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />
     </>

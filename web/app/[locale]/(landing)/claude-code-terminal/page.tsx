@@ -3,6 +3,7 @@ import { getTranslations } from "next-intl/server";
 import { Link } from "../../../../i18n/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
 import { LandingCTA } from "../landing-ui";
+import { LandingFaq, LandingSchema } from "../landing-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -20,6 +21,7 @@ export default function ClaudeCodeTerminalPage() {
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
+      <LandingSchema namespace="landing.claude" path="/claude-code-terminal" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
 
@@ -46,12 +48,14 @@ export default function ClaudeCodeTerminalPage() {
       <h2>{t("scriptTitle")}</h2>
       <p>{t("scriptBody")}</p>
 
+      <LandingFaq namespace="landing.claude" />
+
       <LandingCTA
         related={[
+          { href: "/agents", label: tl("agents") },
           { href: "/codex-cli", label: tl("codex") },
           { href: "/opencode", label: tl("opencode") },
           { href: "/docs/agent-integrations/claude-code-teams", label: tl("claudeTeams") },
-          { href: "/docs/notifications", label: tl("notifications") },
         ]}
       />
     </>
