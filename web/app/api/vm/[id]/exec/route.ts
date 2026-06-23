@@ -50,10 +50,13 @@ export async function POST(
           details: { field: "command" },
         });
       }
-      // Clamp the timeout so a client can't tie up provider quota on a runaway exec. Upper
-      // bound matches the provider defaults (15 min on Freestyle); negative / non-number
-      // values fall back to 30s.
-      const MAX_EXEC_TIMEOUT_MS = 15 * 60 * 1000;
+      // Clamp the timeout so a client can't tie up provider quota on a runaway exec.
+      // Capped below the Freestyle provider default (15 min): a single exec can
+      // still run long enough for real builds, but the per-exec abuse window is
+      // bounded. Negative / non-number values fall back to 30s. A per-user/per-VM
+      // in-flight concurrency cap (needs shared state, e.g. a DB advisory lock or
+      // counter, since Vercel functions are stateless) is a separate follow-up.
+      const MAX_EXEC_TIMEOUT_MS = 10 * 60 * 1000;
       const rawTimeout = body.timeoutMs;
       const timeoutMs = typeof rawTimeout === "number" && Number.isFinite(rawTimeout) && rawTimeout > 0
         ? Math.min(Math.floor(rawTimeout), MAX_EXEC_TIMEOUT_MS)
