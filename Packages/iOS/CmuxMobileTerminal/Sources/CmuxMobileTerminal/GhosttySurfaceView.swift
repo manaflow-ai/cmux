@@ -525,11 +525,13 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
 }
 
 private final class TerminalScrollMechanicsView: UIScrollView {
+    private let backSwipeEdgeReservation = TerminalBackSwipeEdgeReservation()
+
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         if gestureRecognizer === panGestureRecognizer,
            let window {
             let touchXInWindow = Double(gestureRecognizer.location(in: window).x)
-            if TerminalBackSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: touchXInWindow) {
+            if backSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: touchXInWindow) {
                 return false
             }
         }

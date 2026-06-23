@@ -1,10 +1,11 @@
-public enum TerminalBackSwipeEdgeReservation {
-    public static let defaultEdgeWidth: Double = 32
+public struct TerminalBackSwipeEdgeReservation: Sendable {
+    private let edgeWidth: Double
 
-    public static func shouldReserveSystemBackSwipeEdge(
-        touchXInWindow: Double,
-        edgeWidth: Double = defaultEdgeWidth
-    ) -> Bool {
+    public init(edgeWidth: Double = 32) {
+        self.edgeWidth = edgeWidth
+    }
+
+    public func shouldReserveSystemBackSwipeEdge(touchXInWindow: Double) -> Bool {
         guard edgeWidth > 0, touchXInWindow >= 0 else {
             return false
         }

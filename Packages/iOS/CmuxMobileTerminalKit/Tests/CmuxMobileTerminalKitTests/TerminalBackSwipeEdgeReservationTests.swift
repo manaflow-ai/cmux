@@ -5,13 +5,15 @@ import Testing
 struct TerminalBackSwipeEdgeReservationTests {
     @Test("left edge is reserved for system back swipe instead of terminal scroll")
     func reservesLeftEdgeForBackSwipe() {
-        #expect(TerminalBackSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: 0))
-        #expect(TerminalBackSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: 31.5))
+        let reservation = TerminalBackSwipeEdgeReservation()
+
+        #expect(reservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: 0))
+        #expect(reservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: 31.5))
     }
 
     @Test("terminal scroll remains available away from the system back edge")
     func allowsTerminalScrollAwayFromBackEdge() {
-        #expect(!TerminalBackSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: 33))
-        #expect(!TerminalBackSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: 12, edgeWidth: 0))
+        #expect(!TerminalBackSwipeEdgeReservation().shouldReserveSystemBackSwipeEdge(touchXInWindow: 33))
+        #expect(!TerminalBackSwipeEdgeReservation(edgeWidth: 0).shouldReserveSystemBackSwipeEdge(touchXInWindow: 12))
     }
 }
