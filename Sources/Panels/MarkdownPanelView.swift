@@ -144,6 +144,7 @@ struct MarkdownPanelView: View {
             )
             FileExternalOpenMenu(
                 fileURL: URL(fileURLWithPath: panel.filePath),
+                strings: .live,
                 isDisabled: panel.isFileUnavailable
             )
         }

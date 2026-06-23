@@ -22,8 +22,12 @@ import struct CmuxSettings.FileRouteSettingsStore
 // blanket import would shadow app-target types here. Import only the moved symbol used.
 import struct CmuxWindowing.TerminalDefaultFileOpenRequest
 // CmuxPanes exports generic names (Panel/SplitDirection/ResizeDirection/...) that
-// collide with app-target types, so import only the moved file-preview kind enum.
+// collide with app-target types, so import only the moved file-preview types.
 import enum CmuxPanes.FilePreviewMode
+import struct CmuxPanes.FileExternalOpenApplication
+import struct CmuxPanes.FileExternalOpenApplicationResolver
+import struct CmuxPanes.FileExternalOpenMenuBuilder
+import struct CmuxPanes.FileExternalOpenStrings
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -3353,7 +3357,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             isDefault: false
         )
 
-        let menu = FileExternalOpenMenuFactory.makeMenu(
+        let strings = FileExternalOpenStrings.live
+        let menu = FileExternalOpenMenuBuilder(strings: strings).makeMenu(
             fileURL: fileURL,
             primaryApplication: primaryApplication,
             otherApplications: [otherApplication]
@@ -3361,12 +3366,12 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         XCTAssertEqual(topLevelTitles, [
-            FileExternalOpenText.openInApplication("Preview"),
-            FileExternalOpenText.revealInFinder,
-            FileExternalOpenText.openWithMenu,
+            strings.openInApplication("Preview"),
+            strings.revealInFinder,
+            strings.openWithMenu,
         ])
 
-        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == FileExternalOpenText.openWithMenu })
+        let openWithItem = try XCTUnwrap(menu.items.first { $0.title == strings.openWithMenu })
         let openWithTitles = try XCTUnwrap(openWithItem.submenu?.items.map(\.title))
         XCTAssertEqual(openWithTitles, ["Pixelmator Pro"])
     }
@@ -3374,7 +3379,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
     func testExternalOpenMenuKeepsFinderTopLevelWithoutResolvedApplications() {
         let fileURL = URL(fileURLWithPath: "/tmp/cmux-sample.bin")
 
-        let menu = FileExternalOpenMenuFactory.makeMenu(
+        let strings = FileExternalOpenStrings.live
+        let menu = FileExternalOpenMenuBuilder(strings: strings).makeMenu(
             fileURL: fileURL,
             primaryApplication: nil,
             otherApplications: []
@@ -3382,8 +3388,8 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
 
         let topLevelTitles = menu.items.filter { !$0.isSeparatorItem }.map(\.title)
         XCTAssertEqual(topLevelTitles, [
-            FileExternalOpenText.openExternally,
-            FileExternalOpenText.revealInFinder,
+            strings.openExternally,
+            strings.revealInFinder,
         ])
     }
 
