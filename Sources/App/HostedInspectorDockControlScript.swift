@@ -35,6 +35,35 @@ struct HostedInspectorDockControlScript {
                 for (const button of buttons)
                     updateButton(button, hidden);
             }
+            function postDockRequest(side) {
+                const handler = window.webkit &&
+                    window.webkit.messageHandlers &&
+                    window.webkit.messageHandlers.cmuxDevToolsDock;
+                if (!handler || typeof handler.postMessage !== "function")
+                    return false;
+                handler.postMessage({ side, detachedFromHostWindow: WI.__cmuxDetachedFromHostWindow });
+                return true;
+            }
+            function interceptDockButton(button, side) {
+                if (!button || !button.element)
+                    return;
+                const installedKey = "__cmuxDockRequest_" + side;
+                if (button.element[installedKey])
+                    return;
+                button.element[installedKey] = true;
+                button.element.addEventListener("click", (event) => {
+                    if (!WI.__cmuxDetachedFromHostWindow)
+                        return;
+                    if (!postDockRequest(side))
+                        return;
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                }, true);
+            }
+            function interceptDockButtons(buttons, side) {
+                for (const button of buttons)
+                    interceptDockButton(button, side);
+            }
             function dockMatches(enumValue, literal) {
                 const configuration = WI.dockConfiguration;
                 if (configuration === enumValue)
@@ -64,6 +93,13 @@ struct HostedInspectorDockControlScript {
                     WI._undockTabBarButton,
                     WI._undockButton,
                 ], detached);
+                interceptDockButton(WI._dockLeftTabBarButton, "left");
+                interceptDockButton(WI._dockRightTabBarButton, "right");
+                interceptDockButtons([
+                    WI._dockBottomTabBarButton,
+                    WI._dockBottomNavigationItem,
+                    WI._dockBottomButton,
+                ], "bottom");
             }
             WI.__cmuxAllowSideDock = allowSideDock;
             WI.__cmuxDetachedFromHostWindow = detachedFromHostWindow;
