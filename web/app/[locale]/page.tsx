@@ -1,5 +1,6 @@
 import { useTranslations, useLocale } from "next-intl";
 import { FadeImage } from "./components/fade-image";
+import { HeroPhone } from "./components/hero-phone";
 import Balancer from "react-wrap-balancer";
 import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
@@ -145,7 +146,7 @@ function HomeContent() {
         {/* Screenshot */}
         <div
           data-dev="screenshot"
-          className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="relative mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
         >
           <FadeImage
             src={landingImage}
@@ -153,6 +154,7 @@ function HomeContent() {
             priority
             className="w-full rounded-xl"
           />
+          <HeroPhone />
         </div>
 
         {/* FAQ */}
