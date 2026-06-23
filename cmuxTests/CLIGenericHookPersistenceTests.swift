@@ -3482,7 +3482,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
 
-        func startForkParentMockServer() -> XCTestExpectation {
+        func startForkParentMockServer(includeTTYBinding: Bool = true) -> XCTestExpectation {
             startMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line) else { return "OK" }
                 guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
@@ -3500,7 +3500,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 case "debug.terminals":
                     return self.v2Response(
                         id: id, ok: true,
-                        result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": forkSurfaceId]]]
+                        result: [
+                            "terminals": includeTTYBinding
+                                ? [["tty": ttyName, "workspace_id": workspaceId, "surface_id": forkSurfaceId]]
+                                : []
+                        ]
                     )
                 case "surface.resume.set", "surface.resume.clear":
                     return self.v2Response(id: id, ok: true, result: ["ok": true])
@@ -3515,26 +3519,36 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
 
-        let forkLaunches: [(label: String, arguments: [String])] = [
+        let forkLaunches: [(label: String, arguments: [String], includeTTYBinding: Bool)] = [
             (
                 "explicit parent id",
-                ["/usr/local/bin/codex", "fork", parentSessionId, "--model", "gpt-5.4"]
+                ["/usr/local/bin/codex", "fork", parentSessionId, "--model", "gpt-5.4"],
+                true
             ),
             (
                 "variadic image explicit parent id",
-                ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", parentSessionId, "--model", "gpt-5.4"]
+                ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", parentSessionId, "--model", "gpt-5.4"],
+                true
             ),
             (
                 "codex teams wrapper",
-                ["/usr/local/bin/cmux", "codex-teams", "fork", parentSessionId, "--model", "gpt-5.4"]
+                ["/usr/local/bin/cmux", "codex-teams", "fork", parentSessionId, "--model", "gpt-5.4"],
+                true
             ),
             (
                 "--last selector with prompt",
-                ["/usr/local/bin/codex", "fork", "--last", "continue from here"]
+                ["/usr/local/bin/codex", "fork", "--last", "continue from here"],
+                true
             ),
             (
                 "picker selector",
-                ["/usr/local/bin/codex", "fork"]
+                ["/usr/local/bin/codex", "fork"],
+                true
+            ),
+            (
+                "picker selector ambient only",
+                ["/usr/local/bin/codex", "fork"],
+                false
             ),
         ]
 
@@ -3545,7 +3559,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 forkEnvironment["CMUX_SURFACE_ID"] = parentSurfaceId
             }
             let needsSocket = forkLaunch.label.contains("selector")
-            let sessionStartServer = needsSocket ? startForkParentMockServer() : nil
+            let sessionStartServer = needsSocket ? startForkParentMockServer(includeTTYBinding: forkLaunch.includeTTYBinding) : nil
 
             let sessionStart = runProcess(
                 executablePath: cliPath,
@@ -3558,7 +3572,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 wait(for: [sessionStartServer], timeout: 5)
             }
 
-            let sessionEndServer = needsSocket ? startForkParentMockServer() : nil
+            let sessionEndServer = needsSocket ? startForkParentMockServer(includeTTYBinding: forkLaunch.includeTTYBinding) : nil
 
             let sessionEnd = runProcess(
                 executablePath: cliPath,

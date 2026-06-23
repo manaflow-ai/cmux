@@ -26785,6 +26785,7 @@ struct CMUXCLI {
             fallbackKind: def.name
         )
         let forkSurfaceId = normalizedHookValue(authoritativeForkSurfaceId)
+        let hasExplicitParentSessionId = codexForkSessionParentId(env: env, fallbackPID: fallbackPID) != nil
         for candidate in [payloadSessionId, resolvedSessionId] {
             guard let candidate else { continue }
             guard let record = try? store.lookup(sessionId: candidate) else { continue }
@@ -26797,7 +26798,7 @@ struct CMUXCLI {
                 }
                 continue
             }
-            if failClosedForStoredSelectorSessions {
+            if failClosedForStoredSelectorSessions && !hasExplicitParentSessionId {
                 return true
             }
         }
@@ -29780,6 +29781,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
         }()
+        let authoritativeForkSurfaceId = processBinding()?.surfaceId
+            ?? (explicitSurfaceFlag == nil ? nil : resolvedDirectSurfaceArg)
         if def.name == "codex",
            (subcommand == "session-start" || subcommand == "active" || subcommand == "session-end"),
            codexLaunchIsForkSession(env: env, fallbackPID: inferredPID) {
@@ -29791,7 +29794,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 store: store,
                 env: env,
                 fallbackPID: inferredPID,
-                authoritativeForkSurfaceId: processBinding()?.surfaceId ?? resolvedDirectSurfaceArg
+                authoritativeForkSurfaceId: authoritativeForkSurfaceId
             )
             if isCodexForkParentLifecycle {
                 telemetry.breadcrumb("codex-hook.\(subcommand).fork-parent-skipped")
