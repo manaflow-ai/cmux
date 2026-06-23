@@ -337,18 +337,26 @@ reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
   actual asks: reliable tracking with no title/mtime heuristic, deterministic
   `ended` that disables the input bar, and authoritative pull. Slices C, E, F
   below are scoped follow-ups, not blockers for the core feature:
-  - **C (off-main hook-store read):** marginal. The 30s per-session throttle
-    already bounds the main-actor JSON read to a negligible cost; making
-    `noteHookEvent`'s backfill async changes a hot-path return contract, so it
-    belongs with a broader authority cleanup, not this feature.
-  - **E (surface-id invariance):** conditional, only if a concrete
-    relaunch-rebinding bug appears (terminal surface id already rehydrates
-    verbatim on normal relaunch).
-  - **F (codex hook auto-setup):** real but separate. Codex hooks install via
-    `cmux hooks setup --agent codex` (into `~/.codex/hooks.json`) gated by
-    codex's config-TOML trust machinery; auto-installing at launch is a risky
-    CLI change that deserves its own PR. Until then, codex tracking requires
-    `cmux hooks setup` to have run (the normal onboarding step).
+  - **C (off-main hook-store read): DONE.** All three hook-store read sites
+    (`seedFromHookStores`, `noteHookEvent`'s throttled consult via a deferred
+    `backfillBindingsFromStore`, `refreshBindingsFromHookStore`) now read+parse
+    the JSON off the main actor via `Task.detached`; the send/interrupt/answer
+    RPC chain was threaded async to match. Satisfies the owner's "no jsonl
+    parsing / heavy work on the main thread" directive. macOS app builds.
+  - **E (surface-id invariance): deferred, by spec.** Zero benefit to this
+    feature: agents run in TERMINAL surfaces, whose ids already rehydrate
+    verbatim on normal relaunch. Only non-terminal panel ids regenerate, which
+    does not affect agent tracking. The spec marks E conditional ("only if a
+    concrete relaunch-rebinding bug appears"), so deferring it is following the
+    spec; implementing it speculatively risks the restore subsystem for no gain.
+  - **F (codex hook auto-setup): deferred, needs a product decision.** The only
+    way to "guarantee" codex hooks is to silently edit the user's
+    `~/.codex/config.toml` trust entries + `hooks.json` at launch — a standing
+    modification to external tooling config that should not be done silently and
+    warrants its own PR. Codex is tracked today for anyone who ran
+    `cmux hooks setup` (the existing onboarding step). Safe future options: an
+    explicit "install codex hooks" affordance, or a one-line launch hint when a
+    codex agent starts without hooks installed.
 - **Slice C — Off-main parsing.** Move the hook-store JSON read off `@MainActor`
   (interim, before it is deleted) and assert no `Data(contentsOf:)` /
   `JSONSerialization` / `Codable` decode on the main actor in this subsystem.
