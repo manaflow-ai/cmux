@@ -7,9 +7,8 @@ import SwiftUI
 /// The macOS onboarding window for pairing an iPhone with this Mac.
 ///
 /// Walks the user through sign-in and network reachability, then shows either a
-/// scannable QR code or manual host/port instructions. Pairing is gated on
-/// sign-in because authorization is a Stack same-account check; the user can
-/// bring Tailscale, another VPN, or a trusted LAN route.
+/// scannable QR code or manual host/port instructions. The user can bring
+/// Tailscale, another VPN, or a trusted LAN route.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     /// The manual-entry value that was just copied (the host or the port

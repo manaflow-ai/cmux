@@ -339,6 +339,9 @@ struct MobileHostAuthorizationTests {
         }
     }
     @Test func testMobileAttachTicketCreateRequiresAuthorization() async {
+        #if DEBUG
+        MobileHostService.shared.debugClearManualPairingTicketMintForTesting()
+        #endif
         let request = MobileHostRPCRequest(
             id: "attach-ticket-create",
             method: "mobile.attach_ticket.create",
@@ -355,6 +358,24 @@ struct MobileHostAuthorizationTests {
     }
 
     #if DEBUG
+    @Test func testPairingWindowGrantAuthorizesAttachTicketCreateWithoutStackToken() async {
+        let service = MobileHostService.shared
+        service.enableManualPairingTicketMint(ttl: 60)
+        defer {
+            service.debugClearManualPairingTicketMintForTesting()
+        }
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-create",
+            method: "mobile.attach_ticket.create",
+            params: [:],
+            auth: nil
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+    }
+
     @Test func testStoredAttachTicketAuthorizesCoveredRequestWithoutStackToken() async throws {
         let service = MobileHostService.shared
         let route = try CmxAttachRoute(

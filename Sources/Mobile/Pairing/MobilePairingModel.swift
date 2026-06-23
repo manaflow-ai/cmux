@@ -5,11 +5,10 @@ import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in (authorization is a Stack same-account check), then turns on the
-/// pairing host, mints an attach ticket when an automatic route exists, and
-/// exposes either a QR payload or manual host/port guidance. The displayed code
-/// never expires and is never regenerated on a timer; Refresh Code re-mints on
-/// demand.
+/// in, then turns on the pairing host, opens a short manual ticket-mint window,
+/// mints an attach ticket when an automatic route exists, and exposes either a
+/// QR payload or manual host/port guidance. The displayed code never expires
+/// and is never regenerated on a timer; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
@@ -110,6 +109,7 @@ final class MobilePairingModel {
             )
             return
         }
+        host.enableManualPairingTicketMint(ttl: ticketTTL)
         let manualOnly = Self.manualOnlyDetails(from: status)
         // A DEBUG build's dev loopback route does not count as QR reachability:
         // a QR pointing at 127.0.0.1 would make a physical phone dial itself.

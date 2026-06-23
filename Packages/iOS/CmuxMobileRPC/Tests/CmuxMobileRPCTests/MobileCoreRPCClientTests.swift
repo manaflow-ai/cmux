@@ -427,4 +427,45 @@ import Testing
         #expect(frame.stackAccessToken == nil)
         #expect(frame.hasAuth)
     }
+
+    @Test func confirmedTrustedNetworkCanMintAttachTicketWithoutStackToken() async throws {
+        let route = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.20", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "manual-workspace",
+            terminalID: nil,
+            macDeviceID: "manual-ticket-request",
+            macDisplayName: "Manual Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60)
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true,
+            trustedNetworkAuthConfirmed: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.attach_ticket.create",
+            params: [
+                "ttl_seconds": 3600,
+                "scope": "mac",
+            ]
+        )
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "mobile.attach_ticket.create")
+        #expect(frame.hasAuth == false)
+        #expect(frame.attachToken == nil)
+        #expect(frame.stackAccessToken == nil)
+    }
 }

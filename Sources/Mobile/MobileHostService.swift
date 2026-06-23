@@ -396,6 +396,7 @@ final class MobileHostService {
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
+    private var manualPairingTicketMintExpiresAt: Date?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
     #endif
@@ -430,6 +431,10 @@ final class MobileHostService {
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.primaryEmail
+    }
+
+    func enableManualPairingTicketMint(ttl: TimeInterval) {
+        manualPairingTicketMintExpiresAt = Date().addingTimeInterval(max(30, ttl))
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -1302,6 +1307,12 @@ final class MobileHostService {
                 return nil
             }
         }
+        if request.method == "mobile.attach_ticket.create",
+           request.auth?.stackAccessToken == nil,
+           request.auth?.attachToken == nil,
+           manualPairingTicketMintAllowed() {
+            return nil
+        }
         if devStackTokenAuthorized(request) {
             return nil
         }
@@ -1331,6 +1342,15 @@ final class MobileHostService {
         try await Task.detached(priority: .utility) {
             try await MobileHostStackAuthVerifier.shared.verify(auth: auth)
         }.value
+    }
+
+    private func manualPairingTicketMintAllowed(now: Date = Date()) -> Bool {
+        guard let expiresAt = manualPairingTicketMintExpiresAt else { return false }
+        if expiresAt > now {
+            return true
+        }
+        manualPairingTicketMintExpiresAt = nil
+        return false
     }
 
     private func recordCreatedResourcesIfNeeded(
@@ -1733,6 +1753,10 @@ extension MobileHostService {
             routes: routes,
             ttl: ttl
         )
+    }
+
+    func debugClearManualPairingTicketMintForTesting() {
+        manualPairingTicketMintExpiresAt = nil
     }
 
     func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {
