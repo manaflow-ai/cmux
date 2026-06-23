@@ -204,8 +204,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups (or is old enough not to emit them). Drives the collapsible group
-    /// sections in the workspace list.
+    /// sections in the workspace list. Each group's `isCollapsed` reflects THIS
+    /// device's choice (see `groupCollapseStore`), not the Mac's live value.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+    /// Device-local collapse state for workspace groups (per-device UI preference:
+    /// collapsing on the phone must not collapse on the Mac). Seeded once from the
+    /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
+    /// injected so tests/previews can pass a suite-scoped `UserDefaults`.
+    @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -665,10 +671,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
-        draftStore: (any TerminalDraftStoring)? = nil
+        draftStore: (any TerminalDraftStoring)? = nil,
+        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
+        self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.presence = presence
@@ -3300,7 +3308,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     clearPairingError()
                     await persistPairedMacFromTicket(ticket)
-                    applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
+                    applyRemoteWorkspaceList(
+                        response,
+                        preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
+                        // Scoped requests omit groups; only a non-scoped (full) list
+                        // is authoritative for the device-local collapse store.
+                        groupsAreAuthoritative: !workspaceListRequest.isScoped
+                    )
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
@@ -5245,7 +5259,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
-        mergeExistingWorkspaces: Bool = false
+        mergeExistingWorkspaces: Bool = false,
+        groupsAreAuthoritative: Bool = true
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         if mergeExistingWorkspaces {
@@ -5266,8 +5281,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // applying its empty groups array would wrongly clear the sections. Only a
         // full-list response (the non-merge path, which the event-driven refresh
         // and initial sync use) carries authoritative group state.
-        if !mergeExistingWorkspaces {
-            workspaceGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        if !mergeExistingWorkspaces, groupsAreAuthoritative {
+            // Apply this device's collapse state over the Mac's reported groups
+            // (seeding any group seen for the first time, pruning departed ones).
+            // Folder collapse is device-local, so the Mac's live `isCollapsed` never
+            // overrides a choice this phone already made.
+            //
+            // Only authoritative (full-list) responses reach here. A scoped attach
+            // response omits `groups`; it must neither prune the collapse store nor
+            // clear the visible group sections (which would flatten grouped
+            // workspaces until a full refresh that is not guaranteed for a tokenless
+            // ticket), so leave `workspaceGroups` untouched in that case.
+            workspaceGroups = groupCollapseStore.apply(
+                to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+            )
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
