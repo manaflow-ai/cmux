@@ -299,7 +299,9 @@ phase "activating tagged macOS cmux"
 run_with_timeout 15 osascript -e "tell application id \"$MAC_BUNDLE_ID\" to activate" >/dev/null 2>&1 || true
 
 phase "creating real cmux terminal workspace"
-WORKSPACE_JSON="$(cmux_tagged --json --id-format uuids new-workspace --name "iOS sync demo" --cwd "$PWD" --focus true)"
+WORKSPACE_OUTPUT="$ARTIFACT_DIR/workspace-create-output.txt"
+cmux_tagged --id-format uuids workspace create --name "iOS sync demo" --cwd "$PWD" --focus true --json > "$WORKSPACE_OUTPUT"
+WORKSPACE_JSON="$(cat "$WORKSPACE_OUTPUT")"
 WORKSPACE_ID="$(printf '%s\n' "$WORKSPACE_JSON" | json_field workspace_id)"
 SURFACE_ID="$(printf '%s\n' "$WORKSPACE_JSON" | json_field surface_id)"
 
