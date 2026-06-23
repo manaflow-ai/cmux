@@ -360,14 +360,14 @@ struct MobileHostAuthorizationTests {
     #if DEBUG
     @Test func testPairingWindowGrantAuthorizesAttachTicketCreateWithoutStackToken() async {
         let service = MobileHostService.shared
-        service.enableManualPairingTicketMint(ttl: 60)
+        let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
         defer {
             service.debugClearManualPairingTicketMintForTesting()
         }
         let request = MobileHostRPCRequest(
             id: "attach-ticket-create",
             method: "mobile.attach_ticket.create",
-            params: [:],
+            params: ["trusted_network_pairing_secret": pairingSecret],
             auth: nil
         )
 

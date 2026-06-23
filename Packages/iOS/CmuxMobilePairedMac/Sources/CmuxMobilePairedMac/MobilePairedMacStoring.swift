@@ -87,6 +87,15 @@ public protocol MobilePairedMacStoring: Sendable {
     func removeAll() async throws
 }
 
+public protocol MobilePairedMacCredentialStoring: Sendable {
+    func storeCredential(
+        _ credential: MobilePairedMacCredential?,
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+}
+
 extension MobilePairedMacStoring {
     /// Insert or update a paired Mac with an explicit timestamp but no team scope
     /// (`teamID: nil`). Keeps existing call sites compiling; the team-aware caller

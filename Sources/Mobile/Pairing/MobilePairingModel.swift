@@ -109,8 +109,11 @@ final class MobilePairingModel {
             )
             return
         }
-        host.enableManualPairingTicketMint(ttl: ticketTTL)
-        let manualOnly = Self.manualOnlyDetails(from: status)
+        let trustedNetworkPairingSecret = host.enableManualPairingTicketMint(ttl: ticketTTL)
+        let manualOnly = Self.manualOnlyDetails(
+            from: status,
+            trustedNetworkPairingSecret: trustedNetworkPairingSecret
+        )
         // A DEBUG build's dev loopback route does not count as QR reachability:
         // a QR pointing at 127.0.0.1 would make a physical phone dial itself.
         // Without an automatic route, keep the listener up and show manual
@@ -276,9 +279,16 @@ final class MobilePairingModel {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
-    private static func manualOnlyDetails(from status: MobileHostServiceStatus) -> MobilePairingManualOnly? {
+    private static func manualOnlyDetails(
+        from status: MobileHostServiceStatus,
+        trustedNetworkPairingSecret: String
+    ) -> MobilePairingManualOnly? {
         guard let port = status.port else { return nil }
-        return MobilePairingManualOnly(macName: macDisplayName, port: port)
+        return MobilePairingManualOnly(
+            macName: macDisplayName,
+            port: port,
+            trustedNetworkPairingSecret: trustedNetworkPairingSecret
+        )
     }
 
     /// Whether `route` is one a physical iPhone can dial automatically from a QR:

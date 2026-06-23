@@ -396,6 +396,7 @@ final class MobileHostService {
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
+    private var manualPairingTicketMintSecret: String?
     private var manualPairingTicketMintExpiresAt: Date?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
@@ -433,8 +434,11 @@ final class MobileHostService {
         return auth.currentUser?.primaryEmail
     }
 
-    func enableManualPairingTicketMint(ttl: TimeInterval) {
+    func enableManualPairingTicketMint(ttl: TimeInterval) -> String {
+        let secret = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         manualPairingTicketMintExpiresAt = Date().addingTimeInterval(max(30, ttl))
+        manualPairingTicketMintSecret = secret
+        return secret
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -1310,7 +1314,7 @@ final class MobileHostService {
         if request.method == "mobile.attach_ticket.create",
            request.auth?.stackAccessToken == nil,
            request.auth?.attachToken == nil,
-           manualPairingTicketMintAllowed() {
+           manualPairingTicketMintAllowed(params: request.params) {
             return nil
         }
         if devStackTokenAuthorized(request) {
@@ -1344,13 +1348,29 @@ final class MobileHostService {
         }.value
     }
 
-    private func manualPairingTicketMintAllowed(now: Date = Date()) -> Bool {
-        guard let expiresAt = manualPairingTicketMintExpiresAt else { return false }
-        if expiresAt > now {
-            return true
+    func consumeManualPairingTicketMint(params: [String: Any], now: Date = Date()) -> Bool {
+        guard manualPairingTicketMintAllowed(params: params, now: now) else { return false }
+        clearManualPairingTicketMint()
+        return true
+    }
+
+    private func manualPairingTicketMintAllowed(params: [String: Any], now: Date = Date()) -> Bool {
+        guard let expiresAt = manualPairingTicketMintExpiresAt,
+              let secret = manualPairingTicketMintSecret else { return false }
+        guard expiresAt > now else {
+            clearManualPairingTicketMint()
+            return false
         }
+        guard let suppliedSecret = params["trusted_network_pairing_secret"] as? String,
+              suppliedSecret.trimmingCharacters(in: .whitespacesAndNewlines) == secret else {
+            return false
+        }
+        return true
+    }
+
+    private func clearManualPairingTicketMint() {
         manualPairingTicketMintExpiresAt = nil
-        return false
+        manualPairingTicketMintSecret = nil
     }
 
     private func recordCreatedResourcesIfNeeded(
@@ -1756,7 +1776,7 @@ extension MobileHostService {
     }
 
     func debugClearManualPairingTicketMintForTesting() {
-        manualPairingTicketMintExpiresAt = nil
+        clearManualPairingTicketMint()
     }
 
     func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {

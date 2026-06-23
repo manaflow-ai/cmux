@@ -13008,7 +13008,11 @@ class TerminalController {
 
     @MainActor
     func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
-        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
+        let consumedTrustedNetworkPairingMint = MobileHostService.shared.consumeManualPairingTicketMint(
+            params: params
+        )
+        let ttlMax = consumedTrustedNetworkPairingMint ? 60 * 60 * 24 * 30 : 3600
+        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, ttlMax)))
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")

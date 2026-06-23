@@ -262,12 +262,13 @@ struct CMUXMobileRootView: View {
                     dismissAddDeviceSheet()
                 }
             },
-            connectManualHost: { name, host, port, trustedNetworkAuthConfirmed in
+            connectManualHost: { name, host, port, trustedNetworkAuthConfirmed, trustedNetworkPairingSecret in
                 await store.connectManualHost(
                     name: name,
                     host: host,
                     port: port,
-                    trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
+                    trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+                    trustedNetworkPairingSecret: trustedNetworkPairingSecret
                 )
             },
             cancelPairing: cancelPairing,

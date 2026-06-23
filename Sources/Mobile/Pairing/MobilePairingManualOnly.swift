@@ -4,4 +4,7 @@ struct MobilePairingManualOnly: Equatable {
     let macName: String
     /// The listener port the iPhone should use with the user's chosen host/IP.
     let port: Int
+    /// One-time secret shown on the Mac and typed on the iPhone for trusted
+    /// LAN/VPN manual ticket minting.
+    let trustedNetworkPairingSecret: String
 }

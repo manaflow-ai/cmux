@@ -21,7 +21,7 @@ struct PairingView: View {
     let versionWarning: String?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
-    let connectManualHost: (String, String, Int, Bool) async -> Void
+    let connectManualHost: (String, String, Int, Bool, String?) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
 
@@ -30,6 +30,7 @@ struct PairingView: View {
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
+    @State private var trustedNetworkPairingKey = UITestConfig.addDevicePairingKey ?? ""
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
     @State private var validationError: String?
@@ -69,6 +70,18 @@ struct PairingView: View {
                     .submitLabel(.done)
                     .addDeviceInputBehavior(.number)
                     .accessibilityIdentifier("MobileAddDevicePortField")
+
+                    if manualRouteNeedsTrustConfirmation {
+                        TextField(
+                            L10n.string("mobile.addDevice.pairingKeyPlaceholder", defaultValue: "Pairing key from Mac"),
+                            text: $trustedNetworkPairingKey
+                        )
+                        .submitLabel(.done)
+                        .addDeviceInputBehavior(.text)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("MobileAddDevicePairingKeyField")
+                    }
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 } footer: {
@@ -234,9 +247,11 @@ struct PairingView: View {
         }
         .onChange(of: host) { _, _ in
             trustsManualRoute = false
+            trustedNetworkPairingKey = ""
         }
         .onChange(of: port) { _, _ in
             trustsManualRoute = false
+            trustedNetworkPairingKey = ""
         }
         #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {
@@ -347,9 +362,20 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.manualRouteTrustRequired", defaultValue: "Confirm that you trust this VPN/LAN route before pairing.")
             return
         }
+        let trustedNetworkSecret = trustedNetworkPairingKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !manualRouteNeedsTrustConfirmation || !trustedNetworkSecret.isEmpty else {
+            validationError = L10n.string("mobile.addDevice.pairingKeyRequired", defaultValue: "Enter the pairing key shown on your Mac.")
+            return
+        }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort, trustedNetworkAuthConfirmed)
+            await connectManualHost(
+                deviceName,
+                trimmedHost,
+                parsedPort,
+                trustedNetworkAuthConfirmed,
+                trustedNetworkSecret.isEmpty ? nil : trustedNetworkSecret
+            )
         }
     }
 

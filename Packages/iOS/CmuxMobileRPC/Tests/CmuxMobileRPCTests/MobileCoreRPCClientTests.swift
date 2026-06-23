@@ -455,6 +455,7 @@ import Testing
             params: [
                 "ttl_seconds": 3600,
                 "scope": "mac",
+                "trusted_network_pairing_secret": "pairing-secret",
             ]
         )
         let task = Task { try await client.sendRequest(request) }

@@ -3,8 +3,9 @@ public import Foundation
 
 /// A Mac paired with this iOS device, persisted across launches.
 ///
-/// Auth tokens are never persisted, only enough to re-mint a fresh attach
-/// ticket via the StackAuth-authenticated manual host flow on next launch.
+/// Trusted LAN/VPN pairings may carry a local-only attach credential so they can
+/// reconnect without sending a Stack bearer token over plaintext TCP. Backup
+/// records intentionally omit that credential.
 public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// Stable identifier of the paired Mac device.
     public var macDeviceID: String
@@ -36,6 +37,9 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
     /// User's custom icon override, synced per user. `nil` = the automatic icon.
     /// An SF Symbol name (ASCII, e.g. `"desktopcomputer"`) or an emoji.
     public var customIcon: String?
+    /// Local-only attach credential for reconnecting over routes that cannot use
+    /// Stack bearer auth. Not uploaded by paired-Mac backup.
+    public var credential: MobilePairedMacCredential?
 
     /// The Mac device identifier doubles as the stable `Identifiable` id.
     public var id: String { macDeviceID }
@@ -68,7 +72,8 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         teamID: String? = nil,
         customName: String? = nil,
         customColor: String? = nil,
-        customIcon: String? = nil
+        customIcon: String? = nil,
+        credential: MobilePairedMacCredential? = nil
     ) {
         self.macDeviceID = macDeviceID
         self.displayName = displayName
@@ -81,5 +86,21 @@ public struct MobilePairedMac: Codable, Equatable, Sendable, Identifiable {
         self.customName = customName
         self.customColor = customColor
         self.customIcon = customIcon
+        self.credential = credential
+    }
+}
+
+public struct MobilePairedMacCredential: Codable, Equatable, Sendable {
+    public var authToken: String
+    public var expiresAt: Date?
+
+    public init(authToken: String, expiresAt: Date?) {
+        self.authToken = authToken
+        self.expiresAt = expiresAt
+    }
+
+    public func isUsable(now: Date = Date()) -> Bool {
+        !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (expiresAt.map { $0 > now } ?? true)
     }
 }

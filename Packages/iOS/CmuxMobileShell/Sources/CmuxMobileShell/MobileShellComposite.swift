@@ -1365,7 +1365,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         host: String,
         port: Int,
         pairedMacDeviceID: String? = nil,
-        trustedNetworkAuthConfirmed: Bool = false
+        trustedNetworkAuthConfirmed: Bool = false,
+        trustedNetworkPairingSecret: String? = nil
     ) async {
         await connectManualHost(
             name: name,
@@ -1373,6 +1374,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
             trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+            trustedNetworkPairingSecret: trustedNetworkPairingSecret,
+            storedCredential: nil,
             recordsPairingAttempt: true
         )
     }
@@ -1381,7 +1384,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         name: String,
         host: String,
         port: Int,
-        pairedMacDeviceID: String
+        pairedMacDeviceID: String,
+        storedCredential: MobilePairedMacCredential?
     ) async {
         let trustedNetworkAuthConfirmed = await hasTrustedNetworkAuthConfirmation(
             macDeviceID: pairedMacDeviceID,
@@ -1394,6 +1398,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
             trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+            trustedNetworkPairingSecret: nil,
+            storedCredential: storedCredential,
             recordsPairingAttempt: false
         )
     }
@@ -1409,6 +1415,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String? = nil,
         trustedNetworkAuthConfirmed: Bool,
+        trustedNetworkPairingSecret: String?,
+        storedCredential: MobilePairedMacCredential?,
         recordsPairingAttempt: Bool
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1454,7 +1462,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 host: normalizedHost,
                 port: port,
                 attemptStartedAt: pairingAttemptStartedAt,
-                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
+                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+                trustedNetworkPairingSecret: trustedNetworkPairingSecret,
+                storedCredential: storedCredential,
+                pairedMacDeviceID: pairedMacDeviceID
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             let noThrowFailure = try await connect(
@@ -1613,7 +1624,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             refreshRoutesFromRegistry(for: mac, scope: scope)
             await connectStoredMacHost(
                 name: mac.displayName ?? host, host: host, port: port,
-                pairedMacDeviceID: mac.macDeviceID)
+                pairedMacDeviceID: mac.macDeviceID,
+                storedCredential: mac.credential)
             if connectionState == .connected { break }
         }
         restoringDeadline.cancel()
@@ -2231,7 +2243,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await connectManualHost(
             name: device.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: device.deviceId,
-            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed)
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+            trustedNetworkPairingSecret: nil,
+            storedCredential: pairedMacs.first { $0.macDeviceID == device.deviceId }?.credential,
+            recordsPairingAttempt: true)
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
@@ -2438,7 +2453,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         await connectManualHost(
             name: refreshedTarget.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: macDeviceID,
-            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed)
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+            trustedNetworkPairingSecret: nil,
+            storedCredential: refreshedTarget.credential,
+            recordsPairingAttempt: true)
         // The switch succeeded only if the live connection is to THIS Mac's route.
         // A different switch tapped while this connect was in flight supersedes it
         // via `beginPairingAttempt`, leaving `connectionState` `.connected` for the
@@ -2657,6 +2675,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     teamID: scope?.teamID,
                     now: Date()
                 )
+                if let credentialStore = pairedMacStore as? any MobilePairedMacCredentialStoring,
+                   let authToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !authToken.isEmpty {
+                    try? await credentialStore.storeCredential(
+                        MobilePairedMacCredential(authToken: authToken, expiresAt: ticket.expiresAt),
+                        macDeviceID: ticket.macDeviceID,
+                        stackUserID: stackUserID,
+                        teamID: scope?.teamID
+                    )
+                }
                 // A real, reconnectable Mac is now the active paired Mac: record
                 // the persisted hint so the next launch shows RestoringSessionView
                 // during the reconnect window instead of the empty add-device sheet.
@@ -3090,7 +3118,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 host: host,
                 port: port,
                 attemptStartedAt: nil,
-                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
+                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+                trustedNetworkPairingSecret: nil,
+                storedCredential: mac.credential,
+                pairedMacDeviceID: mac.macDeviceID
             )
         } catch {
             mobileShellLog.warning(

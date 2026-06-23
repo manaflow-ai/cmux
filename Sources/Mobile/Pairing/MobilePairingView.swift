@@ -159,7 +159,7 @@ struct MobilePairingView: View {
             Image(systemName: "network.slash")
                 .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
-            Text(String(localized: "mobile.pairing.manualOnly.body", defaultValue: "No QR route was detected. You can still pair over your own VPN or LAN: on your iPhone, tap Add device and enter this Mac's VPN/LAN hostname or IP address with the port below."))
+            Text(String(localized: "mobile.pairing.manualOnly.body", defaultValue: "No QR route was detected. You can still pair over your own VPN or LAN: on your iPhone, tap Add device and enter this Mac's VPN/LAN hostname or IP address with the port and pairing key below."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -174,6 +174,18 @@ struct MobilePairingView: View {
             copyButton(
                 label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
                 value: String(manual.port)
+            )
+            Text(
+                String(
+                    format: String(localized: "mobile.pairing.manualOnly.keyFormat", defaultValue: "Pairing key: %@"),
+                    manual.trustedNetworkPairingSecret
+                )
+            )
+            .font(.system(.body, design: .monospaced))
+            .textSelection(.enabled)
+            copyButton(
+                label: String(localized: "mobile.pairing.manual.copyKey", defaultValue: "Copy Pairing Key"),
+                value: manual.trustedNetworkPairingSecret
             )
             Button(String(localized: "mobile.pairing.refresh", defaultValue: "Refresh Code")) {
                 Task { await model.refresh() }

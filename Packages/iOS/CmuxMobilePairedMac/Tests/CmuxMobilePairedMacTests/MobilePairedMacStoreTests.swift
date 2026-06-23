@@ -81,6 +81,45 @@ import Testing
         #expect(active.first?.macDeviceID == "mac-c")
     }
 
+    @Test func trustedNetworkCredentialPersistsAcrossReopen() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("paired-macs.sqlite3")
+        let route = try CmxAttachRoute(
+            id: "trusted",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "192.168.1.44", port: 58465)
+        )
+        let expiresAt = Date(timeIntervalSince1970: 2_000_000_000)
+
+        do {
+            let store = try MobilePairedMacStore(databaseURL: url)
+            try await store.upsert(
+                macDeviceID: "mac-lan",
+                displayName: "Studio LAN",
+                routes: [route],
+                markActive: true,
+                stackUserID: "user-1",
+                teamID: "team-a",
+                now: Date(timeIntervalSince1970: 1_900_000_000)
+            )
+            try await store.storeCredential(
+                MobilePairedMacCredential(authToken: "trusted-ticket", expiresAt: expiresAt),
+                macDeviceID: "mac-lan",
+                stackUserID: "user-1",
+                teamID: "team-a"
+            )
+        }
+
+        let reopened = try MobilePairedMacStore(databaseURL: url)
+        let mac = try #require(await reopened.activeMac(stackUserID: "user-1", teamID: "team-a"))
+        #expect(mac.credential?.authToken == "trusted-ticket")
+        #expect(mac.credential?.expiresAt == expiresAt)
+        #expect(mac.credential?.isUsable(now: Date(timeIntervalSince1970: 1_950_000_000)) == true)
+    }
+
     @Test func setActiveScopesClearToTargetStackUser() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }

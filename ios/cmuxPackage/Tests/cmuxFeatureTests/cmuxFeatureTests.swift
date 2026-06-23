@@ -687,7 +687,8 @@ final class TerminalOutputCollector {
         name: "Studio LAN",
         host: " 192.168.1.77 ",
         port: 15432,
-        trustedNetworkAuthConfirmed: true
+        trustedNetworkAuthConfirmed: true,
+        trustedNetworkPairingSecret: "lan-pairing-key"
     )
 
     let route = try #require(store.activeRoute)
@@ -702,7 +703,10 @@ final class TerminalOutputCollector {
     }
     let requests = try await responses.sentRequests()
     #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-lan" })
+    #expect(requests[0].trustedNetworkPairingSecret == "lan-pairing-key")
+    #expect(requests[0].stackAccessToken == nil)
+    #expect(requests[1].attachToken == "ticket-secret")
+    #expect(requests[1].stackAccessToken == nil)
 }
 
 @MainActor
@@ -728,7 +732,8 @@ final class TerminalOutputCollector {
         name: "",
         host: "devbox.local",
         port: 61234,
-        trustedNetworkAuthConfirmed: true
+        trustedNetworkAuthConfirmed: true,
+        trustedNetworkPairingSecret: "local-dns-pairing-key"
     )
 
     let route = try #require(store.activeRoute)
@@ -744,7 +749,10 @@ final class TerminalOutputCollector {
     }
     let requests = try await responses.sentRequests()
     #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-local-dns" })
+    #expect(requests[0].trustedNetworkPairingSecret == "local-dns-pairing-key")
+    #expect(requests[0].stackAccessToken == nil)
+    #expect(requests[1].attachToken == "ticket-secret")
+    #expect(requests[1].stackAccessToken == nil)
 }
 
 @MainActor
@@ -1950,7 +1958,8 @@ final class TerminalOutputCollector {
         name: "Work Mac",
         host: "192.168.1.77",
         port: CmxMobileDefaults.defaultHostPort,
-        trustedNetworkAuthConfirmed: true
+        trustedNetworkAuthConfirmed: true,
+        trustedNetworkPairingSecret: "default-lan-pairing-key"
     )
 
     let route = try #require(store.activeRoute)
@@ -1959,7 +1968,10 @@ final class TerminalOutputCollector {
     #expect(route.kind == .trustedNetwork)
     let requests = try await responses.sentRequests()
     #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
-    #expect(requests.allSatisfy { $0.stackAccessToken == "stack-token-for-default-lan" })
+    #expect(requests[0].trustedNetworkPairingSecret == "default-lan-pairing-key")
+    #expect(requests[0].stackAccessToken == nil)
+    #expect(requests[1].attachToken == "ticket-secret")
+    #expect(requests[1].stackAccessToken == nil)
 }
 
 @MainActor
@@ -3621,6 +3633,7 @@ private actor ScriptedTransportResponses {
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
                 topics: params["topics"] as? [String],
+                trustedNetworkPairingSecret: params["trusted_network_pairing_secret"] as? String,
                 hasAuth: auth != nil,
                 attachToken: auth?["attach_token"] as? String,
                 stackAccessToken: auth?["stack_access_token"] as? String
@@ -3640,6 +3653,7 @@ private struct RecordedRPCRequest: Sendable {
     var clientID: String?
     var text: String?
     var topics: [String]?
+    var trustedNetworkPairingSecret: String?
     var hasAuth: Bool
     var attachToken: String?
     var stackAccessToken: String?
@@ -3660,6 +3674,7 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         clientID: params["client_id"] as? String,
         text: params["text"] as? String,
         topics: params["topics"] as? [String],
+        trustedNetworkPairingSecret: params["trusted_network_pairing_secret"] as? String,
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
         stackAccessToken: auth?["stack_access_token"] as? String

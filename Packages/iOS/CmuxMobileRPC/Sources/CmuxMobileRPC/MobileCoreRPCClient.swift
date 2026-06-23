@@ -263,7 +263,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
            auth["attach_token"] == nil {
             if trustedNetworkAuthConfirmed,
                isTrustedNetworkRoute,
-               Self.isAttachTicketCreateRequest(request) {
+               Self.isAttachTicketCreateRequest(request),
+               Self.requestHasTrustedNetworkPairingSecret(request) {
                 return try JSONSerialization.data(withJSONObject: request)
             }
             throw MobileShellConnectionError.insecureManualRoute
@@ -368,6 +369,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private static func isAttachTicketCreateRequest(_ request: [String: Any]) -> Bool {
         (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == "mobile.attach_ticket.create"
+    }
+
+    private static func requestHasTrustedNetworkPairingSecret(_ request: [String: Any]) -> Bool {
+        guard let params = request["params"] as? [String: Any],
+              let secret = params["trusted_network_pairing_secret"] as? String else {
+            return false
+        }
+        return !secret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private static func stringParamSelection(

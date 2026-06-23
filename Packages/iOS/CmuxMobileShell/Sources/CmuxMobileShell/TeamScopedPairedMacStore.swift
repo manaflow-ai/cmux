@@ -11,7 +11,7 @@ public import Foundation
 /// decorator makes that boundary independent from backup mirroring: Release
 /// builds still stamp and read rows by selected team even when the cloud backup
 /// feature flag is off.
-public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
+public struct TeamScopedPairedMacStore: MobilePairedMacStoring, MobilePairedMacCredentialStoring {
     private let inner: any MobilePairedMacStoring
     private let teamIDProvider: @Sendable () async -> String?
 
@@ -117,6 +117,21 @@ public struct TeamScopedPairedMacStore: MobilePairedMacStoring {
     /// Remove all paired Macs.
     public func removeAll() async throws {
         try await inner.removeAll()
+    }
+
+    public func storeCredential(
+        _ credential: MobilePairedMacCredential?,
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        guard let credentialStore = inner as? any MobilePairedMacCredentialStoring else { return }
+        try await credentialStore.storeCredential(
+            credential,
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID)
+        )
     }
 
     private func resolvedTeam(_ teamID: String?) async -> String? {
