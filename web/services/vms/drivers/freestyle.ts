@@ -453,6 +453,41 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  private async openReusableRpcDaemon(vmId: string): Promise<WebSocketPtyEndpoint["daemon"] | undefined> {
+    const fs = client();
+    const vm = fs.vms.ref({ vmId });
+    const service = await readFreestyleWebSocketService(vm);
+    if (!service.rpcLeasePath) {
+      return undefined;
+    }
+    const existingDaemon = await readReusableRpcLease(vm, service.rpcLeasePath);
+    const newDaemon = existingDaemon
+      ? null
+      : makeWebSocketLease("freestyle", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
+    const daemon = existingDaemon ?? newDaemon!;
+    if (newDaemon) {
+      const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
+      const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
+      await execFreestyleOrThrow(
+        vm,
+        [
+          ensurePrivateDirectoryCommand(service.rpcLeasePath),
+          `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(service.rpcLeasePath)}`,
+          `chmod 600 ${shellQuote(service.rpcLeasePath)}`,
+          `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
+          `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
+        ].join(" && "),
+      );
+    }
+    return {
+      url: `wss://${vmId}.vm.freestyle.sh/rpc`,
+      headers: {},
+      token: daemon.token,
+      sessionId: daemon.sessionId,
+      expiresAtUnix: daemon.expiresAtUnix,
+    };
+  }
+
   /**
    * Mint a short-lived SSH token + permission scoped to this VM, return the endpoint the mac
    * client will dial. Freestyle's gateway terminates at `vm-ssh.freestyle.sh:22`, username is
@@ -487,7 +522,7 @@ export class FreestyleProvider implements VMProvider {
           const { token } = await identity.tokens.create();
           let daemon: WebSocketPtyEndpoint["daemon"] | undefined;
           try {
-            daemon = (await this.openWebSocketPty(vmId)).daemon;
+            daemon = await this.openReusableRpcDaemon(vmId);
           } catch (daemonErr) {
             recordSpanError(span, daemonErr);
           }
