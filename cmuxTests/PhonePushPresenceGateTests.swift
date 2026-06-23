@@ -269,11 +269,11 @@ import Testing
         body(defaults)
     }
 
-    @Test func modeDefaultsToAlwaysWhenUnset() throws {
-        // Once phone forwarding is enabled, the phone should keep receiving
-        // notifications even if the Mac was recently used.
+    @Test func modeDefaultsToOnlyWhenAwayWhenUnset() throws {
+        // Legacy Mac opt-ins predate a stored mode, and their effective behavior
+        // was away-only until the user explicitly chose Always.
         try withScratchDefaults { defaults in
-            #expect(PhoneForwardingMode.fromDefaults(defaults) == .always)
+            #expect(PhoneForwardingMode.fromDefaults(defaults) == .onlyWhenAway)
         }
     }
 
@@ -290,7 +290,7 @@ import Testing
     @Test func modeFallsBackToDefaultOnUnrecognizedValue() throws {
         try withScratchDefaults { defaults in
             defaults.set("sometimes", forKey: PhonePushSettings.forwardModeKey)
-            #expect(PhoneForwardingMode.fromDefaults(defaults) == .always)
+            #expect(PhoneForwardingMode.fromDefaults(defaults) == .onlyWhenAway)
         }
     }
 

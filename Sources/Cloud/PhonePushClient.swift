@@ -11,7 +11,7 @@ enum PhonePushSettings {
     static let hideContentKey = "forwardNotificationsHideContent"
     /// WHEN forwards happen once the master gate is on: a
     /// ``PhoneForwardingMode`` raw value. Missing/unrecognized values fall
-    /// back to ``PhoneForwardingMode/defaultMode`` (always).
+    /// back to the legacy away-only default.
     static let forwardModeKey = "forwardNotificationsToPhoneMode"
 }
 

@@ -6,11 +6,12 @@ import Foundation
 enum PhoneForwardingMode: String, CaseIterable {
     /// Forward only while the user is away from this Mac.
     case onlyWhenAway
-    /// Forward every notification regardless of Mac presence (the default once
-    /// the user opts into phone forwarding).
+    /// Forward every notification regardless of Mac presence.
     case always
 
-    static let defaultMode: PhoneForwardingMode = .always
+    /// Preserve legacy Mac opt-ins that predate persisted modes: forwarding was
+    /// away-only unless the user explicitly chose Always.
+    static let defaultMode: PhoneForwardingMode = .onlyWhenAway
 
     static func fromDefaults(_ defaults: UserDefaults = .standard) -> PhoneForwardingMode {
         guard let raw = defaults.string(forKey: PhonePushSettings.forwardModeKey),
