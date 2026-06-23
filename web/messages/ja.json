@@ -84,8 +84,8 @@
       "verticalTabsDesc": "：サイドバーにgitブランチ、作業ディレクトリ、ポート、通知テキストを表示",
       "notificationRings": "通知リング",
       "notificationRingsDesc": "：エージェントが注意を必要とするとペインが点灯",
-      "ios": "iOSアプリ",
-      "iosDesc": "：ターミナルが iPhone と iPad にリアルタイムで同期",
+      "ios": "iOSコンパニオン",
+      "iosDesc": "：ターミナルがiPhoneとiPadにリアルタイムで同期",
       "inAppBrowser": "アプリ内ブラウザ",
       "inAppBrowserDesc": "：スクリプタブルなAPIでターミナルの横にブラウザを分割表示",
       "splitPanes": "分割ペイン",
@@ -99,9 +99,7 @@
       "keyboardShortcuts": "キーボードショートカット",
       "keyboardShortcutsDesc": "：ワークスペース、分割、ブラウザなどの<link>豊富なショートカット</link>",
       "openSource": "オープンソース",
-      "openSourceDesc": "：無料・GPLライセンス",
-      "ios": "iOSコンパニオン",
-      "iosDesc": "：iPhoneからターミナルにアタッチ"
+      "openSourceDesc": "：無料・GPLライセンス"
     },
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",

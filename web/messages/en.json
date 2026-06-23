@@ -84,7 +84,7 @@
       "verticalTabsDesc": ": sidebar shows git branch, working directory, ports, and notification text",
       "notificationRings": "Notification rings",
       "notificationRingsDesc": ": panes light up when agents need attention",
-      "ios": "iOS app",
+      "ios": "iOS companion",
       "iosDesc": ": your terminals sync to iPhone and iPad in realtime",
       "inAppBrowser": "In-app browser",
       "inAppBrowserDesc": ": split a browser alongside your terminal with a scriptable API",
@@ -99,9 +99,7 @@
       "keyboardShortcuts": "Keyboard shortcuts",
       "keyboardShortcutsDesc": ": <link>extensive shortcuts</link> for workspaces, splits, browser, and more",
       "openSource": "Open source",
-      "openSourceDesc": ": free and GPL-licensed",
-      "ios": "iOS companion",
-      "iosDesc": ": attach to your terminals from your iPhone"
+      "openSourceDesc": ": free and GPL-licensed"
     },
     "faqGhosttyQ": "How does cmux relate to Ghostty?",
     "faqGhosttyA": "cmux is not a fork of Ghostty. It uses <link>libghostty</link> as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.",

@@ -126,7 +126,6 @@ function HomeContent() {
               [
                 ["verticalTabs", "verticalTabsDesc"],
                 ["notificationRings", "notificationRingsDesc"],
-                ["ios", "iosDesc"],
                 ["inAppBrowser", "inAppBrowserDesc"],
                 ["splitPanes", "splitPanesDesc"],
                 ["scriptable", "scriptableDesc"],
@@ -139,13 +138,7 @@ function HomeContent() {
                 <span className="text-muted shrink-0">-</span>
                 <span>
                   <strong className="font-medium">
-                    {title === "ios" ? (
-                      <Link href="/ios" className={linkClass}>
-                        {t(`feature.${title}`)}
-                      </Link>
-                    ) : (
-                      t(`feature.${title}`)
-                    )}
+                    {t(`feature.${title}`)}
                   </strong>
                   <span className="text-muted">{t(`feature.${desc}`)}</span>
                 </span>
