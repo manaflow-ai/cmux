@@ -100,12 +100,22 @@ extension TerminalController {
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
-                  let terminalPanel = workspace.terminalPanel(for: surfaceUUID),
-                  mobileChatRecordMatchesAgent(
-                      record: record,
-                      workspace: workspace,
-                      terminalPanel: terminalPanel
-                  ) else {
+                  let terminalPanel = workspace.terminalPanel(for: surfaceUUID) else {
+                continue
+            }
+            // A LIVE session must still be the current agent on the terminal, so
+            // a reused/restored terminal never exposes a false live toggle. An
+            // ENDED session is RETAINED whenever its surface is a live terminal
+            // in W, regardless of what the terminal runs now: the GUI keeps a
+            // finished conversation visible read-only (input bar disabled), so a
+            // fresh pull must not drop it — dropping it is what made the toggle
+            // go stale and vanish on tap after the agent exited.
+            if record.state != .ended,
+               !mobileChatRecordMatchesAgent(
+                   record: record,
+                   workspace: workspace,
+                   terminalPanel: terminalPanel
+               ) {
                 continue
             }
             // Re-stamp stale-workspace records to W so the seed and live pushes

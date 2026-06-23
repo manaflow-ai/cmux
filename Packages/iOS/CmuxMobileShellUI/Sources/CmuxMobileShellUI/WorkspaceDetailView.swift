@@ -254,11 +254,33 @@ struct WorkspaceDetailView: View {
         // wire is the "appears real quickly but not smooth" moment).
         let seeded = (try? await source.sessions(workspaceID: workspace.id.rawValue)) ?? []
         withAnimation(.snappy(duration: 0.25)) { chatSessions = seeded }
+        repinToReopenedSession()
         applyChatModeFallback()
         for await frame in stream {
             let next = reducer.applying(frame, to: chatSessions)
             withAnimation(.snappy(duration: 0.25)) { chatSessions = next }
+            repinToReopenedSession()
             applyChatModeFallback()
+        }
+    }
+
+    /// While chat is open and pinned to a session that has ENDED, if the agent
+    /// was reopened on the same terminal (a newer, non-ended session bound to
+    /// the same terminal id), re-pin to it so the GUI becomes editable again.
+    /// Only an ended pin is switched, never a live one, so an active read is
+    /// never swapped out; `.id(session.id)` rebuilds the conversation store for
+    /// the new session.
+    private func repinToReopenedSession() {
+        guard isChatMode,
+              let pinnedID = pinnedChatSessionID,
+              let pinned = chatSessions.first(where: { $0.id == pinnedID }),
+              pinned.state == .ended,
+              let terminalID = pinned.terminalID else { return }
+        let live = chatSessions
+            .filter { $0.terminalID == terminalID && $0.id != pinnedID && $0.state != .ended }
+            .max { ($0.lastActivityAt ?? .distantPast) < ($1.lastActivityAt ?? .distantPast) }
+        if let live {
+            pinnedChatSessionID = live.id
         }
     }
 
