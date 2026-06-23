@@ -374,7 +374,8 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         let shells: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "csh", "tcsh", "ksh"]
         guard shells.contains(executable) else { return false }
         guard let bindingKind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
-              RestorableAgentKind.allCases.map(\.rawValue).contains(bindingKind),
+              let restorableKind = RestorableAgentKind(rawValue: bindingKind),
+              restorableKind.customAgentID == nil,
               bindingKind != executable else {
             return false
         }

@@ -98,6 +98,22 @@ struct SessionRestoreSnapshotRepairTests {
         #expect(loadedBinding?.command == command)
     }
 
+    @Test("Registry-owned built-in shell resume bindings are treated as poisoned")
+    func registryOwnedBuiltInShellResumeBindingIsPoisoned() {
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "Grok",
+            kind: "grok",
+            command: "{ cd -- '/tmp/right' 2>/dev/null || [ ! -d '/tmp/right' ]; } && 'bash' 'resume' 'grok-session'",
+            cwd: "/tmp/right",
+            checkpointId: "grok-session",
+            source: "agent-hook",
+            autoResume: true,
+            updatedAt: 10
+        )
+
+        #expect(binding.trustedForSessionRestore == nil)
+    }
+
     @MainActor
     @Test("Load repair drops wrong-fork launch capture and recovers cwd")
     func loadRepairDropsWrongForkLaunchCaptureAndRecoversCWD() throws {
