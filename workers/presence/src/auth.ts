@@ -77,6 +77,17 @@ export function tokenExpiryMs(token: string): number | null {
   }
 }
 
+/** Stack access tokens are JWTs (`header.payload.signature`). A bearer that is
+ * not exactly three non-empty dot-separated segments cannot be a legitimate
+ * token, so it is rejected before any Stack subrequest. Without this, a stream
+ * of distinct opaque values forces two Stack fetches per request (a quota/cost
+ * amplification vector), since the negative cache only de-duplicates a
+ * *repeated* token, not a flood of unique ones. Pure for tests. */
+export function isJwtShape(token: string): boolean {
+  const parts = token.split(".");
+  return parts.length === 3 && parts.every((part) => part.length > 0);
+}
+
 export type TeamResolution =
   | { ok: true; teamId: string }
   | { ok: false; error: "team_not_found" };
@@ -192,6 +203,7 @@ export async function verifyRequest(request: Request, env: AuthEnv): Promise<Aut
   if (!env.STACK_PROJECT_ID || !env.STACK_PUBLISHABLE_CLIENT_KEY) return null;
   const token = bearerToken(request);
   if (!token) return null;
+  if (!isJwtShape(token)) return null;
 
   const now = Date.now();
   const expMs = tokenExpiryMs(token);

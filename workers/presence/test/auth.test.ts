@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   AUTH_CACHE_TTL_MS,
   cacheDeadline,
+  isJwtShape,
   requestedTeamIdFromRequest,
   resolveTeamId,
   tokenExpiryMs,
@@ -95,21 +96,67 @@ describe("tokenExpiryMs", () => {
   });
 });
 
-describe("verifyRequest negative cache", () => {
+describe("isJwtShape", () => {
+  it("accepts a three-segment JWT-shaped bearer", () => {
+    expect(isJwtShape("header.payload.sig")).toBe(true);
+  });
+
+  it("rejects opaque tokens", () => {
+    expect(isJwtShape("opaque-rejected-token")).toBe(false);
+  });
+
+  it("rejects tokens without exactly three segments", () => {
+    expect(isJwtShape("a.b")).toBe(false);
+    expect(isJwtShape("a.b.c.d")).toBe(false);
+    expect(isJwtShape("")).toBe(false);
+    // Three segments but one or more empty (e.g. ".." or "a..c") is not a JWT.
+    expect(isJwtShape("..")).toBe(false);
+    expect(isJwtShape("a..c")).toBe(false);
+    expect(isJwtShape(".b.")).toBe(false);
+  });
+});
+
+describe("verifyRequest", () => {
   const env = {
     STACK_PROJECT_ID: "proj",
     STACK_PUBLISHABLE_CLIENT_KEY: "pk",
     STACK_API_URL: "https://stack.test",
   };
 
-  it("does not re-hit Stack for a token it already rejected", async () => {
+  it("rejects an opaque bearer before any Stack subrequest", async () => {
     const { verifyRequest } = await import("../src/auth");
     const realFetch = globalThis.fetch;
     let calls = 0;
-    // Opaque (non-JWT) bearer: tokenExpiryMs is null, so the cheap expiry
-    // short-circuit cannot help and only the negative cache prevents the
-    // per-request Stack subrequest amplification.
-    const token = "opaque-rejected-token-" + Math.random().toString(36).slice(2);
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response("unauthorized", { status: 401 });
+    }) as unknown as typeof fetch;
+    try {
+      const make = () =>
+        new Request("https://presence.test/v1/presence/snapshot", {
+          headers: { authorization: "Bearer opaque-rejected-token" },
+        });
+      // Opaque (non-JWT) bearers are rejected by shape, so a flood of distinct
+      // opaque values cannot amplify into 2 Stack subrequests per request.
+      expect(await verifyRequest(make(), env)).toBeNull();
+      expect(calls).toBe(0);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
+  it("does not re-hit Stack for a JWT it already rejected (negative cache)", async () => {
+    const { verifyRequest } = await import("../src/auth");
+    const realFetch = globalThis.fetch;
+    let calls = 0;
+    // JWT-shaped but Stack-rejected: the negative cache de-duplicates repeat
+    // verifications so a hostile client replaying the same token only costs one
+    // Stack round trip per TTL window.
+    const payload = btoa(JSON.stringify({}))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    const token = `header.${payload}.sig`;
     globalThis.fetch = (async () => {
       calls += 1;
       return new Response("unauthorized", { status: 401 });
@@ -127,4 +174,4 @@ describe("verifyRequest negative cache", () => {
       globalThis.fetch = realFetch;
     }
   });
-})
+});
