@@ -6,6 +6,11 @@ import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
 import { BrandLogoLink } from "../components/brand-logo-link";
 import { GitHubButton } from "../components/github-button";
+import {
+  ctaButtonBase,
+  ctaButtonDefaultSize,
+  ctaButtonStyle,
+} from "../components/cta-styles";
 import iosWorkspaces from "../assets/ios-workspaces.png";
 import iosTerminal from "../assets/ios-terminal.png";
 import iosClaude from "../assets/ios-claude.png";
@@ -84,7 +89,8 @@ export default function IosLanding() {
         >
           <Link
             href="/docs/ios"
-            className="inline-flex items-center gap-2 rounded-lg bg-foreground text-background px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity"
+            className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
+            style={ctaButtonStyle}
           >
             {t("ctaBeta")}
           </Link>
