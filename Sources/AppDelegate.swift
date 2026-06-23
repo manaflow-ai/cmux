@@ -14566,11 +14566,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if let workspace = tabManager?.selectedWorkspace,
            workspace.layoutMode == .canvas {
-            return workspace.openNewCanvasPane(
+            guard let panelId = workspace.openNewCanvasPane(
                 type: .browser,
                 focus: true,
                 direction: direction.canvasDirection
-            ) != nil
+            ) else {
+                return false
+            }
+            _ = focusBrowserAddressBar(panelId: panelId)
+            return true
         }
 
         #if DEBUG
