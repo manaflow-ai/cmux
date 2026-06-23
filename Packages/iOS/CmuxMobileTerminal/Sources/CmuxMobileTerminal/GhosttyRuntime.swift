@@ -48,6 +48,18 @@ public final class GhosttyRuntime {
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
 
+    /// Replaces the theme used when the runtime builds its config and the theme
+    /// the surrounding terminal chrome blends with. Pass `nil`, an invalid theme,
+    /// or an incomplete palette to fall back to Monokai. Call before ``shared()``
+    /// is first invoked, since the runtime reads the theme once while building
+    /// its config; setting it afterward has no effect on the live runtime.
+    public static func setTheme(_ theme: TerminalTheme?) {
+        TerminalThemeStore.set(theme)
+    }
+
+    /// The theme the runtime will apply (or has applied) to its config.
+    public static var currentTheme: TerminalTheme { TerminalThemeStore.current }
+
     // libghostty handles are opaque C pointers (typedef `void *`). They
     // aren't Sendable in Swift's type system, but `GhosttyRuntime` is a
     // process-lifetime singleton and the pointer never escapes to a
@@ -189,7 +201,7 @@ public final class GhosttyRuntime {
         // GHOSTTY_POINT_SCREEN read). 2MB comfortably covers that sheet's
         // 5000-line budget while keeping the worst-case read (which runs on
         // the serial output queue) and per-surface memory phone-sized.
-        let monokai = """
+        let defaults = """
         scrollback-limit = 2000000
         font-family = Menlo
         font-size = 10
@@ -197,31 +209,11 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        background = #272822
-        foreground = #fdfff1
-        cursor-color = #c0c1b5
-        selection-background = #57584f
-        selection-foreground = #fdfff1
-        palette = 0=#272822
-        palette = 1=#f92672
-        palette = 2=#a6e22e
-        palette = 3=#e6db74
-        palette = 4=#fd971f
-        palette = 5=#ae81ff
-        palette = 6=#66d9ef
-        palette = 7=#fdfff1
-        palette = 8=#6e7066
-        palette = 9=#f92672
-        palette = 10=#a6e22e
-        palette = 11=#e6db74
-        palette = 12=#fd971f
-        palette = 13=#ae81ff
-        palette = 14=#66d9ef
-        palette = 15=#fdfff1
+        \(TerminalThemeStore.current.ghosttyColorDirectives)
         """
         let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
         do {
-            try monokai.write(to: tmpFile, atomically: true, encoding: .utf8)
+            try defaults.write(to: tmpFile, atomically: true, encoding: .utf8)
             tmpFile.path.withCString { path in
                 ghostty_config_load_file(config, path)
             }
@@ -249,27 +241,7 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        background = #272822
-        foreground = #fdfff1
-        cursor-color = #c0c1b5
-        selection-background = #57584f
-        selection-foreground = #fdfff1
-        palette = 0=#272822
-        palette = 1=#f92672
-        palette = 2=#a6e22e
-        palette = 3=#e6db74
-        palette = 4=#fd971f
-        palette = 5=#ae81ff
-        palette = 6=#66d9ef
-        palette = 7=#fdfff1
-        palette = 8=#6e7066
-        palette = 9=#f92672
-        palette = 10=#a6e22e
-        palette = 11=#e6db74
-        palette = 12=#fd971f
-        palette = 13=#ae81ff
-        palette = 14=#66d9ef
-        palette = 15=#fdfff1
+        \(TerminalThemeStore.current.ghosttyColorDirectives)
         """
 
         do {
