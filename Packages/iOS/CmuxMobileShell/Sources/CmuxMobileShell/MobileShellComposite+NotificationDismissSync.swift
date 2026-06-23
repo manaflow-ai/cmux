@@ -71,8 +71,11 @@ extension MobileShellComposite {
         return secondaryMacSubscriptions[macDeviceID]?.client
     }
 
-    func flushPendingNotificationDismisses() async {
-        let pending = pendingDismissQueue.pendingDismisses
+    func flushPendingNotificationDismisses(macDeviceID: String? = nil) async {
+        let pending = pendingDismissQueue.pendingDismisses.filter { dismiss in
+            guard let macDeviceID else { return true }
+            return dismiss.macDeviceID == macDeviceID
+        }
         guard !pending.isEmpty else { return }
         await dismissNotifications(pending, enqueueFirst: false)
     }

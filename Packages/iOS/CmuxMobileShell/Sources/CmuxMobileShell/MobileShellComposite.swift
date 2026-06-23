@@ -2110,6 +2110,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // stale/offline. Excluding it would strand the user on a same-device tag
         // switch failure.
         let previousActive = pairedMacs.first { $0.isActive }
+        let scope = await currentScopeSnapshot()
         await connectManualHost(
             name: device.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: device.deviceId)
@@ -2129,13 +2130,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         if let pairedMacStore, !device.deviceId.hasPrefix("manual-") {
+            if let scope {
+                guard await isScopeCurrent(scope) else { return }
+            }
             do {
                 try await pairedMacStore.upsert(
                     macDeviceID: device.deviceId,
                     displayName: device.displayName,
                     routes: instance.routes,
                     markActive: true,
-                    stackUserID: identityProvider?.currentUserID
+                    stackUserID: scope?.userID,
+                    teamID: scope?.teamID,
+                    now: Date()
                 )
                 hasKnownPairedMac = true
             } catch {
@@ -2491,6 +2497,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard ticket.macDeviceID != "manual-ticket-request",
               !ticket.macDeviceID.hasPrefix("manual-") else { return }
         let stackUserID = identityProvider?.currentUserID
+        let scope = await currentScopeSnapshot(userID: stackUserID)
         // The compact pairing QR carries no display name; the name arrives
         // post-handshake via `mobile.host.status`. Until it does, keep any
         // name we already know for this Mac instead of clobbering it with
@@ -2502,9 +2509,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let ticketDisplayName = ticket.macDisplayName
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) { [weak self] in
             guard let self else { return }
+            if let scope {
+                guard await self.isScopeCurrent(scope) else { return }
+            }
             var displayName = ticketDisplayName
             if displayName == nil {
-                let knownMacs = (try? await pairedMacStore.loadAll(stackUserID: nil)) ?? []
+                let knownMacs = (try? await pairedMacStore.loadAll(
+                    stackUserID: nil,
+                    teamID: scope?.teamID
+                )) ?? []
                 let matches = knownMacs.filter { $0.macDeviceID == ticket.macDeviceID }
                 displayName = (matches.first { $0.stackUserID == stackUserID } ?? matches.first)?
                     .displayName
@@ -2515,7 +2528,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     displayName: displayName,
                     routes: ticket.routes,
                     markActive: true,
-                    stackUserID: stackUserID
+                    stackUserID: stackUserID,
+                    teamID: scope?.teamID,
+                    now: Date()
                 )
                 // A real, reconnectable Mac is now the active paired Mac: record
                 // the persisted hint so the next launch shows RestoringSessionView
@@ -2652,14 +2667,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let stackUserID = identityProvider?.currentUserID
+        let scope = await currentScopeSnapshot(userID: stackUserID)
         await performSerializedPairedMacWrite(ifStillCurrent: ifStillCurrent) {
+            if let scope {
+                guard await self.isScopeCurrent(scope) else { return }
+            }
             do {
                 try await pairedMacStore.upsert(
                     macDeviceID: ticket.macDeviceID,
                     displayName: name,
                     routes: ticket.routes,
                     markActive: true,
-                    stackUserID: stackUserID
+                    stackUserID: stackUserID,
+                    teamID: scope?.teamID,
+                    now: Date()
                 )
             } catch {
                 mobileShellLog.error("paired mac display-name upsert failed: \(String(describing: error), privacy: .public)")
@@ -3152,6 +3173,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } else {
             markSecondaryMacUnavailable(macID)
         }
+        await flushPendingNotificationDismisses(macDeviceID: macID)
         subscription.task = Task { @MainActor [weak self] in
             let stream = await client.subscribe(to: ["workspace.updated"])
             await self?.enableSecondaryEventSubscription(on: client, streamID: subscription.streamID)
@@ -6729,43 +6751,6 @@ struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(MobileManualAttachTicketCreateResponse.self, from: data)
-    }
-}
-
-private extension MobileShellComposite {
-    static func mobileShellVersionDisplay(
-        version: String?,
-        build: String?,
-        compatibilityVersion: Int?
-    ) -> String {
-        let version = version ?? mobileShellCompatibilityDisplay(compatibilityVersion)
-        guard let build = mobileShellNormalizedNonEmpty(build) else { return version }
-        return "\(version) (\(build))"
-    }
-
-    static func mobileShellCompatibilityDisplay(_ compatibilityVersion: Int?) -> String {
-        guard let compatibilityVersion, compatibilityVersion > 0 else {
-            return L10n.string(
-                "mobile.pairing.compatibilityUnknown",
-                defaultValue: "unknown compatibility"
-            )
-        }
-        return String(
-            format: L10n.string(
-                "mobile.pairing.compatibilityDisplayFormat",
-                defaultValue: "compatibility %@"
-            ),
-            "\(compatibilityVersion)"
-        )
-    }
-
-    static func mobileShellNormalizedEmail(_ value: String?) -> String? {
-        mobileShellNormalizedNonEmpty(value)?.lowercased()
-    }
-
-    static func mobileShellNormalizedNonEmpty(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 }
 

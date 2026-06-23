@@ -92,6 +92,32 @@ import UserNotifications
         #expect(store.pendingDismissQueue.pendingDismisses.isEmpty)
     }
 
+    @Test func secondaryFlushDrainsOnlyThatMacsQueuedDismisses() async throws {
+        let foregroundRouter = RoutingHostRouter()
+        let secondaryRouter = RoutingHostRouter()
+        let queue = PendingNotificationDismissQueue(
+            defaults: UserDefaults(suiteName: "dismiss-queue-\(UUID().uuidString)")!
+        )
+        let store = try await makeRoutingConnectedStore(
+            router: foregroundRouter,
+            pendingDismissQueue: queue
+        )
+        queue.enqueue([
+            (id: "n-secondary", macDeviceID: "mac-secondary"),
+            (id: "n-other", macDeviceID: "mac-other"),
+        ])
+        try installSecondaryClient(on: store, macDeviceID: "mac-secondary", router: secondaryRouter)
+
+        await store.flushPendingNotificationDismisses(macDeviceID: "mac-secondary")
+
+        let foregroundDismisses = await foregroundRouter.recordedDismisses()
+        let secondaryDismisses = await secondaryRouter.recordedDismisses()
+        #expect(foregroundDismisses.isEmpty)
+        #expect(secondaryDismisses.map(\.notificationIDs) == [["n-secondary"]])
+        #expect(queue.pendingDismisses.map(\.id) == ["n-other"])
+        #expect(queue.pendingDismisses.map(\.macDeviceID) == ["mac-other"])
+    }
+
     @Test func dismissForUnavailableMacStaysQueuedAndDoesNotHitForeground() async throws {
         let foregroundRouter = RoutingHostRouter()
         let store = try await makeRoutingConnectedStore(router: foregroundRouter)
