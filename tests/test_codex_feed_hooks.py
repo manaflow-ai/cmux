@@ -2188,6 +2188,38 @@ def test_codex_post_tool_use_redacts_tool_output(cli_path: str, root: Path) -> N
         raise AssertionError(f"stderr omission marker was not recorded: {tool_input!r}")
 
 
+def test_codex_post_tool_use_accepts_native_event_label(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-native-post-tool",
+        "cwd": "/tmp/project",
+        "event": "post_tool_use",
+        "tool_name": "Bash",
+        "tool_input": {"command": "printf hi"},
+        "tool_response": {
+            "exit_code": 7,
+            "stdout": "hi",
+        },
+    }
+
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-codex-native-posttool.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"native Codex post_tool_use telemetry should not emit a decision: {stdout!r}")
+    event = frame["params"]["event"]
+    if event.get("hook_event_name") != "PostToolUse":
+        raise AssertionError(f"native Codex post_tool_use should classify as PostToolUse: {event!r}")
+    tool_input = event.get("tool_input")
+    if not isinstance(tool_input, dict):
+        raise AssertionError(f"native Codex post_tool_use should forward sanitized metadata: {event!r}")
+    if tool_input.get("exit_code") != 7 or "stdout" in tool_input:
+        raise AssertionError(f"native Codex post_tool_use should omit command output: {event!r}")
+
+
 def test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path: str, root: Path) -> None:
     payload = {
         "session_id": "codex-session",
@@ -2378,6 +2410,7 @@ def main() -> int:
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
             test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path, root)
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
+            test_codex_post_tool_use_accepts_native_event_label(cli_path, root)
             test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path, root)
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)

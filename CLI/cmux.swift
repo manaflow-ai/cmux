@@ -32927,8 +32927,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // cap explicit PostToolUse and legacy/no-event Codex invocations before
         // JSON decoding without changing other agents' actionable hook reads.
         let stdinData: Data
+        let commandEventWireName = commandEvent.map {
+            FeedEventClassifier.classify(source: source, event: $0, toolName: "").0
+        }
         let shouldBoundCodexFeedStdin = source == "codex"
-            && (commandEvent == nil || commandEvent == "PostToolUse")
+            && (commandEvent == nil || commandEventWireName == "PostToolUse")
         if shouldBoundCodexFeedStdin {
             guard let boundedData = Self.readBoundedFeedHookStdin() else {
                 print("{}")
