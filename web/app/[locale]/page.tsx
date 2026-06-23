@@ -187,7 +187,7 @@ function HomeContent() {
         </div>
 
         {/* FAQ */}
-        <div data-dev="faq-top-spacer" style={{ height: 0 }} />
+        <div data-dev="faq-top-spacer" style={{ height: 32 }} />
         <section data-dev="faq" className="mb-10">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             {t("faq")}
