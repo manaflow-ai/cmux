@@ -1,3 +1,4 @@
+internal import CmuxSettings
 internal import Foundation
 
 /// The workspace-group domain (`workspace.group.*`), lifted byte-faithfully from
@@ -263,10 +264,24 @@ extension ControlCommandCoordinator {
               let wsId = uuid(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing group_id or workspace_id", data: nil)
         }
+        let placementRaw = rawString(params, "placement")
+        let placement = WorkspaceGroupNewPlacement(rawString: placementRaw)
+        if let raw = placementRaw,
+           !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           placement == nil {
+            return .err(code: "invalid_params", message: "Invalid placement", data: .object(["placement": .string(raw)]))
+        }
+        let referenceWorkspaceID = uuid(params, "reference_workspace_id")
+        if params["reference_workspace_id"] != nil,
+           referenceWorkspaceID == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid reference_workspace_id", data: nil)
+        }
         let resolution = context?.controlAddWorkspaceToGroup(
             routing: routingSelectors(params),
             groupID: gid,
-            workspaceID: wsId
+            workspaceID: wsId,
+            placement: placement,
+            referenceWorkspaceID: referenceWorkspaceID
         ) ?? .tabManagerUnavailable
         let identity: JSONValue = .object([
             "group_id": .string(gid.uuidString),

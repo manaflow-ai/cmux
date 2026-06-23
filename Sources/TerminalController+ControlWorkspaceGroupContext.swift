@@ -191,7 +191,9 @@ extension TerminalController: ControlWorkspaceGroupContext {
     func controlAddWorkspaceToGroup(
         routing: ControlRoutingSelectors,
         groupID: UUID,
-        workspaceID: UUID
+        workspaceID: UUID,
+        placement: WorkspaceGroupNewPlacement?,
+        referenceWorkspaceID: UUID?
     ) -> ControlWorkspaceGroupAddResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -202,7 +204,12 @@ extension TerminalController: ControlWorkspaceGroupContext {
         }
         // addWorkspaceToGroup silently no-ops for anchors of other groups.
         // Confirm membership actually changed before reporting success.
-        tabManager.addWorkspaceToGroup(workspaceId: workspaceID, groupId: groupID)
+        tabManager.addWorkspaceToGroup(
+            workspaceId: workspaceID,
+            groupId: groupID,
+            placement: placement,
+            referenceWorkspaceId: referenceWorkspaceID
+        )
         if tab.groupId == groupID {
             return .added
         }
