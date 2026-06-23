@@ -41,14 +41,14 @@ export function DownloadButton({
 
   // The split button is one pill with two zones (Mac download + platform caret)
   // that tint independently on hover. `overflow-hidden` clips the hover tint to
-  // the rounded corners; a faint hairline divider and a dimmed caret keep the
-  // split affordance understated until you reach for it.
-  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.07] ${
+  // the rounded corners; the divider and caret are kept barely-there so the
+  // split affordance only surfaces when you reach for it.
+  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.06] ${
     isSmall
       ? "gap-2 pl-4 pr-3 py-1.5 text-xs"
       : "gap-2.5 pl-5 pr-4 py-2.5 text-[15px]"
   }`;
-  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.07] data-[popup-open]:bg-background/[0.07] ${
+  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.06] data-[popup-open]:bg-background/[0.06] ${
     isSmall ? "px-2" : "px-2.5"
   }`;
 
@@ -84,7 +84,7 @@ export function DownloadButton({
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="opacity-60 transition-opacity group-hover:opacity-100 group-data-[popup-open]:opacity-100"
+      className="opacity-50 transition-opacity group-hover:opacity-100 group-data-[popup-open]:opacity-100"
       aria-hidden="true"
     >
       <path d="M3 4.5 6 7.5 9 4.5" />
@@ -111,7 +111,7 @@ export function DownloadButton({
           </Link>
         )}
 
-        <div className="my-2 w-px bg-background/15" aria-hidden="true" />
+        <div className="my-2 w-px bg-background/10" aria-hidden="true" />
 
         <Menu.Root>
           <Menu.Trigger className={caretZone} aria-label={t("otherPlatforms")}>
@@ -124,7 +124,7 @@ export function DownloadButton({
               sideOffset={8}
               className="z-[1000]"
             >
-              <Menu.Popup className="z-[1000] min-w-44 origin-[var(--transform-origin)] rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition-[transform,opacity] duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+              <Menu.Popup className="z-[1000] min-w-44 origin-[var(--transform-origin)] rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
                 <Menu.Item
                   render={
                     onConfirmationPage ? (
@@ -136,7 +136,7 @@ export function DownloadButton({
                   onClick={captureMac}
                   className={menuItemClass}
                 >
-                  <span>{tp("macos")}</span>
+                  {tp("macos")}
                 </Menu.Item>
                 <Menu.Item
                   render={
@@ -170,8 +170,7 @@ export function DownloadButton({
                     }}
                     className={menuItemClass}
                   >
-                    <span>{tp(platform)}</span>
-                    <span className="text-xs text-muted">{t("waitlistTag")}</span>
+                    {tp(platform)}
                   </Menu.Item>
                 ))}
               </Menu.Popup>
@@ -181,8 +180,8 @@ export function DownloadButton({
       </div>
 
       <WaitlistDialog
-        platform={waitlistPlatform}
-        platformLabel={waitlistPlatform ? tp(waitlistPlatform) : ""}
+        target={waitlistPlatform}
+        targetLabel={waitlistPlatform ? tp(waitlistPlatform) : ""}
         open={waitlistPlatform !== null}
         onOpenChange={(open) => {
           if (!open) setWaitlistPlatform(null);

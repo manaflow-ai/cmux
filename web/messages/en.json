@@ -40,8 +40,7 @@
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
     "viewChangelog": "View Changelog",
-    "otherPlatforms": "Other platforms",
-    "waitlistTag": "Waitlist"
+    "otherPlatforms": "Other platforms"
   },
   "nav": {
     "docs": "Docs",
@@ -1884,14 +1883,18 @@
   },
   "waitlist": {
     "title": "Join the {platform} waitlist",
+    "titleAny": "Join the waitlist",
     "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
+    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
+    "calloutText": "Coming to Linux, Windows, and Android.",
     "emailLabel": "Email",
     "emailPlaceholder": "you@example.com",
-    "submit": "Join waitlist",
+    "join": "Join waitlist",
     "cancel": "Cancel",
     "invalidEmail": "Enter a valid email address.",
     "successTitle": "You're on the list",
     "successBody": "We'll email you when the {platform} build is ready.",
+    "successBodyAny": "We'll email you when cmux is ready on your platform.",
     "done": "Done"
   },
   "legal": {

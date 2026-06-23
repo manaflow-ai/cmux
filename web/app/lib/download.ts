@@ -46,3 +46,10 @@ export const IOS_FOUNDERS_EDITION_URL =
 export const WAITLIST_PLATFORMS = ["linux", "android", "windows"] as const;
 
 export type WaitlistPlatform = (typeof WAITLIST_PLATFORMS)[number];
+
+/**
+ * What a waitlist signup is for: a specific platform (from the platform menu)
+ * or `"any"` (the generic "Join waitlist" entry points, which record interest
+ * across every unreleased platform).
+ */
+export type WaitlistTarget = WaitlistPlatform | "any";

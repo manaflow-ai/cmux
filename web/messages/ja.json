@@ -40,8 +40,7 @@
     "backToBlog": "ブログに戻る",
     "readTheDocs": "ドキュメントを読む",
     "viewChangelog": "変更履歴を見る",
-    "otherPlatforms": "その他のプラットフォーム",
-    "waitlistTag": "順番待ち"
+    "otherPlatforms": "その他のプラットフォーム"
   },
   "nav": {
     "docs": "ドキュメント",
@@ -1886,14 +1885,18 @@
   },
   "waitlist": {
     "title": "{platform}版の順番待ちリストに登録",
+    "titleAny": "順番待ちリストに登録",
     "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
+    "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
+    "calloutText": "Linux・Windows・Android 版も準備中です。",
     "emailLabel": "メールアドレス",
     "emailPlaceholder": "you@example.com",
-    "submit": "リストに登録",
+    "join": "リストに登録",
     "cancel": "キャンセル",
     "invalidEmail": "有効なメールアドレスを入力してください。",
     "successTitle": "登録が完了しました",
     "successBody": "{platform}版が利用可能になりましたらメールでお知らせします。",
+    "successBodyAny": "cmux がお使いのプラットフォームで利用可能になりましたらメールでお知らせします。",
     "done": "完了"
   },
   "testimonialSubtitles": {

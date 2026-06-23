@@ -4,6 +4,7 @@ import Balancer from "react-wrap-balancer";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
+import { WaitlistCallout } from "./components/waitlist-callout";
 import { SiteHeader } from "./components/site-header";
 import { BrandLogoLink } from "./components/brand-logo-link";
 import {
@@ -544,6 +545,9 @@ function HomeContent() {
           >
             {tc("viewChangelog")}
           </Link>
+        </div>
+        <div className="mt-4 flex justify-center">
+          <WaitlistCallout location="bottom" />
         </div>
       </main>
     </div>
