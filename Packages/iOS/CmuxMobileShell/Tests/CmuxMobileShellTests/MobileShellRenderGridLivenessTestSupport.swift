@@ -44,16 +44,6 @@ struct LivenessTestRuntime: MobileSyncRuntime {
     var livenessProbeTimeoutNanoseconds: UInt64 = 200_000_000
 }
 
-struct AlwaysOnlineReachability: ReachabilityProviding {
-    var isOnline: Bool { get async { true } }
-
-    func pathChanges() -> AsyncStream<Void> {
-        AsyncStream { continuation in
-            continuation.finish()
-        }
-    }
-}
-
 // MARK: - Scripted host (router + transport)
 
 /// Scripts the Mac side of the persistent RPC connection: answers the
