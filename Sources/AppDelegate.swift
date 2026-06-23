@@ -13169,41 +13169,28 @@ extension AppDelegate {
     /// `AppDelegate.DisplayInfo` references stay source-identical.
     typealias DisplayInfo = CmuxWindowing.DisplayInfo
 
-    /// All currently-connected displays, in `NSScreen.screens` order.
+    /// Resolves a display name fragment or index to an attached `NSScreen`,
+    /// lifted to ``CmuxWindowing/DisplayMatcher``. A pure value, so a shared
+    /// constant rather than per-call instantiation.
+    private nonisolated static let displayMatcher = DisplayMatcher()
+
+    /// Repositions a window onto a target screen while preserving its size,
+    /// lifted to ``CmuxWindowing/DisplayReposition``. A pure value, so a shared
+    /// constant rather than per-call instantiation.
+    private nonisolated static let displayReposition = DisplayReposition()
+
+    /// All currently-connected displays, in `NSScreen.screens` order. Forwards to
+    /// the shared ``CmuxWindowing/DisplayGeometryReader``.
     func availableDisplays() -> [DisplayInfo] {
-        let mainID = NSScreen.main?.cmuxDisplayID
-        return NSScreen.screens.enumerated().map { index, screen in
-            let displayID = screen.cmuxDisplayID
-            return DisplayInfo(
-                name: screen.localizedName,
-                index: index,
-                displayID: displayID,
-                isMain: displayID != nil && displayID == mainID,
-                frame: screen.frame
-            )
-        }
+        Self.displayGeometryReader.availableDisplays()
     }
 
     /// Resolve a display from a query: case-insensitive exact name, then
     /// case-insensitive substring, then a zero-based index string. Returns nil
-    /// when nothing matches so callers can report the available names.
+    /// when nothing matches so callers can report the available names. Forwards
+    /// to the shared ``CmuxWindowing/DisplayMatcher``.
     func screenMatching(_ query: String) -> NSScreen? {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let screens = NSScreen.screens
-        if let exact = screens.first(where: {
-            $0.localizedName.caseInsensitiveCompare(trimmed) == .orderedSame
-        }) {
-            return exact
-        }
-        let lowered = trimmed.lowercased()
-        if let partial = screens.first(where: { $0.localizedName.lowercased().contains(lowered) }) {
-            return partial
-        }
-        if let index = Int(trimmed), index >= 0, index < screens.count {
-            return screens[index]
-        }
-        return nil
+        Self.displayMatcher.screen(matching: query)
     }
 
     /// Move a single main window onto the display matched by `query`, preserving
@@ -13213,7 +13200,7 @@ extension AppDelegate {
     func moveMainWindow(windowId: UUID, toDisplayMatching query: String) -> String? {
         guard let window = windowForMainWindowId(windowId),
               let screen = screenMatching(query) else { return nil }
-        repositionPreservingSize(window, onto: screen)
+        Self.displayReposition.reposition(window, onto: screen)
         return screen.localizedName
     }
 
@@ -13225,25 +13212,10 @@ extension AppDelegate {
         var moved: [UUID] = []
         for summary in listMainWindowSummaries() {
             guard let window = windowForMainWindowId(summary.windowId) else { continue }
-            repositionPreservingSize(window, onto: screen)
+            Self.displayReposition.reposition(window, onto: screen)
             moved.append(summary.windowId)
         }
         return (screen.localizedName, moved)
-    }
-
-    /// Reposition `window` so it sits fully inside `screen`, keeping its current
-    /// size (clamped to the display) and centering it. Deliberately does NOT
-    /// raise, key, or activate the window: `window.display` is not a focus-intent
-    /// command, so it must never steal macOS focus (see `focusIntentV2Methods`).
-    func repositionPreservingSize(_ window: NSWindow, onto screen: NSScreen) {
-        let visible = screen.visibleFrame
-        let width = min(window.frame.width, visible.width)
-        let height = min(window.frame.height, visible.height)
-        var origin = NSPoint(x: visible.midX - width / 2, y: visible.midY - height / 2)
-        origin.x = max(visible.minX, min(origin.x, visible.maxX - width))
-        origin.y = max(visible.minY, min(origin.y, visible.maxY - height))
-        let frame = NSRect(x: origin.x, y: origin.y, width: width, height: height).integral
-        window.setFrame(frame, display: true, animate: false)
     }
 }
 

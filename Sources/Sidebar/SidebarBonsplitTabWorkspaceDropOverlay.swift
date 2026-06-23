@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxWorkspaces
 import CmuxFoundation
 import SwiftUI
 

@@ -1,5 +1,6 @@
 import CmuxFoundation
 import CmuxSidebar
+import CmuxWorkspaces
 import Foundation
 
 /// App-target conformer of ``WorkspaceTabRouting`` for one window's sidebar.

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxWindowing
 
 /// Shared, cross-tag default for which display new cmux DEV windows open on.
 ///
@@ -80,7 +81,7 @@ enum DevWindowDisplayDefault {
         // async one-time migration has committed to cmux.json.
         guard let name = current(runtime) ?? legacyFileName(),
               let screen = app.screenMatching(name) else { return }
-        app.repositionPreservingSize(window, onto: screen)
+        DisplayReposition().reposition(window, onto: screen)
     }
 #endif
 }

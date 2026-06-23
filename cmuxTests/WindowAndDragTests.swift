@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxWorkspaces
 import CmuxAppKitSupportUI
 import CmuxFoundation
 import Carbon.HIToolbox

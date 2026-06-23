@@ -356,8 +356,8 @@ class TabManager {
                 ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
                 : 0
             cmuxDebugLog(
-                "ws.select.didSet id=\(switchId) from=\(Self.debugShortWorkspaceId(previousTabId)) " +
-                "to=\(Self.debugShortWorkspaceId(selectedTabId)) dt=\(Self.debugMsText(switchDtMs))"
+                "ws.select.didSet id=\(switchId) from=\(previousTabId.debugShortWorkspaceId) " +
+                "to=\(selectedTabId.debugShortWorkspaceId) dt=\(switchDtMs.debugMillisecondsText)"
             )
 #endif
             selectionSideEffectsGeneration &+= 1
@@ -389,8 +389,8 @@ class TabManager {
                     ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
                     : 0
                 cmuxDebugLog(
-                    "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(Self.debugMsText(dtMs)) " +
-                    "selected=\(Self.debugShortWorkspaceId(self.selectedTabId))"
+                    "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(dtMs.debugMillisecondsText) " +
+                    "selected=\(self.selectedTabId.debugShortWorkspaceId)"
                 )
 #endif
             }
@@ -2942,8 +2942,8 @@ class TabManager {
     func surfaceMetadataLogPanelTitleEnqueue(workspaceId: UUID, panelId: UUID, title: String) {
 #if DEBUG
         cmuxDebugLog(
-            "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(workspaceId)) " +
-            "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(title))\""
+            "workspace.title.enqueue workspace=\(workspaceId.debugShortWorkspaceId) " +
+            "panel=\(panelId.uuidString.prefix(5)) title=\"\(title.debugTracePreview())\""
         )
 #endif
     }
@@ -3086,7 +3086,7 @@ class TabManager {
     func debugLogWorkspaceCycleHotOn(generation: UInt64) {
 #if DEBUG
         cmuxDebugLog(
-            "ws.hot.on id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(debugWorkspaceCycleSwitchDtMs))"
+            "ws.hot.on id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
         )
 #endif
     }
@@ -3094,7 +3094,7 @@ class TabManager {
     func debugLogWorkspaceCycleHotCancelPrevious(generation: UInt64) {
 #if DEBUG
         cmuxDebugLog(
-            "ws.hot.cancelPrev id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(debugWorkspaceCycleSwitchDtMs))"
+            "ws.hot.cancelPrev id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
         )
 #endif
     }
@@ -3102,7 +3102,7 @@ class TabManager {
     func debugLogWorkspaceCycleHotCooldownCanceled(generation: UInt64) {
 #if DEBUG
         cmuxDebugLog(
-            "ws.hot.cooldownCanceled id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(debugWorkspaceCycleSwitchDtMs))"
+            "ws.hot.cooldownCanceled id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
         )
 #endif
     }
@@ -3110,7 +3110,7 @@ class TabManager {
     func debugLogWorkspaceCycleHotOff(generation: UInt64) {
 #if DEBUG
         cmuxDebugLog(
-            "ws.hot.off id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(Self.debugMsText(debugWorkspaceCycleSwitchDtMs))"
+            "ws.hot.off id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
         )
 #endif
     }
@@ -3158,29 +3158,9 @@ class TabManager {
         debugWorkspaceSwitchStartTime = CACurrentMediaTime()
         cmuxDebugLog(
             "ws.switch.begin id=\(debugWorkspaceSwitchId) trigger=\(trigger) " +
-            "from=\(Self.debugShortWorkspaceId(from)) to=\(Self.debugShortWorkspaceId(to)) " +
+            "from=\(from.debugShortWorkspaceId) to=\(to.debugShortWorkspaceId) " +
             "hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
         )
-    }
-
-    private static func debugShortWorkspaceId(_ id: UUID?) -> String {
-        guard let id else { return "nil" }
-        return String(id.uuidString.prefix(5))
-    }
-
-    private static func debugTitlePreview(_ title: String, limit: Int = 120) -> String {
-        let escaped = title
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\n", with: "\\n")
-            .replacingOccurrences(of: "\r", with: "\\r")
-            .replacingOccurrences(of: "\t", with: "\\t")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        guard escaped.count > limit else { return escaped }
-        return "\(escaped.prefix(limit))..."
-    }
-
-    private static func debugMsText(_ ms: Double) -> String {
-        String(format: "%.2fms", ms)
     }
 #endif
 
@@ -3368,36 +3348,36 @@ class TabManager {
             if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.unfocus.defer id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
-                    "tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5)))"
+                    "ws.unfocus.defer id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) " +
+                    "tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5)))"
                 )
             } else {
                 cmuxDebugLog(
-                    "ws.unfocus.defer id=none tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5)))"
+                    "ws.unfocus.defer id=none tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5)))"
                 )
             }
         case let .flushedOnReplace(workspaceId, panelId):
             cmuxDebugLog(
-                "ws.unfocus.flush tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced"
+                "ws.unfocus.flush tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced"
             )
         case let .droppedOnReplaceSelected(workspaceId, panelId):
             cmuxDebugLog(
-                "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced_selected"
+                "ws.unfocus.drop tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced_selected"
             )
         case let .droppedSelectedAgain(workspaceId, panelId):
             cmuxDebugLog(
-                "ws.unfocus.drop tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=selected_again"
+                "ws.unfocus.drop tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=selected_again"
             )
         case let .completed(workspaceId, panelId, reason):
             if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.unfocus.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) " +
-                    "tab=\(Self.debugShortWorkspaceId(workspaceId)) panel=\(String(panelId.uuidString.prefix(5))) reason=\(reason)"
+                    "ws.unfocus.complete id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) " +
+                    "tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=\(reason)"
                 )
             } else {
                 cmuxDebugLog(
-                    "ws.unfocus.complete id=none tab=\(Self.debugShortWorkspaceId(workspaceId)) " +
+                    "ws.unfocus.complete id=none tab=\(workspaceId.debugShortWorkspaceId) " +
                     "panel=\(String(panelId.uuidString.prefix(5))) reason=\(reason)"
                 )
             }
@@ -3419,57 +3399,50 @@ class TabManager {
             if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.mount.reconcile id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) hot=\(isCycleHot ? 1 : 0) " +
-                    "selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId)) " +
-                    "mounted=\(Self.debugShortWorkspaceIds(mountedWorkspaceIds)) " +
-                    "added=\(Self.debugShortWorkspaceIds(addedWorkspaceIds)) removed=\(Self.debugShortWorkspaceIds(removedWorkspaceIds))"
+                    "ws.mount.reconcile id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) hot=\(isCycleHot ? 1 : 0) " +
+                    "selected=\(selectedWorkspaceId.debugShortWorkspaceId) " +
+                    "mounted=\(mountedWorkspaceIds.debugShortWorkspaceIds) " +
+                    "added=\(addedWorkspaceIds.debugShortWorkspaceIds) removed=\(removedWorkspaceIds.debugShortWorkspaceIds)"
                 )
             } else {
                 cmuxDebugLog(
-                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId)) " +
-                    "mounted=\(Self.debugShortWorkspaceIds(mountedWorkspaceIds))"
+                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(selectedWorkspaceId.debugShortWorkspaceId) " +
+                    "mounted=\(mountedWorkspaceIds.debugShortWorkspaceIds)"
                 )
             }
         case let .handoffStarted(oldSelectedWorkspaceId, newSelectedWorkspaceId):
             if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.handoff.start id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) old=\(Self.debugShortWorkspaceId(oldSelectedWorkspaceId)) " +
-                    "new=\(Self.debugShortWorkspaceId(newSelectedWorkspaceId))"
+                    "ws.handoff.start id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) old=\(oldSelectedWorkspaceId.debugShortWorkspaceId) " +
+                    "new=\(newSelectedWorkspaceId.debugShortWorkspaceId)"
                 )
             } else {
                 cmuxDebugLog(
-                    "ws.handoff.start id=none old=\(Self.debugShortWorkspaceId(oldSelectedWorkspaceId)) new=\(Self.debugShortWorkspaceId(newSelectedWorkspaceId))"
+                    "ws.handoff.start id=none old=\(oldSelectedWorkspaceId.debugShortWorkspaceId) new=\(newSelectedWorkspaceId.debugShortWorkspaceId)"
                 )
             }
         case let .handoffFastReady(selectedWorkspaceId):
             if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId))"
+                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) selected=\(selectedWorkspaceId.debugShortWorkspaceId)"
                 )
             } else {
-                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(Self.debugShortWorkspaceId(selectedWorkspaceId))")
+                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(selectedWorkspaceId.debugShortWorkspaceId)")
             }
         case let .handoffCompleted(reason, retiringWorkspaceId):
             if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
                 let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
                 cmuxDebugLog(
-                    "ws.handoff.complete id=\(snapshot.id) dt=\(Self.debugMsText(dtMs)) reason=\(reason) retiring=\(Self.debugShortWorkspaceId(retiringWorkspaceId))"
+                    "ws.handoff.complete id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) reason=\(reason) retiring=\(retiringWorkspaceId.debugShortWorkspaceId)"
                 )
             } else {
-                cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(Self.debugShortWorkspaceId(retiringWorkspaceId))")
+                cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(retiringWorkspaceId.debugShortWorkspaceId)")
             }
         }
 #endif
     }
-
-#if DEBUG
-    private static func debugShortWorkspaceIds(_ ids: [UUID]) -> String {
-        if ids.isEmpty { return "[]" }
-        return "[" + ids.map { String($0.uuidString.prefix(5)) }.joined(separator: ",") + "]"
-    }
-#endif
 
     // MARK: - Split Operations (Backwards Compatibility)
 
