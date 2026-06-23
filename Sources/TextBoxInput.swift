@@ -2490,7 +2490,7 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = pendingProviderLaunchAction == nil && TextBoxSubmitAvailability.shouldEnableSubmit(
+        let canSend = !isProviderLaunchAwaitingAgentOrCommand && TextBoxSubmitAvailability.shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
@@ -2719,7 +2719,7 @@ struct TextBoxInputContainer: View {
             NSSound.beep()
             return
         }
-        guard pendingProviderLaunchAction == nil else {
+        guard !isProviderLaunchAwaitingAgentOrCommand else {
             NSSound.beep()
             return
         }
