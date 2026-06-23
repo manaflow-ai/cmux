@@ -173,5 +173,4 @@ import Testing
             didFinishStoredMacReconnectAttempt: false
         ))
     }
-
 }

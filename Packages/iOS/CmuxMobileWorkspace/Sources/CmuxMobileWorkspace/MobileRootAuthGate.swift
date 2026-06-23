@@ -125,5 +125,4 @@ public struct MobileRootAuthGate {
         guard !didFinishStoredMacReconnectAttempt else { return false }
         return hasKnownPairedMac || pairedMacHintUndetermined
     }
-
 }
