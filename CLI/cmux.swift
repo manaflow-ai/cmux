@@ -10632,22 +10632,6 @@ struct CMUXCLI {
         \(suppressWelcome ? "export CMUX_CLOUD_WELCOME=0" : ":")
         \(freestyleCloudContextExports(workspaceID: workspaceID, surfaceID: surfaceID))
         export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
-        if [ ! -x /usr/local/bin/cmux ] && [ -x /usr/local/bin/cmuxd-remote ]; then
-          if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-            sudo -n ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux >/dev/null 2>&1 || true
-          fi
-        fi
-        if ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1 || ! command -v cmux >/dev/null 2>&1; then
-          if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-            if command -v apt-get >/dev/null 2>&1; then
-              sudo -n apt-get update >/dev/null 2>&1 || true
-              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop tmux >/dev/null 2>&1 || true
-            fi
-            if [ ! -x /usr/local/bin/cmux ] && [ -x /usr/local/bin/cmuxd-remote ]; then
-              sudo -n ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux >/dev/null 2>&1 || true
-            fi
-          fi
-        fi
         hash -r 2>/dev/null || true
         if command -v zsh >/dev/null 2>&1; then
           touch "$HOME/.hushlogin" 2>/dev/null || true

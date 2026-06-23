@@ -594,13 +594,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let decodedRemoteBootstrap = try XCTUnwrap(decodedFirstEmbeddedStartupScript(capturedArgs), capturedArgs)
         XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_WORKSPACE_ID='\(workspaceID)'"), decodedRemoteBootstrap)
         XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_SURFACE_ID='\(surfaceID)'"), decodedRemoteBootstrap)
-        XCTAssertTrue(
-            decodedRemoteBootstrap.contains("ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux"),
-            decodedRemoteBootstrap
+        XCTAssertFalse(
+            decodedRemoteBootstrap.contains("apt-get"),
+            "interactive SSH attach must not install packages before the prompt: \(decodedRemoteBootstrap)"
         )
-        XCTAssertTrue(
-            decodedRemoteBootstrap.contains("! command -v cmux >/dev/null 2>&1"),
-            decodedRemoteBootstrap
+        XCTAssertFalse(
+            decodedRemoteBootstrap.contains("sudo"),
+            "interactive SSH attach must not depend on foreground sudo before the prompt: \(decodedRemoteBootstrap)"
+        )
+        XCTAssertFalse(
+            decodedRemoteBootstrap.contains("ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux"),
+            "interactive SSH attach must leave cmux CLI provisioning to vm.exec: \(decodedRemoteBootstrap)"
         )
         XCTAssertTrue(
             decodedRemoteBootstrap.contains("cmux-cloud-$cmux_cloud_tty_scope"),
