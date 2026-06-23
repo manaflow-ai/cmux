@@ -3335,112 +3335,44 @@ class TabManager {
         focusHistoryRevision &+= 1
     }
 
-    // FocusedSurfaceHosting witness that touches `private` DEBUG members
-    // (`debugCurrentWorkspaceSwitchSnapshot`, `debugShortWorkspaceId`,
-    // `debugMsText`, `cmuxDebugLog`); the rest of the conformance lives in
-    // TabManager+FocusedSurfaceHosting.swift. Formats the byte-identical legacy
-    // `ws.unfocus.*` trace lines; release builds make this a no-op exactly as
-    // the original `#if DEBUG`-guarded `cmuxDebugLog` calls were.
+    // FocusedSurfaceHosting witness that touches the `private` DEBUG
+    // `debugCurrentWorkspaceSwitchSnapshot` member and `cmuxDebugLog`; the rest
+    // of the conformance lives in TabManager+FocusedSurfaceHosting.swift. The
+    // byte-identical `ws.unfocus.*` trace-line assembly lives on the event in
+    // CmuxWorkspaces (`PendingWorkspaceUnfocusEvent.traceLine(...)`); this
+    // method just supplies the per-window switch snapshot + elapsed ms and
+    // emits the line. Release builds make this a no-op exactly as the original
+    // `#if DEBUG`-guarded `cmuxDebugLog` calls were.
     func logPendingWorkspaceUnfocusEvent(_ event: PendingWorkspaceUnfocusEvent) {
 #if DEBUG
-        switch event {
-        case let .deferred(workspaceId, panelId):
-            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.unfocus.defer id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) " +
-                    "tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5)))"
-                )
-            } else {
-                cmuxDebugLog(
-                    "ws.unfocus.defer id=none tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5)))"
-                )
-            }
-        case let .flushedOnReplace(workspaceId, panelId):
-            cmuxDebugLog(
-                "ws.unfocus.flush tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced"
+        let snapshot = debugCurrentWorkspaceSwitchSnapshot()
+        cmuxDebugLog(
+            event.traceLine(
+                switchSnapshot: snapshot.map { WorkspaceSwitchTraceSnapshot(id: $0.id) },
+                elapsedMs: snapshot.map { (CACurrentMediaTime() - $0.startedAt) * 1000 }
             )
-        case let .droppedOnReplaceSelected(workspaceId, panelId):
-            cmuxDebugLog(
-                "ws.unfocus.drop tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=replaced_selected"
-            )
-        case let .droppedSelectedAgain(workspaceId, panelId):
-            cmuxDebugLog(
-                "ws.unfocus.drop tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=selected_again"
-            )
-        case let .completed(workspaceId, panelId, reason):
-            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.unfocus.complete id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) " +
-                    "tab=\(workspaceId.debugShortWorkspaceId) panel=\(String(panelId.uuidString.prefix(5))) reason=\(reason)"
-                )
-            } else {
-                cmuxDebugLog(
-                    "ws.unfocus.complete id=none tab=\(workspaceId.debugShortWorkspaceId) " +
-                    "panel=\(String(panelId.uuidString.prefix(5))) reason=\(reason)"
-                )
-            }
-        }
+        )
 #endif
     }
 
-    // WorkspaceHandoffHosting witness that touches `private` DEBUG members
-    // (`debugCurrentWorkspaceSwitchSnapshot`, `debugShortWorkspaceId`,
-    // `debugMsText`); the rest of the conformance lives in
-    // TabManager+WorkspaceHandoffHosting.swift. Formats the byte-identical
-    // legacy `ws.mount.reconcile` / `ws.handoff.*` trace lines that
-    // `ContentView` used to emit inline; release builds make this a no-op
-    // exactly as the original `#if DEBUG`-guarded `cmuxDebugLog` calls were.
+    // WorkspaceHandoffHosting witness that touches the `private` DEBUG
+    // `debugCurrentWorkspaceSwitchSnapshot` member and `cmuxDebugLog`; the rest
+    // of the conformance lives in TabManager+WorkspaceHandoffHosting.swift. The
+    // byte-identical `ws.mount.reconcile` / `ws.handoff.*` trace-line assembly
+    // (which `ContentView` used to emit inline) lives on the event in
+    // CmuxWorkspaces (`WorkspaceHandoffEvent.traceLine(...)`); this method just
+    // supplies the per-window switch snapshot + elapsed ms and emits the line.
+    // Release builds make this a no-op exactly as the original
+    // `#if DEBUG`-guarded `cmuxDebugLog` calls were.
     func logWorkspaceHandoffEvent(_ event: WorkspaceHandoffEvent) {
 #if DEBUG
-        switch event {
-        case let .mountReconciled(isCycleHot, selectedWorkspaceId, mountedWorkspaceIds, addedWorkspaceIds, removedWorkspaceIds):
-            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.mount.reconcile id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) hot=\(isCycleHot ? 1 : 0) " +
-                    "selected=\(selectedWorkspaceId.debugShortWorkspaceId) " +
-                    "mounted=\(mountedWorkspaceIds.debugShortWorkspaceIds) " +
-                    "added=\(addedWorkspaceIds.debugShortWorkspaceIds) removed=\(removedWorkspaceIds.debugShortWorkspaceIds)"
-                )
-            } else {
-                cmuxDebugLog(
-                    "ws.mount.reconcile id=none hot=\(isCycleHot ? 1 : 0) selected=\(selectedWorkspaceId.debugShortWorkspaceId) " +
-                    "mounted=\(mountedWorkspaceIds.debugShortWorkspaceIds)"
-                )
-            }
-        case let .handoffStarted(oldSelectedWorkspaceId, newSelectedWorkspaceId):
-            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.handoff.start id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) old=\(oldSelectedWorkspaceId.debugShortWorkspaceId) " +
-                    "new=\(newSelectedWorkspaceId.debugShortWorkspaceId)"
-                )
-            } else {
-                cmuxDebugLog(
-                    "ws.handoff.start id=none old=\(oldSelectedWorkspaceId.debugShortWorkspaceId) new=\(newSelectedWorkspaceId.debugShortWorkspaceId)"
-                )
-            }
-        case let .handoffFastReady(selectedWorkspaceId):
-            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.handoff.fastReady id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) selected=\(selectedWorkspaceId.debugShortWorkspaceId)"
-                )
-            } else {
-                cmuxDebugLog("ws.handoff.fastReady id=none selected=\(selectedWorkspaceId.debugShortWorkspaceId)")
-            }
-        case let .handoffCompleted(reason, retiringWorkspaceId):
-            if let snapshot = debugCurrentWorkspaceSwitchSnapshot() {
-                let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
-                cmuxDebugLog(
-                    "ws.handoff.complete id=\(snapshot.id) dt=\(dtMs.debugMillisecondsText) reason=\(reason) retiring=\(retiringWorkspaceId.debugShortWorkspaceId)"
-                )
-            } else {
-                cmuxDebugLog("ws.handoff.complete id=none reason=\(reason) retiring=\(retiringWorkspaceId.debugShortWorkspaceId)")
-            }
-        }
+        let snapshot = debugCurrentWorkspaceSwitchSnapshot()
+        cmuxDebugLog(
+            event.traceLine(
+                switchSnapshot: snapshot.map { WorkspaceSwitchTraceSnapshot(id: $0.id) },
+                elapsedMs: snapshot.map { (CACurrentMediaTime() - $0.startedAt) * 1000 }
+            )
+        )
 #endif
     }
 

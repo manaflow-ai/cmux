@@ -5829,8 +5829,9 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 }
 
 @MainActor
-private final class SidebarTabItemSettingsStore: ObservableObject {
-    @Published private(set) var snapshot: SidebarTabItemSettingsSnapshot
+@Observable
+private final class SidebarTabItemSettingsStore {
+    private(set) var snapshot: SidebarTabItemSettingsSnapshot
 
     private let defaults: UserDefaults
     private let sidebarFontSizeProvider: () async -> CGFloat
@@ -5959,7 +5960,7 @@ struct VerticalTabsSidebar: View {
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor(
         debugLog: VerticalTabsSidebar.sidebarDragFailsafeDebugLog
     )
-    @StateObject private var tabItemSettingsStore = SidebarTabItemSettingsStore(
+    @State private var tabItemSettingsStore = SidebarTabItemSettingsStore(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared

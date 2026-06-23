@@ -1,4 +1,5 @@
 public import CoreGraphics
+public import GhosttyKit
 
 /// Resize direction for backwards compatibility.
 public enum ResizeDirection: Sendable {
@@ -36,5 +37,20 @@ public enum ResizeDirection: Sendable {
     /// Positive values move the divider toward the second child (right/down).
     public var dividerDeltaSign: CGFloat {
         requiresPaneInFirstChild ? 1 : -1
+    }
+
+    /// Map a Ghostty `GHOSTTY_ACTION_RESIZE_SPLIT` direction onto the
+    /// `ResizeDirection`, returning `nil` for any unrecognized value. This is the
+    /// byte-faithful home of the legacy
+    /// `GhosttyApp.resizeDirection(from:ghostty_action_resize_split_direction_e)`
+    /// converter that fed the runtime resize-split action.
+    public init?(ghosttyDirection direction: ghostty_action_resize_split_direction_e) {
+        switch direction {
+        case GHOSTTY_RESIZE_SPLIT_UP: self = .up
+        case GHOSTTY_RESIZE_SPLIT_DOWN: self = .down
+        case GHOSTTY_RESIZE_SPLIT_LEFT: self = .left
+        case GHOSTTY_RESIZE_SPLIT_RIGHT: self = .right
+        default: return nil
+        }
     }
 }

@@ -29,6 +29,16 @@ let package = Package(
                 .product(name: "CMUXProjectModel", package: "CMUXProjectModel"),
                 .product(name: "CmuxCore", package: "CmuxCore"),
                 .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
+                // The split/resize/goto direction converters
+                // (SplitDirection.init?(ghosttyDirection:),
+                // ResizeDirection.init?(ghosttyDirection:),
+                // NavigationDirection.init?(ghosttyGotoSplit:)) map the
+                // ghostty_action_*_e C enums onto Bonsplit-side value types, so
+                // CmuxPanes needs the GhosttyKit module. CmuxTerminalCore
+                // re-vends the single GhosttyKit binaryTarget as CmuxGhosttyKit;
+                // depend on that product rather than declaring a duplicate
+                // binary target for the one xcframework.
+                .product(name: "CmuxGhosttyKit", package: "CmuxTerminalCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

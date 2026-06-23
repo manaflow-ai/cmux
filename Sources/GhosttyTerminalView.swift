@@ -957,40 +957,6 @@ class GhosttyApp {
         return true
     }
 
-    private func splitDirection(from direction: ghostty_action_split_direction_e) -> SplitDirection? {
-        switch direction {
-        case GHOSTTY_SPLIT_DIRECTION_RIGHT: return .right
-        case GHOSTTY_SPLIT_DIRECTION_LEFT: return .left
-        case GHOSTTY_SPLIT_DIRECTION_DOWN: return .down
-        case GHOSTTY_SPLIT_DIRECTION_UP: return .up
-        default: return nil
-        }
-    }
-
-    private func focusDirection(from direction: ghostty_action_goto_split_e) -> NavigationDirection? {
-        switch direction {
-        // For previous/next, we use left/right as a reasonable default
-        // Bonsplit doesn't have cycle-based navigation
-        case GHOSTTY_GOTO_SPLIT_PREVIOUS: return .left
-        case GHOSTTY_GOTO_SPLIT_NEXT: return .right
-        case GHOSTTY_GOTO_SPLIT_UP: return .up
-        case GHOSTTY_GOTO_SPLIT_DOWN: return .down
-        case GHOSTTY_GOTO_SPLIT_LEFT: return .left
-        case GHOSTTY_GOTO_SPLIT_RIGHT: return .right
-        default: return nil
-        }
-    }
-
-    private func resizeDirection(from direction: ghostty_action_resize_split_direction_e) -> ResizeDirection? {
-        switch direction {
-        case GHOSTTY_RESIZE_SPLIT_UP: return .up
-        case GHOSTTY_RESIZE_SPLIT_DOWN: return .down
-        case GHOSTTY_RESIZE_SPLIT_LEFT: return .left
-        case GHOSTTY_RESIZE_SPLIT_RIGHT: return .right
-        default: return nil
-        }
-    }
-
     // `fileprivate` so `GhosttyAppRuntimeCallbackBridge` (same file) can resolve
     // the surface callback context when building the runtime callback table.
     fileprivate static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
@@ -1139,7 +1105,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_NEW_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
-                  let direction = splitDirection(from: action.action.new_split) else {
+                  let direction = SplitDirection(ghosttyDirection: action.action.new_split) else {
                 return false
             }
             return performOnMain {
@@ -1157,7 +1123,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_GOTO_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
-                  let direction = focusDirection(from: action.action.goto_split) else {
+                  let direction = NavigationDirection(ghosttyGotoSplit: action.action.goto_split) else {
                 return false
             }
             return performOnMain {
@@ -1167,7 +1133,7 @@ class GhosttyApp {
         case GHOSTTY_ACTION_RESIZE_SPLIT:
             guard let tabId = surfaceView.tabId,
                   let surfaceId = surfaceView.terminalSurface?.id,
-                  let direction = resizeDirection(from: action.action.resize_split.direction) else {
+                  let direction = ResizeDirection(ghosttyDirection: action.action.resize_split.direction) else {
                 return false
             }
             let amount = action.action.resize_split.amount

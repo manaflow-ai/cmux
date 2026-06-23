@@ -1,4 +1,5 @@
 public import Bonsplit
+public import GhosttyKit
 
 /// Split direction for backwards compatibility with old API.
 public enum SplitDirection: Sendable {
@@ -45,6 +46,21 @@ public enum SplitDirection: Sendable {
             self = .down
         default:
             return nil
+        }
+    }
+
+    /// Map a Ghostty `GHOSTTY_ACTION_NEW_SPLIT` direction onto the Bonsplit-side
+    /// `SplitDirection`, returning `nil` for any unrecognized value. This is the
+    /// byte-faithful home of the legacy
+    /// `GhosttyApp.splitDirection(from:ghostty_action_split_direction_e)`
+    /// converter that fed the runtime new-split action.
+    public init?(ghosttyDirection direction: ghostty_action_split_direction_e) {
+        switch direction {
+        case GHOSTTY_SPLIT_DIRECTION_RIGHT: self = .right
+        case GHOSTTY_SPLIT_DIRECTION_LEFT: self = .left
+        case GHOSTTY_SPLIT_DIRECTION_DOWN: self = .down
+        case GHOSTTY_SPLIT_DIRECTION_UP: self = .up
+        default: return nil
         }
     }
 }
