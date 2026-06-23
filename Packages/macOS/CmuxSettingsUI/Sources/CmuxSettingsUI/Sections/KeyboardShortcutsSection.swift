@@ -356,6 +356,9 @@ public struct KeyboardShortcutsSection: View {
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
+            if shortcutConflictIsResolvedByCanvasActualSizeRouting(action, other) {
+                continue
+            }
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
             // cannot decide the overlap. Context-disjoint clauses (e.g.
@@ -382,6 +385,15 @@ public struct KeyboardShortcutsSection: View {
             }
         }
         return nil
+    }
+
+    private func shortcutConflictIsResolvedByCanvasActualSizeRouting(
+        _ lhs: ShortcutAction,
+        _ rhs: ShortcutAction
+    ) -> Bool {
+        let pair = Set([lhs, rhs])
+        return pair == Set([.canvasZoomReset, .browserZoomReset]) ||
+            pair == Set([.canvasZoomReset, .markdownZoomReset])
     }
 
     /// Formats a binding for display, delegating to

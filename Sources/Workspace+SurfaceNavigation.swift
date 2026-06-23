@@ -1,5 +1,6 @@
 extension Workspace {
-    /// Select the next surface in the currently focused pane.
+    /// Select the next surface in the currently focused split pane, or in
+    /// workspace Canvas order when Canvas layout is active.
     func selectNextSurface() {
         if layoutMode == .canvas {
             _ = selectAdjacentCanvasTab(offset: 1)
@@ -13,7 +14,8 @@ extension Workspace {
         }
     }
 
-    /// Select the previous surface in the currently focused pane.
+    /// Select the previous surface in the currently focused split pane, or in
+    /// workspace Canvas order when Canvas layout is active.
     func selectPreviousSurface() {
         if layoutMode == .canvas {
             _ = selectAdjacentCanvasTab(offset: -1)
@@ -27,7 +29,8 @@ extension Workspace {
         }
     }
 
-    /// Select a surface by index in the currently focused pane.
+    /// Select a surface by index in the currently focused split pane, or in
+    /// workspace Canvas order when Canvas layout is active.
     func selectSurface(at index: Int) {
         if layoutMode == .canvas {
             _ = selectCanvasTab(at: index)
@@ -43,7 +46,8 @@ extension Workspace {
         }
     }
 
-    /// Select the last surface in the currently focused pane.
+    /// Select the last surface in the currently focused split pane, or in
+    /// workspace Canvas order when Canvas layout is active.
     func selectLastSurface() {
         if layoutMode == .canvas {
             _ = selectLastCanvasTab()

@@ -14,15 +14,17 @@ private final class ShortcutUnrelatedResponderView: NSView {
 
 @MainActor
 private final class CanvasViewportSpy: CanvasViewportControlling {
+    var revealedPanelIds: [UUID] = []
     var overviewToggleCount = 0
     var modelDidChangeCount = 0
+    var resetZoomCount = 0
     var currentMagnification: CGFloat = 1
     var currentCenterInCanvas: CGPoint = .zero
 
-    func revealPane(_ panelId: UUID, animated: Bool) {}
+    func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
     func toggleOverview() { overviewToggleCount += 1 }
     func zoom(by factor: CGFloat) {}
-    func resetZoom() {}
+    func resetZoom() { resetZoomCount += 1 }
     func setViewport(center: CGPoint, magnification: CGFloat?) {}
     func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
 }
@@ -255,6 +257,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             let newPanelId = try #require(newPanelIds.first)
             let newFrame = try #require(workspace.canvasModel.frame(of: newPanelId))
             #expect(newFrame.minX >= originalFrame.maxX)
+            #expect(newFrame.width == originalFrame.width)
+            #expect(newFrame.height == originalFrame.height)
             #expect(workspace.focusedPanelId == newPanelId)
         }
     }
@@ -315,7 +319,9 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
             window.makeKeyAndOrderFront(nil)
             workspace.setLayoutMode(.canvas)
-            let secondPanel = try #require(workspace.newTerminalSurfaceInFocusedPane(focus: true))
+            let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
+            let viewport = CanvasViewportSpy()
+            workspace.canvasModel.viewport = viewport
             workspace.focusPanel(firstPanelId)
             #expect(workspace.focusedPanelId == firstPanelId)
 
@@ -325,7 +331,84 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             Issue.record("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-            #expect(workspace.focusedPanelId == secondPanel.id)
+            #expect(workspace.focusedPanelId == secondPanelId)
+            #expect(viewport.revealedPanelIds.last == secondPanelId)
+        }
+    }
+
+    @Test func canvasSurfaceDigitsWinOverRightSidebarModeDigitsInCanvasMode() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
+            #expect(workspace.focusedPanelId == secondPanelId)
+
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+            let fileExplorerState = try #require(appDelegate.fileExplorerState)
+            fileExplorerState.mode = .sessions
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(workspace.focusedPanelId == firstPanelId)
+            #expect(
+                fileExplorerState.mode == .sessions,
+                "Ctrl+1 should select the first Canvas surface instead of switching the right sidebar to Files in canvas mode"
+            )
+        }
+    }
+
+    @Test func directionalFocusShortcutInCanvasRevealsTargetPane() throws {
+        try withTemporaryShortcut(action: .focusRight) {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(
+                key: "→",
+                modifiers: [.command, .option],
+                keyCode: 124,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let secondPanelId = try #require(workspace.openNewCanvasPane(
+                type: .terminal,
+                focus: true,
+                direction: .right
+            ))
+            let viewport = CanvasViewportSpy()
+            workspace.canvasModel.viewport = viewport
+            workspace.focusPanel(firstPanelId)
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(workspace.focusedPanelId == secondPanelId)
+            #expect(viewport.revealedPanelIds.last == secondPanelId)
         }
     }
 
@@ -340,7 +423,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
         workspace.setLayoutMode(.canvas)
         for _ in 1..<10 {
-            panelIds.append(try #require(workspace.newTerminalSurfaceInFocusedPane(focus: true)).id)
+            panelIds.append(try #require(workspace.openNewCanvasPane(type: .terminal, focus: true)))
         }
         #expect(panelIds.count == 10)
 
@@ -350,6 +433,38 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
         workspace.selectLastSurface()
         #expect(workspace.focusedPanelId == panelIds[9])
+    }
+
+    @Test func cmdZeroInCanvasResetsCanvasZoom() throws {
+        try withTemporaryShortcut(action: .canvasZoomReset) {
+            let appDelegate = try #require(AppDelegate.shared)
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let event = try #require(makeKeyDownEvent(
+                key: "0",
+                modifiers: [.command],
+                keyCode: 29,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let viewport = CanvasViewportSpy()
+            workspace.canvasModel.viewport = viewport
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(viewport.resetZoomCount == 1)
+        }
     }
 
     @Test func equalizeSplitsShortcutInCanvasEqualizesCanvasPaneSizesOnly() throws {

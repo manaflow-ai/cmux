@@ -447,7 +447,7 @@ enum KeyboardShortcutSettings {
             case .canvasZoomOut:
                 return StoredShortcut(key: "-", command: true, shift: false, option: true, control: false)
             case .canvasZoomReset:
-                return StoredShortcut(key: "0", command: true, shift: false, option: true, control: false)
+                return StoredShortcut(key: "0", command: true, shift: false, option: false, control: false)
             case .canvasTidy:
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: true)
             case .canvasAlignLeft,
@@ -635,6 +635,9 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
+            if shortcutConflictIsResolvedByCanvasActualSizeRouting(with: proposedAction) {
+                return false
+            }
             // Two bindings on the same keystroke only collide when some focus
             // state activates both AND router priority cannot decide the overlap.
             // A `shortcuts.when` override (or the built-in context default) can
@@ -657,6 +660,12 @@ enum KeyboardShortcutSettings {
                 configuredShortcut,
                 configuredUsesNumberedDigitMatching: usesNumberedDigitMatching
             )
+        }
+
+        private func shortcutConflictIsResolvedByCanvasActualSizeRouting(with proposedAction: Action) -> Bool {
+            let pair = Set([self, proposedAction])
+            return pair == Set([.canvasZoomReset, .browserZoomReset]) ||
+                pair == Set([.canvasZoomReset, .markdownZoomReset])
         }
 
         func normalizedRecordedShortcutResult(_ shortcut: StoredShortcut) -> RecordedShortcutResolution {

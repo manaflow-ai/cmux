@@ -49,7 +49,8 @@ public final class CanvasModel {
     public func syncPanes(
         panelIds: [UUID],
         focusedPanelId: UUID?,
-        preferredDirection: CanvasDirection? = nil
+        preferredDirection: CanvasDirection? = nil,
+        preferredNewPaneSize: CanvasSize? = nil
     ) -> [UUID] {
         var changed = false
         let idSet = Set(panelIds.map(CanvasPanelID.init(rawValue:)))
@@ -66,8 +67,9 @@ public final class CanvasModel {
                 .flatMap { layout.pane(containing: CanvasPanelID(rawValue: $0)) }
                 .flatMap { layout.frame(of: $0) }
                 ?? layout.panes.last?.frame
+            let size = preferredNewPaneSize ?? anchor?.size ?? Self.defaultPaneSize
             let frame = placer.frameForNewPane(
-                size: Self.defaultPaneSize,
+                size: size,
                 near: anchor,
                 avoiding: occupiedFrames,
                 preferredDirection: preferredDirection
