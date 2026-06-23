@@ -1007,7 +1007,10 @@ final class MobileHostService {
             let id = UUID()
             let session = MobileHostConnection(
                 id: id,
-                connection: connection,
+                byteConnection: NWMobileHostByteConnection(
+                    connection: connection,
+                    callbackQueue: DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+                ),
                 authorizeRequest: { request in
                     if !Self.requiresAuthorization(method: request.method) {
                         return nil
@@ -1130,7 +1133,10 @@ final class MobileHostService {
         let id = UUID()
         let session = MobileHostConnection(
             id: id,
-            connection: connection,
+            byteConnection: NWMobileHostByteConnection(
+                connection: connection,
+                callbackQueue: DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+            ),
             authorizeRequest: { request in
                 await MobileHostService.shared.authorizationError(for: request)
             },
@@ -1935,14 +1941,115 @@ private actor MobileHostAccessTokenStore: TokenStoreProtocol {
     }
 }
 
+/// A connection-lifecycle event from a ``MobileHostByteConnection``, the
+/// transport-agnostic subset of `NWConnection.State` the mobile host cares about.
+enum MobileHostByteConnectionEvent: Sendable {
+    case ready
+    case failed(reason: String)
+    case cancelled
+}
+
+/// The server-side byte channel a ``MobileHostConnection`` drives, mirroring the
+/// client's `CmxByteTransport` (plans/feat-ios-iroh/DESIGN.md PR 4). Extracting
+/// this lets the same frame codec, RPC dispatch, timeouts, and subscription
+/// bookkeeping run unchanged over either a Network.framework TCP connection
+/// (today) or an iroh QUIC stream (the iroh accept lane). `receive` is one-shot
+/// to match `NWConnection`: after processing each delivery the consumer calls
+/// ``resumeReceiving()`` for the next chunk.
+protocol MobileHostByteConnection: Sendable {
+    func start(
+        onEvent: @escaping @Sendable (MobileHostByteConnectionEvent) -> Void,
+        onReceive: @escaping @Sendable (Data?, Bool, String?) -> Void
+    )
+    func resumeReceiving()
+    /// Sends a frame, returning nil on success or an error description on failure.
+    func send(_ data: Data) async -> String?
+    func close()
+}
+
+/// The Network.framework adapter: a verbatim wrapper around the calls
+/// `MobileHostConnection` made directly before the seam was extracted, so the
+/// TCP lane's behavior is unchanged.
+final class NWMobileHostByteConnection: MobileHostByteConnection, @unchecked Sendable {
+    private static let receiveMaximumLength = 64 * 1024
+
+    private let connection: NWConnection
+    private let callbackQueue: DispatchQueue
+    private let receiveLock = NSLock()
+    private var onReceive: (@Sendable (Data?, Bool, String?) -> Void)?
+
+    init(connection: NWConnection, callbackQueue: DispatchQueue) {
+        self.connection = connection
+        self.callbackQueue = callbackQueue
+    }
+
+    func start(
+        onEvent: @escaping @Sendable (MobileHostByteConnectionEvent) -> Void,
+        onReceive: @escaping @Sendable (Data?, Bool, String?) -> Void
+    ) {
+        receiveLock.lock()
+        self.onReceive = onReceive
+        receiveLock.unlock()
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .failed(let error):
+                onEvent(.failed(reason: String(describing: error)))
+            case .cancelled:
+                onEvent(.cancelled)
+            case .ready:
+                onEvent(.ready)
+            case .setup, .waiting, .preparing:
+                break
+            @unknown default:
+                break
+            }
+        }
+        connection.start(queue: callbackQueue)
+        receiveOnce()
+    }
+
+    func resumeReceiving() {
+        receiveOnce()
+    }
+
+    private func receiveOnce() {
+        receiveLock.lock()
+        let deliver = onReceive
+        receiveLock.unlock()
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: Self.receiveMaximumLength
+        ) { data, _, isComplete, error in
+            deliver?(data, isComplete, error.map { String(describing: $0) })
+        }
+    }
+
+    func send(_ data: Data) async -> String? {
+        await withCheckedContinuation { continuation in
+            connection.send(
+                content: data,
+                contentContext: .defaultMessage,
+                isComplete: false,
+                completion: .contentProcessed { error in
+                    continuation.resume(returning: error.map { String(describing: $0) })
+                }
+            )
+        }
+    }
+
+    func close() {
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+    }
+}
+
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
     private let id: UUID
-    private let connection: NWConnection
-    private let callbackQueue: DispatchQueue
+    private let byteConnection: any MobileHostByteConnection
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
@@ -1961,7 +2068,7 @@ actor MobileHostConnection {
 
     init(
         id: UUID,
-        connection: NWConnection,
+        byteConnection: any MobileHostByteConnection,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
@@ -1970,8 +2077,7 @@ actor MobileHostConnection {
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
         self.id = id
-        self.connection = connection
-        self.callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+        self.byteConnection = byteConnection
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
@@ -1981,13 +2087,23 @@ actor MobileHostConnection {
     }
 
     func start() {
-        connection.stateUpdateHandler = { [weak self, id] state in
-            guard let self else { return }
-            Task { await self.handleState(state, connectionID: id) }
-        }
-        connection.start(queue: callbackQueue)
+        byteConnection.start(
+            onEvent: { [weak self, id] event in
+                guard let self else { return }
+                Task { await self.handleEvent(event, connectionID: id) }
+            },
+            onReceive: { [weak self] data, isComplete, errorDescription in
+                guard let self else { return }
+                Task {
+                    await self.handleReceive(
+                        data: data,
+                        isComplete: isComplete,
+                        errorDescription: errorDescription
+                    )
+                }
+            }
+        )
         startFirstFrameTimeout()
-        receiveNext()
     }
 
     func close(reason: String) {
@@ -2013,29 +2129,8 @@ actor MobileHostConnection {
             )
         }
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
-        connection.stateUpdateHandler = nil
-        connection.cancel()
+        byteConnection.close()
         Task { await onClose(id) }
-    }
-
-    private func receiveNext() {
-        guard !isClosed else {
-            return
-        }
-        connection.receive(
-            minimumIncompleteLength: 1,
-            maximumLength: 64 * 1024
-        ) { [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            let errorDescription = error.map { String(describing: $0) }
-            Task {
-                await self.handleReceive(
-                    data: data,
-                    isComplete: isComplete,
-                    errorDescription: errorDescription
-                )
-            }
-        }
     }
 
     private func handleReceive(
@@ -2095,8 +2190,8 @@ actor MobileHostConnection {
 
         if isComplete {
             close(reason: "remote closed")
-        } else {
-            receiveNext()
+        } else if !isClosed {
+            byteConnection.resumeReceiving()
         }
     }
 
@@ -2336,39 +2431,21 @@ actor MobileHostConnection {
             return false
         }
 
-        return await withCheckedContinuation { continuation in
-            connection.send(
-                content: frame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self] error in
-                    guard let self else {
-                        continuation.resume(returning: false)
-                        return
-                    }
-                    if let error {
-                        Task { await self.close(reason: String(describing: error)) }
-                        continuation.resume(returning: false)
-                    } else {
-                        continuation.resume(returning: true)
-                    }
-                }
-            )
+        if let errorDescription = await byteConnection.send(frame) {
+            close(reason: errorDescription)
+            return false
         }
+        return true
     }
 
-    private func handleState(_ state: NWConnection.State, connectionID: UUID) {
-        switch state {
-        case .failed(let error):
-            close(reason: String(describing: error))
+    private func handleEvent(_ event: MobileHostByteConnectionEvent, connectionID: UUID) {
+        switch event {
+        case .failed(let reason):
+            close(reason: reason)
         case .cancelled:
             close(reason: "cancelled")
         case .ready:
             mobileHostLog.debug("mobile host connection ready \(connectionID.uuidString, privacy: .public)")
-        case .setup, .waiting, .preparing:
-            break
-        @unknown default:
-            break
         }
     }
 }
