@@ -31,7 +31,7 @@ const englishOnlyPages = [
 
 export const agentReadablePages = [
   { path: "/", title: "Home" },
-  { path: "/ios", title: "cmux for iOS" },
+  { path: "/ios", title: "cmux iOS" },
   { path: "/blog", title: "Blog" },
   { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },

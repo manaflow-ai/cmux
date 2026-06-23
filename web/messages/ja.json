@@ -1,8 +1,8 @@
 {
   "ios": {
-    "metaTitle": "cmux for iOS — iPhone と iPad でターミナルを",
+    "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
-    "title": "cmux for iOS",
+    "title": "cmux iOS",
     "tagline": "ターミナルを、ポケットに。",
     "subtitle": "cmux iOS アプリは、Mac のターミナルを iPhone と iPad にリアルタイムでミラーリングします。自分の Tailscale やローカルネットワーク経由で、どこからでもコーディングエージェントの操作、ビルドの確認、ワークスペースの切り替えができます。",
     "ctaBeta": "TestFlight でダウンロード",

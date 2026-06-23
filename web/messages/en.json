@@ -1,8 +1,8 @@
 {
   "ios": {
-    "metaTitle": "cmux for iOS — your terminals on iPhone and iPad",
+    "metaTitle": "cmux iOS — your terminals on iPhone and iPad",
     "metaDescription": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime, over your own Tailscale or local network. Drive your coding agents from anywhere.",
-    "title": "cmux for iOS",
+    "title": "cmux iOS",
     "tagline": "Your terminals, in your pocket.",
     "subtitle": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime. Drive your coding agents, watch builds, and switch workspaces from anywhere, over your own Tailscale or local network.",
     "ctaBeta": "Download on TestFlight",
