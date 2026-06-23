@@ -10658,7 +10658,11 @@ struct CMUXCLI {
           fi
           if command -v tmux >/dev/null 2>&1; then
             export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud}"
-            exec tmux new-session -A -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l"
+            if ! tmux has-session -t "$CMUX_CLOUD_TMUX_SESSION" >/dev/null 2>&1; then
+              tmux new-session -d -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l" >/dev/null 2>&1 || true
+            fi
+            tmux set-option -t "$CMUX_CLOUD_TMUX_SESSION" status off >/dev/null 2>&1 || true
+            exec tmux attach-session -t "$CMUX_CLOUD_TMUX_SESSION"
           fi
           exec zsh -l
         fi
