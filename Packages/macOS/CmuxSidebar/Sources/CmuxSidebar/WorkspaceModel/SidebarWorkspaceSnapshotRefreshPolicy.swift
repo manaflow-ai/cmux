@@ -1,5 +1,5 @@
 extension SidebarWorkspaceSnapshotBuilder.Snapshot {
-    struct ContextMenuImmediateFields: Equatable {
+    public struct ContextMenuImmediateFields: Equatable {
         let title: String
         let customDescription: String?
         let isPinned: Bool
@@ -7,7 +7,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let finderDirectoryPath: String?
     }
 
-    var contextMenuImmediateFields: ContextMenuImmediateFields {
+    public var contextMenuImmediateFields: ContextMenuImmediateFields {
         ContextMenuImmediateFields(
             title: title,
             customDescription: customDescription,
@@ -17,7 +17,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         )
     }
 
-    func applyingContextMenuImmediateFields(from snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> Self {
+    public func applyingContextMenuImmediateFields(from snapshot: SidebarWorkspaceSnapshotBuilder.Snapshot) -> Self {
         guard contextMenuImmediateFields != snapshot.contextMenuImmediateFields else { return self }
         return Self(
             presentationKey: snapshot.presentationKey,
@@ -49,14 +49,14 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
 
 // Context-menu actions should update stable row affordances immediately while
 // keeping telemetry-heavy sidebar details frozen until the menu lifecycle ends.
-struct SidebarWorkspaceSnapshotRefreshPolicy {
-    struct Decision: Equatable {
-        let workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
-        let pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
-        let hasDeferredWorkspaceObservationInvalidation: Bool
+public struct SidebarWorkspaceSnapshotRefreshPolicy {
+    public struct Decision: Equatable {
+        public let workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
+        public let pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
+        public let hasDeferredWorkspaceObservationInvalidation: Bool
     }
 
-    static func decision(
+    public static func decision(
         current: SidebarWorkspaceSnapshotBuilder.Snapshot?,
         next: SidebarWorkspaceSnapshotBuilder.Snapshot,
         force: Bool,
@@ -82,13 +82,15 @@ struct SidebarWorkspaceSnapshotRefreshPolicy {
     }
 }
 
-struct SidebarWorkspaceRowInteractionState: Equatable {
-    private(set) var isPointerHovering = false
-    private(set) var contextMenuVisible = false
+public struct SidebarWorkspaceRowInteractionState: Equatable {
+    public private(set) var isPointerHovering = false
+    public private(set) var contextMenuVisible = false
     private var contextMenuTrackingSuppressesCloseButton = false
     private var deferredPointerHoveringWhileContextMenuTracking: Bool?
 
-    mutating func setPointerHovering(_ hovering: Bool) {
+    public init() {}
+
+    public mutating func setPointerHovering(_ hovering: Bool) {
         if contextMenuTrackingSuppressesCloseButton {
             deferredPointerHoveringWhileContextMenuTracking = hovering
             isPointerHovering = false
@@ -98,31 +100,31 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
         isPointerHovering = hovering
     }
 
-    mutating func contextMenuDidAppear() {
+    public mutating func contextMenuDidAppear() {
         contextMenuVisible = true
         contextMenuTrackingSuppressesCloseButton = true
         deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = false
     }
 
-    mutating func contextMenuDidDisappear() {
+    public mutating func contextMenuDidDisappear() {
         contextMenuVisible = false
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }
 
-    mutating func contextMenuTrackingDidBegin() {
+    public mutating func contextMenuTrackingDidBegin() {
         contextMenuTrackingSuppressesCloseButton = true
         deferredPointerHoveringWhileContextMenuTracking = nil
         isPointerHovering = false
     }
 
-    mutating func contextMenuTrackingDidEnd() {
+    public mutating func contextMenuTrackingDidEnd() {
         contextMenuTrackingSuppressesCloseButton = false
         applyDeferredPointerHovering()
     }
 
-    func shouldShowCloseButton(
+    public func shouldShowCloseButton(
         canCloseWorkspace: Bool,
         shortcutHintModeActive: Bool
     ) -> Bool {
