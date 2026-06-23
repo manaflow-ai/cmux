@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxSidebar
 import Testing
 
 #if canImport(cmux_DEV)
@@ -10,6 +11,32 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
+    @MainActor
+    @Test func sessionRestoreDropsPersistedAgentStatusRuntimeState() throws {
+        let source = Workspace()
+        let sourcePanelId = try #require(source.focusedPanelId)
+        let pidKey = "claude_code.issue-6441"
+
+        source.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input"
+        )
+        source.recordAgentPID(key: pidKey, pid: 42_424, panelId: sourcePanelId, refreshPorts: false)
+
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+        #expect(snapshot.statusEntries.contains { $0.key == "claude_code" })
+
+        let restored = Workspace()
+        let restoredPanelIds = restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restoredPanelIds[sourcePanelId])
+
+        #expect(restored.statusEntries["claude_code"] == nil)
+        #expect(restored.agentPIDs.isEmpty)
+        #expect(restored.agentPIDPanelIdsByKey.isEmpty)
+        #expect(restored.agentPIDKeysByPanelId.isEmpty)
+        #expect(restored.agentHibernationLifecycleState(panelId: restoredPanelId, fallback: nil) == .unknown)
+    }
+
     @MainActor
     @Test func claudeAgentHookResumeBindingRestoresFromLaunchCwdWhenRuntimeCwdDrifted() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
@@ -72,6 +99,141 @@ struct AgentSessionAutoResumeSwiftTests {
                 restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.cwd == launchCwd
             )
         }
+    }
+
+    /// Regression for #6617: after Cmd+Q/restore of a workspace whose focused
+    /// terminal is running an auto-resumed agent in a project directory, the
+    /// resumed shell spawns in its default directory and shell integration
+    /// reports that directory (typically home) before the agent-resume command
+    /// cds into the project. While the project directory still exists that
+    /// spurious live report must not overwrite the restored workspace cwd,
+    /// otherwise Cmd+T opens the next tab in home (~) instead of the project
+    /// directory the agent is in.
+    @MainActor
+    @Test func cmdTAfterAgentResumeRestoreKeepsProjectCwdDespiteSpuriousHomePwdReport() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            // A real on-disk project directory so the restore guard can confirm it
+            // still exists and treat the resumed shell's home report as spurious.
+            let projectDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-cmdt-resume-project-\(UUID().uuidString)", isDirectory: true)
+                .path
+            try FileManager.default.createDirectory(atPath: projectDir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(atPath: projectDir) }
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: projectDir
+            )
+
+            // The resumed shell starts before its agent-resume command cds, so
+            // shell integration reports home first. Because the project directory
+            // still exists, this spurious live report must be ignored so the
+            // restored project cwd survives.
+            let spuriousHomeReport = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(spuriousHomeReport != projectDir)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: spuriousHomeReport)
+
+            #expect(restored.currentDirectory == projectDir)
+            #expect(restored.panelDirectories[restoredPanelId] == projectDir)
+
+            // Cmd+T must open the new tab in the project directory, not home.
+            let createdPanel = try #require(restored.newTerminalSurfaceInFocusedPane(focus: false))
+            #expect(createdPanel.requestedWorkingDirectory == projectDir)
+        }
+    }
+
+    /// Companion to #6617: when the saved project directory was deleted between
+    /// sessions, the agent-resume `cd` fails and the resumed shell's reported
+    /// (home) directory is the real location, so it must be accepted rather than
+    /// dropped as a spurious post-restore report (which would strand the cwd on
+    /// the deleted path and make Cmd+T inherit an invalid directory).
+    @MainActor
+    @Test func agentResumeRestoreAcceptsHomePwdReportWhenSavedDirectoryWasDeleted() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            UserDefaults.standard.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+
+            // A saved directory that no longer exists on disk (deleted between
+            // sessions). It is intentionally never created.
+            let deletedDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-cmdt-deleted-project-\(UUID().uuidString)", isDirectory: true)
+                .path
+            #expect(!FileManager.default.fileExists(atPath: deletedDir))
+
+            let (restored, restoredPanelId) = try restoreWorkspaceWithAutoResumedClaudeAgent(
+                savedDirectory: deletedDir
+            )
+
+            // The saved directory is gone, so the shell's reported (home) cwd is
+            // the real fallback location and must be honored, not ignored.
+            let homeReport = FileManager.default.homeDirectoryForCurrentUser.path
+            try #require(homeReport != deletedDir)
+            restored.updatePanelDirectory(panelId: restoredPanelId, directory: homeReport)
+
+            #expect(restored.panelDirectories[restoredPanelId] == homeReport)
+            #expect(restored.currentDirectory == homeReport)
+        }
+    }
+
+    /// Builds a workspace whose focused terminal hosts an auto-resumable Claude
+    /// agent-hook session rooted at `savedDirectory`, snapshots it, and restores
+    /// it into a fresh workspace. Returns the restored workspace and the restored
+    /// focused panel id, asserting the saved directory was replayed onto both the
+    /// workspace cwd and the panel directory.
+    @MainActor
+    private func restoreWorkspaceWithAutoResumedClaudeAgent(
+        savedDirectory: String
+    ) throws -> (workspace: Workspace, panelId: UUID) {
+        let sessionId = "claude-cmdt-resume-\(UUID().uuidString)"
+        let source = Workspace()
+        source.currentDirectory = savedDirectory
+        let sourcePanelId = try #require(source.focusedPanelId)
+
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: sessionId,
+            workingDirectory: savedDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", sessionId],
+                workingDirectory: savedDirectory,
+                environment: [:],
+                capturedAt: 1_777_777_777,
+                source: "process"
+            )
+        )
+        source.updatePanelShellActivityState(panelId: sourcePanelId, state: .commandRunning)
+        source.setRestoredAgentSnapshotForTesting(agent, panelId: sourcePanelId)
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Claude",
+                kind: "claude",
+                command: "{ cd -- '\(savedDirectory)' 2>/dev/null || [ ! -d '\(savedDirectory)' ]; } && 'claude' '--resume' '\(sessionId)'",
+                cwd: savedDirectory,
+                checkpointId: sessionId,
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 1_777_777_777
+            ),
+        ])
+
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        #expect(snapshot.currentDirectory == savedDirectory)
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try #require(restored.focusedPanelId)
+
+        // Restore replays the persisted directory onto the workspace and panel.
+        #expect(restored.currentDirectory == savedDirectory)
+        #expect(restored.panelDirectories[restoredPanelId] == savedDirectory)
+
+        return (restored, restoredPanelId)
     }
 
     @MainActor

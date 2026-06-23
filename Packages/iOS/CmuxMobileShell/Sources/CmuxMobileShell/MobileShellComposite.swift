@@ -33,30 +33,6 @@ private func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
     return hash
 }
 
-private func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
-    let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
-    return try CmxAttachRoute(
-        id: routeKind.rawValue,
-        kind: routeKind,
-        endpoint: .hostPort(host: host, port: port)
-    )
-}
-
-private func makeManualHostAttachTicket(
-    displayName: String,
-    macDeviceID: String,
-    route: CmxAttachRoute
-) throws -> CmxAttachTicket {
-    try CmxAttachTicket(
-        workspaceID: "manual-workspace",
-        terminalID: nil,
-        macDeviceID: macDeviceID,
-        macDisplayName: displayName,
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60 * 60)
-    )
-}
-
 private func workspaceActionCapabilities(from supportedHostCapabilities: Set<String>) -> MobileWorkspaceActionCapabilities {
     MobileWorkspaceActionCapabilities(
         supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
@@ -554,7 +530,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// intentionally left out of the set and allowed to autofocus.
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
 
-    private let runtime: (any MobileSyncRuntime)?
+    let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
     /// Best-effort, team-scoped lookup of fresher attach routes from the device
@@ -587,6 +563,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// The injected, fire-and-forget product-analytics emitter. Defaults to
     /// ``NoopAnalytics`` so previews/tests inject nothing.
     private let analytics: any AnalyticsEmitting
+    let connectAttemptRegistry = MobileRPCConnectAttemptRegistry()
+    let stackTokenGate = RPCStackTokenGate()
+    let stackTokenForceRefreshGate = RPCStackTokenGate()
     /// Collapses connection-state edges into one-per-outage lost/recovered events.
     private var connectionOutageThrottle = ConnectionOutageThrottle()
     /// When the current outage began, for the recovered event's duration.
@@ -783,6 +762,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return selectedWorkspace.preferredTerminal
     }
 
+    /// Create a mobile shell store with injectable runtime services for app
+    /// composition, previews, and package tests.
     public init(
         runtime: (any MobileSyncRuntime)? = nil,
         isSignedIn: Bool = false,
@@ -1392,13 +1373,46 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectPreviewHost()
     }
 
+    /// Connect to a manually-entered Mac host and optionally associate the
+    /// resulting session with an existing paired-Mac device id.
+    public func connectManualHost(
+        name: String, host: String, port: Int, pairedMacDeviceID: String? = nil
+    ) async {
+        await connectManualHost(
+            name: name,
+            host: host,
+            port: port,
+            pairedMacDeviceID: pairedMacDeviceID,
+            recordsPairingAttempt: true
+        )
+    }
+
+    private func connectStoredMacHost(
+        name: String,
+        host: String,
+        port: Int,
+        pairedMacDeviceID: String
+    ) async {
+        await connectManualHost(
+            name: name,
+            host: host,
+            port: port,
+            pairedMacDeviceID: pairedMacDeviceID,
+            recordsPairingAttempt: false
+        )
+    }
+
     /// - Parameter pairedMacDeviceID: the REAL paired-Mac device id when the caller
     ///   knows it (switch/reconnect/device-row paths). A manual host whose Mac lacks
     ///   `mobile.attach_ticket.create` connects via a synthetic `manual-…` ticket;
     ///   passing the real id keys the foreground aggregate state under it instead of
     ///   the synthetic id. `nil` for a genuinely manual/unknown host.
-    public func connectManualHost(
-        name: String, host: String, port: Int, pairedMacDeviceID: String? = nil
+    private func connectManualHost(
+        name: String,
+        host: String,
+        port: Int,
+        pairedMacDeviceID: String? = nil,
+        recordsPairingAttempt: Bool
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
@@ -1430,8 +1444,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
 
-        let directRoute = try? manualHostRoute(host: normalizedHost, port: port)
-        let attemptID = beginPairingAttempt(method: "manual")
+        let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
+        activeRoute = directRoute
+        let attemptID = recordsPairingAttempt ? beginPairingAttempt(method: "manual") : beginPairingValidationAttempt()
         // Fast offline preflight: fail immediately instead of stacking
         // per-route timeouts into the opaque ~60s blob.
         let manualRoutes = directRoute.map { [$0] } ?? []
@@ -1440,7 +1455,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
                 host: normalizedHost,
-                port: port
+                port: port,
+                attemptStartedAt: pairingAttemptStartedAt
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
             let noThrowFailure = try await connect(
@@ -1594,7 +1610,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   let (host, port) = reachableRoute(mac) else { break }
             // Best-effort registry refresh for this Mac in the background.
             refreshRoutesFromRegistry(for: mac, scope: scope)
-            await connectManualHost(
+            await connectStoredMacHost(
                 name: mac.displayName ?? host, host: host, port: port,
                 pairedMacDeviceID: mac.macDeviceID)
             if connectionState == .connected { break }
@@ -2691,6 +2707,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         #endif
     }
 
+    static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
+        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
+        return try CmxAttachRoute(
+            id: routeKind.rawValue,
+            kind: routeKind,
+            endpoint: .hostPort(host: host, port: port)
+        )
+    }
+
     @discardableResult
     public func connectPairingURL(_ rawValue: String? = nil) async -> Bool {
         await connectPairingURLResult(rawValue).didConnect
@@ -2906,34 +2931,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
-        let directRoute = try manualHostRoute(host: host, port: port)
-        let displayName = name.isEmpty ? host : name
-        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
-            do {
-                let ticket = try await requestManualAttachTicket(
-                    route: directRoute,
-                    displayName: displayName
-                )
-                return ticket
-            } catch {
-                guard shouldFallbackToSyntheticManualTicket(after: error) else {
-                    throw error
-                }
-            }
-            return try makeManualHostAttachTicket(
-                displayName: displayName,
-                macDeviceID: "manual-\(host):\(port)",
-                route: directRoute
-            )
-        }
-        return try makeManualHostAttachTicket(
-            displayName: displayName,
-            macDeviceID: "manual-\(host):\(port)",
-            route: directRoute
-        )
-    }
-
     /// Build a persistent read-only client to one OTHER Mac (route + manual
     /// ticket), or nil if it has no reachable route / the ticket fails. The caller
     /// owns disconnecting it. Routes are loopback-deprioritized on device. Never
@@ -2950,7 +2947,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         let ticket: CmxAttachTicket
         do {
-            ticket = try await manualHostTicket(name: mac.displayName ?? host, host: host, port: port)
+            ticket = try await manualHostTicket(
+                name: mac.displayName ?? host,
+                host: host,
+                port: port,
+                attemptStartedAt: nil
+            )
         } catch {
             mobileShellLog.warning(
                 "secondary client: ticket failed mac=\(mac.macDeviceID, privacy: .public) error=\(String(describing: error), privacy: .public)"
@@ -2976,7 +2978,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
+            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+            connectAttemptRegistry: connectAttemptRegistry,
+            stackTokenGate: stackTokenGate,
+            stackTokenForceRefreshGate: stackTokenForceRefreshGate
         )
         let capabilities = await fetchSecondaryHostCapabilities(on: client)
         return SecondaryClientHandle(
@@ -3559,38 +3564,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var state = workspacesByMac[key] ?? MacWorkspaceState(macDeviceID: key)
         body(&state.workspaces)
         workspacesByMac[key] = state
-    }
-
-    private func requestManualAttachTicket(
-        route: CmxAttachRoute,
-        displayName: String
-    ) async throws -> CmxAttachTicket {
-        guard let runtime else {
-            throw MobileShellConnectionError.insecureManualRoute
-        }
-        let probeTicket = try makeManualHostAttachTicket(
-            displayName: displayName,
-            macDeviceID: "manual-ticket-request",
-            route: route
-        )
-        let client = MobileCoreRPCClient(
-            runtime: runtime,
-            route: route,
-            ticket: probeTicket,
-            allowsStackAuthFallback: true
-        )
-        let resultData = try await client.sendRequest(
-            MobileCoreRPCClient.requestData(
-                method: "mobile.attach_ticket.create",
-                params: [
-                    "ttl_seconds": 3600,
-                    "scope": "mac",
-                ]
-            ),
-            timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-        )
-        let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
-        return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
     }
 
     /// Create a workspace locally or through the connected Mac, then select it.
@@ -4471,12 +4444,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
 
         let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
-        // Stack auth is now the authorization gate for every request, so enable
-        // it by default on any route trusted to carry the token (Tailscale,
-        // loopback, LAN, .local). Untrusted manual public hosts stay off and
-        // therefore cannot authorize, which is intended.
-        let routeAllowsStackAuthFallback = allowsStackAuthFallback
-            ?? supportedRoutes.allSatisfy(MobileShellRouteAuthPolicy.routeAllowsStackAuth)
+        // Stack auth is now the authorization gate for every request. Decide the
+        // fallback per attempted route so an untrusted fallback route cannot
+        // disable auth for a trusted Tailscale/loopback/iroh route.
+        let routeAllowsStackAuthFallbackOverride = allowsStackAuthFallback
+        let connectionAttemptStartedAt = pairingAttemptStartedAt
         var lastError: (any Error)?
         for route in supportedRoutes {
             activeRoute = route
@@ -4485,13 +4457,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 runtime: runtime,
                 route: route,
                 ticket: ticket,
-                allowsStackAuthFallback: routeAllowsStackAuthFallback
+                allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
+                    ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+                connectAttemptRegistry: connectAttemptRegistry,
+                stackTokenGate: stackTokenGate,
+                stackTokenForceRefreshGate: stackTokenForceRefreshGate
             )
             for workspaceListRequest in workspaceListRequests {
                 do {
+                    let requestTimeoutNanoseconds: UInt64
+                    if let connectionAttemptStartedAt {
+                        requestTimeoutNanoseconds = boundedPairingRequestTimeoutNanoseconds(
+                            runtime: runtime,
+                            attemptStartedAt: connectionAttemptStartedAt
+                        )
+                        guard requestTimeoutNanoseconds > 0 else {
+                            throw MobileShellConnectionError.requestTimedOut
+                        }
+                    } else {
+                        requestTimeoutNanoseconds = runtime.pairingRequestTimeoutNanoseconds
+                    }
                     let resultData = try await client.sendRequest(
                         workspaceListRequest.data,
-                        timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+                        timeoutNanoseconds: requestTimeoutNanoseconds
                     )
                     let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                     guard isCurrentConnectionAttempt(generation) else { return nil }
@@ -4572,7 +4560,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
 
-        clearRemoteConnectionContext()
         diagnosticLog?.record(DiagnosticEvent(.pairFail))
         throw lastError ?? MobileShellConnectionError.connectionClosed
     }
@@ -6732,7 +6719,7 @@ private struct MobileTerminalViewportKey: Hashable, Sendable {
     var terminalID: MobileTerminalPreview.ID
 }
 
-private struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
+struct MobileManualAttachTicketCreateResponse: Decodable, Sendable {
     var ticket: CmxAttachTicket
 
     static func decode(_ data: Data) throws -> MobileManualAttachTicketCreateResponse {
@@ -6779,7 +6766,7 @@ private extension MobileShellComposite {
     }
 }
 
-private extension CmxAttachTicket {
+extension CmxAttachTicket {
     func constrainingRoutes(
         to routes: [CmxAttachRoute],
         fallbackDisplayName: String

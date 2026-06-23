@@ -5,6 +5,9 @@ import Foundation
 /// they need a non-actor way to invalidate restore writes before any async
 /// cancellation task gets scheduled.
 public final class PairedMacRestoreBoundary: @unchecked Sendable {
+    // Conscious concurrency exception: this boundary must be synchronously
+    // invalidated from sign-out/team-switch UI code before async cleanup tasks are
+    // scheduled. Making it an actor would move that ordering behind an `await`.
     private let lock = NSLock()
     private var value: UInt64 = 0
 

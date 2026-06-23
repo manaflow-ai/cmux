@@ -793,10 +793,11 @@
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",
           "warnBeforeClosingTabXButton": "Vis en bekreftelse før en fane lukkes med fanens lukkeknapp.",
           "hideTabCloseButton": "Skjul lukkeknapper for faner i faneraden i ruten.",
-          "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål."
+          "forkConversationDefaultDestination": "Standardmål for den primære Fork Conversation-handlingen i fanehurtigmenyen. Undermenyen viser fortsatt alle mål.",
+          "globalFontMagnification": "Skalerer cmux-eide terminaler, fanetitler, sidefelt, innstillinger, overlegg og app-chrome med denne prosenten. Rendret innhold på nettlesersider er utelatt."
         },
         "terminal": {
-          "copyOnSelect": "Kopierer markert terminaltekst til systemutklippstavlen når markeringen bekreftes, inkludert ord- og linjemarkeringer fra dobbelt- og trippelklikk.",
+          "copyOnSelect": "Når verdien er true, kopieres markert terminaltekst til systemutklippstavlen når markeringen bekreftes. Når verdien er false, sender ikke cmux ut en Ghostty copy-on-select-overstyring; Ghostty-konfigurasjon og standardverdier styrer oppførselen til markeringsutklippstavlen.",
           "scrollSpeed": "Multiplikator brukt på rulleverdier fra musehjul og styreflate i terminalen. Høyere verdier ruller raskere, lavere verdier saktere.",
           "showTextBoxOnNewTerminals": "Viser beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt.",
           "focusTextBoxOnNewTerminals": "Fokuserer beta-TextBox-inndata som standard for nyopprettede arbeidsområder, terminalfaner og terminalsplitt. Fokus viser også TextBox."
@@ -1260,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (beta)"
+      "textBox": "TextBox (beta)",
+      "ios": "iOS-app"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1413,6 +1415,42 @@
     "ohMyOpenCode": {
       "metaTitle": "oh-my-opencode: OpenCode multi-agent i cmux",
       "metaDescription": "oh-my-opencode (cmux omo) kjører OpenCode CLI med oh-my-openagent-pluginet inne i cmux. Orkestrer Claude, GPT, Gemini og Grok som parallelle agenter, hver i sin egen native cmux-deling."
+    },
+    "ios": {
+      "metaTitle": "iOS-app",
+      "metaDescription": "Sett opp cmux-følgeappen for iOS: TestFlight-tilgang, eget nettverk med Tailscale eller WireGuard, paring, varsler og hvilke data cmux lagrer.",
+      "title": "iOS-app",
+      "intro": "cmux-appen for iOS er en følgesvenn til Mac-en din. Par iPhone-en eller iPad-en din med en Mac som kjører cmux, og koble deg til terminalene dine fra telefonen, med valgfri videresending av terminalvarsler.",
+      "betaNote": "iOS-appen er i beta. Den distribueres på TestFlight som cmux BETA.",
+      "accessTitle": "Få tilgang",
+      "accessDesc": "Appen distribueres via TestFlight. Tidlig tilgang er inkludert i <foundersLink>cmux Founders Edition</foundersLink>, sammen med andre tidlige funksjoner.",
+      "prereqTitle": "Forutsetninger",
+      "prereqIntro": "Før du starter trenger du:",
+      "prereq1": "En Mac som kjører cmux og er innlogget.",
+      "prereq2": "En iPhone eller iPad med cmux BETA-appen installert fra TestFlight.",
+      "prereq3": "En nettverkssti fra telefonen din til Mac-en din (se Ta med ditt eget nettverk nedenfor).",
+      "networkingTitle": "Ta med ditt eget nettverk",
+      "networkingDesc": "cmux leverer ikke nettverk ut av boksen. Terminalstrømmen går direkte mellom telefonen og Mac-en din, så telefonen må kunne nå Mac-en din på nettverket. Den enkleste måten er et privat overlay-nettverk.",
+      "tailscaleTitle": "Tailscale (anbefalt)",
+      "tailscaleDesc": "Installer <link>Tailscale</link> på både Mac-en og telefonen din og logg inn på det samme tailnet. Telefonen din kan da nå Mac-en din via tailnet-adressen dens fra hvor som helst, uten portvideresending.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Hvis du allerede kjører <link>WireGuard</link>, sett Mac-en og telefonen din på samme nettverk og bruk WireGuard-adressen til Mac-en.",
+      "networkingNote": "Uansett hva du velger, er tilkoblingen din. cmux fungerer ikke som proxy og videresender ikke terminaltrafikk mellom enhetene dine.",
+      "pairTitle": "Par og koble til",
+      "pairStep1": "På Mac-en åpner du Mobile Connect-vinduet i cmux.",
+      "pairStep2": "På telefonen din åpner du cmux BETA-appen og bekrefter paringen som vises i Mobile Connect.",
+      "pairStep3": "Når dere er paret, vises arbeidsområdene og terminalene dine på telefonen via nettverket ditt.",
+      "pairNote": "Paring skjer per enhet. En ny enhet, eller en reinstallert app, parer på nytt.",
+      "notificationsTitle": "Varsler",
+      "notificationsDesc": "Du kan velge å videresende terminalvarsler til telefonen din, slik at et panel som trenger oppmerksomhet sender et varsel til enheten din. Når videresending er på, sendes varselteksten (tittel og brødtekst, hentet fra terminalutdata) gjennom cmux-serverne til Apple's push service for å levere den. Slå på Hide content i varselinnstillingene for å sende en generisk melding i stedet og holde terminalteksten på enhetene dine. Se <link>varsler</link> for hvordan cmux utløser dem.",
+      "dataTitle": "Hvilke data lagres",
+      "dataIntro": "cmux er bygget slik at terminalen din holder seg mellom enhetene dine. På cmux-serverne lagrer vi bare det som trengs for å logge deg inn og koble sammen enhetene dine:",
+      "data1": "Kontoen din fra innlogging (e-post), for å identifisere deg på tvers av enheter.",
+      "data2": "Et push-token for enheten din, for å levere videresendte terminalvarsler.",
+      "data3": "Parings- og enhetsmetadata, for å koble telefonen din til Mac-en din.",
+      "dataNot": "Den interaktive terminaløkten din, innholdet og tastetrykkene dens går direkte mellom telefonen og Mac-en din over ditt eget nettverk, og videresendes ikke gjennom eller lagres på cmux-serverne. Det eneste unntaket er videresendt varseltekst, som går gjennom cmux og Apple's push service for å nå telefonen din, med mindre du aktiverer Hide content (se Varsler ovenfor).",
+      "enterpriseTitle": "Enterprise og selvhostet",
+      "enterpriseDesc": "For en selvhostet eller air-gapped utrulling, kontakt <link>founders@manaflow.com</link>."
     }
   },
   "legal": {

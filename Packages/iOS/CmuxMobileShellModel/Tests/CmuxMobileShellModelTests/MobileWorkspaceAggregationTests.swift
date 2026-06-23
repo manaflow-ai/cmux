@@ -149,4 +149,26 @@ import Testing
         let groups = MobileWorkspaceAggregation().derivedGroups(statesByMac: states, foregroundMacDeviceID: "mac-fg")
         #expect(groups.map { $0.id.rawValue } == ["g1"])
     }
+
+    @Test func foregroundGroupAnchorsFollowScopedWorkspaceRowIDs() {
+        let aggregation = MobileWorkspaceAggregation()
+        var foregroundWorkspace = ws("local-w1", mac: "mac-fg")
+        foregroundWorkspace.remoteWorkspaceID = .init(rawValue: "remote-w1")
+        let states = [
+            "mac-fg": MacWorkspaceState(
+                macDeviceID: "mac-fg",
+                displayName: "FG",
+                workspaces: [foregroundWorkspace],
+                groups: [group("g1", anchor: "local-w1")],
+                status: .connected
+            ),
+            "mac-bg": state("mac-bg", name: "BG", ["w2"]),
+        ]
+
+        let workspaces = aggregation.derivedWorkspaces(statesByMac: states, foregroundMacDeviceID: "mac-fg")
+        let groups = aggregation.derivedGroups(statesByMac: states, foregroundMacDeviceID: "mac-fg")
+
+        #expect(groups.first?.anchorWorkspaceID == workspaces.first?.id)
+        #expect(groups.first?.anchorWorkspaceID.rawValue == "mac-fg\u{1F}remote-w1")
+    }
 }

@@ -1,3 +1,5 @@
+import Foundation
+
 /// Derives a short, user-facing build-channel label for a Mac from what its
 /// presence heartbeat reports — its bundle id and dev tag — so the Computers
 /// screen can show whether a host is a DEV build (and which tag), Nightly, RC,

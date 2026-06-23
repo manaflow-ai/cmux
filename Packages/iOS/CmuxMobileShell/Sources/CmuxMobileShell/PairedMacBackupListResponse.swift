@@ -1,3 +1,5 @@
+import Foundation
+
 struct PairedMacBackupListResponse: Decodable {
     let records: [PairedMacBackupRecord]
     let deletedMacDeviceIDs: [String]

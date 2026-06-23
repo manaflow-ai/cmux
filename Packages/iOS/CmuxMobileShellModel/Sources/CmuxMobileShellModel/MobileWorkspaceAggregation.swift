@@ -1,3 +1,5 @@
+import Foundation
+
 /// Pure derivations from the per-Mac state map to the flat, user-facing shapes.
 ///
 public struct MobileWorkspaceAggregation: Sendable {
@@ -81,6 +83,18 @@ public struct MobileWorkspaceAggregation: Sendable {
         foregroundMacDeviceID: String?
     ) -> [MobileWorkspaceGroupPreview] {
         guard let foregroundMacDeviceID, let state = statesByMac[foregroundMacDeviceID] else { return [] }
-        return state.groups
+        let shouldScopeRowIDs = statesByMac.keys.filter { !$0.isEmpty }.count > 1
+        guard shouldScopeRowIDs, !foregroundMacDeviceID.isEmpty else { return state.groups }
+        let remoteIDByLocalID = Dictionary(
+            uniqueKeysWithValues: state.workspaces.map { workspace in
+                (workspace.id, workspace.remoteWorkspaceID ?? workspace.id)
+            }
+        )
+        return state.groups.map { group in
+            var scoped = group
+            let remoteID = remoteIDByLocalID[group.anchorWorkspaceID] ?? group.anchorWorkspaceID
+            scoped.anchorWorkspaceID = rowID(macDeviceID: foregroundMacDeviceID, workspaceID: remoteID)
+            return scoped
+        }
     }
 }

@@ -127,6 +127,8 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
+        case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
+            return .rightSidebarFocus
         case .renameTab, .renameWorkspace, .sendCtrlFToTerminal, .clearScreenKeepScrollback:
             return .nonBrowserPanel
         case .browserBack, .browserForward, .browserReload, .browserHardReload, .toggleBrowserDeveloperTools, .showBrowserJavaScriptConsole,
@@ -245,6 +247,59 @@ extension AppDelegate {
         return tabManager?.focusedMarkdownPanel
     }
 
+    @discardableResult
+    func handleFocusedFileExplorerOpenSelectionShortcut(_ event: NSEvent, preferredWindow: NSWindow? = nil) -> Bool {
+        let window = preferredWindow ?? shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let window,
+              let responder = window.firstResponder,
+              let focusView = shortcutFileExplorerFocusView(for: responder),
+              focusView.window === window || focusView.window?.windowNumber == window.windowNumber else {
+            return false
+        }
+
+        if let outlineView = focusView as? FileExplorerNSOutlineView {
+            return outlineView.handleOpenSelectionShortcut(event)
+        }
+        if let resultsView = focusView as? FileExplorerSearchResultsTableView {
+            return resultsView.handleOpenSelectionShortcut(event)
+        }
+        if let searchField = focusView as? FileExplorerSearchField {
+            return searchField.handleOpenSelectionShortcut(event)
+        }
+        return false
+    }
+
+    private func shortcutFileExplorerFocusView(for responder: NSResponder) -> NSView? {
+        if let textView = responder as? NSTextView,
+           textView.isFieldEditor,
+           let ownerView = cmuxFieldEditorOwnerView(textView) {
+            return fileExplorerShortcutFocusRoot(containing: ownerView)
+        }
+
+        if let view = responder as? NSView {
+            return fileExplorerShortcutFocusRoot(containing: view)
+        }
+
+        return nil
+    }
+
+    private func fileExplorerShortcutFocusRoot(containing view: NSView) -> NSView? {
+        var current: NSView? = view
+        while let candidate = current {
+            if isFileExplorerShortcutFocusRoot(candidate) {
+                return candidate
+            }
+            current = candidate.superview
+        }
+        return nil
+    }
+
+    private func isFileExplorerShortcutFocusRoot(_ view: NSView) -> Bool {
+        view is FileExplorerNSOutlineView ||
+            view is FileExplorerSearchResultsTableView ||
+            view is FileExplorerSearchField
+    }
+
     func clearShortcutEventFocusContextCache(for event: NSEvent) {
         if shortcutEventFocusContextCache?.event === event {
             shortcutEventFocusContextCache = nil
@@ -309,11 +364,11 @@ extension AppDelegate {
     }
 
     private func shortcutResolvedEventWindow(_ event: NSEvent) -> NSWindow? {
-        if let window = event.window {
+        if event.windowNumber > 0,
+           let window = NSApp.window(withWindowNumber: event.windowNumber) {
             return window
         }
-        guard event.windowNumber > 0 else { return nil }
-        return NSApp.window(withWindowNumber: event.windowNumber)
+        return event.window
     }
 
     private func shortcutBrowserPanel(panelId: UUID) -> BrowserPanel? {
