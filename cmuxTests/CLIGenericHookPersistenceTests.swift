@@ -3433,6 +3433,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let parentSurfaceId = "22222222-2222-2222-2222-222222222222"
         let forkSurfaceId = "33333333-3333-3333-3333-333333333333"
         let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let liveSessionId = "019dad34-d218-7943-b81a-eddac5c87952"
         let ttyName = "ttys304"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -3569,14 +3570,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(sessionEnd.status, 0, "\(forkLaunch.label): \(sessionEnd.stderr)")
         }
 
+        var staleForkEnvironment = environment
+        let fakeCodexURL = root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createSymbolicLink(at: fakeCodexURL, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+        let liveCodex = Process()
+        liveCodex.executableURL = fakeCodexURL; liveCodex.arguments = ["30"]; try liveCodex.run()
+        defer { if liveCodex.isRunning { liveCodex.terminate(); liveCodex.waitUntilExit() } }
+        staleForkEnvironment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(["/usr/local/bin/codex", "fork", liveSessionId])
+        staleForkEnvironment["CMUX_CODEX_PID"] = String(liveCodex.processIdentifier)
+        let liveSessionServer = startForkParentMockServer()
+        let liveSessionStart = runProcess(executablePath: cliPath, arguments: ["hooks", "codex", "session-start"], environment: staleForkEnvironment, standardInput: #"{"session_id":"\#(liveSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#, timeout: 5)
+        wait(for: [liveSessionServer], timeout: 5)
+        XCTAssertFalse(liveSessionStart.timedOut, liveSessionStart.stderr)
+        XCTAssertEqual(liveSessionStart.status, 0, liveSessionStart.stderr)
+
         let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
         let parentSession = try XCTUnwrap(sessions[parentSessionId] as? [String: Any])
+        let liveSession = try XCTUnwrap(sessions[liveSessionId] as? [String: Any])
         XCTAssertEqual(
             parentSession["surfaceId"] as? String,
             parentSurfaceId,
             "Codex fork parent lifecycle hooks must not rebind the parent session to the fork pane"
         )
+        XCTAssertEqual(liveSession["surfaceId"] as? String, forkSurfaceId, "Live Codex PID argv must override stale inherited fork launch env")
 
         let resumeMutations = state.snapshot().compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
