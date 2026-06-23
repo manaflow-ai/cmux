@@ -313,7 +313,13 @@ reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
   `chatRefreshKey` connection + foreground epochs); `session(sessionID:)` pull
   primitive available for finer version-gap healing. Verified: shared pkg +128
   tests, iOS shell + UI build, macOS app builds.
-- **Slice B — Deterministic process-exit backstop.** cmux does NOT own a
+- **Slice B — Deterministic process-exit backstop. DONE.** Implemented as
+  described below. Note: the iOS GUI ALREADY disables the input bar on `ended`
+  (`ChatComposerView` shows `endedRow` instead of the field; `ChatScreen` hides
+  the composer when `agentState == .ended`). That feature only needed `ended`
+  set RELIABLY, which this watcher now guarantees. So the user's "track ended to
+  disable the input bar" requirement is satisfied by existing UI + Slice B; no
+  new iOS UI needed. Design: cmux does NOT own a
   `Process` handle for a terminal agent (the agent is a child in the pty), so
   there is no `terminationHandler` to hook. The deterministic signal is a
   `DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit)` watcher
