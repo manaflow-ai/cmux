@@ -118,3 +118,13 @@ For production code that detects, identifies, or tracks correctness-critical sta
 Flag a correctness-critical value derived from a string/title/name heuristic (terminal title, window title, pane label, process-argv substring, display name) to decide agent type, session identity, liveness, or which conversation to show. Flag an "unreliable but better than nothing" fallback branch (a guess, a default, a best-effort branch) for state where a wrong value is a correctness bug. Flag more than one disagreeing source of truth for the same fact without one designated authority. Flag a throttle or polling interval placed on a correctness-critical read that introduces a visible staleness window when the consumer must reflect the change promptly.
 
 Pass for detection that uses a reliable structured source (explicit session id, registered agent descriptor, typed lifecycle event), a missing reliable signal that fails closed (no detection, control disabled, empty state) rather than guessing, a heuristic used only for a genuinely cosmetic non-authoritative hint, and coalescing/debouncing that does not delay the observable correctness-critical value.
+
+## Landing Page Registry Parity
+
+For PRs that add a new marketing landing page under `web/app/[locale]/(landing)/<slug>/page.tsx`, require the new path to be registered in every dependent registry in the same PR.
+
+Flag a new `(landing)` page (or a new path added to `web/app/sitemap.ts`) when it is missing from any of: `web/app/sitemap.ts`; `agentReadablePages` in `web/app/lib/agent-page-paths.ts` (this gives the page its `.md`/`.txt` agent-readable variant and `llms.txt` listing, and `tests/agent-page-variants.test.ts` asserts every sitemap path resolves to a variant, so a missing entry fails CI); the `ARTICLES` list in `web/app/[locale]/(landing)/guides/page.tsx`; or a `landing.links` label plus at least one internal cross-link from a sibling page. Also flag `agentReadablePages`/`sitemap.ts` drift, where a path exists in one but not the other.
+
+Localization of the new page copy into every locale is covered by the internationalization rule, not this one.
+
+Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently and not added to `agentReadablePages` either, non-landing routes, edits to existing landing pages, and existing registry drift the PR does not introduce or worsen.

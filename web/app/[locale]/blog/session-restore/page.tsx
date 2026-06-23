@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 
@@ -41,6 +42,7 @@ export default function SessionRestoreBlogPage() {
 
   return (
     <>
+      <BlogSchema postKey="sessionRestore" path="/blog/session-restore" datePublished="2026-05-13T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"
