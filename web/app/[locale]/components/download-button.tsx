@@ -9,7 +9,6 @@ import {
   DOWNLOAD_CONFIRMATION_HREF,
   DOWNLOAD_CONFIRMATION_PATH,
   DOWNLOAD_URL,
-  IOS_FOUNDERS_EDITION_URL,
   WAITLIST_PLATFORMS,
   type WaitlistPlatform,
 } from "../../lib/download";
@@ -77,12 +76,12 @@ export function DownloadButton({
   // that tint independently on hover. `overflow-hidden` clips the hover tint to
   // the rounded corners; the divider and caret are kept barely-there so the
   // split affordance only surfaces when you reach for it.
-  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.06] ${
+  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.04] ${
     isSmall
       ? "gap-2 pl-4 pr-3 py-1.5 text-xs"
       : "gap-2.5 pl-5 pr-4 py-2.5 text-[15px]"
   }`;
-  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.06] data-[popup-open]:bg-background/[0.06] ${
+  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.04] data-[popup-open]:bg-background/[0.04] ${
     isSmall ? "px-2" : "px-2.5"
   }`;
 
@@ -118,7 +117,7 @@ export function DownloadButton({
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="opacity-50 transition-opacity group-hover:opacity-100 group-data-[popup-open]:opacity-100"
+      className="opacity-40 transition-opacity group-hover:opacity-70 group-data-[popup-open]:opacity-70"
       aria-hidden="true"
     >
       <path d="M3 4.5 6 7.5 9 4.5" />
@@ -145,7 +144,7 @@ export function DownloadButton({
           </Link>
         )}
 
-        <div className="my-2 w-px bg-background/10" aria-hidden="true" />
+        <div className="my-2.5 w-px bg-background/[0.07]" aria-hidden="true" />
 
         <Menu.Root>
           <Menu.Trigger
@@ -157,7 +156,7 @@ export function DownloadButton({
           </Menu.Trigger>
           <Menu.Portal>
             <Menu.Positioner side="bottom" align="end" sideOffset={8} className="z-[1000]">
-              <Menu.Popup className="z-[1000] min-w-52 rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
+              <Menu.Popup className="z-[1000] min-w-52 rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition-opacity duration-100 ease-out data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
                 <Menu.Item
                   render={
                     onConfirmationPage ? <a href={macHref} /> : <Link href={macHref} />
@@ -170,9 +169,7 @@ export function DownloadButton({
                   <span className="flex-1 text-left">{tp("macos")}</span>
                 </Menu.Item>
                 <Menu.Item
-                  render={
-                    <a href={IOS_FOUNDERS_EDITION_URL} target="_blank" rel="noreferrer" />
-                  }
+                  render={<Link href="/ios" target="_blank" rel="noreferrer" />}
                   onClick={() =>
                     posthog.capture("cmuxterm_download_clicked", {
                       location,
