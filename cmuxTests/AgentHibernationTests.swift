@@ -284,6 +284,67 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
     }
 
+    func testPreservingDefinitiveKeepsDefinitiveStateAgainstUnknown() {
+        // An `.unknown` report (process restart / no-emit plugin) must never erase a
+        // proven definitive state.
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .idle, incoming: .unknown), .idle)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .running, incoming: .unknown), .running)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .needsInput, incoming: .unknown), .needsInput)
+    }
+
+    func testPreservingDefinitiveLetsDefinitiveIncomingWin() {
+        // A definitive incoming state always wins, so the function never invents idleness.
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .idle, incoming: .running), .running)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .running, incoming: .idle), .idle)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .idle, incoming: .needsInput), .needsInput)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .needsInput, incoming: .idle), .idle)
+    }
+
+    func testPreservingDefinitivePassesThroughWhenNoDefinitiveExisting() {
+        // No prior state, or a prior `.unknown`, never blocks the incoming value.
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: nil, incoming: .unknown), .unknown)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: nil, incoming: .idle), .idle)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .unknown, incoming: .unknown), .unknown)
+        XCTAssertEqual(
+            AgentHibernationLifecycleState.preservingDefinitive(existing: .unknown, incoming: .idle), .idle)
+    }
+
+    @MainActor
+    func testUnknownLifecycleDoesNotClobberStoredIdle() throws {
+        // Regression for non-codex hibernation: an agent reports `.idle` at turn end,
+        // then a SessionStart-style `.unknown` arrives. The idle must survive so the
+        // panel stays hibernation-eligible.
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .unknown)
+
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
+    }
+
+    @MainActor
+    func testDefinitiveLifecycleStillOverridesStoredIdle() throws {
+        // The preservation must not stick: a real `.running` after `.idle` still wins.
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .running)
+
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
+    }
+
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)

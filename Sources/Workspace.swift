@@ -4591,8 +4591,20 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
-        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        recordAgentLifecycleChange(panelId: targetPanelId)
+        // An incoming `.unknown` (process restart, or a plugin agent that emits no
+        // live lifecycle) must not clobber a proven definitive state: otherwise a
+        // non-codex agent's status decays to `.unknown` and it never hibernates.
+        let existing = agentLifecycleStatesByPanelId[targetPanelId]?[key]
+        agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] =
+            AgentHibernationLifecycleState.preservingDefinitive(existing: existing, incoming: lifecycle)
+        // `recordAgentLifecycleChange` resets the idle countdown (it records activity).
+        // An `.unknown` carries no turn-state information, so treating it as activity
+        // would let a periodic `.unknown` heartbeat keep a genuinely idle agent from
+        // ever accumulating enough idle time to hibernate. Only advance on a definitive
+        // report, which is real turn activity the user cares about.
+        if lifecycle != .unknown {
+            recordAgentLifecycleChange(panelId: targetPanelId)
+        }
     }
 
     @discardableResult
