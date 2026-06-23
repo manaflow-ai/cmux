@@ -103,6 +103,28 @@ struct ClaudeNotificationStatusLifecycleTests {
         )
     }
 
+    @Test func deferredBlockingWaitingNotificationDoesNotDowngradeNeedsInput() throws {
+        // AskUserQuestion / ExitPlanMode record `.needsInput` in PreToolUse, then defer
+        // the bell to a Notification whose text can read "waiting for your response".
+        // The "waiting" cue would classify to idle, but the recorded blocking state must
+        // win so the pane is not hibernated while the user still owes an answer.
+        let snapshot = try runClaudeNotification(
+            name: "claude-notify-deferred-block",
+            ttyName: "ttys-claude-notify-deferred-block",
+            message: "Claude is waiting for your response",
+            seededLifecycle: "needsInput",
+            seededBody: "Which option do you want?"
+        )
+        #expect(
+            snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
+            "Expected a deferred blocking notification with waiting text to keep needsInput, saw \(snapshot)"
+        )
+        #expect(
+            !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
+            "A pending blocking prompt must not be downgraded to idle by waiting text, saw \(snapshot)"
+        )
+    }
+
     @Test func savedBodyReusePathDoesNotInheritStaleIdle() throws {
         // The saved-body reuse path fires for generic "needs your input/attention"
         // notifications. A session record's `agentLifecycle` is sticky (an earlier

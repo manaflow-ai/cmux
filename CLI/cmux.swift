@@ -23414,6 +23414,15 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
+            // Never let a notification downgrade an already-recorded blocking state to
+            // idle. AskUserQuestion / ExitPlanMode record `.needsInput` in PreToolUse and
+            // (outside bypass-permissions mode) defer the bell to a following Notification
+            // whose text may read "waiting for your response"; classifying that as idle
+            // would hibernate the pane mid-prompt. This only overrides toward the
+            // conservative `.needsInput`, so it cannot resurrect a stale idle.
+            let notificationLifecycle: AgentHibernationLifecycleState =
+                mappedSession?.agentLifecycle == .needsInput ? .needsInput : summary.lifecycle
+
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
                     sessionId: sessionId,
@@ -23421,7 +23430,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: summary.lifecycle,
+                    agentLifecycle: notificationLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
@@ -23430,7 +23439,7 @@ struct CMUXCLI {
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
-                lifecycle: summary.lifecycle,
+                lifecycle: notificationLifecycle,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
