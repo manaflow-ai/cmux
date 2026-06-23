@@ -9,9 +9,9 @@ import Foundation
 /// connection.
 ///
 /// Automatically discovered routes must be encrypted or loopback before they may
-/// carry Stack auth. A host typed by the user is different: it uses the
-/// `.trustedNetwork` transport kind, but Stack auth is allowed only when the
-/// caller also carries an explicit user confirmation for that route.
+/// carry Stack auth. A host typed by the user uses the `.trustedNetwork`
+/// transport kind and must never carry the Stack bearer token over plaintext TCP;
+/// it can only use a route-scoped attach token minted by the Mac.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -73,9 +73,8 @@ public struct MobileShellRouteAuthPolicy {
     /// - `.iroh` to a peer, which is an encrypted QUIC connection.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
     ///
-    /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
-    /// `.local`/Bonjour hosts are excluded here. Manual `.trustedNetwork` routes
-    /// require the overload with `trustedNetworkConfirmed: true`.
+    /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local),
+    /// `.local`/Bonjour hosts, and manual `.trustedNetwork` routes are excluded.
     /// - Parameter route: The candidate attach route.
     /// - Returns: `true` for encrypted or loopback routes that may carry Stack auth.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
@@ -91,19 +90,13 @@ public struct MobileShellRouteAuthPolicy {
         }
     }
 
-    /// Whether the given route may carry Stack auth when the caller has an
-    /// explicit user confirmation for a manually-entered trusted network route.
-    ///
-    /// The plain ``routeAllowsStackAuth(_:)`` entry point deliberately returns
-    /// `false` for `.trustedNetwork`; callers must opt in here after the user has
-    /// confirmed they control the destination VPN/LAN/device.
+    /// Compatibility overload for callers that also track user confirmation.
+    /// Confirmation affects UX and local route persistence, never whether the
+    /// Stack bearer token may cross a plaintext trusted-network route.
     public static func routeAllowsStackAuth(
         _ route: CmxAttachRoute,
-        trustedNetworkConfirmed: Bool
+        trustedNetworkConfirmed _: Bool
     ) -> Bool {
-        if case (.trustedNetwork, .hostPort) = (route.kind, route.endpoint) {
-            return trustedNetworkConfirmed
-        }
         return routeAllowsStackAuth(route)
     }
 

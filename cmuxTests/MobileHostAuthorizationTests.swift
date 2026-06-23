@@ -353,6 +353,70 @@ struct MobileHostAuthorizationTests {
         }
         #expect(error.code == "unauthorized")
     }
+
+    #if DEBUG
+    @Test func testStoredAttachTicketAuthorizesCoveredRequestWithoutStackToken() async throws {
+        let service = MobileHostService.shared
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let ticket = try service.debugCreateAttachTicketForTesting(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route]
+        )
+        let request = MobileHostRPCRequest(
+            id: "workspace-action",
+            method: "workspace.action",
+            params: [
+                "workspace_id": "workspace-main",
+                "action": "mark_read",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+    }
+
+    @Test func testStoredAttachTicketCanSeeHostIdentityWithoutStackToken() async throws {
+        let service = MobileHostService.shared
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let ticket = try service.debugCreateAttachTicketForTesting(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route]
+        )
+        let request = MobileHostRPCRequest(
+            id: "host-status",
+            method: "mobile.host.status",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await MobileHostService.networkStatusResult(for: request)
+
+        guard case let .ok(payload) = result,
+              let object = payload as? [String: Any] else {
+            return #expect(Bool(false), "Expected identity status payload")
+        }
+        #expect((object["mac_device_id"] as? String)?.isEmpty == false)
+    }
+    #endif
+
     @Test func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(

@@ -3117,7 +3117,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trustedNetworkConfirmed: trustedNetworkAuthConfirmed),
+            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
             trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
@@ -4568,10 +4568,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             clearRemoteConnectionContext()
             return .noSupportedRoute
         }
-        // No connect-time expiry gate: a pairing QR never expires (new QRs
-        // carry no expiry at all), and the host authorizes by Stack account,
-        // not ticket age. Expiry still gates the RPC-minted attach token at
-        // its point of use (`MobileCoreRPCClient.requestDataWithAuth`).
+        // No connect-time expiry gate: minimal pairing QRs carry no token or
+        // expiry, while token-bearing tickets are checked where the token is
+        // actually used (`MobileCoreRPCClient.requestDataWithAuth`).
         activeTicket = ticket
         activeRoute = firstRoute
         connectedHostName = placeholderHostName(for: ticket, firstRoute: firstRoute)
@@ -4601,10 +4600,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 route: route,
                 ticket: ticket,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
-                    ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(
-                        route,
-                        trustedNetworkConfirmed: trustedNetworkAuthConfirmed
-                    ),
+                    ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
                 trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,

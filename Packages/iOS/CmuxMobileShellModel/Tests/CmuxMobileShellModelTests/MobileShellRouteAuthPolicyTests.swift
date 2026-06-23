@@ -43,7 +43,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthForEncryptedLoopbackOrConfirmedUserTrustedRoutes() throws {
+    @Test func allowsStackAuthOnlyForEncryptedOrLoopbackRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let mislabeledLANIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
@@ -70,12 +70,12 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
-        // User-entered VPN/LAN routes need an explicit confirmation in addition
-        // to the `.trustedNetwork` route kind.
+        // User-entered VPN/LAN routes never carry the Stack bearer token over
+        // plaintext TCP. They require a Mac-minted attach token instead.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP, trustedNetworkConfirmed: true))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS, trustedNetworkConfirmed: true))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP, trustedNetworkConfirmed: true))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS, trustedNetworkConfirmed: true))
 
         // Auto-discovered Tailscale routes must still prove they are actually
         // Tailscale. Plain LAN/VPN addresses are not trusted just because a

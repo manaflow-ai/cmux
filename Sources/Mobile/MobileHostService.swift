@@ -358,6 +358,9 @@ final class MobileHostService {
     /// queue unbounded Stack lookups behind this verb.
     nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if await MobileHostService.shared.verifiedAttachTicketCaller(for: request) {
+            return MobileHostPublicStatusCache.result(includeIdentity: true)
+        }
         guard trimmedToken?.isEmpty == false else {
             return MobileHostPublicStatusCache.result(includeIdentity: false)
         }
@@ -1275,17 +1278,30 @@ final class MobileHostService {
         return verified
     }
 
+    func verifiedAttachTicketCaller(for request: MobileHostRPCRequest) -> Bool {
+        guard let authorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) else {
+            return false
+        }
+        return Self.ticketAuthorizationError(authorization: authorization, request: request) == nil
+    }
+
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
         }
-        // Stack auth is the SOLE authorization gate for the mobile data plane.
-        // The attach ticket is route-discovery and workspace-selection only; it
-        // never authorizes on its own. Every operation must present the Mac
-        // owner's same-account Stack access token. Consequences: a leaked or
-        // photographed QR is useless without the owner's signed-in account, and
-        // pairing is bound to "who is signed in on this Mac" rather than a stored
-        // ticket, so it survives Mac restarts and ticket expiry.
+        // Encrypted/loopback routes authorize with the Mac owner's Stack token.
+        // Plain trusted-network routes must not receive that account bearer over
+        // TCP; they can only present a short-lived attach token minted by this Mac
+        // and scoped by `ticketAuthorizationError`.
+        if let authorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
+            if let ticketError = Self.ticketAuthorizationError(authorization: authorization, request: request) {
+                if request.auth?.stackAccessToken == nil {
+                    return .failure(ticketError)
+                }
+            } else {
+                return nil
+            }
+        }
         if devStackTokenAuthorized(request) {
             return nil
         }
@@ -1703,6 +1719,20 @@ extension MobileHostService {
 
     func debugListenerUsesEphemeralFallbackForTesting() -> Bool {
         listenerUsesEphemeralFallback
+    }
+
+    func debugCreateAttachTicketForTesting(
+        workspaceID: String,
+        terminalID: String?,
+        routes: [CmxAttachRoute],
+        ttl: TimeInterval = 3600
+    ) throws -> CmxAttachTicket {
+        try ticketStore.createTicket(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            routes: routes,
+            ttl: ttl
+        )
     }
 
     func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {

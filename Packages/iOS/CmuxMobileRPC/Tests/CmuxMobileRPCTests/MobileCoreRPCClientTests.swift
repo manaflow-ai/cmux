@@ -306,7 +306,7 @@ import Testing
         #expect(probe?.attachToken == nil)
     }
 
-    @Test func hostStatusProbeCarriesStackTokenOnUserTrustedNetworkRoute() async throws {
+    @Test func hostStatusProbeNeverSendsStackTokenOnUserTrustedNetworkRoute() async throws {
         let route = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.20", port: 58465)
         let unconfirmedProbe = try await sentHostStatusProbe(
             route: route,
@@ -321,8 +321,9 @@ import Testing
             stackAccessTokenForStatus: "test-stack-token",
             trustedNetworkAuthConfirmed: true
         )
-        #expect(probe?.stackAccessToken == "test-stack-token")
+        #expect(probe?.stackAccessToken == nil)
         #expect(probe?.attachToken == nil)
+        #expect(probe?.hasAuth == false)
     }
 
     @Test func hostStatusProbeStaysTokenlessWhenTokenUnavailable() async throws {
@@ -382,6 +383,48 @@ import Testing
         #expect(frame.workspaceID == "workspace-main")
         #expect(frame.attachToken == "ticket-secret")
         #expect(frame.stackAccessToken == "test-stack-token")
+        #expect(frame.hasAuth)
+    }
+
+    @Test func trustedNetworkActionsCarryAttachTokenWithoutStackToken() async throws {
+        let route = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.20", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true,
+            trustedNetworkAuthConfirmed: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "workspace.action",
+            params: [
+                "workspace_id": "workspace-main",
+                "action": "mark_read",
+            ]
+        )
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "workspace.action")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == nil)
         #expect(frame.hasAuth)
     }
 }

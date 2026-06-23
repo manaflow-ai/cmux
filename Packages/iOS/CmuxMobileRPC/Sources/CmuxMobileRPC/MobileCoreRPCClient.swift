@@ -13,7 +13,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
-    private let trustedNetworkAuthConfirmed: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
@@ -27,8 +26,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
-    ///   - trustedNetworkAuthConfirmed: When `true`, permits Stack auth on an
-    ///     explicitly user-confirmed `.trustedNetwork` route.
+    ///   - trustedNetworkAuthConfirmed: Retained for call-site compatibility.
+    ///     Confirmation affects local trusted-network persistence, but never
+    ///     permits Stack auth on plaintext `.trustedNetwork` routes.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
@@ -46,7 +46,6 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
-        self.trustedNetworkAuthConfirmed = trustedNetworkAuthConfirmed
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -211,10 +210,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         var auth: [String: Any] = [:]
         let attachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasAttachToken = attachToken?.isEmpty == false
+        let statusRequest = isHostStatusRequest(request)
         if let attachToken,
-           requestNeedsAuth,
            hasAttachToken,
-           requestIsCoveredByAttachTicket {
+           (requestNeedsAuth && requestIsCoveredByAttachTicket || statusRequest) {
             // Expiry is enforced only here, where the RPC-minted attach token
             // is actually used. QR-decoded tickets carry no token (and no
             // expiry), so they never reach this branch.
@@ -224,15 +223,10 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
-        // The host treats Stack auth as the SOLE authorization gate: EVERY
-        // authorized request must carry the owner's stack_access_token, even when
-        // an attach_token is also present. The attach ticket is route-discovery
-        // and workspace-selection only and never authorizes on its own, so a
-        // request that ships attach_token-only (e.g. ticket-covered workspace.list)
-        // is rejected host-side with `missingStackTokens`. Always present the
-        // Stack token for authorized requests; attach_token rides along as
-        // supplementary route/workspace context.
-        let shouldSendStackAuth = requestNeedsAuth
+        // Encrypted/loopback routes use the Stack account token. Plain
+        // trusted-network host/port routes must never carry that account bearer;
+        // they can proceed only when a Mac-minted attach token covers the request.
+        let shouldSendStackAuth = requestNeedsAuth && routeAllowsStackAuth
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
                   routeAllowsStackAuth else {
@@ -261,8 +255,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
                 )
             }
         }
+        if requestNeedsAuth,
+           !routeAllowsStackAuth,
+           auth["attach_token"] == nil {
+            throw MobileShellConnectionError.insecureManualRoute
+        }
         if !requestNeedsAuth,
-           isHostStatusRequest(request),
+           statusRequest,
            allowsStackAuthFallback,
            routeAllowsStackAuth,
            let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
@@ -275,10 +274,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     }
 
     private var routeAllowsStackAuth: Bool {
-        MobileShellRouteAuthPolicy.routeAllowsStackAuth(
-            route,
-            trustedNetworkConfirmed: trustedNetworkAuthConfirmed
-        )
+        MobileShellRouteAuthPolicy.routeAllowsStackAuth(route)
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {
@@ -348,9 +344,9 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
 
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Only the unauthenticated host probe is exempt. attach_ticket.create has no
-        // attach token yet (it mints the ticket), so requiring auth routes it through
-        // the Stack Auth account token: a ticket can only be created by a signed-in user.
+        // Only the host probe is exempt. `mobile.attach_ticket.create` has no
+        // attach token yet (it mints the ticket), so it still requires an
+        // encrypted/loopback Stack-auth route.
         return method != "mobile.host.status"
     }
 
