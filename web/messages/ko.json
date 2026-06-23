@@ -12,7 +12,8 @@
     "toggleTheme": "테마 전환",
     "backToBlog": "블로그로 돌아가기",
     "readTheDocs": "문서 읽기",
-    "viewChangelog": "변경 로그 보기"
+    "viewChangelog": "변경 로그 보기",
+    "otherPlatforms": "다른 플랫폼"
   },
   "nav": {
     "docs": "문서",
@@ -1868,5 +1869,31 @@
       "faqQ4": "Cursor CLI와 함께 쓰는 cmux는 무료인가요?",
       "faqA4": "네. cmux는 macOS용 무료 오픈 소스입니다."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "{platform} 대기자 명단에 등록",
+    "titleAny": "대기자 명단에 등록",
+    "description": "{platform} 지원을 준비 중입니다. 이메일을 남겨 주시면 준비되는 즉시 알려드릴게요.",
+    "descriptionAny": "현재 cmux는 macOS를 우선 지원합니다. 이메일을 남겨 주시면 Linux, Windows, Android가 준비되는 즉시 알려드릴게요.",
+    "calloutText": "Linux, Windows, Android 곧 지원 예정.",
+    "platformsLabel": "어떤 플랫폼인가요?",
+    "selectPlatform": "플랫폼을 하나 이상 선택하세요.",
+    "emailLabel": "이메일",
+    "emailPlaceholder": "you@example.com",
+    "join": "대기자 등록",
+    "joining": "등록 중…",
+    "cancel": "취소",
+    "invalidEmail": "유효한 이메일 주소를 입력하세요.",
+    "successTitle": "등록되었습니다",
+    "successBody": "{platform} 버전이 준비되면 이메일로 알려드릴게요.",
+    "successBodyAny": "cmux가 회원님의 플랫폼에서 준비되면 이메일로 알려드릴게요.",
+    "done": "완료"
   }
 }

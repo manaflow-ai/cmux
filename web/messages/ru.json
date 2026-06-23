@@ -12,7 +12,8 @@
     "toggleTheme": "Переключить тему",
     "backToBlog": "Назад к блогу",
     "readTheDocs": "Читать документацию",
-    "viewChangelog": "Смотреть историю изменений"
+    "viewChangelog": "Смотреть историю изменений",
+    "otherPlatforms": "Другие платформы"
   },
   "nav": {
     "docs": "Документация",
@@ -1868,5 +1869,31 @@
       "faqQ4": "Бесплатен ли cmux для использования с Cursor CLI?",
       "faqA4": "Да. cmux бесплатный и с открытым исходным кодом для macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Записаться в список ожидания {platform}",
+    "titleAny": "Записаться в список ожидания",
+    "description": "Поддержка {platform} уже в пути. Оставьте email, и мы сообщим, как только всё будет готово.",
+    "descriptionAny": "Сейчас cmux работает прежде всего на macOS. Оставьте email, и мы сообщим, как только появится версия для Linux, Windows или Android.",
+    "calloutText": "Скоро на Linux, Windows и Android.",
+    "platformsLabel": "Какие платформы?",
+    "selectPlatform": "Выберите хотя бы одну платформу.",
+    "emailLabel": "Эл. почта",
+    "emailPlaceholder": "you@example.com",
+    "join": "В список ожидания",
+    "joining": "Записываем…",
+    "cancel": "Отмена",
+    "invalidEmail": "Введите корректный адрес эл. почты.",
+    "successTitle": "Вы в списке",
+    "successBody": "Мы напишем вам, когда версия для {platform} будет готова.",
+    "successBodyAny": "Мы напишем вам, когда cmux будет готов для вашей платформы.",
+    "done": "Готово"
   }
 }

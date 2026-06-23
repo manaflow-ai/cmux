@@ -12,7 +12,8 @@
     "toggleTheme": "Alternar tema",
     "backToBlog": "Voltar ao blog",
     "readTheDocs": "Ler a Documentação",
-    "viewChangelog": "Ver Changelog"
+    "viewChangelog": "Ver Changelog",
+    "otherPlatforms": "Outras plataformas"
   },
   "nav": {
     "docs": "Documentação",
@@ -1868,5 +1869,31 @@
       "faqQ4": "O cmux é gratuito para usar com o Cursor CLI?",
       "faqA4": "Sim. O cmux é gratuito e de código aberto para o macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Entrar na lista de espera do {platform}",
+    "titleAny": "Entrar na lista de espera",
+    "description": "O suporte para {platform} está a caminho. Deixe seu e-mail e avisaremos assim que estiver pronto.",
+    "descriptionAny": "Por enquanto o cmux é focado no macOS. Deixe seu e-mail e avisaremos assim que Linux, Windows ou Android estiver pronto.",
+    "calloutText": "Em breve no Linux, Windows e Android.",
+    "platformsLabel": "Quais plataformas?",
+    "selectPlatform": "Escolha pelo menos uma plataforma.",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "you@example.com",
+    "join": "Entrar na lista",
+    "joining": "Entrando…",
+    "cancel": "Cancelar",
+    "invalidEmail": "Insira um endereço de e-mail válido.",
+    "successTitle": "Você está na lista",
+    "successBody": "Enviaremos um e-mail quando a versão para {platform} estiver pronta.",
+    "successBodyAny": "Enviaremos um e-mail quando o cmux estiver pronto para sua plataforma.",
+    "done": "Concluído"
   }
 }

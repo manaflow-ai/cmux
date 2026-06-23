@@ -12,7 +12,8 @@
     "toggleTheme": "Promijeni temu",
     "backToBlog": "Nazad na blog",
     "readTheDocs": "Pročitaj dokumentaciju",
-    "viewChangelog": "Pogledaj zapisnik promjena"
+    "viewChangelog": "Pogledaj zapisnik promjena",
+    "otherPlatforms": "Druge platforme"
   },
   "nav": {
     "docs": "Dokumentacija",
@@ -1868,5 +1869,31 @@
       "faqQ4": "Je li cmux besplatan za korištenje s Cursor CLI-jem?",
       "faqA4": "Da. cmux je besplatan i otvorenog koda za macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Pridruži se listi čekanja za {platform}",
+    "titleAny": "Pridruži se listi čekanja",
+    "description": "Podrška za {platform} stiže. Ostavi svoj email i javit ćemo ti čim bude spremno.",
+    "descriptionAny": "cmux je trenutno prvenstveno za macOS. Ostavi svoj email i javit ćemo ti čim Linux, Windows ili Android bude spreman.",
+    "calloutText": "Uskoro za Linux, Windows i Android.",
+    "platformsLabel": "Koje platforme?",
+    "selectPlatform": "Odaberi barem jednu platformu.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Pridruži se listi",
+    "joining": "Pridruživanje…",
+    "cancel": "Otkaži",
+    "invalidEmail": "Unesi ispravnu email adresu.",
+    "successTitle": "Na listi si",
+    "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
+    "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",
+    "done": "Gotovo"
   }
 }

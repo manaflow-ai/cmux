@@ -12,7 +12,8 @@
     "toggleTheme": "Bytt tema",
     "backToBlog": "Tilbake til bloggen",
     "readTheDocs": "Les dokumentasjonen",
-    "viewChangelog": "Se endringslogg"
+    "viewChangelog": "Se endringslogg",
+    "otherPlatforms": "Andre plattformer"
   },
   "nav": {
     "docs": "Dokumentasjon",
@@ -1868,5 +1869,31 @@
       "faqQ4": "Er cmux gratis å bruke med Cursor CLI?",
       "faqA4": "Ja. cmux er gratis og åpen kildekode for macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Bli med på ventelisten for {platform}",
+    "titleAny": "Bli med på ventelisten",
+    "description": "Støtte for {platform} er på vei. Legg igjen e-posten din, så gir vi beskjed så snart den er klar.",
+    "descriptionAny": "cmux er macOS-først akkurat nå. Legg igjen e-posten din, så gir vi beskjed så snart Linux, Windows eller Android er klar.",
+    "calloutText": "Kommer til Linux, Windows og Android.",
+    "platformsLabel": "Hvilke plattformer?",
+    "selectPlatform": "Velg minst én plattform.",
+    "emailLabel": "E-post",
+    "emailPlaceholder": "you@example.com",
+    "join": "Bli med på ventelisten",
+    "joining": "Blir med…",
+    "cancel": "Avbryt",
+    "invalidEmail": "Skriv inn en gyldig e-postadresse.",
+    "successTitle": "Du er på listen",
+    "successBody": "Vi sender deg en e-post når {platform}-versjonen er klar.",
+    "successBodyAny": "Vi sender deg en e-post når cmux er klar for plattformen din.",
+    "done": "Ferdig"
   }
 }

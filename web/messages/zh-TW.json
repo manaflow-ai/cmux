@@ -12,7 +12,8 @@
     "toggleTheme": "切換主題",
     "backToBlog": "返回部落格",
     "readTheDocs": "閱讀文件",
-    "viewChangelog": "查看更新日誌"
+    "viewChangelog": "查看更新日誌",
+    "otherPlatforms": "其他平台"
   },
   "nav": {
     "docs": "文件",
@@ -1868,5 +1869,31 @@
       "faqQ4": "搭配 Cursor CLI 使用的 cmux 免費嗎？",
       "faqA4": "免費。cmux 是面向 macOS 的免費開源軟體。"
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "加入 {platform} 候補名單",
+    "titleAny": "加入候補名單",
+    "description": "{platform} 支援即將推出。留下你的電子郵件，準備好後我們會第一時間通知你。",
+    "descriptionAny": "目前 cmux 以 macOS 為優先。留下電子郵件，Linux、Windows 或 Android 版本就緒後我們會通知你。",
+    "calloutText": "即將支援 Linux、Windows 和 Android。",
+    "platformsLabel": "哪些平台？",
+    "selectPlatform": "請至少選擇一個平台。",
+    "emailLabel": "電子郵件",
+    "emailPlaceholder": "you@example.com",
+    "join": "加入候補名單",
+    "joining": "正在加入…",
+    "cancel": "取消",
+    "invalidEmail": "請輸入有效的電子郵件地址。",
+    "successTitle": "你已加入名單",
+    "successBody": "{platform} 版本就緒後，我們會寄電子郵件給你。",
+    "successBodyAny": "cmux 在你的平台上就緒後，我們會寄電子郵件給你。",
+    "done": "完成"
   }
 }
