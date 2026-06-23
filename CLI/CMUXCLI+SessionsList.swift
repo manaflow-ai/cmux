@@ -112,7 +112,7 @@ extension CMUXCLI {
         let workspaceFilter = sessionsListNormalized(workspaceRaw)
         let surfaceFilter = sessionsListNormalized(surfaceRaw)
         let cwdFilter = sessionsListNormalized(cwdRaw)?.lowercased()
-        let hasExactRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil
+        let hasRecordFilter = sessionFilter != nil || workspaceFilter != nil || surfaceFilter != nil || cwdFilter != nil
         var codexIndexes: [String: CodexSessionListIndex] = [:]
         var entries: [SessionListEntry] = []
         var stores: [[String: Any]] = []
@@ -221,7 +221,7 @@ extension CMUXCLI {
                     || record.isRestorable == true
                     || transcriptBacked
                 payload["default_visible"] = defaultVisible
-                guard includeAll || hasExactRecordFilter || defaultVisible else {
+                guard includeAll || hasRecordFilter || defaultVisible else {
                     continue
                 }
 

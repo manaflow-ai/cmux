@@ -74,6 +74,21 @@ extension CMUXCLIErrorOutputRegressionTests {
         XCTAssertEqual(defaultSessions.count, 1)
         XCTAssertEqual(defaultSessions.first?["session_id"] as? String, activeSessionId)
 
+        let cwdResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["sessions", "list", "--agent", "codex", "--cwd", "/tmp/cmux", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(cwdResult.timedOut, cwdResult.stdout)
+        XCTAssertEqual(cwdResult.status, 0, cwdResult.stdout)
+        let cwdOutputData = try XCTUnwrap(cwdResult.stdout.data(using: .utf8))
+        let cwdObject = try XCTUnwrap(JSONSerialization.jsonObject(with: cwdOutputData) as? [String: Any])
+        XCTAssertEqual(cwdObject["total_matches"] as? Int, 2)
+        let cwdSessions = try XCTUnwrap(cwdObject["sessions"] as? [[String: Any]])
+        XCTAssertEqual(Set(cwdSessions.compactMap { $0["session_id"] as? String }), [activeSessionId, staleSessionId])
+
         let allResult = runProcess(
             executablePath: cliPath,
             arguments: ["sessions", "list", "--agent", "codex", "--all", "--json"],
