@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxSettings
+import CryptoKit
 import Foundation
 #if canImport(Security)
 import Security
@@ -12,7 +13,7 @@ enum MobileAttachTicketStoreError: Error {
 }
 
 final class MobileAttachTicketStore {
-    private struct Record {
+    private struct Record: Codable {
         let ticket: CmxAttachTicket
         let issuedAt: Date
         var createdWorkspaceIDs: Set<String> = []
@@ -57,7 +58,9 @@ final class MobileAttachTicketStore {
             authToken: Self.randomBearerToken()
         )
         if let authToken = ticket.authToken {
-            recordsByAuthToken[authToken] = Record(ticket: ticket, issuedAt: now)
+            let record = Record(ticket: ticket, issuedAt: now)
+            recordsByAuthToken[authToken] = record
+            Self.storeRecord(record, authToken: authToken)
         }
         return ticket
     }
@@ -90,10 +93,16 @@ final class MobileAttachTicketStore {
               !authToken.isEmpty else {
             return nil
         }
-        guard let record = recordsByAuthToken[authToken],
-              !record.ticket.isExpired(at: now) else {
+        let record = recordsByAuthToken[authToken] ?? Self.loadRecord(authToken: authToken)
+        guard let record else {
             return nil
         }
+        if record.ticket.isExpired(at: now) {
+            recordsByAuthToken[authToken] = nil
+            Self.deleteRecord(authToken: authToken)
+            return nil
+        }
+        recordsByAuthToken[authToken] = record
         return MobileAttachTicketAuthorization(
             ticket: record.ticket,
             createdWorkspaceIDs: record.createdWorkspaceIDs,
@@ -126,6 +135,7 @@ final class MobileAttachTicketStore {
             record.createdTerminalIDs.insert(terminalID)
         }
         recordsByAuthToken[authToken] = record
+        Self.storeRecord(record, authToken: authToken)
     }
 
     private func attachURL(for ticket: CmxAttachTicket) throws -> URL {
@@ -159,6 +169,81 @@ final class MobileAttachTicketStore {
 
     private func pruneExpired(now: Date) {
         recordsByAuthToken = recordsByAuthToken.filter { !$0.value.ticket.isExpired(at: now) }
+    }
+
+    private static let recordKeychainService = "com.cmuxterm.mobile.attach-ticket-records"
+    nonisolated(unsafe) private static var recordFallbackStore: [String: Data] = [:]
+
+    private static func recordKey(for authToken: String) -> String {
+        let digest = SHA256.hash(data: Data(authToken.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func storeRecord(_ record: Record, authToken: String) {
+        guard let data = try? JSONEncoder().encode(record) else { return }
+        let key = recordKey(for: authToken)
+        #if canImport(Security)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: recordKeychainService,
+            kSecAttrAccount as String: key,
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess { return }
+        if updateStatus == errSecMissingEntitlement {
+            recordFallbackStore[key] = data
+            return
+        }
+        guard updateStatus == errSecItemNotFound else { return }
+        var insert = query
+        insert[kSecValueData as String] = data
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        if addStatus == errSecMissingEntitlement {
+            recordFallbackStore[key] = data
+        }
+        #else
+        recordFallbackStore[key] = data
+        #endif
+    }
+
+    private static func loadRecord(authToken: String) -> Record? {
+        let key = recordKey(for: authToken)
+        #if canImport(Security)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: recordKeychainService,
+            kSecAttrAccount as String: key,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+           let data = result as? Data {
+            return try? JSONDecoder().decode(Record.self, from: data)
+        }
+        #endif
+        guard let data = recordFallbackStore[key] else { return nil }
+        return try? JSONDecoder().decode(Record.self, from: data)
+    }
+
+    private static func deleteRecord(authToken: String) {
+        let key = recordKey(for: authToken)
+        #if canImport(Security)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: recordKeychainService,
+            kSecAttrAccount as String: key,
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        SecItemDelete(query as CFDictionary)
+        #endif
+        recordFallbackStore[key] = nil
     }
 
     private static func jsonObject<T: Encodable>(_ value: T) throws -> Any {

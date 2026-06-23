@@ -485,12 +485,17 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
     public func remove(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
         try ensureReady()
         if stackUserID == nil && teamID == nil {
+            try credentialKeysForMac(macDeviceID: macDeviceID).forEach(Self.deleteCredentialFromKeychain)
             try exec("DELETE FROM paired_macs WHERE mac_device_id = ?;",
                      binding: [.text(macDeviceID)])
         } else {
+            let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+            if let key = try credentialKeyForMac(macDeviceID: macDeviceID, ownerKey: ownerKey) {
+                Self.deleteCredentialFromKeychain(key: key)
+            }
             try exec(
                 "DELETE FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;",
-                binding: [.text(macDeviceID), .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")")]
+                binding: [.text(macDeviceID), .text(ownerKey)]
             )
         }
     }
@@ -498,6 +503,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
     /// Remove every locally stored paired Mac and route.
     public func removeAll() throws {
         try ensureReady()
+        try credentialKeysForAllMacs().forEach(Self.deleteCredentialFromKeychain)
         try exec("DELETE FROM paired_macs;")
     }
 
@@ -774,6 +780,46 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
             routes.append(route)
         }
         return routes
+    }
+
+    private func credentialKeyForMac(macDeviceID: String, ownerKey: String) throws -> String? {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT credential_key FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;"
+        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return Self.readNullableText(statement, column: 0)
+    }
+
+    private func credentialKeysForMac(macDeviceID: String) throws -> [String] {
+        try credentialKeys(whereSQL: "WHERE mac_device_id = ?", bindings: [.text(macDeviceID)])
+    }
+
+    private func credentialKeysForAllMacs() throws -> [String] {
+        try credentialKeys(whereSQL: "", bindings: [])
+    }
+
+    private func credentialKeys(whereSQL: String, bindings: [BindValue]) throws -> [String] {
+        var statement: OpaquePointer?
+        defer { sqlite3_finalize(statement) }
+        let sql = "SELECT credential_key FROM paired_macs \(whereSQL);"
+        let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
+        guard rc == SQLITE_OK else {
+            throw MobilePairedMacStoreError.prepareFailed(rc, lastErrorMessage())
+        }
+        try bind(statement: statement, parameters: bindings)
+        var keys: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let key = Self.readNullableText(statement, column: 0),
+               !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                keys.append(key)
+            }
+        }
+        return keys
     }
 
     private static func encodeRoute(_ route: CmxAttachRoute) throws -> String {
