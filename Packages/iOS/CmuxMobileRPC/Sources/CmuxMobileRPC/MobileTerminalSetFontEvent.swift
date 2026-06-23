@@ -1,3 +1,5 @@
+public import Foundation
+
 /// Typed decoder for a `terminal.set_font` push-event payload.
 ///
 /// The Mac emits this event to live-resize the mirrored terminal font on
@@ -26,5 +28,14 @@ public struct MobileTerminalSetFontEvent: Decodable, Sendable {
         fontSize = try container.decode(Double.self, forKey: .fontSize)
         surfaceID = try container.decodeIfPresent(String.self, forKey: .surfaceID)
         workspaceID = try container.decodeIfPresent(String.self, forKey: .workspaceID)
+    }
+
+    /// Decode a set-font event from a raw JSON payload.
+    /// - Parameter data: The event payload JSON.
+    /// - Returns: The decoded event.
+    /// - Throws: A decoding error if the payload is not a JSON object or is
+    ///   missing `font_size`.
+    public static func decode(_ data: Data) throws -> MobileTerminalSetFontEvent {
+        try JSONDecoder().decode(Self.self, from: data)
     }
 }
