@@ -62,19 +62,40 @@ cmux_attach_mac_socket_ready() {
   [[ -S "$sock" ]]
 }
 
-# Best-effort: ensure the tagged Mac app is running so a ticket can be minted.
-# Enables the pairing host, then (if the socket is down and a local tagged build
-# exists) launches it and waits up to ~12s for the socket. Returns 0 if the
-# socket is ready, 1 otherwise (caller should degrade to signed-in-only). Never
-# fails the calling script.
+# Best-effort: ensure the tagged Mac app is running AND its iOS pairing listener
+# is actually bound, so a ticket can be minted. Enables the pairing host, then:
+#   - socket down  -> launch the local tagged build and wait for the socket.
+#   - socket up    -> the pairing default is only read at launch, so a live
+#                     socket does NOT prove the listener is bound. Probe by
+#                     minting; if it already works, done (no disruption). If not,
+#                     the running process predates the default — relaunch it so
+#                     the fresh process binds the listener.
+# Args: <tag> [<repo_root>] (repo_root enables the mint readiness probe). Returns
+# 0 if the Mac is ready to mint, 1 otherwise (caller degrades to signed-in-only).
+# Never fails the calling script.
 cmux_attach_ensure_mac() {
-  local tag="$1" sock app
+  local tag="$1" repo_root="${2:-}" sock app slug _i
   sock="$(cmux_attach_socket_path "$tag")"
-  cmux_attach_enable_pairing_host "$tag" || true
-  if [[ -S "$sock" ]]; then
-    return 0
-  fi
   app="$(cmux_attach_mac_app_path "$tag")"
+  slug="$(cmux_attach__slug "$tag")"
+  cmux_attach_enable_pairing_host "$tag" || true
+
+  if [[ -S "$sock" ]]; then
+    # Quick probe (2 attempts ~1s): if pairing already mints, leave the running
+    # app untouched.
+    if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" 2)" ]]; then
+      return 0
+    fi
+    if [[ ! -d "$app" ]]; then
+      echo "warning: tagged Mac app for '$tag' is running but its pairing listener is not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only)." >&2
+      return 1
+    fi
+    echo "==> relaunching tagged Mac app to bind the pairing listener ($tag)" >&2
+    # Scoped to this tag's executable only (never the stable app or other tags).
+    pkill -f "cmux DEV ${slug}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
+    for _i in $(seq 1 25); do [[ -S "$sock" ]] || break; sleep 0.2; done
+  fi
+
   if [[ ! -d "$app" ]]; then
     echo "warning: tagged Mac app for '$tag' not found locally ($app); cannot auto-pair. Build it (scripts/reload-cloud.sh --tag $tag) then re-run, or pass --no-attach." >&2
     return 1
@@ -83,7 +104,6 @@ cmux_attach_ensure_mac() {
   # The tagged app derives its socket from its baked CMUXDevTag, so a plain launch
   # binds /tmp/cmux-debug-<slug>.sock without extra env.
   open -g "$app" >/dev/null 2>&1 || open "$app" >/dev/null 2>&1 || true
-  local _i
   for _i in $(seq 1 60); do
     [[ -S "$sock" ]] && return 0
     sleep 0.2
@@ -97,9 +117,9 @@ cmux_attach_ensure_mac() {
 # <repo_root>. Polls the mint RPC (the real readiness signal) until routes are
 # bound, bounded so a never-binding listener fails instead of hanging.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" sock payload url _i
+  local tag="$1" ttl="$2" repo_root="$3" max="${4:-20}" sock payload url _i
   sock="$(cmux_attach_socket_path "$tag")"
-  for _i in $(seq 1 20); do
+  for _i in $(seq 1 "$max"); do
     if [[ ! -S "$sock" ]]; then
       sleep 0.5
       continue

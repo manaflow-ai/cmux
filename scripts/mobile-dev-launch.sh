@@ -104,7 +104,7 @@ if [[ -z "$ATTACH_URL" && "$ATTACH" -eq 1 ]]; then
     # from its socket. Do NOT consult the QR server — its /ticket.json has no tag
     # parameter and is served from whatever tag the QR server last set, so it
     # could hand back a ticket for a DIFFERENT Mac and silently mispair.
-    cmux_attach_ensure_mac "$TAG" || true
+    cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" || true
     if cmux_attach_mac_socket_ready "$TAG"; then
       ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
     fi

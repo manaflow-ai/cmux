@@ -603,7 +603,13 @@ reload_device() {
         echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
       fi
     elif ! auto_setup_launch device "$selected_device_install_id"; then
-      echo "warning: installed but signed launch failed (device locked? unlock the iPhone and tap the app)" >&2
+      # Auto sign-in/pair failed (e.g. missing dogfood creds, helper, or Mac).
+      # Fall back to a plain launch so the freshly installed app still opens,
+      # matching the simulator path and the previous device behavior.
+      echo "warning: signed launch failed; launching plain (sign in manually)" >&2
+      if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
+        echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
+      fi
     fi
   fi
 
