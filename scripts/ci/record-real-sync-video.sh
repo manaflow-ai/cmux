@@ -5,6 +5,7 @@ BUILD_TAG="${BUILD_TAG:?BUILD_TAG is required}"
 DEVICE_FAMILY="${DEVICE_FAMILY:-iphone}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-$PWD/artifact}"
 SYNC_MARKER="${SYNC_MARKER:-cmux-real-sync-video}"
+DEV_STACK_AUTH_TOKEN="${CMUX_MOBILE_DEV_STACK_AUTH_TOKEN:-cmux-cloud-sync-video-token}"
 
 mkdir -p "$ARTIFACT_DIR"
 
@@ -372,6 +373,16 @@ WORKSPACE_JSON="$(cat "$WORKSPACE_OUTPUT")"
 WORKSPACE_ID="$(printf '%s\n' "$WORKSPACE_JSON" | json_field workspace_id)"
 SURFACE_ID="$(printf '%s\n' "$WORKSPACE_JSON" | json_field surface_id)"
 
+phase "configuring debug mobile Stack auth token"
+DEV_STACK_AUTH_PARAMS="$(python3 - "$DEV_STACK_AUTH_TOKEN" <<'PY'
+import json
+import sys
+
+print(json.dumps({"token": sys.argv[1]}, separators=(",", ":")))
+PY
+)"
+cmux_tagged rpc mobile.dev_stack_auth.configure "$DEV_STACK_AUTH_PARAMS" >/dev/null
+
 for _ in $(seq 1 40); do
   if cmux_tagged read-screen --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" --lines 5 >/dev/null 2>&1; then
     break
@@ -431,6 +442,7 @@ run_with_timeout 30 env \
   SIMCTL_CHILD_CMUX_UITEST_AUTH_USER_ID=cloud-recording-user \
   SIMCTL_CHILD_CMUX_UITEST_AUTH_EMAIL=cloud-recording@cmux.local \
   "SIMCTL_CHILD_CMUX_UITEST_AUTH_NAME=Cloud Recording" \
+  "SIMCTL_CHILD_CMUX_MOBILE_DEV_STACK_AUTH_TOKEN=$DEV_STACK_AUTH_TOKEN" \
   "SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL=$ATTACH_URL" \
   xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" "$IOS_BUNDLE_ID" \
     --cmux-dogfood-attach-url "$ATTACH_URL"
@@ -481,6 +493,7 @@ path.write_text(json.dumps({
     "workspaceId": "$WORKSPACE_ID",
     "surfaceId": "$SURFACE_ID",
     "syncMarker": "$SYNC_MARKER",
+    "usesDebugMobileStackAuthToken": True,
     "video": "$(basename "$FINAL_VIDEO")",
     "macVideo": "$(basename "$MAC_RAW_VIDEO")",
     "iosVideo": "$(basename "$IOS_RAW_VIDEO")",
