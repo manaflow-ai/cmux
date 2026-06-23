@@ -2576,10 +2576,11 @@ struct TextBoxInputContainer: View {
         }
         .onChange(of: terminalAgentContext) { _, terminalAgentContext in
             if TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) {
-                pendingProviderLaunchAction = nil
+                clearPendingProviderLaunch()
             }
         }
         .onChange(of: allowsCommandTemplateSubmit) { _, _ in clearPendingProviderLaunchIfPromptIdleWithoutAgentContext() }
+        .onChange(of: defaultSubmitActionID) { _, _ in clearPendingProviderLaunch() }
     }
 
     private func addFilesButton(foreground: Color) -> some View {
@@ -2734,15 +2735,17 @@ struct TextBoxInputContainer: View {
         }
         let launchAction = effectiveSubmitAction
         if let launchCommand = providerLaunchCommand(for: launchAction) {
-            pendingProviderLaunchAction = launchAction
+            startPendingProviderLaunch(launchAction)
             TextBoxSubmit.sendEvents(
                 TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
                 via: surface
             ) { completionContext in
                 if !completionContext.didSubmit {
-                    pendingProviderLaunchAction = nil
+                    clearPendingProviderLaunch()
                     NSSound.beep()
+                    return
                 }
+                clearPendingProviderLaunchIfPromptIdleWithoutAgentContext()
             }
             return
         }
@@ -2800,7 +2803,7 @@ struct TextBoxInputContainer: View {
                 NSSound.beep()
                 return
             }
-            pendingProviderLaunchAction = nil
+            clearPendingProviderLaunch()
             if !pendingComments.isEmpty {
                 for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
