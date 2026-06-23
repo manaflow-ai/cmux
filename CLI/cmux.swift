@@ -7987,7 +7987,10 @@ struct CMUXCLI {
         if let windowId {
             params["window_id"] = windowId
         }
-        if let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowId) {
+        if let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowId) {
+            let workspaceId = isUUID(workspaceHandle)
+                ? workspaceHandle
+                : try resolveWorkspaceId(workspaceHandle, client: client, windowHandle: windowId)
             params["workspace_id"] = workspaceId
         }
         return params
