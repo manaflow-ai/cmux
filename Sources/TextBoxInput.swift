@@ -8,7 +8,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import os
 
-private enum TextBoxLayout {
+enum TextBoxLayout {
     static let minLines = 1
     static let lineSpacing: CGFloat = 0
     static let textInset = NSSize(width: 1, height: 5)
@@ -190,7 +190,7 @@ private struct TextBoxInputGlassPillBackground: View {
     }
 }
 
-private struct TextBoxSendButtonStyle: ButtonStyle {
+struct TextBoxSendButtonStyle: ButtonStyle {
     let canSend: Bool
     let backgroundColor: Color
 
@@ -633,7 +633,7 @@ extension SessionTextBoxInputAttachmentSnapshot {
     }
 }
 
-private enum TextBoxSubmissionFormatter {
+enum TextBoxSubmissionFormatter {
     static func parts(from attributed: NSAttributedString) -> [TextBoxSubmissionPart] {
         let raw = attributed.string as NSString
         let fullRange = NSRange(location: 0, length: attributed.length)
@@ -1204,72 +1204,6 @@ enum TextBoxTerminalKey: String {
     case returnKey = "return"
 }
 
-struct TextBoxSubmitActionPresentation: Equatable {
-    let action: TextBoxSubmitAction
-    let isForcedTextEntry: Bool
-
-    var label: String {
-        if isForcedTextEntry {
-            return String(localized: "textbox.submitAction.activeAgent", defaultValue: "Text Entry for Active Agent")
-        }
-        return Self.localizedTitle(for: action)
-    }
-
-    var accessibilityLabel: String {
-        String(
-            format: String(localized: "textbox.submitAction.accessibility", defaultValue: "Submit with %@"),
-            label
-        )
-    }
-
-    var helpText: String {
-        if isForcedTextEntry {
-            return String(localized: "textbox.submitAction.activeAgent.tooltip", defaultValue: "Active agent sessions use Text Entry. Shift-Tab changes the default for new sessions.")
-        }
-        return String(
-            format: String(localized: "textbox.submitAction.tooltip", defaultValue: "Submit with %@. Press Shift-Tab to change."),
-            label
-        )
-    }
-
-    var backgroundColor: Color {
-        Color(hex: action.backgroundColorHex.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .white
-    }
-
-    static func localizedTitle(for action: TextBoxSubmitAction) -> String {
-        switch action.id {
-        case TextBoxSubmitAction.textEntryAction.id:
-            return String(localized: "textbox.submitAction.textEntry", defaultValue: "Text Entry")
-        case "claude":
-            return String(localized: "textbox.submitAction.claude", defaultValue: "Claude")
-        case "codex":
-            return String(localized: "textbox.submitAction.codex", defaultValue: "Codex")
-        case "opencode":
-            return String(localized: "textbox.submitAction.opencode", defaultValue: "OpenCode")
-        case "pi":
-            return String(localized: "textbox.submitAction.pi", defaultValue: "Pi")
-        default:
-            return action.title
-        }
-    }
-}
-
-private enum TextBoxSubmitActionImageLoader {
-    static let maximumImageBytes = 2 * 1024 * 1024
-
-    static func imageData(atPath path: String) -> Data? {
-        let url = URL(fileURLWithPath: path, isDirectory: false)
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-              values.isRegularFile == true,
-              let fileSize = values.fileSize,
-              fileSize > 0,
-              fileSize <= maximumImageBytes else {
-            return nil
-        }
-        return try? Data(contentsOf: url, options: [.mappedIfSafe])
-    }
-}
-
 func shouldHandleTextBoxPlainArrowLocally(
     keyCode: UInt16,
     firstResponderHasMarkedText: Bool,
@@ -1335,250 +1269,6 @@ func textBoxCommandShortcutKey(
         return translated
     }
     return normalizedCharacters(event).lowercased()
-}
-
-enum TextBoxAgentDetection: CaseIterable {
-    case claudeCode
-    case codex
-    case opencode
-    case pi
-
-    private var definitionID: String {
-        switch self {
-        case .claudeCode:
-            return "claude"
-        case .codex:
-            return "codex"
-        case .opencode:
-            return "opencode"
-        case .pi:
-            return "pi"
-        }
-    }
-
-    private var identityAliases: Set<String> {
-        switch self {
-        case .claudeCode:
-            return ["claude", "claude_code", "claude-code", "claudecode", "omc"]
-        case .codex:
-            return ["codex", "omx"]
-        case .opencode:
-            return ["opencode", "open-code", "opencode-ai", "omo"]
-        case .pi:
-            return ["pi", "pi-coding-agent"]
-        }
-    }
-
-    func matches(context: String) -> Bool {
-        context
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .contains { matches(metadataLine: String($0)) }
-    }
-
-    static func supportsAgentPrefixes(context: String) -> Bool {
-        allCases.contains { $0.matches(context: context) }
-    }
-
-    static func isClaudeCode(context: String) -> Bool {
-        claudeCode.matches(context: context)
-    }
-
-    private func matches(metadataLine rawLine: String) -> Bool {
-        let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty else { return false }
-
-        if let value = Self.metadataValue(line, prefix: "restoredAgent:") {
-            return matchesIdentity(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "agentPIDKey:") {
-            return matchesIdentity(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "initialCommand:") {
-            return matchesCommand(value)
-        }
-        if let value = Self.metadataValue(line, prefix: "tmuxStartCommand:") {
-            return matchesCommand(value)
-        }
-        return false
-    }
-
-    private func matchesIdentity(_ rawValue: String) -> Bool {
-        let normalized = rawValue
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !normalized.isEmpty else { return false }
-        if identityAliases.contains(normalized) {
-            return true
-        }
-        let baseKey = normalized.split(separator: ".").first.map(String.init) ?? normalized
-        return identityAliases.contains(baseKey)
-    }
-
-    private func matchesCommand(_ command: String) -> Bool {
-        let tokens = Self.shellLikeTokens(command)
-        guard !tokens.isEmpty else { return false }
-        return Self.commandSegments(from: tokens).contains { segment in
-            matchesCommandSegment(segment, depth: 0)
-        }
-    }
-
-    private func matchesCommandSegment(_ tokens: [String], depth: Int) -> Bool {
-        guard !tokens.isEmpty else { return false }
-        let resolved = Self.resolvedCommandSegment(tokens)
-        guard let executable = resolved.arguments.first else { return false }
-        if CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
-            processName: executable,
-            processPath: executable,
-            arguments: resolved.arguments,
-            environment: resolved.environment
-        )?.id == definitionID {
-            return true
-        }
-
-        guard depth < 2 else { return false }
-        return Self.shellSubcommandSegments(from: resolved.arguments).contains { segment in
-            matchesCommandSegment(segment, depth: depth + 1)
-        }
-    }
-
-    private static func metadataValue(_ line: String, prefix: String) -> String? {
-        guard line.hasPrefix(prefix) else { return nil }
-        return String(line.dropFirst(prefix.count))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func shellLikeTokens(_ command: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var quote: Character?
-        var escaping = false
-
-        func flush() {
-            guard !current.isEmpty else { return }
-            tokens.append(current)
-            current.removeAll(keepingCapacity: true)
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            if let activeQuote = quote {
-                if character == activeQuote {
-                    quote = nil
-                } else {
-                    current.append(character)
-                }
-                continue
-            }
-            if character == "\"" || character == "'" {
-                quote = character
-                continue
-            }
-            if character.isWhitespace {
-                flush()
-                continue
-            }
-            current.append(character)
-        }
-        flush()
-        return tokens
-    }
-
-    private static func commandSegments(from tokens: [String]) -> [[String]] {
-        var result: [[String]] = []
-        var current: [String] = []
-        for token in tokens {
-            if token == "&&" || token == "||" || token == ";" {
-                if !current.isEmpty {
-                    result.append(current)
-                    current = []
-                }
-            } else {
-                current.append(token)
-            }
-        }
-        if !current.isEmpty {
-            result.append(current)
-        }
-        return result
-    }
-
-    private static func resolvedCommandSegment(_ tokens: [String]) -> (arguments: [String], environment: [String: String]) {
-        var environment: [String: String] = [:]
-        var index = 0
-        let firstBasename = tokens.first.map { ($0 as NSString).lastPathComponent.lowercased() }
-
-        if firstBasename == "env" {
-            index = 1
-            while index < tokens.count {
-                let token = tokens[index]
-                if token.hasPrefix("-") {
-                    index += 1
-                    continue
-                }
-                guard let assignment = environmentAssignment(token) else { break }
-                environment[assignment.key] = assignment.value
-                index += 1
-            }
-        } else {
-            while index < tokens.count {
-                guard let assignment = environmentAssignment(tokens[index]) else { break }
-                environment[assignment.key] = assignment.value
-                index += 1
-            }
-        }
-
-        let arguments = Array(tokens.dropFirst(index))
-        return (arguments.isEmpty ? tokens : arguments, environment)
-    }
-
-    private static func shellSubcommandSegments(from arguments: [String]) -> [[String]] {
-        guard let executable = arguments.first else { return [] }
-        let basename = (executable as NSString).lastPathComponent.lowercased()
-        guard ["sh", "bash", "zsh", "fish"].contains(basename) else { return [] }
-
-        var commandStartIndex: Int?
-        for index in arguments.indices.dropFirst() {
-            let argument = arguments[index]
-            if argument == "-c" || argument == "-lc" || argument == "-cl" {
-                commandStartIndex = arguments.index(after: index)
-                break
-            }
-            if argument.hasPrefix("-"),
-               !argument.hasPrefix("--"),
-               argument.dropFirst().contains("c") {
-                commandStartIndex = arguments.index(after: index)
-                break
-            }
-        }
-
-        guard let commandStartIndex,
-              commandStartIndex < arguments.endIndex else {
-            return []
-        }
-        let commandTokens = shellLikeTokens(arguments[commandStartIndex])
-        guard !commandTokens.isEmpty else { return [] }
-        return commandSegments(from: commandTokens)
-    }
-
-    private static func environmentAssignment(_ token: String) -> (key: String, value: String)? {
-        guard let equalsIndex = token.firstIndex(of: "="),
-              equalsIndex != token.startIndex else {
-            return nil
-        }
-        let key = String(token[..<equalsIndex])
-        guard key.range(of: #"^[A-Za-z_][A-Za-z0-9_]*$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-        return (key, String(token[token.index(after: equalsIndex)...]))
-    }
 }
 
 private struct TextBoxMentionCompletionPopoverView: View {
@@ -2757,11 +2447,11 @@ private final class TextBoxSubmitEventRunner {
 
 struct TextBoxInputContainer: View {
     @AppStorage(TerminalTextBoxInputSettings.defaultSubmitActionKey)
-    private var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
+    var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
-    private var configuredSubmitActionsJSON = ""
-    @State private var submitActionsCache = TextBoxSubmitAction.builtInActions
-    @State private var submitActionImageCache: [String: NSImage] = [:]
+    var configuredSubmitActionsJSON = ""
+    @State var submitActionsCache = TextBoxSubmitAction.builtInActions
+    @State var submitActionImageCache: [String: NSImage] = [:]
 
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
@@ -2782,91 +2472,13 @@ struct TextBoxInputContainer: View {
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var hasMarkedText = false
-    @State private var hasPendingProviderLaunch = false
+    @State var hasPendingProviderLaunch = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
 
     private var pendingCommentCount: Int {
         commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
-    }
-
-    private var submitActions: [TextBoxSubmitAction] {
-        submitActionsCache
-    }
-
-    private var submitActionImagePaths: [String] {
-        let paths = submitActions.compactMap { action -> String? in
-            guard let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !path.isEmpty else {
-                return nil
-            }
-            return expandedSubmitActionImagePath(path)
-        }
-        return Array(Set(paths)).sorted()
-    }
-
-    private var submitActionImagePathCacheKey: String {
-        submitActionImagePaths.joined(separator: "\u{1F}")
-    }
-
-    private var selectedSubmitAction: TextBoxSubmitAction {
-        Self.selectedSubmitAction(
-            defaultSubmitActionID: defaultSubmitActionID,
-            submitActions: submitActions
-        )
-    }
-
-    static func selectedSubmitAction(
-        defaultSubmitActionID: String,
-        submitActions: [TextBoxSubmitAction]
-    ) -> TextBoxSubmitAction {
-        if defaultSubmitActionID == TextBoxSubmitAction.textEntryAction.id {
-            return TextBoxSubmitAction.textEntryAction
-        }
-        if let selected = submitActions.first(where: { $0.id == defaultSubmitActionID }) {
-            return selected
-        }
-        if !TextBoxSubmitAction.builtInActions.contains(where: { $0.id == defaultSubmitActionID }) {
-            return TextBoxSubmitAction.textEntryAction
-        }
-        return submitActions.first { $0.id == TerminalTextBoxInputSettings.defaultSubmitActionID }
-            ?? TextBoxSubmitAction.builtInActions[0]
-    }
-
-    private var shouldForceTextEntrySubmit: Bool {
-        hasPendingProviderLaunch || Self.shouldForceTextEntrySubmit(
-            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-            terminalAgentContext: terminalAgentContext
-        )
-    }
-
-    static func shouldForceTextEntrySubmit(
-        allowsCommandTemplateSubmit: Bool,
-        terminalAgentContext _: String
-    ) -> Bool {
-        !allowsCommandTemplateSubmit
-    }
-
-    static func textEntryTerminalAgentContext(
-        allowsCommandTemplateSubmit: Bool,
-        terminalAgentContext: String
-    ) -> String {
-        allowsCommandTemplateSubmit ? "" : terminalAgentContext
-    }
-
-    private var effectiveSubmitAction: TextBoxSubmitAction {
-        guard !shouldForceTextEntrySubmit else {
-            return TextBoxSubmitAction.textEntryAction
-        }
-        return selectedSubmitAction
-    }
-
-    private var submitActionPresentation: TextBoxSubmitActionPresentation {
-        TextBoxSubmitActionPresentation(
-            action: effectiveSubmitAction,
-            isForcedTextEntry: shouldForceTextEntrySubmit && selectedSubmitAction.kind != .textEntry
-        )
     }
 
     private var textBasePointSize: CGFloat { max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2) }
@@ -3034,108 +2646,6 @@ struct TextBoxInputContainer: View {
         .frame(height: TextBoxLayout.attachmentChipHeight)
     }
 
-    private func sendButton(
-        canSend: Bool,
-        foreground: Color,
-        presentation: TextBoxSubmitActionPresentation
-    ) -> some View {
-        Button {
-            guard canSend else {
-                NSSound.beep()
-                return
-            }
-            submit()
-        } label: {
-            submitActionImage(presentation.action)
-                .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
-                .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-        }
-        .buttonStyle(TextBoxSendButtonStyle(
-            canSend: canSend,
-            backgroundColor: presentation.backgroundColor
-        ))
-        .foregroundStyle(canSend ? Color.black.opacity(0.86) : foreground.opacity(0.38))
-        .help(presentation.helpText)
-        .accessibilityLabel(presentation.accessibilityLabel)
-        .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
-        .contextMenu {
-            ForEach(submitActions) { action in
-                Button {
-                    defaultSubmitActionID = action.id
-                } label: {
-                    submitActionMenuLabel(action)
-                }
-            }
-            Divider()
-            Button {
-                openSubmitActionsDocumentation()
-            } label: {
-                Label(
-                    String(localized: "textbox.submitAction.docs", defaultValue: "TextBox Submit Actions Docs"),
-                    systemImage: "book"
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func submitActionImage(_ action: TextBoxSubmitAction) -> some View {
-        if let path = action.imagePath,
-           let image = submitActionImageCache[expandedSubmitActionImagePath(path)] {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-        } else if let assetName = action.assetName {
-            Image(assetName)
-                .resizable()
-                .scaledToFit()
-        } else {
-            Image(systemName: action.systemImage)
-        }
-    }
-
-    @ViewBuilder
-    private func submitActionMenuLabel(_ action: TextBoxSubmitAction) -> some View {
-        let title = TextBoxSubmitActionPresentation.localizedTitle(for: action)
-        if action.id == selectedSubmitAction.id {
-            Label(title, systemImage: "checkmark")
-        } else if let assetName = action.assetName {
-            Label(title, image: assetName)
-        } else {
-            Label(title, systemImage: action.systemImage)
-        }
-    }
-
-    @MainActor
-    private func refreshSubmitActionImageCache(paths: [String]) async {
-        let pathSet = Set(paths)
-        submitActionImageCache = submitActionImageCache.filter { pathSet.contains($0.key) }
-
-        for path in paths where submitActionImageCache[path] == nil {
-            let data = await Task.detached(priority: .utility) {
-                TextBoxSubmitActionImageLoader.imageData(atPath: path)
-            }.value
-            guard !Task.isCancelled else { return }
-            if let data,
-               let image = NSImage(data: data) {
-                submitActionImageCache[path] = image
-            }
-        }
-    }
-
-    @MainActor
-    private func refreshSubmitActionsCache(raw: String) async {
-        let actions = await Task.detached(priority: .utility) {
-            TerminalTextBoxInputSettings.submitActions(configuredJSON: raw)
-        }.value
-        guard !Task.isCancelled else { return }
-        submitActionsCache = actions
-    }
-
-    private func expandedSubmitActionImagePath(_ path: String) -> String {
-        NSString(string: path).expandingTildeInPath
-    }
-
     @State private var showPendingCommentsPreview = false
 
     private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
@@ -3225,7 +2735,7 @@ struct TextBoxInputContainer: View {
             )
     }
 
-    private func submit() {
+    func submit() {
         let textView = textViewReference.textView
         guard shouldSubmitTextBox(
             hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
@@ -3328,65 +2838,6 @@ struct TextBoxInputContainer: View {
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
-    }
-
-    private struct SubmitDispatchPlan {
-        let events: [TextBoxSubmit.DispatchEvent]
-        let cleanupTerminalAgentContext: String
-    }
-
-    private func dispatchPlan(
-        _ parts: [TextBoxSubmissionPart],
-        applying action: TextBoxSubmitAction
-    ) -> SubmitDispatchPlan {
-        guard !shouldForceTextEntrySubmit else {
-            let textEntryContext = Self.textEntryTerminalAgentContext(
-                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-                terminalAgentContext: terminalAgentContext
-            )
-            return SubmitDispatchPlan(
-                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
-                cleanupTerminalAgentContext: textEntryContext
-            )
-        }
-
-        guard let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
-            let textEntryContext = Self.textEntryTerminalAgentContext(
-                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-                terminalAgentContext: terminalAgentContext
-            )
-            return SubmitDispatchPlan(
-                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
-                cleanupTerminalAgentContext: textEntryContext
-            )
-        }
-        return SubmitDispatchPlan(
-            events: TextBoxSubmit.dispatchEvents(for: [.text(command)], terminalAgentContext: ""),
-            cleanupTerminalAgentContext: Self.textEntryTerminalAgentContext(
-                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-                terminalAgentContext: terminalAgentContext
-            )
-        )
-    }
-
-    private func providerLaunchCommand(for action: TextBoxSubmitAction) -> String? {
-        guard !shouldForceTextEntrySubmit else { return nil }
-        return action.launchCommand()
-    }
-
-    private func cycleSubmitAction() {
-        let actions = submitActions
-        guard !actions.isEmpty else { return }
-        let currentIndex = actions.firstIndex(where: { $0.id == defaultSubmitActionID }) ?? 0
-        let nextIndex = actions.index(after: currentIndex)
-        defaultSubmitActionID = actions[nextIndex == actions.endIndex ? actions.startIndex : nextIndex].id
-    }
-
-    private func openSubmitActionsDocumentation() {
-        guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/configuration.md#terminaltextboxsubmitactions") else {
-            return
-        }
-        NSWorkspace.shared.open(url)
     }
 
     private func markContentChanged() {
