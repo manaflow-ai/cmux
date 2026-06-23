@@ -22,14 +22,19 @@ const agentSlugMoves: [from: string, to: string][] = [
 const nextConfig: NextConfig = {
   poweredByHeader,
   async redirects() {
-    return agentSlugMoves.flatMap(([from, to]) => [
-      { source: from, destination: to, permanent: true },
-      {
-        source: `/${localePrefix}${from}`,
-        destination: `/:locale${to}`,
-        permanent: true,
-      },
-    ]);
+    // Cover the HTML page plus its agent-readable .md/.txt variants, which were
+    // live and advertised in llms.txt before the move.
+    const exts = ["", ".md", ".txt"];
+    return agentSlugMoves.flatMap(([from, to]) =>
+      exts.flatMap((ext) => [
+        { source: `${from}${ext}`, destination: `${to}${ext}`, permanent: true },
+        {
+          source: `/${localePrefix}${from}${ext}`,
+          destination: `/:locale${to}${ext}`,
+          permanent: true,
+        },
+      ]),
+    );
   },
   async headers() {
     return securityHeaderRules;
