@@ -388,7 +388,7 @@ extension CMUXCLI {
     }
 
     static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
-        let noOpCommand = feedHookNoOpShellCommand(agentEvent: agentEvent)
+        let noOpCommand = feedHookNoOpShellCommand(for: def, agentEvent: agentEvent)
         switch def.format {
         case .kiroAgentJSON:
             return exitTwoPropagatingAgentHookShellCommand(
@@ -405,8 +405,8 @@ extension CMUXCLI {
         }
     }
 
-    private static func feedHookNoOpShellCommand(agentEvent: String) -> String {
-        let normalized = agentEvent
+    private static func feedHookNoOpShellCommand(for def: AgentHookDef, agentEvent: String) -> String {
+        let normalized = (def.name == "codex" ? "posttooluse" : agentEvent)
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
             .lowercased()

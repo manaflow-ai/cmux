@@ -603,7 +603,7 @@ def cmux_codex_hook_command(subcommand: str) -> str:
 
 def cmux_codex_feed_command(agent_event: str) -> str:
     routed_arguments = f"hooks feed --source codex --event {agent_event}"
-    noop_command = "{ head -c 1048577 >/dev/null 2>/dev/null || true; echo '{}'; }" if agent_event == "PostToolUse" else "echo '{}'"
+    noop_command = "{ head -c 1048577 >/dev/null 2>/dev/null || true; echo '{}'; }"
     return (
         'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; '
         'then cmux_cli="$(command -v cmux 2>/dev/null || true)"; fi; if [ -n "$CMUX_SURFACE_ID" ] '
@@ -2246,6 +2246,27 @@ def test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path:
         raise AssertionError(f"oversize Codex PostToolUse should not send feed.push: {frame!r}")
 
 
+def test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path: str, root: Path) -> None:
+    payload = {
+        "session_id": "codex-session",
+        "turn_id": "turn-oversize-pre-compact",
+        "cwd": "/tmp/project",
+        "hook_event_name": "PreCompact",
+        "transcript": "x" * (1024 * 1024 + 128),
+    }
+
+    stdout, frame = run_feed_hook_optional_frame(
+        cli_path,
+        root / "cmux-codex-oversize-precompact.sock",
+        payload,
+        None,
+    )
+    if stdout != {}:
+        raise AssertionError(f"oversize Codex PreCompact should fall back to empty output: {stdout!r}")
+    if frame is not None:
+        raise AssertionError(f"oversize Codex PreCompact should not send feed.push: {frame!r}")
+
+
 def test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path: str, root: Path) -> None:
     payload = {
         "session_id": "codex-session",
@@ -2412,6 +2433,7 @@ def main() -> int:
             test_codex_post_tool_use_redacts_tool_output(cli_path, root)
             test_codex_post_tool_use_accepts_native_event_label(cli_path, root)
             test_codex_post_tool_use_oversize_payload_is_dropped_before_decode(cli_path, root)
+            test_codex_lifecycle_oversize_payload_is_dropped_before_decode(cli_path, root)
             test_codex_post_tool_use_keeps_cwd_from_tool_input(cli_path, root)
             test_codex_post_tool_use_without_response_keeps_request_input(cli_path, root)
             test_non_codex_post_tool_use_keeps_request_input(cli_path, root)

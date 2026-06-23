@@ -32923,15 +32923,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         // Read stdin. Claude, Codex, and the other agents all pipe hook
         // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
-        // events are telemetry and PostToolUse can contain command output, so
-        // cap explicit PostToolUse and legacy/no-event Codex invocations before
-        // JSON decoding without changing other agents' actionable hook reads.
+        // events are telemetry, and native lifecycle hooks can carry arbitrary
+        // transcript fragments or tool output, so cap every Codex feed
+        // invocation before JSON decoding without changing other agents'
+        // actionable hook reads.
         let stdinData: Data
-        let commandEventWireName = commandEvent.map {
-            FeedEventClassifier.classify(source: source, event: $0, toolName: "").0
-        }
         let shouldBoundCodexFeedStdin = source == "codex"
-            && (commandEvent == nil || commandEventWireName == "PostToolUse")
         if shouldBoundCodexFeedStdin {
             guard let boundedData = Self.readBoundedFeedHookStdin() else {
                 print("{}")
