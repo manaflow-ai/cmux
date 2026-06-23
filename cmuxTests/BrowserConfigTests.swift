@@ -3260,7 +3260,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.preferredDeveloperToolsVisible)
     }
 
-    func testDetachedInspectorWillCloseDuringDockBackClosesUnsupportedAttachedInspector() {
+    func testDetachedInspectorWillCloseDuringDockBackAdoptsAttachedInspector() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let mainWindow = NSWindow(
@@ -3325,15 +3325,15 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
         XCTAssertTrue(panel.isDeveloperToolsVisible())
 
-        waitForDetachedDeveloperToolsCloseResolutionDeadline {
-            inspector.closeCount == 1 &&
-                !panel.isDeveloperToolsVisible() &&
-                !panel.preferredDeveloperToolsVisible
-        }
+        waitForDeveloperToolsTransitions()
 
-        XCTAssertEqual(inspector.closeCount, 1)
-        XCTAssertFalse(panel.isDeveloperToolsVisible())
-        XCTAssertFalse(panel.preferredDeveloperToolsVisible)
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Docking Web Inspector back into the page should adopt WebKit's attached layout instead of closing _inspector"
+        )
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
     }
 
     func testDetachedInspectorCloseButtonActionClosesWindowWithoutReenteringInspectorClose() {

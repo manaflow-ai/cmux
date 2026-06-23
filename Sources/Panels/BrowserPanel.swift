@@ -6489,7 +6489,7 @@ extension BrowserPanel {
         let visible = isDeveloperToolsVisible()
         let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
         if hasAttachedLayout {
-            closeUnsupportedAttachedDeveloperToolsRedock(source: source)
+            adoptAttachedDeveloperToolsRedock(source: source)
             return
         }
 
@@ -6504,10 +6504,8 @@ extension BrowserPanel {
             )
             return
         }
-        if visible {
-            closeUnsupportedAttachedDeveloperToolsRedock(source: source)
-            return
-        }
+        let closeReason = visible ? "redockUnsupported" : "manual"
+        if visible { _ = WebViewInspectorTeardown.closeInspector(for: webView) }
 
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
@@ -6518,24 +6516,26 @@ extension BrowserPanel {
         cancelDeveloperToolsRestoreRetry()
 #if DEBUG
         cmuxDebugLog(
-            "browser.devtools detachedClose.manual panel=\(id.uuidString.prefix(5)) " +
+            "browser.devtools detachedClose.\(closeReason) panel=\(id.uuidString.prefix(5)) " +
             "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif
     }
 
-    private func closeUnsupportedAttachedDeveloperToolsRedock(source: String) {
+    private func adoptAttachedDeveloperToolsRedock(source: String) {
         developerToolsDetachedOpenGraceDeadline = nil
-        developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
         developerToolsPreservedVisibleIntentForNextAttach = false
-        setPreferredDeveloperToolsVisible(false)
+        developerToolsLastKnownVisibleAt = Date()
+        developerToolsLastAttachedHostAt = Date()
+        setPreferredDeveloperToolsPresentation(.attached)
+        setPreferredDeveloperToolsVisible(true)
         cancelDeveloperToolsRestoreRetry()
-        _ = WebViewInspectorTeardown.closeInspector(for: webView)
-        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+        scheduleDeveloperToolsVisibilityLossCheck()
+        reevaluateHiddenWebViewDiscardScheduling(reason: "developer_tools_visibility_changed")
 #if DEBUG
         cmuxDebugLog(
-            "browser.devtools detachedClose.redockUnsupported panel=\(id.uuidString.prefix(5)) " +
+            "browser.devtools detachedClose.redockAdopt panel=\(id.uuidString.prefix(5)) " +
             "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif
