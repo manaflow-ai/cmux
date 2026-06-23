@@ -27,7 +27,7 @@ final class CmuxNotificationMuteConfigTests: XCTestCase {
         let config = try decode(json)
         let durations = try XCTUnwrap(config.notifications?.muteDurations)
         XCTAssertEqual(durations.map(\.label), ["30 Minutes", "2.5 Hours"])
-        XCTAssertEqual(durations.map(\.interval), [30 * 60, (2 * 60 * 60) + (30 * 60)])
+        XCTAssertEqual(durations.map(\.interval), [1_800.0, 9_000.0])
     }
 
     func testDecodeNotificationMuteDurationsRejectBlankLabel() {
