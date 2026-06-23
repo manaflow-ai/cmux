@@ -323,7 +323,7 @@ import Testing
     }
 
     @MainActor
-    @Test func mobileNotificationSettingsRPCUpdatesForwardingDefaults() {
+    @Test func mobileNotificationSettingsRPCUpdatesForwardingDefaults() async {
         let defaults = UserDefaults.standard
         let savedEnabled = defaults.object(forKey: PhonePushSettings.forwardEnabledKey)
         let savedMode = defaults.object(forKey: PhonePushSettings.forwardModeKey)
@@ -361,6 +361,43 @@ import Testing
         #expect(defaults.bool(forKey: PhonePushSettings.forwardEnabledKey))
         #expect(PhoneForwardingMode.fromDefaults(defaults) == .always)
         #expect(defaults.bool(forKey: PhonePushSettings.hideContentKey))
+    }
+
+    @MainActor
+    @Test func invalidMobileNotificationSettingsRPCDoesNotPartiallyWriteDefaults() async {
+        let defaults = UserDefaults.standard
+        let savedEnabled = defaults.object(forKey: PhonePushSettings.forwardEnabledKey)
+        let savedMode = defaults.object(forKey: PhonePushSettings.forwardModeKey)
+        let savedHideContent = defaults.object(forKey: PhonePushSettings.hideContentKey)
+        defer {
+            restore(savedEnabled, key: PhonePushSettings.forwardEnabledKey, defaults: defaults)
+            restore(savedMode, key: PhonePushSettings.forwardModeKey, defaults: defaults)
+            restore(savedHideContent, key: PhonePushSettings.hideContentKey, defaults: defaults)
+        }
+
+        defaults.set(false, forKey: PhonePushSettings.forwardEnabledKey)
+        defaults.set(PhoneForwardingMode.onlyWhenAway.rawValue, forKey: PhonePushSettings.forwardModeKey)
+        defaults.set(false, forKey: PhonePushSettings.hideContentKey)
+
+        let request = MobileHostRPCRequest(
+            id: "settings",
+            method: "notification.settings.set",
+            params: [
+                "enabled": true,
+                "mode": "sometimes",
+                "hide_content": true,
+            ],
+            auth: nil
+        )
+
+        guard case .err = await TerminalController.shared.mobileHostHandleRPC(request) else {
+            Issue.record("expected invalid settings to fail")
+            return
+        }
+
+        #expect(!defaults.bool(forKey: PhonePushSettings.forwardEnabledKey))
+        #expect(PhoneForwardingMode.fromDefaults(defaults) == .onlyWhenAway)
+        #expect(!defaults.bool(forKey: PhonePushSettings.hideContentKey))
     }
 
     // MARK: - willForwardReplacement (superseded-banner buffering gate)

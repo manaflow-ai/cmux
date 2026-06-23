@@ -418,7 +418,10 @@ struct MobileSettingsView: View {
                 await pushCoordinator.disable()
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
             } else {
-                let enabled = await pushCoordinator.enable()
+                let enabled = await pushCoordinator.enable(
+                    forwardingMode: notificationMode,
+                    hidesContent: hideNotificationContent
+                )
                 notificationsEnabled = enabled
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
             }

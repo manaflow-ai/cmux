@@ -146,7 +146,10 @@ public final class MobilePushCoordinator {
     /// Opt in: request system authorization, register for remote notifications,
     /// and persist the flag. Returns whether authorization was granted.
     @discardableResult
-    public func enable() async -> Bool {
+    public func enable(
+        forwardingMode: MobileNotificationForwardingMode? = nil,
+        hidesContent: Bool? = nil
+    ) async -> Bool {
         let priorStatus = await UNUserNotificationCenter.current()
             .notificationSettings().authorizationStatus
         // Only an undetermined status produces a real OS prompt; gate the
@@ -171,6 +174,12 @@ public final class MobilePushCoordinator {
         await registration.setEnabled(true)
         var preferences = notificationPreferences
         preferences.isEnabled = true
+        if let forwardingMode {
+            preferences.forwardingMode = forwardingMode
+        }
+        if let hidesContent {
+            preferences.hidesContent = hidesContent
+        }
         preferences.persist(to: defaults)
         UIApplication.shared.registerForRemoteNotifications()
         await syncNotificationPreferencesToMac(preferences)
@@ -218,8 +227,10 @@ public final class MobilePushCoordinator {
         guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
             return notificationPreferences
         }
-        macPreferences.persist(to: defaults)
-        return macPreferences
+        var localPreferences = notificationPreferences
+        localPreferences.forwardingMode = macPreferences.forwardingMode
+        localPreferences.hidesContent = macPreferences.hidesContent
+        return localPreferences
     }
 
     /// Hand a freshly-registered APNs token to the network layer.
@@ -362,8 +373,6 @@ public final class MobilePushCoordinator {
 
     private var hasStoredNotificationPreference: Bool {
         defaults.object(forKey: MobileNotificationPreferences.enabledKey) != nil
-            || defaults.object(forKey: MobileNotificationPreferences.forwardingModeKey) != nil
-            || defaults.object(forKey: MobileNotificationPreferences.hideContentKey) != nil
     }
 
     @discardableResult

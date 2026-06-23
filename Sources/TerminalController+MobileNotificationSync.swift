@@ -33,12 +33,15 @@ extension TerminalController {
     /// the default mode is `.always`, so Mac presence cannot suppress phone
     /// notifications while the user is using their iPhone.
     func v2MobileNotificationSettingsSet(params: [String: Any]) -> V2CallResult {
-        let defaults = UserDefaults.standard
+        var enabledUpdate: Bool?
+        var modeUpdate: PhoneForwardingMode?
+        var hideContentUpdate: Bool?
+
         if v2HasNonNullParam(params, "enabled") {
             guard let enabled = v2Bool(params, "enabled") else {
                 return .err(code: "invalid_params", message: "enabled must be a boolean", data: nil)
             }
-            defaults.set(enabled, forKey: PhonePushSettings.forwardEnabledKey)
+            enabledUpdate = enabled
         }
         if v2HasNonNullParam(params, "mode") {
             guard let rawMode = v2OptionalTrimmedRawString(params, "mode"),
@@ -49,13 +52,24 @@ extension TerminalController {
                     data: nil
                 )
             }
-            defaults.set(mode.rawValue, forKey: PhonePushSettings.forwardModeKey)
+            modeUpdate = mode
         }
         if v2HasNonNullParam(params, "hide_content") {
             guard let hideContent = v2Bool(params, "hide_content") else {
                 return .err(code: "invalid_params", message: "hide_content must be a boolean", data: nil)
             }
-            defaults.set(hideContent, forKey: PhonePushSettings.hideContentKey)
+            hideContentUpdate = hideContent
+        }
+
+        let defaults = UserDefaults.standard
+        if let enabledUpdate {
+            defaults.set(enabledUpdate, forKey: PhonePushSettings.forwardEnabledKey)
+        }
+        if let modeUpdate {
+            defaults.set(modeUpdate.rawValue, forKey: PhonePushSettings.forwardModeKey)
+        }
+        if let hideContentUpdate {
+            defaults.set(hideContentUpdate, forKey: PhonePushSettings.hideContentKey)
         }
         return .ok(v2MobileNotificationSettingsPayload(defaults: defaults))
     }
