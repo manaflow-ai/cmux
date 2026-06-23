@@ -4489,6 +4489,57 @@
         }
       }
     },
+    "mobile.signIn.restoringMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your saved session. Sign-in options are paused until this finishes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みセッションを確認しています。完了するまでサインイン操作は一時停止されます。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoreTimeoutMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not finish checking your saved session. Check your connection, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は保存済みセッションの確認を完了できませんでした。接続を確認してから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoreTimeoutTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still restoring session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだセッションを復元しています"
+          }
+        }
+      }
+    },
     "mobile.signIn.sentCodeFormat": {
       "extractionState": "manual",
       "localizations": {
