@@ -2019,6 +2019,28 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertFalse(snapshot.resumeCommand?.contains("/opt/Claude Code/bin/claude") ?? true)
     }
 
+    func testResumeCommandDropsMissingLauncherWrongForkLaunchCapture() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-session-123",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: nil,
+                executablePath: "/usr/local/bin/claude",
+                arguments: ["/usr/local/bin/claude", "--resume", "claude-session"],
+                workingDirectory: "/tmp/wrong",
+                environment: ["CLAUDE_CONFIG_DIR": "/tmp/claude"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ]; } && 'codex' 'resume' 'codex-session-123'"
+        )
+    }
+
     func testClaudeForkCommandRoutesThroughWrapperInsteadOfCapturedRealBinary() throws {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,

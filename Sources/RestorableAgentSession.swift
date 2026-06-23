@@ -782,8 +782,22 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         kind: RestorableAgentKind
     ) -> AgentLaunchCommandSnapshot? {
         guard let launchCommand else { return nil }
-        guard AgentLaunchCaptureTrust.launcherDescribesKind(launchCommand.launcher, kind: kind.rawValue),
-              !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
+        if let launcher = launchCommand.launcher?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !launcher.isEmpty {
+            guard AgentLaunchCaptureTrust.launcherDescribesKind(launcher, kind: kind.rawValue) else {
+                return nil
+            }
+        } else if launchCommand.executablePath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            || !launchCommand.arguments.isEmpty {
+            guard AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: launchCommand.executablePath,
+                arguments: launchCommand.arguments,
+                kind: kind.rawValue
+            ) else {
+                return nil
+            }
+        }
+        guard !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(launchCommand.arguments) else {
             return nil
         }
         return launchCommand
