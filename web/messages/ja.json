@@ -5,7 +5,7 @@
     "title": "cmux for iOS",
     "tagline": "ターミナルを、ポケットに。",
     "subtitle": "cmux iOS アプリは、Mac のターミナルを iPhone と iPad にリアルタイムでミラーリングします。自分の Tailscale やローカルネットワーク経由で、どこからでもコーディングエージェントの操作、ビルドの確認、ワークスペースの切り替えができます。",
-    "ctaBeta": "ベータを入手",
+    "ctaBeta": "TestFlight でダウンロード",
     "ctaDocs": "iOS ドキュメントを読む",
     "screenshotAlt": "ライブのエージェントターミナルを表示する cmux iOS アプリ",
     "features": "機能",

@@ -5,7 +5,7 @@
     "title": "cmux for iOS",
     "tagline": "Your terminals, in your pocket.",
     "subtitle": "The cmux iOS app mirrors your Mac terminals to iPhone and iPad in realtime. Drive your coding agents, watch builds, and switch workspaces from anywhere, over your own Tailscale or local network.",
-    "ctaBeta": "Get the beta",
+    "ctaBeta": "Download on TestFlight",
     "ctaDocs": "Read the iOS docs",
     "screenshotAlt": "cmux iOS app showing a live agent terminal",
     "features": "Features",

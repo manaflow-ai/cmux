@@ -6,6 +6,7 @@ import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
 import { BrandLogoLink } from "../components/brand-logo-link";
 import { GitHubButton } from "../components/github-button";
+import { AppleMark } from "../components/apple-mark";
 import {
   ctaButtonBase,
   ctaButtonDefaultSize,
@@ -87,13 +88,14 @@ export default function IosLanding() {
           data-dev="ios-cta"
           style={{ marginTop: 21, marginBottom: 16 }}
         >
-          <Link
-            href="/docs/ios"
+          <a
+            href="https://github.com/manaflow-ai/cmux#founders-edition"
             className={`${ctaButtonBase} ${ctaButtonDefaultSize}`}
             style={ctaButtonStyle}
           >
+            <AppleMark size={19} />
             {t("ctaBeta")}
-          </Link>
+          </a>
           <GitHubButton />
         </div>
 
