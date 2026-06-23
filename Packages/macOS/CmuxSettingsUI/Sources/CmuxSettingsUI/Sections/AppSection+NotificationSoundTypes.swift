@@ -1,7 +1,7 @@
 import UniformTypeIdentifiers
 
 extension AppSection {
-    static var customNotificationSoundAllowedContentTypes: [UTType] {
+    static let customNotificationSoundAllowedContentTypes: [UTType] = {
         [
             UTType(filenameExtension: "aiff"),
             UTType(filenameExtension: "wav"),
@@ -11,5 +11,5 @@ extension AppSection {
             UTType.mpeg4Audio,
             UTType(filenameExtension: "mp3"),
         ].compactMap { $0 }
-    }
+    }()
 }

@@ -5,10 +5,8 @@ import UniformTypeIdentifiers
 
 @MainActor
 @Suite struct AppSectionNotificationSoundTests {
-    @Test func customSoundPickerAllowsM4RFilesWhenSystemTypeIsAvailable() {
-        guard let ringtoneType = UTType(filenameExtension: "m4r") else {
-            return
-        }
+    @Test func customSoundPickerAllowsM4RFiles() throws {
+        let ringtoneType = try #require(UTType(filenameExtension: "m4r"))
         let allowedTypes = AppSection.customNotificationSoundAllowedContentTypes
 
         #expect(allowedTypes.contains { allowedType in

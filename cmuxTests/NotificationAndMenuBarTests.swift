@@ -1025,6 +1025,7 @@ final class NotificationDockBadgeTests: XCTestCase {
             ("mp3", "caf"),
             ("M4A", "caf"),
             ("m4r", "caf"),
+            ("M4R", "caf"),
             ("wav", "wav"),
             ("AIFF", "aiff"),
         ].forEach { sourceExtension, stagedExtension in
