@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
             }
         }
     }
@@ -675,6 +675,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    /// Per-surface continuations for the Mac-pushed live font-size signal. A
+    /// mounted surface obtains ``terminalLiveFontStream(surfaceID:)`` and applies
+    /// each yielded point size; the Mac emits `terminal.set_font` to drive a live
+    /// zoom (the grid reflows automatically). Mirrors
+    /// ``terminalByteContinuationsBySurfaceID`` so the font signal rides the same
+    /// per-surface fan-out shape as render-grid output.
+    private var terminalLiveFontContinuationsBySurfaceID: [String: AsyncStream<Float32>.Continuation]
+    /// Per-surface identity token for the live-font continuation above. A
+    /// same-surface remount replaces the continuation (and this token) before the
+    /// old cancelled stream's termination cleanup runs; the cleanup only tears
+    /// down when its own token is still current, so it never deletes the new
+    /// stream's continuation.
+    private var terminalLiveFontTokensBySurfaceID: [String: UUID]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -842,6 +855,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        self.terminalLiveFontContinuationsBySurfaceID = [:]
+        self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
@@ -5720,6 +5735,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
+                } else if event.topic == "terminal.set_font" {
+                    self.handleTerminalSetFontEvent(event)
                 } else if event.topic == "terminal.bytes" {
                     // Raw PTY bytes coming from the Mac surface's libghostty
                     // pty-tee. This is the compatibility fallback when the Mac
@@ -6193,6 +6210,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// The Mac-pushed live font-size stream for a terminal surface.
+    ///
+    /// A mounted surface obtains this alongside ``terminalOutputStream(surfaceID:)``
+    /// and applies each yielded point size to drive a live zoom (the grid reflows
+    /// automatically). Ending iteration (or cancelling the consuming task)
+    /// detaches the font continuation. Mirrors the output-stream lifecycle so the
+    /// font signal never outlives the surface mount.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Returns: An `AsyncStream` of absolute point sizes.
+    public func terminalLiveFontStream(surfaceID: String) -> AsyncStream<Float32> {
+        AsyncStream { continuation in
+            let token = UUID()
+            terminalLiveFontContinuationsBySurfaceID[surfaceID] = continuation
+            terminalLiveFontTokensBySurfaceID[surfaceID] = token
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    // Only tear down if this exact stream is still registered; a
+                    // same-surface remount may have replaced it before this ran.
+                    guard self.terminalLiveFontTokensBySurfaceID[surfaceID] == token else { return }
+                    self.terminalLiveFontContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+                    self.terminalLiveFontTokensBySurfaceID.removeValue(forKey: surfaceID)
+                }
+            }
+        }
+    }
+
     /// Report this device's natural terminal grid to the Mac and return the
     /// effective grid the Mac computed (the smallest across all attached
     /// devices, capped to the Mac pane). The caller pins its libghostty surface
@@ -6363,6 +6407,32 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
         deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+    }
+
+    private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = try? MobileTerminalSetFontEvent.decode(json)
+        else {
+            return
+        }
+        let points = Float32(payload.fontSize)
+        if let surfaceID = payload.surfaceID {
+            terminalLiveFontContinuationsBySurfaceID[surfaceID]?.yield(points)
+        } else if let targetWorkspaceID = payload.workspaceID {
+            // Workspace-scoped: only mounted surfaces in that workspace, so
+            // `set-font --workspace <id>` never resizes unrelated terminals.
+            for (surfaceID, continuation) in terminalLiveFontContinuationsBySurfaceID
+            where workspaceID(forTerminalID: surfaceID)?.rawValue == targetWorkspaceID {
+                continuation.yield(points)
+            }
+        } else {
+            // No explicit scope: drive every mounted surface, mirroring how the
+            // Mac's own font-size change reflows all panes.
+            for continuation in terminalLiveFontContinuationsBySurfaceID.values {
+                continuation.yield(points)
+            }
+        }
     }
 
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
