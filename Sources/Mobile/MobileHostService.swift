@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileIrohTransport
 import CmuxSettings
 import CryptoKit
 import Foundation
@@ -375,6 +376,12 @@ final class MobileHostService {
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
     private var listenerPort: Int?
+    /// The iroh accept lane (plans/feat-ios-iroh/DESIGN.md PR 4), bound only when
+    /// `isIrohHostEnabled` is on. `irohRoute` is the dial-by-EndpointId route the
+    /// listener publishes, merged into the host's route set by `resolvedRoutes`.
+    private var irohListener: CmxIrohByteListener?
+    private var irohAcceptTask: Task<Void, Never>?
+    private var irohRoute: CmxAttachRoute?
     /// The preferred port the active start-sequence targeted (regardless of an
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
@@ -713,7 +720,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
         startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
@@ -734,6 +741,7 @@ final class MobileHostService {
         }
 
         startListener(usePreferredPort: true)
+        startIrohListener()
     }
 
     #if DEBUG
@@ -750,7 +758,7 @@ final class MobileHostService {
         listenerPort = port
         appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
@@ -811,6 +819,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        stopIrohListener()
         stopNetworkPathMonitor()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
@@ -835,7 +844,7 @@ final class MobileHostService {
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
-        let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
+        let routes = listenerPort.map { resolvedRoutes(port: $0) } ?? []
         return makeStatus(routes: routes)
     }
 
@@ -1066,7 +1075,7 @@ final class MobileHostService {
     ) async throws -> [String: Any] {
         let routes: [CmxAttachRoute]
         if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
+            routes = resolvedRoutes(port: listenerPort)
         } else {
             routes = []
         }
@@ -1131,12 +1140,22 @@ final class MobileHostService {
         }
 
         let id = UUID()
-        let session = MobileHostConnection(
+        registerConnection(
             id: id,
             byteConnection: NWMobileHostByteConnection(
                 connection: connection,
                 callbackQueue: DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
-            ),
+            )
+        )
+    }
+
+    /// Builds, registers, and starts a ``MobileHostConnection`` over any byte
+    /// channel. The TCP accept path and the iroh accept loop share this so they
+    /// run the identical authorization, RPC dispatch, and close bookkeeping.
+    private func registerConnection(id: UUID, byteConnection: any MobileHostByteConnection) {
+        let session = MobileHostConnection(
+            id: id,
+            byteConnection: byteConnection,
             authorizeRequest: { request in
                 await MobileHostService.shared.authorizationError(for: request)
             },
@@ -1162,6 +1181,95 @@ final class MobileHostService {
         )
         activeConnections[id] = session
         Task { await session.start() }
+    }
+
+    // MARK: - iroh accept lane (plans/feat-ios-iroh/DESIGN.md PR 4)
+
+    /// Whether the iroh host accept lane is enabled. Default off: the Mac binds
+    /// an iroh endpoint and advertises a dial-by-EndpointId route only when this
+    /// is explicitly turned on, so existing TCP/Tailscale behavior is untouched.
+    nonisolated static func isIrohHostEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: "cmux.mobileHost.iroh.enabled")
+    }
+
+    /// Binds the iroh endpoint and starts accepting, merging its route into the
+    /// published set. Idempotent; a no-op when disabled or already bound.
+    private func startIrohListener() {
+        guard Self.isIrohHostEnabled(), irohListener == nil else { return }
+        // Ephemeral key for now; a persisted Keychain key (a stable EndpointId
+        // for client pinning) is a follow-up. enableRelay so off-LAN phones dial.
+        let listener = CmxIrohByteListener(secretKey: nil, enableRelay: true)
+        irohListener = listener
+        irohAcceptTask = Task { @MainActor [weak self] in
+            do {
+                try await listener.start()
+            } catch {
+                mobileHostLog.error("iroh host listener failed to bind: \(String(describing: error), privacy: .public)")
+                return
+            }
+            if let json = await listener.routeJSON() {
+                self?.adoptIrohRoute(from: json)
+            }
+            while !Task.isCancelled {
+                do {
+                    let stream = try await listener.accept(timeoutMilliseconds: 0)
+                    self?.acceptIrohStream(stream)
+                } catch {
+                    // The listener was closed (stop) or accept failed terminally.
+                    break
+                }
+            }
+        }
+    }
+
+    /// Decodes the listener's `CmxAttachRoute`-shaped route JSON and republishes
+    /// the status so the iroh route reaches tickets, the registry, and QR.
+    private func adoptIrohRoute(from routeJSON: String) {
+        guard let data = routeJSON.data(using: .utf8),
+              let route = try? JSONDecoder().decode(CmxAttachRoute.self, from: data)
+        else {
+            return
+        }
+        // Prefer iroh over Tailscale on capable phones (lower priority wins).
+        irohRoute = (try? CmxAttachRoute(
+            id: route.id,
+            kind: route.kind,
+            endpoint: route.endpoint,
+            priority: -1
+        )) ?? route
+        if let listenerPort {
+            MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: listenerPort))
+        }
+    }
+
+    private func acceptIrohStream(_ stream: CmxIrohByteStream) {
+        guard activeConnections.count < Self.maximumActiveConnectionCount else {
+            mobileHostLog.error("mobile host rejected iroh connection because active connection limit was reached")
+            Task { await stream.close() }
+            return
+        }
+        registerConnection(id: UUID(), byteConnection: MobileHostIrohByteConnection(stream: stream))
+    }
+
+    private func stopIrohListener() {
+        irohAcceptTask?.cancel()
+        irohAcceptTask = nil
+        if let irohListener {
+            Task { await irohListener.close() }
+        }
+        irohListener = nil
+        irohRoute = nil
+    }
+
+    /// The host's published routes for `port`: the TCP/Tailscale/loopback routes
+    /// plus the iroh route when the accept lane is bound (nil otherwise, so this
+    /// is identical to the resolver's routes whenever iroh is off).
+    private func resolvedRoutes(port: Int) -> [CmxAttachRoute] {
+        var routes = routeResolver.routes(port: port).routes
+        if let irohRoute {
+            routes.append(irohRoute)
+        }
+        return routes
     }
 
     /// Whether an incoming connection's remote peer is on the loopback interface.
@@ -1541,7 +1649,7 @@ final class MobileHostService {
                         )
                     }
                 })
-                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+                MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: listenerPort))
             } else {
                 MobileHostPublicStatusCache.update(routes: [])
             }
@@ -1656,7 +1764,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
     }
 }
 
