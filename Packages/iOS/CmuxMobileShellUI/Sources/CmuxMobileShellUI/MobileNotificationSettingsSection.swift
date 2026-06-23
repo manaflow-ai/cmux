@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 import SwiftUI
 
 /// Settings rows for iPhone push opt-in and Mac forwarding preferences.
