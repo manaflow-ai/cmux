@@ -28,3 +28,21 @@ export const DOWNLOAD_CONFIRMATION_PATH = "/download/confirmation";
 export const DOWNLOAD_INTENT_PARAM = "dl";
 
 export const DOWNLOAD_CONFIRMATION_HREF = `${DOWNLOAD_CONFIRMATION_PATH}?${DOWNLOAD_INTENT_PARAM}=1`;
+
+/**
+ * iOS ships through the Founders Edition program rather than a public release
+ * asset, so the iOS entry in the platform picker links to that section of the
+ * GitHub README instead of triggering a download.
+ */
+export const IOS_FOUNDERS_EDITION_URL =
+  "https://github.com/manaflow-ai/cmux#founders-edition";
+
+/**
+ * Platforms shown in the Download button's platform picker, besides macOS
+ * (which is the button's primary action) and iOS (which links out to the
+ * Founders Edition). These have no build yet, so picking one opens the
+ * waitlist dialog.
+ */
+export const WAITLIST_PLATFORMS = ["linux", "android", "windows"] as const;
+
+export type WaitlistPlatform = (typeof WAITLIST_PLATFORMS)[number];
