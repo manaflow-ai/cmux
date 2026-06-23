@@ -386,7 +386,7 @@ extension CmuxSettingsFileStore {
         "sidebar.showLog",
         "sidebar.showProgress",
         "sidebar.showCustomMetadata",
-        "sidebar.workspaceControls",
+        SidebarSettingsFileMapping.workspaceControlsPath,
         RightSidebarWidthSettings.settingsPath,
         "workspaceColors.indicatorStyle",
         "workspaceColors.selectionColor",

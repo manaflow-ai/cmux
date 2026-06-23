@@ -87,6 +87,25 @@ extension TerminalController {
         }
         return v2WorkspaceTasksCommand(params: params) { workspace, tabManager in
             guard let task = workspace.archiveWorkspaceTask(id: taskId) else {
+                let currentTasks = Workspace.sanitizedWorkspaceTasks(workspace.workspaceTasks)
+                if let existingTask = currentTasks.first(where: { $0.id == taskId }), existingTask.isOpen {
+                    let openCount = currentTasks.prefix { $0.isOpen }.count
+                    let archivedCount = currentTasks.count - openCount
+                    if archivedCount >= WorkspaceTask.maximumArchivedTaskCount {
+                        return .err(
+                            code: "limit_exceeded",
+                            message: String(
+                                format: String(
+                                    localized: "socket.workspaceTasks.archive.archiveLimitReached",
+                                    defaultValue: "Workspace Tasks supports up to %d archived tasks per workspace"
+                                ),
+                                locale: .current,
+                                WorkspaceTask.maximumArchivedTaskCount
+                            ),
+                            data: ["maximum_archived_tasks": WorkspaceTask.maximumArchivedTaskCount]
+                        )
+                    }
+                }
                 return .err(code: "not_found", message: String(localized: "socket.workspaceTasks.notFound", defaultValue: "Task not found"), data: ["task_id": taskId.uuidString])
             }
             return .ok(v2WorkspaceTasksPayload(workspace: workspace, tabManager: tabManager, changedTask: task))
@@ -134,6 +153,18 @@ extension TerminalController {
             )
         }
         return v2WorkspaceTasksCommand(params: params) { workspace, tabManager in
+            let currentTasks = Workspace.sanitizedWorkspaceTasks(workspace.workspaceTasks)
+            guard let currentIndex = currentTasks.firstIndex(where: { $0.id == taskId }) else {
+                return .err(code: "not_found", message: String(localized: "socket.workspaceTasks.notFound", defaultValue: "Task not found"), data: ["task_id": taskId.uuidString])
+            }
+            if let anchorError = v2WorkspaceTasksMoveAnchorError(
+                tasks: currentTasks,
+                movingTaskIndex: currentIndex,
+                beforeTaskId: beforeTaskId,
+                afterTaskId: afterTaskId
+            ) {
+                return anchorError
+            }
             guard let task = workspace.moveWorkspaceTask(id: taskId, before: beforeTaskId, after: afterTaskId, index: index) else {
                 return .err(code: "not_found", message: String(localized: "socket.workspaceTasks.notFound", defaultValue: "Task not found"), data: ["task_id": taskId.uuidString])
             }
@@ -229,16 +260,33 @@ extension TerminalController {
         changedSurfaceId: UUID? = nil
     ) -> [String: Any] {
         let windowId = v2ResolveWindowId(tabManager: tabManager)
+        var tasks: [[String: Any]] = []
+        var openTasks: [[String: Any]] = []
+        var archivedTasks: [[String: Any]] = []
+        tasks.reserveCapacity(workspace.workspaceTasks.count)
+        openTasks.reserveCapacity(min(workspace.workspaceTasks.count, WorkspaceTask.maximumOpenTaskCount))
+        archivedTasks.reserveCapacity(min(workspace.workspaceTasks.count, WorkspaceTask.maximumArchivedTaskCount))
+
+        for task in workspace.workspaceTasks {
+            let payload = v2WorkspaceTaskPayload(task)
+            tasks.append(payload)
+            if task.isArchived {
+                archivedTasks.append(payload)
+            } else {
+                openTasks.append(payload)
+            }
+        }
+
         var payload: [String: Any] = [
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": workspace.id.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
-            "tasks": workspace.workspaceTasks.map(v2WorkspaceTaskPayload),
-            "open": workspace.openWorkspaceTasks.map(v2WorkspaceTaskPayload),
-            "archived": workspace.archivedWorkspaceTasks.map(v2WorkspaceTaskPayload),
-            "open_count": workspace.openWorkspaceTasks.count,
-            "archived_count": workspace.archivedWorkspaceTasks.count
+            "tasks": tasks,
+            "open": openTasks,
+            "archived": archivedTasks,
+            "open_count": openTasks.count,
+            "archived_count": archivedTasks.count
         ]
         if let changedTask {
             payload["task"] = v2WorkspaceTaskPayload(changedTask)
@@ -278,6 +326,33 @@ extension TerminalController {
             return ["after_task_id": afterTaskId.uuidString]
         }
         return nil
+    }
+
+    private nonisolated func v2WorkspaceTasksMoveAnchorError(
+        tasks: [WorkspaceTask],
+        movingTaskIndex: Int,
+        beforeTaskId: UUID?,
+        afterTaskId: UUID?
+    ) -> V2CallResult? {
+        guard beforeTaskId != nil || afterTaskId != nil else { return nil }
+        var candidateTasks = tasks
+        let movingTask = candidateTasks.remove(at: movingTaskIndex)
+        let openCount = candidateTasks.prefix { $0.isOpen }.count
+        let bucketRange = movingTask.isOpen ? candidateTasks.startIndex..<openCount : openCount..<candidateTasks.endIndex
+        let anchorExists: Bool
+        if let beforeTaskId {
+            anchorExists = candidateTasks[bucketRange].contains { $0.id == beforeTaskId }
+        } else if let afterTaskId {
+            anchorExists = candidateTasks[bucketRange].contains { $0.id == afterTaskId }
+        } else {
+            anchorExists = true
+        }
+        guard !anchorExists else { return nil }
+        return .err(
+            code: "not_found",
+            message: String(localized: "socket.workspaceTasks.move.anchorNotFound", defaultValue: "Task move anchor not found"),
+            data: v2WorkspaceTasksAnchorErrorData(beforeTaskId: beforeTaskId, afterTaskId: afterTaskId)
+        )
     }
 
     private nonisolated func v2WorkspaceTasksPlacementCount(

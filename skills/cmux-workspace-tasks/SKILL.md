@@ -36,6 +36,8 @@ Add a task:
 
 ```bash
 cmux workspace tasks add --workspace "${CMUX_WORKSPACE_ID:-}" --title "Write release notes"
+cmux workspace tasks add --workspace "${CMUX_WORKSPACE_ID:-}" --title "Update docs" --before <task-uuid>
+cmux workspace tasks add --workspace "${CMUX_WORKSPACE_ID:-}" --title "Check CI" --index 0
 ```
 
 Insert or reorder within the Open bucket:
@@ -45,6 +47,9 @@ cmux workspace tasks add --workspace "${CMUX_WORKSPACE_ID:-}" --title "Update do
 cmux workspace tasks move --workspace "${CMUX_WORKSPACE_ID:-}" <task-uuid> --index 0
 cmux workspace tasks move --workspace "${CMUX_WORKSPACE_ID:-}" <task-uuid> --before <task-uuid>
 cmux workspace tasks move --workspace "${CMUX_WORKSPACE_ID:-}" <task-uuid> --after <task-uuid>
+cmux workspace tasks move --workspace "${CMUX_WORKSPACE_ID:-}" --task <task-uuid> --index 0
+cmux workspace tasks move --workspace "${CMUX_WORKSPACE_ID:-}" --task-id <task-uuid> --before <task-uuid>
+cmux workspace tasks move --workspace "${CMUX_WORKSPACE_ID:-}" --id <task-uuid> --after <task-uuid>
 ```
 
 Complete a task by moving it to Archived:
@@ -63,6 +68,7 @@ Open the native Workspace Tasks surface without stealing focus:
 
 ```bash
 cmux workspace tasks open --workspace "${CMUX_WORKSPACE_ID:-}" --focus false
+cmux workspace tasks open --workspace "${CMUX_WORKSPACE_ID:-}" --focus true
 ```
 
 ## Rules

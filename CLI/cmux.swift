@@ -7783,7 +7783,11 @@ struct CMUXCLI {
             knownFlags: ["--title", "--before", "--after", "--index", "--workspace", "--window"]
         )
 
-        let title = (titleOpt ?? positionalArguments(rem5).joined(separator: " "))
+        let titleArguments = positionalArguments(rem5)
+        if titleOpt != nil, !titleArguments.isEmpty {
+            throw CLIError(message: String(localized: "cli.workspaceTasks.add.error.unexpectedArguments", defaultValue: "workspace tasks add cannot combine --title with positional title arguments"))
+        }
+        let title = (titleOpt ?? titleArguments.joined(separator: " "))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
             throw CLIError(message: String(localized: "cli.workspaceTasks.add.error.titleRequired", defaultValue: "workspace tasks add requires --title <text> or a title argument"))
@@ -8202,10 +8206,12 @@ struct CMUXCLI {
 
         Subcommands:
           list [workspace]                         List open and archived tasks
-          add [title] [--title <text>]             Add an open task
+          add [title] [--title <text>] [--index <n>|--before <task-uuid>|--after <task-uuid>]
+                                                  Add an open task
           archive <task-uuid>                      Move a task to Archived
           remove <task-uuid>                       Delete a task
-          move <task-uuid> (--index <n>|--before <task-uuid>|--after <task-uuid>)
+          move <task-uuid>|--task <task-uuid>|--task-id <task-uuid>|--id <task-uuid>
+               (--index <n>|--before <task-uuid>|--after <task-uuid>)
                                                   Reorder a task within its bucket
           open [workspace] [--focus <true|false>]  Open the native task surface
 
@@ -8216,6 +8222,7 @@ struct CMUXCLI {
         Examples:
           cmux workspace tasks list
           cmux workspace tasks add "Write PR description"
+          cmux workspace tasks add --title "Update docs" --after 3F1D7E18-668E-4A1E-B9E2-83F48139C4E5
           cmux workspace tasks archive 3F1D7E18-668E-4A1E-B9E2-83F48139C4E5
           cmux workspace tasks move 3F1D7E18-668E-4A1E-B9E2-83F48139C4E5 --index 0
           cmux workspace tasks open --focus true

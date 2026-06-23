@@ -977,9 +977,6 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
-    @LiveSetting(\.betaFeatures.workspaceTasks) private var workspaceTasksBetaEnabled
-    @LiveSetting(\.betaFeatures.workspaceControls) private var workspaceControlsBetaEnabled
-    @LiveSetting(\.sidebar.workspaceControls) private var sidebarWorkspaceControls
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -994,6 +991,9 @@ struct ContentView: View {
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
+    @StateObject private var sidebarLayoutSettingsStore = SidebarTabItemSettingsStore(
+        initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
+    )
     @StateObject private var selectedWorkspaceDirectoryObserver = SelectedWorkspaceDirectoryObserver()
     @State private var commandPaletteOverlayRenderModel = CommandPaletteOverlayRenderModel()
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
@@ -1243,12 +1243,7 @@ struct ContentView: View {
 
     private var minimumSidebarWidth: CGFloat {
         let configuredMinimum = CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
-        let controlsMinimum = WorkspaceRowControlsSnapshot.resolved(
-            workspaceControlsBetaEnabled: workspaceControlsBetaEnabled,
-            workspaceTasksBetaEnabled: workspaceTasksBetaEnabled,
-            configuredControls: sidebarWorkspaceControls,
-            fontScale: SidebarTabItemFontScale.scale(for: GhosttyConfig.defaultSidebarFontSize)
-        ).layout.minimumSidebarWidth
+        let controlsMinimum = sidebarLayoutSettingsStore.snapshot.workspaceRowControls.layout.minimumSidebarWidth
         return max(configuredMinimum, controlsMinimum)
     }
 

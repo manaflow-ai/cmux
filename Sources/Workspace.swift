@@ -1523,6 +1523,9 @@ extension Workspace {
         case .extensionBrowser:
             return nil
         case .workspaceTasks:
+            guard Self.workspaceTasksBetaEnabled() else {
+                return nil
+            }
             guard let tasksPanel = newWorkspaceTasksSurface(
                 inPane: paneId,
                 focus: false

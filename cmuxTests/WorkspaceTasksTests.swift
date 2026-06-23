@@ -134,6 +134,69 @@ import Testing
         #expect(workspace.archiveWorkspaceTask(id: openTask.id) == nil)
     }
 
+    @Test func socketArchiveReportsLimitWhenArchiveBucketIsFull() throws {
+        try withWorkspaceTasksBetaEnabled {
+            let tabManager = TabManager()
+            let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+            TerminalController.shared.setActiveTabManager(tabManager)
+            defer { TerminalController.shared.setActiveTabManager(nil) }
+
+            let openTask = WorkspaceTask(
+                id: UUID(),
+                title: "Open",
+                createdAt: Date(timeIntervalSince1970: 1)
+            )
+            workspace.workspaceTasks = [openTask] + (0..<WorkspaceTask.maximumArchivedTaskCount).map { index in
+                WorkspaceTask(
+                    id: UUID(),
+                    title: "Archived \(index)",
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(index + 1_000)),
+                    archivedAt: Date(timeIntervalSince1970: TimeInterval(index + 2_000))
+                )
+            }
+
+            let result = TerminalController.shared.v2WorkspaceTasksArchive(params: [
+                "workspace_id": workspace.id.uuidString,
+                "task_id": openTask.id.uuidString
+            ])
+
+            guard case let .err(code, _, data) = result else {
+                Issue.record("Expected archive limit error, got \(result)")
+                return
+            }
+            #expect(code == "limit_exceeded")
+            let payload = try #require(data as? [String: Any])
+            #expect(payload["maximum_archived_tasks"] as? Int == WorkspaceTask.maximumArchivedTaskCount)
+        }
+    }
+
+    @Test func socketMoveMissingAnchorReportsAnchorInsteadOfSubject() throws {
+        try withWorkspaceTasksBetaEnabled {
+            let tabManager = TabManager()
+            let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+            TerminalController.shared.setActiveTabManager(tabManager)
+            defer { TerminalController.shared.setActiveTabManager(nil) }
+
+            let task = try #require(workspace.addWorkspaceTask(title: "Task"))
+            let missingAnchor = UUID()
+
+            let result = TerminalController.shared.v2WorkspaceTasksMove(params: [
+                "workspace_id": workspace.id.uuidString,
+                "task_id": task.id.uuidString,
+                "before_task_id": missingAnchor.uuidString
+            ])
+
+            guard case let .err(code, _, data) = result else {
+                Issue.record("Expected missing anchor error, got \(result)")
+                return
+            }
+            #expect(code == "not_found")
+            let payload = try #require(data as? [String: Any])
+            #expect(payload["before_task_id"] as? String == missingAnchor.uuidString)
+            #expect(payload["task_id"] as? String == nil)
+        }
+    }
+
     @Test func detachedWorkspaceTasksSurfaceRebindsToDestinationWorkspace() throws {
         let key = SettingCatalog().betaFeatures.workspaceTasks.userDefaultsKey
         let previousValue = UserDefaults.standard.object(forKey: key)
@@ -247,5 +310,19 @@ import Testing
         #expect(twoControls == 240)
         #expect(threeControls == 260)
         #expect(beyondCap == threeControls)
+    }
+
+    private func withWorkspaceTasksBetaEnabled(_ body: () throws -> Void) rethrows {
+        let key = SettingCatalog().betaFeatures.workspaceTasks.userDefaultsKey
+        let previousValue = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+        try body()
     }
 }
