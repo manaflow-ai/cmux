@@ -256,6 +256,42 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadKeepsCustomShellNamedAgentHookResumeBinding() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let store = sessionStore()
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let command = "{ cd -- '/tmp/right' 2>/dev/null || [ ! -d '/tmp/right' ]; } && 'fish' 'resume' 'custom-session'"
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Fish Agent",
+                kind: "fish",
+                command: command,
+                cwd: "/tmp/right",
+                checkpointId: "custom-session",
+                source: "agent-hook",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let workspaceSnapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let appSnapshot = makeSnapshot(workspaceSnapshot: workspaceSnapshot)
+        XCTAssertTrue(store.save(appSnapshot, fileURL: snapshotURL))
+
+        let loaded = try XCTUnwrap(store.load(fileURL: snapshotURL))
+        let loadedBinding = loaded.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.resumeBinding
+        XCTAssertEqual(loadedBinding?.command, command)
+    }
+
+    @MainActor
     func testLoadRepairsWrongForkAgentLaunchCommandAndRecoversWorkingDirectory() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -2066,6 +2102,28 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "{ cd -- '/tmp/hermes repo' 2>/dev/null || [ ! -d '/tmp/hermes repo' ]; } && '/opt/homebrew/bin/hermes' '--provider' 'custom' '--model' 'gpt-5.5' '--resume' 'hermes-session-123'"
+        )
+    }
+
+    func testResumeCommandPreservesMissingLauncherRovoDevAcliLaunchCapture() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .rovodev,
+            sessionId: "rovo-session-123",
+            workingDirectory: "/tmp/rovo repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: nil,
+                executablePath: "/usr/local/bin/acli",
+                arguments: ["/usr/local/bin/acli", "rovodev", "run"],
+                workingDirectory: "/tmp/rovo repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "{ cd -- '/tmp/rovo repo' 2>/dev/null || [ ! -d '/tmp/rovo repo' ]; } && '/usr/local/bin/acli' 'rovodev' 'run' '--restore' 'rovo-session-123'"
         )
     }
 

@@ -86,6 +86,13 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
         )
         XCTAssertTrue(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "acli",
+                arguments: ["/usr/local/bin/acli", "rovodev", "run", "--restore", "rovo-session"],
+                kind: "rovodev"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "acme-agent",
                 arguments: ["/Users/alice/bin/acme-agent", "--session", "native-session"],
                 kind: "acme-agent"

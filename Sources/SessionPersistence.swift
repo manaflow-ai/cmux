@@ -373,6 +373,11 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         let executable = (tokens[commandStart] as NSString).lastPathComponent.lowercased()
         let shells: Set<String> = ["sh", "bash", "zsh", "dash", "fish", "csh", "tcsh", "ksh"]
         guard shells.contains(executable) else { return false }
+        guard let bindingKind = kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              RestorableAgentKind.allCases.map(\.rawValue).contains(bindingKind),
+              bindingKind != executable else {
+            return false
+        }
         let resumeWord = tokens[commandStart + 1]
         return resumeWord == "resume" || resumeWord == "--resume" || resumeWord.hasPrefix("--resume=")
     }
