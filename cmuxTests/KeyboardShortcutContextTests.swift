@@ -208,34 +208,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         XCTAssertTrue(nonBrowser.overlaps(markdown))
     }
 
-    func testCanvasLayoutContextOverlapsNormalTerminalFocusShortcuts() {
-        let canvas = KeyboardShortcutSettings.Action.canvasOverview.shortcutContext
-        let nonBrowser = KeyboardShortcutSettings.Action.renameTab.shortcutContext
-        let browser = KeyboardShortcutSettings.Action.browserReload.shortcutContext
-
-        XCTAssertEqual(canvas, .canvasLayout)
-        XCTAssertEqual(nonBrowser, .nonBrowserPanel)
-        XCTAssertTrue(
-            canvas.isAvailable(
-                focusedBrowserPanel: false,
-                focusedMarkdownPanel: false,
-                rightSidebarFocused: false,
-                workspaceCanvasLayout: true
-            )
-        )
-        XCTAssertTrue(
-            nonBrowser.isAvailable(
-                focusedBrowserPanel: false,
-                focusedMarkdownPanel: false,
-                rightSidebarFocused: false,
-                workspaceCanvasLayout: true
-            )
-        )
-        XCTAssertTrue(canvas.overlaps(nonBrowser))
-        XCTAssertTrue(nonBrowser.overlaps(canvas))
-        XCTAssertFalse(canvas.overlaps(browser))
-    }
-
     func testSurfaceDigitFamilyCoexistsWithPrioritizedSidebarModeShortcuts() {
         let surfaceDigits = KeyboardShortcutSettings.Action.selectSurfaceByNumber.defaultShortcut
         let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut

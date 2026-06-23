@@ -34,4 +34,29 @@ struct CanvasShortcutContextTests {
             )
         }
     }
+
+    @Test
+    func canvasLayoutContextOverlapsNormalTerminalFocusShortcuts() {
+        let canvas = KeyboardShortcutSettings.Action.canvasOverview.shortcutContext
+        let nonBrowser = KeyboardShortcutSettings.Action.renameTab.shortcutContext
+        let browser = KeyboardShortcutSettings.Action.browserReload.shortcutContext
+
+        #expect(canvas == .canvasLayout)
+        #expect(nonBrowser == .nonBrowserPanel)
+        #expect(canvas.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            rightSidebarFocused: false,
+            workspaceCanvasLayout: true
+        ))
+        #expect(nonBrowser.isAvailable(
+            focusedBrowserPanel: false,
+            focusedMarkdownPanel: false,
+            rightSidebarFocused: false,
+            workspaceCanvasLayout: true
+        ))
+        #expect(canvas.overlaps(nonBrowser))
+        #expect(nonBrowser.overlaps(canvas))
+        #expect(!canvas.overlaps(browser))
+    }
 }
