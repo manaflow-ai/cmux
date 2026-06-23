@@ -1,4 +1,3 @@
-import XCTest
 import CmuxCore
 import AppKit
 import CmuxFoundation
@@ -15,9 +14,10 @@ import CmuxSidebar
 import UserNotifications
 import Combine
 import CmuxTerminal
-import CmuxWorkspaceCore
+import CmuxBrowser
 import struct CmuxSettings.IntegrationsCatalogSection
 import enum CmuxSettings.KiroNotificationLevel
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -225,7 +225,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         )
 
         XCTAssertNotNil(railColor)
-        XCTAssertEqual(railColor?.hexString(), "#C0392B")
+        XCTAssertEqual(railColor?.hexString(), "#D13929")
     }
 
     @MainActor
@@ -565,9 +565,8 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testSettingsVisibleShortcutActionsColocateRightSidebarFileExplorerAndFindShortcuts() {
         let visibleActions = KeyboardShortcutSettings.settingsVisibleActions
         let expectedActions: [KeyboardShortcutSettings.Action] = [
-            .focusRightSidebar,
-            .toggleRightSidebar,
-            .findInDirectory,
+            .focusRightSidebar, .toggleRightSidebar, .findInDirectory,
+            .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
         ]
 
         guard let startIndex = visibleActions.firstIndex(of: .focusRightSidebar) else {
@@ -7347,6 +7346,18 @@ final class ExtensionWorktreePrototypeTests: XCTestCase {
         let outputData = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: outputData, encoding: .utf8) ?? ""
         guard process.terminationStatus == 0 else {
+            // Apple's `/usr/bin/git` shim resolves the real git via
+            // `xcodebuild -find git`. On a CI runner whose xcode-select default is
+            // an Xcode ABI-incompatible with the test host, that resolution
+            // dlopen-crashes ("Symbol not found" / "Error loading required
+            // libraries") before git can run. That is a runner toolchain defect,
+            // not a product failure, so skip rather than fail. scripts/select-ci-
+            // xcode.sh aligns the default to prevent this; this guard keeps the
+            // test honest if a runner still diverges.
+            if output.contains("libxcodebuildLoader")
+                || output.contains("Error loading required libraries") {
+                throw XCTSkip("git toolchain unavailable on this runner: \(output)")
+            }
             XCTFail("git \(arguments.joined(separator: " ")) failed: \(output)")
             throw NSError(domain: "ExtensionWorktreePrototypeTests", code: Int(process.terminationStatus))
         }

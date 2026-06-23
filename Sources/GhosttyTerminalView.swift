@@ -1,19 +1,14 @@
 import Foundation
+import CmuxAppKitSupportUI
 import CmuxTerminal
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminalCore
-import CmuxTerminalEngine
-import CmuxTerminalServices
-import CmuxTerminalCopyMode
-import CmuxSocketControl
-import CmuxFileOpen
 import CmuxSettings
+import CmuxWorkspaces
 import CmuxTestSupport
-import CmuxWorkspaceWindow
 import SwiftUI
 import AppKit
-import CmuxFoundation
 import Metal
 import QuartzCore
 import Combine
@@ -25,7 +20,6 @@ import Sentry
 import Bonsplit
 import CMUXAgentLaunch
 import CMUXMobileCore
-import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
 
@@ -238,7 +232,7 @@ private func terminalKeyTableIndicatorText(_ name: String) -> String {
 }
 
 func terminalKeyboardCopyModeShouldBypassForShortcut(modifierFlags: NSEvent.ModifierFlags) -> Bool {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeShouldBypassForShortcut(
+    CmuxTerminalCore.terminalKeyboardCopyModeShouldBypassForShortcut(
         modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags)
     )
 }
@@ -250,7 +244,7 @@ func terminalKeyboardCopyModeAction(
     hasSelection: Bool,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeAction? {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeAction(
+    CmuxTerminalCore.terminalKeyboardCopyModeAction(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
         modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
@@ -269,7 +263,7 @@ func terminalKeyboardCopyModeResolve(
     state: inout TerminalKeyboardCopyModeInputState,
     asciiCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
 ) -> TerminalKeyboardCopyModeResolution {
-    CmuxTerminalCopyMode.terminalKeyboardCopyModeResolve(
+    CmuxTerminalCore.terminalKeyboardCopyModeResolve(
         keyCode: keyCode,
         charactersIgnoringModifiers: charactersIgnoringModifiers,
         modifiers: TerminalKeyboardCopyModeModifiers(modifierFlags: modifierFlags),
@@ -412,10 +406,15 @@ class GhosttyApp {
         runtimeFilesystem: .live(),
         sessionPortBase: GhosttyApp.terminalSessionPortBase,
         sessionPortRangeSize: GhosttyApp.terminalSessionPortRangeSize,
-        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey
+        scrollbackReplayEnvironmentKey: SessionScrollbackReplayStore.environmentKey, globalFontMagnificationPercent: { GlobalFontMagnification.storedPercent }
     )
 
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
+    /// Shared config-file discovery seam. Resolves Ghostty config scan paths,
+    /// scans them for font/appearance directives, and decides legacy/CJK/theme
+    /// overrides. The C-API config-load methods below call it to decide *what*
+    /// to load; it performs no `ghostty_config_t` mutation itself.
+    private static let configDiscovery = GhosttyConfigDiscovery()
     private static let fallbackAppearanceConfig = GhosttyConfig()
     private static let initializationLogger = Logger(
         subsystem: releaseBundleIdentifier,
@@ -650,7 +649,7 @@ class GhosttyApp {
     private var defaultBackgroundUpdateScope: GhosttyDefaultBackgroundUpdateScope = .unscoped
     private var defaultBackgroundScopeSource: String = "initialize"
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
-    private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
+    @MainActor private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
         GhosttyDefaultBackgroundNotificationDispatcher(delay: 0, logEvent: { [weak self] message in
@@ -993,6 +992,7 @@ class GhosttyApp {
                 logLabel: "shell integration override (fallback)"
             )
             loadCmuxManagedTerminalSettingsConfig(fallbackConfig)
+            loadGlobalFontMagnificationConfig(fallbackConfig)
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             loadNoActiveDisplayVsyncFallbackIfNeeded(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
@@ -1113,7 +1113,7 @@ class GhosttyApp {
     }
 
     private func loadCmuxManagedTerminalSettingsConfig(_ config: ghostty_config_t) {
-        guard let contents = TerminalManagedGhosttySettings.ghosttyConfigContents() else { return }
+        guard let contents = TerminalManagedGhosttySettings.ghosttyConfigContents(emitsCopyOnSelectFalse: false) else { return }
         loadInlineGhosttyConfig(
             contents,
             into: config,
@@ -1253,13 +1253,26 @@ class GhosttyApp {
             logLabel: "shell integration override"
         )
         loadCmuxManagedTerminalSettingsConfig(config)
+        loadGlobalFontMagnificationConfig(config)
         loadCmuxOwnedGhosttyKeybindOverrides(config)
         loadNoActiveDisplayVsyncFallbackIfNeeded(config)
 
         ghostty_config_finalize(config)
         return renderingModeChanged
     }
-
+    func loadGlobalFontMagnificationConfig(_ config: ghostty_config_t) {
+        guard !GlobalFontMagnification.isDefault else { return }
+        var fontSize: Float32 = 0
+        let key = "font-size"
+        guard ghostty_config_get(config, &fontSize, key, UInt(key.lengthOfBytes(using: .utf8))),
+              fontSize.isFinite, fontSize > 0 else { return }
+        let scaledFontSize = max(1, CGFloat(fontSize) * GlobalFontMagnification.scale)
+        loadInlineGhosttyConfig(
+            "font-size = \(Double(scaledFontSize))", into: config,
+            prefix: "cmux-global-font-magnification",
+            logLabel: "global font magnification"
+        )
+    }
     private func loadNoActiveDisplayVsyncFallbackIfNeeded(_ config: ghostty_config_t) {
         var displayCount: UInt32 = 0
         let error = CGGetActiveDisplayList(0, nil, &displayCount)
@@ -1343,356 +1356,91 @@ class GhosttyApp {
         )
     }
 
-    /// Unicode ranges shared by all CJK languages (Han ideographs, symbols, fullwidth forms).
-    private static let sharedCJKRanges = [
-        "U+3000-U+303F",  // CJK Symbols and Punctuation
-        "U+4E00-U+9FFF",  // CJK Unified Ideographs
-        "U+F900-U+FAFF",  // CJK Compatibility Ideographs
-        "U+FF00-U+FFEF",  // Halfwidth and Fullwidth Forms
-        "U+3400-U+4DBF",  // CJK Unified Ideographs Extension A
-    ]
-
-    /// Unicode ranges specific to Japanese (kana).
-    private static let japaneseRanges = [
-        "U+3040-U+309F",  // Hiragana
-        "U+30A0-U+30FF",  // Katakana
-    ]
-
-    /// Representative scalars used to detect whether the configured primary
-    /// font already covers the ranges cmux would otherwise auto-map.
-    private static let cjkCoverageSampleCharactersByRange: [String: [UniChar]] = [
-        "U+3000-U+303F": [0x3001, 0x300C],
-        "U+4E00-U+9FFF": [0x4E00, 0x65E5, 0x6C34],
-        "U+F900-U+FAFF": [0xF900],
-        "U+FF00-U+FFEF": [0xFF10, 0xFF21],
-        "U+3400-U+4DBF": [0x3400],
-        "U+1100-U+11FF": [0x1100, 0x1161],
-        "U+3130-U+318F": [0x3131, 0x314F],
-        "U+3040-U+309F": [0x3042, 0x3093],
-        "U+30A0-U+30FF": [0x30A2, 0x30F3],
-        "U+AC00-U+D7AF": [0xAC00, 0xD55C],
-    ]
-
-    private struct UserFontConfigSummary {
-        var containsCodepointMap = false
-        var effectiveFontFamilies: [String] = []
-
-        var hasExplicitFontFamilyFallbackChain: Bool {
-            effectiveFontFamilies.count > 1
-        }
-
-        mutating func applyFontCodepointMap(_ value: String) {
-            if value.isEmpty {
-                containsCodepointMap = false
-                return
-            }
-
-            guard value.contains("=") else {
-                return
-            }
-
-            containsCodepointMap = true
-        }
-
-        mutating func recordFontFamily(_ value: String) {
-            if value.isEmpty {
-                effectiveFontFamilies.removeAll()
-                return
-            }
-
-            guard !effectiveFontFamilies.contains(value) else {
-                return
-            }
-
-            effectiveFontFamilies.append(value)
-        }
-    }
-
     /// Returns (range, font) pairs for CJK font fallback based on the system's
-    /// preferred languages, or nil if no CJK language is detected. Each language
-    /// only maps its own script ranges to avoid assigning glyphs to a font that
-    /// lacks coverage (e.g. Hangul to Hiragino Sans).
+    /// preferred languages. Forwards to ``GhosttyConfigDiscovery``.
     static func cjkFontMappings(
         preferredLanguages: [String] = Locale.preferredLanguages
     ) -> [(String, String)]? {
-        var mappings: [(String, String)] = []
-        var coveredShared = false
-
-        for lang in preferredLanguages {
-            let lower = lang.lowercased()
-            let font: String
-            var langRanges: [String] = []
-
-            if lower.hasPrefix("ja") {
-                font = "Hiragino Sans"
-                langRanges = japaneseRanges
-            } else if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
-                font = "PingFang TC"
-            } else if lower.hasPrefix("zh") {
-                font = "PingFang SC"
-            } else {
-                continue
-            }
-
-            if !coveredShared {
-                for range in sharedCJKRanges {
-                    mappings.append((range, font))
-                }
-                coveredShared = true
-            }
-
-            for range in langRanges {
-                mappings.append((range, font))
-            }
-        }
-
-        return mappings.isEmpty ? nil : mappings
+        configDiscovery.cjkFontMappings(preferredLanguages: preferredLanguages)
     }
 
-    /// Returns only the CJK mappings cmux should auto-inject after respecting
-    /// explicit user overrides and the glyph coverage of the configured
-    /// primary font family.
+    /// Returns only the CJK mappings cmux should auto-inject. Forwards to
+    /// ``GhosttyConfigDiscovery``.
     static func autoInjectedCJKFontMappings(
         preferredLanguages: [String] = Locale.preferredLanguages,
-        configPaths: [String] = loadedCJKScanPaths(),
+        configPaths: [String]? = nil,
         rangeCoverageProbe: ((String, String) -> Bool)? = nil
     ) -> [(String, String)]? {
-        guard var mappings = cjkFontMappings(preferredLanguages: preferredLanguages) else { return nil }
-
-        let summary = userFontConfigSummary(configPaths: configPaths)
-        if summary.containsCodepointMap || summary.hasExplicitFontFamilyFallbackChain {
-            return nil
-        }
-
-        guard let configuredFontFamily = summary.effectiveFontFamilies.first else {
-            return mappings
-        }
-
-        if let rangeCoverageProbe {
-            mappings.removeAll { range, _ in
-                rangeCoverageProbe(configuredFontFamily, range)
-            }
-        } else if let configuredFont = configuredCTFont(named: configuredFontFamily) {
-            mappings.removeAll { range, _ in
-                fontContainsGlyphs(configuredFont, forRange: range)
-            }
-        }
-
-        return mappings.isEmpty ? nil : mappings
+        configDiscovery.autoInjectedCJKFontMappings(
+            preferredLanguages: preferredLanguages,
+            configPaths: configPaths,
+            rangeCoverageProbe: rangeCoverageProbe
+        )
     }
 
-    /// Checks whether the user's Ghostty config files already contain
-    /// a `font-codepoint-map` entry covering CJK ranges. Also checks
-    /// application-support config paths that cmux may load at runtime.
+    /// Whether the user's Ghostty config files already contain a CJK
+    /// `font-codepoint-map` entry. Forwards to ``GhosttyConfigDiscovery``.
     static func userConfigContainsCJKCodepointMap(
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> Bool {
-        userFontConfigSummary(configPaths: configPaths).containsCodepointMap
+        configDiscovery.userConfigContainsCJKCodepointMap(configPaths: configPaths)
     }
 
     static func userConfigHasExplicitFontFamilyFallbackChain(
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> Bool {
-        userFontConfigSummary(configPaths: configPaths).hasExplicitFontFamilyFallbackChain
+        configDiscovery.userConfigHasExplicitFontFamilyFallbackChain(configPaths: configPaths)
     }
 
     static func shouldInjectCJKFontFallback(
         preferredLanguages: [String] = Locale.preferredLanguages,
-        configPaths: [String] = loadedCJKScanPaths(),
+        configPaths: [String]? = nil,
         rangeCoverageProbe: ((String, String) -> Bool)? = nil
     ) -> Bool {
-        autoInjectedCJKFontMappings(
+        configDiscovery.shouldInjectCJKFontFallback(
             preferredLanguages: preferredLanguages,
             configPaths: configPaths,
             rangeCoverageProbe: rangeCoverageProbe
-        ) != nil
+        )
     }
 
     static func shouldApplyManagedDefaultAppearance(
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> Bool {
-        GhosttyConfig.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
+        configDiscovery.shouldApplyManagedDefaultAppearance(configPaths: configPaths)
     }
 
     static func conditionalThemeOverrideConfigContents(
         preferredColorScheme: GhosttyConfig.ColorSchemePreference,
-        configPaths: [String] = loadedGhosttyConfigScanPaths()
+        configPaths: [String]? = nil
     ) -> String? {
-        let summary = GhosttyConfig.userAppearanceConfigSummary(configPaths: configPaths)
-        guard let rawThemeValue = summary.lastThemeDirective else { return nil }
-
-        // Inject a resolved plain theme whenever the requested appearance side is
-        // explicitly named via ghostty's conditional `light:...`/`dark:...`
-        // syntax, even when both sides resolve to the same theme. `cmux themes
-        // set` always encodes the selection with this syntax (a single theme
-        // becomes `light:X,dark:X`), and ghostty mis-applies the conditional form
-        // — the background lands but the foreground/palette stay at the default
-        // white colors, producing the white-on-light terminals reported in
-        // https://github.com/manaflow-ai/cmux/issues/3459. Only override sides the
-        // value explicitly specifies: a one-sided `light:X` must not force the
-        // light theme onto dark appearances (which would clobber the inherited or
-        // default dark theme). Plain (non-conditional) theme values are applied
-        // correctly by ghostty, so they need no override.
-        guard let explicitTheme = GhosttyConfig.explicitConditionalThemeName(
-            from: rawThemeValue,
-            preferredColorScheme: preferredColorScheme
-        ) else {
-            return nil
-        }
-
-        let resolvedTheme = explicitTheme.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !resolvedTheme.isEmpty,
-              resolvedTheme.rangeOfCharacter(from: .newlines) == nil else {
-            return nil
-        }
-
-        return "theme = \(resolvedTheme)"
+        configDiscovery.conditionalThemeOverrideConfigContents(
+            preferredColorScheme: preferredColorScheme,
+            configPaths: configPaths
+        )
     }
 
-    /// Resolve auto-injected CJK families through the regular-weight descriptor
-    /// path first so locale-sensitive families such as Hiragino Sans don't fall
-    /// back to ultra-light faces like W0 when Ghostty later matches by name.
+    /// Resolves auto-injected CJK families through the regular-weight descriptor
+    /// path. Forwards to ``GhosttyConfigDiscovery``.
     static func resolvedInjectedCJKFontName(
         named name: String,
         size: CGFloat = 12
     ) -> String {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return name }
-        guard let regularWeightFont = discoveredCTFont(named: trimmed, size: size, weightTrait: 0.0) else {
-            return trimmed
-        }
-
-        let candidateNames = [
-            CTFontCopyName(regularWeightFont, kCTFontFullNameKey) as String?,
-            CTFontCopyName(regularWeightFont, kCTFontPostScriptNameKey) as String?,
-        ].compactMap { $0 }
-        let expectedFullName = CTFontCopyFullName(regularWeightFont) as String
-        let expectedPostScriptName = CTFontCopyPostScriptName(regularWeightFont) as String
-
-        for candidate in candidateNames {
-            guard let verifiedFont = discoveredCTFont(named: candidate, size: size) else { continue }
-            let verifiedNames = [
-                CTFontCopyName(verifiedFont, kCTFontFamilyNameKey) as String?,
-                CTFontCopyName(verifiedFont, kCTFontFullNameKey) as String?,
-                CTFontCopyName(verifiedFont, kCTFontPostScriptNameKey) as String?,
-            ].compactMap { $0 }
-            let matchesRegularWeightFace = verifiedNames.contains {
-                normalizedFontName($0) == normalizedFontName(expectedFullName) ||
-                normalizedFontName($0) == normalizedFontName(expectedPostScriptName)
-            }
-            if matchesRegularWeightFace {
-                return candidate
-            }
-        }
-
-        return trimmed
+        configDiscovery.resolvedInjectedCJKFontName(named: name, size: size)
     }
 
-    private static func configuredCTFont(
-        named name: String,
-        size: CGFloat = 12
-    ) -> CTFont? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        let font = CTFontCreateWithName(trimmed as CFString, size, nil)
-        let normalizedRequestedName = normalizedFontName(trimmed)
-        let resolvedNames = [
-            kCTFontFamilyNameKey,
-            kCTFontFullNameKey,
-            kCTFontPostScriptNameKey,
-        ].compactMap { CTFontCopyName(font, $0) as String? }
-
-        guard resolvedNames.contains(where: { normalizedFontName($0) == normalizedRequestedName }) else {
-            return nil
-        }
-
-        return font
-    }
-
-    /// Mirror Ghostty's family-name CoreText discovery path so injected
-    /// `font-codepoint-map` values are validated against the same lookup mode.
+    /// Mirror Ghostty's family-name CoreText discovery path. Forwards to
+    /// ``GhosttyConfigDiscovery``.
     static func discoveredCTFont(
         named name: String,
         size: CGFloat = 12,
         weightTrait: CGFloat? = nil
     ) -> CTFont? {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        var attributes: [CFString: Any] = [
-            kCTFontFamilyNameAttribute: trimmed,
-            kCTFontSizeAttribute: size,
-        ]
-        if let weightTrait {
-            attributes[kCTFontTraitsAttribute] = [
-                kCTFontWeightTrait: weightTrait,
-            ] as CFDictionary
-        }
-
-        let descriptor = CTFontDescriptorCreateWithAttributes(attributes as CFDictionary)
-        let collection = CTFontCollectionCreateWithFontDescriptors([descriptor] as CFArray, nil)
-        guard let match = (CTFontCollectionCreateMatchingFontDescriptors(collection) as? [CTFontDescriptor])?.first else {
-            return nil
-        }
-        return CTFontCreateWithFontDescriptor(match, size, nil)
+        configDiscovery.discoveredFont(named: name, size: size, weightTrait: weightTrait)
     }
 
-    private static func fontContainsGlyphs(
-        _ font: CTFont,
-        forRange range: String
-    ) -> Bool {
-        guard let characters = cjkCoverageSampleCharactersByRange[range] else {
-            return false
-        }
-
-        var glyphs = Array(repeating: CGGlyph(), count: characters.count)
-        let hasGlyphs = CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
-        return hasGlyphs && !glyphs.contains(0)
-    }
-
-    private static func normalizedFontName(_ name: String) -> String {
-        name
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .lowercased()
-    }
-
-    private static func userFontConfigSummary(
-        configPaths: [String] = loadedCJKScanPaths()
-    ) -> UserFontConfigSummary {
-        var summary = UserFontConfigSummary()
-        var recursiveConfigPaths: [String] = []
-
-        for path in configPaths.map({ NSString(string: $0).expandingTildeInPath }) {
-            scanFontConfigFile(
-                atPath: path,
-                summary: &summary,
-                recursiveConfigPaths: &recursiveConfigPaths
-            )
-        }
-
-        var loadedRecursivePaths = Set<String>()
-        while !recursiveConfigPaths.isEmpty {
-            let path = recursiveConfigPaths.removeFirst()
-            let resolved = (path as NSString).standardizingPath
-            guard !loadedRecursivePaths.contains(resolved) else { continue }
-            loadedRecursivePaths.insert(resolved)
-
-            scanFontConfigFile(
-                atPath: path,
-                summary: &summary,
-                recursiveConfigPaths: &recursiveConfigPaths
-            )
-        }
-
-        return summary
-    }
-
-    /// Returns the top-level Ghostty config paths cmux may load before
-    /// recursive `config-file` processing.
+    /// Returns the top-level Ghostty config paths cmux may load before recursive
+    /// `config-file` processing. Forwards to ``GhosttyConfigDiscovery``.
     static func loadedGhosttyConfigScanPaths(
         currentBundleIdentifier: String? = Bundle.main.bundleIdentifier,
         appSupportDirectory: URL? = FileManager.default.urls(
@@ -1700,48 +1448,10 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> [String] {
-        var paths = [
-            "~/.config/ghostty/config",
-            "~/.config/ghostty/config.ghostty",
-        ]
-
-        guard let appSupportDirectory else { return paths }
-
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        paths.append(nativeConfig.path)
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: configFileSize(at: nativeConfig),
-            legacyConfigFileSize: configFileSize(at: nativeLegacyConfig)
-        ) {
-            paths.append(nativeLegacyConfig.path)
-        }
-
-        guard let bundleId = currentBundleIdentifier,
-              !bundleId.isEmpty else { return paths }
-
-        let appSupportConfigURLs = cmuxAppSupportConfigURLs(
-            currentBundleIdentifier: bundleId,
+        configDiscovery.loadedGhosttyConfigScanPaths(
+            currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
-        paths.append(contentsOf: appSupportConfigURLs.map(\.path))
-
-        let releaseDir = appSupportDirectory.appendingPathComponent(releaseBundleIdentifier, isDirectory: true)
-        let releaseLegacyConfig = releaseDir.appendingPathComponent("config", isDirectory: false)
-        let releaseConfig = releaseDir.appendingPathComponent("config.ghostty", isDirectory: false)
-
-        let releaseConfigSize = configFileSize(at: releaseConfig)
-        let releaseLegacyConfigSize = configFileSize(at: releaseLegacyConfig)
-
-        if shouldIncludeLegacyGhosttyConfigInScanPaths(
-            newConfigFileSize: releaseConfigSize,
-            legacyConfigFileSize: releaseLegacyConfigSize
-        ), !paths.contains(releaseLegacyConfig.path) {
-            paths.append(releaseLegacyConfig.path)
-        }
-
-        return paths
     }
 
     static func loadedCJKScanPaths(
@@ -1751,127 +1461,30 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> [String] {
-        loadedGhosttyConfigScanPaths(
+        configDiscovery.loadedCJKScanPaths(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory
         )
-    }
-
-    private static func configFileSize(at url: URL) -> Int? {
-        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let size = attrs[.size] as? NSNumber else { return nil }
-        return size.intValue
-    }
-
-    /// Scans a single config file for font settings relevant to cmux's
-    /// injected CJK fallback and updates the pending recursive config-file
-    /// queue using Ghostty's repeatable path semantics.
-    private static func scanFontConfigFile(
-        atPath path: String,
-        summary: inout UserFontConfigSummary,
-        recursiveConfigPaths: inout [String]
-    ) {
-        let resolved = (path as NSString).standardizingPath
-        guard let contents = try? String(contentsOfFile: resolved, encoding: .utf8) else {
-            return
-        }
-        let parentDir = (resolved as NSString).deletingLastPathComponent
-
-        for line in contents.components(separatedBy: .newlines) {
-            guard let entry = parsedConfigEntry(from: line) else { continue }
-
-            switch entry.key {
-            case "font-codepoint-map":
-                guard let value = entry.value else { continue }
-                summary.applyFontCodepointMap(value)
-            case "font-family":
-                guard let value = entry.value else { continue }
-                summary.recordFontFamily(value)
-            case "config-file":
-                guard let value = entry.value else { continue }
-                applyConfigFileDirective(
-                    value,
-                    valueWasQuoted: entry.valueWasQuoted,
-                    parentDir: parentDir,
-                    recursiveConfigPaths: &recursiveConfigPaths
-                )
-            default:
-                continue
-            }
-        }
-    }
-
-    private static func parsedConfigEntry(
-        from rawLine: String
-    ) -> (key: String, value: String?, valueWasQuoted: Bool)? {
-        var trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.hasPrefix("\u{FEFF}") {
-            trimmed.removeFirst()
-        }
-        if trimmed.isEmpty || trimmed.hasPrefix("#") { return nil }
-
-        guard let separatorIndex = trimmed.firstIndex(of: "=") else {
-            return (trimmed.trimmingCharacters(in: .whitespacesAndNewlines), nil, false)
-        }
-
-        let key = trimmed[..<separatorIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-        var value = trimmed[trimmed.index(after: separatorIndex)...]
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let valueWasQuoted = value.count >= 2 && value.hasPrefix("\"") && value.hasSuffix("\"")
-
-        if valueWasQuoted {
-            value.removeFirst()
-            value.removeLast()
-        }
-
-        return (String(key), String(value), valueWasQuoted)
-    }
-
-    private static func applyConfigFileDirective(
-        _ value: String,
-        valueWasQuoted: Bool,
-        parentDir: String,
-        recursiveConfigPaths: inout [String]
-    ) {
-        if value.isEmpty {
-            recursiveConfigPaths.removeAll()
-            return
-        }
-
-        var includePath = value
-        if !valueWasQuoted, includePath.hasPrefix("?") {
-            includePath.removeFirst()
-            if includePath.count >= 2,
-               includePath.hasPrefix("\""),
-               includePath.hasSuffix("\"") {
-                includePath.removeFirst()
-                includePath.removeLast()
-            }
-        }
-        guard !includePath.isEmpty else { return }
-
-        let expanded = NSString(string: includePath).expandingTildeInPath
-        let absolute = (expanded as NSString).isAbsolutePath
-            ? expanded
-            : (parentDir as NSString).appendingPathComponent(expanded)
-        recursiveConfigPaths.append(absolute)
     }
 
     static func shouldLoadLegacyGhosttyConfig(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        return newConfigFileSize == 0
+        configDiscovery.shouldLoadLegacyGhosttyConfig(
+            newConfigFileSize: newConfigFileSize,
+            legacyConfigFileSize: legacyConfigFileSize
+        )
     }
 
     static func shouldIncludeLegacyGhosttyConfigInScanPaths(
         newConfigFileSize: Int?,
         legacyConfigFileSize: Int?
     ) -> Bool {
-        guard let legacyConfigFileSize, legacyConfigFileSize > 0 else { return false }
-        guard let newConfigFileSize else { return true }
-        return newConfigFileSize == 0
+        configDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(
+            newConfigFileSize: newConfigFileSize,
+            legacyConfigFileSize: legacyConfigFileSize
+        )
     }
 
     static func shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
@@ -1880,17 +1493,9 @@ class GhosttyApp {
             in: .userDomainMask
         ).first
     ) -> Bool {
-        guard let appSupportDirectory else { return false }
-        let ghosttyDir = appSupportDirectory.appendingPathComponent("com.mitchellh.ghostty", isDirectory: true)
-        let nativeLegacyConfig = ghosttyDir.appendingPathComponent("config", isDirectory: false)
-        let nativeConfig = ghosttyDir.appendingPathComponent("config.ghostty", isDirectory: false)
-        guard let legacyConfigSize = configFileSize(at: nativeLegacyConfig), legacyConfigSize > 0 else {
-            return false
-        }
-        guard let nativeConfigSize = configFileSize(at: nativeConfig), nativeConfigSize > 0 else {
-            return false
-        }
-        return true
+        configDiscovery.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance(
+            appSupportDirectory: appSupportDirectory
+        )
     }
 
     static func cmuxAppSupportConfigURLs(
@@ -1898,7 +1503,7 @@ class GhosttyApp {
         appSupportDirectory: URL,
         fileManager: FileManager = .default
     ) -> [URL] {
-        CmuxGhosttyConfigPathResolver().loadConfigURLs(
+        configDiscovery.cmuxAppSupportConfigURLs(
             currentBundleIdentifier: currentBundleIdentifier,
             appSupportDirectory: appSupportDirectory,
             fileManager: fileManager
@@ -2519,7 +2124,7 @@ class GhosttyApp {
             )
             return
         }
-        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false)
+        let resolved = GhosttyConfig.load(preferredColorScheme: preferredColorScheme, useCache: false, globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
         let fallbackForUnspecified = Self.shouldIgnoreNativeLegacyBaselineForUnparsedAppearance()
             ? defaultBackgroundValues(from: nil)
             : baseline
@@ -2757,7 +2362,7 @@ class GhosttyApp {
     }
 
     private func notifyDefaultBackgroundDidChange(source: String) {
-        let signal = { [self] in
+        let signal: @MainActor () -> Void = { [self] in
             let eventId = nextBackgroundEventId()
             defaultBackgroundNotificationDispatcher.signal(
                 backgroundColor: defaultBackgroundColor,
@@ -2772,9 +2377,11 @@ class GhosttyApp {
             )
         }
         if Thread.isMainThread {
-            signal()
+            MainActor.assumeIsolated { signal() }
         } else {
-            DispatchQueue.main.async(execute: signal)
+            Task { @MainActor in
+                signal()
+            }
         }
     }
 
@@ -3278,16 +2885,13 @@ class GhosttyApp {
             let title = action.action.set_title.title
                 .flatMap { String(cString: $0) } ?? ""
             if let tabId = surfaceView.tabId,
-               let surfaceId = surfaceView.terminalSurface?.id {
+               let sourceSurface = surfaceView.terminalSurface {
+                let change = GhosttyTitleChange(tabId: tabId, surfaceId: sourceSurface.id, title: title)
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(
                         name: .ghosttyDidSetTitle,
-                        object: surfaceView,
-                        userInfo: [
-                            GhosttyNotificationKey.tabId: tabId,
-                            GhosttyNotificationKey.surfaceId: surfaceId,
-                            GhosttyNotificationKey.title: title,
-                        ]
+                        object: sourceSurface,
+                        userInfo: change.userInfo
                     )
                 }
             }
@@ -3627,11 +3231,16 @@ class GhosttyApp {
         }
     }
 
+    @MainActor
     private func applyBackgroundToKeyWindow() {
         guard let window = activeMainWindow() else { return }
-        let snapshot = WindowAppearanceSnapshot.currentFromUserDefaults(app: self)
-        let plan = snapshot.backdropPlan()
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        let windowChrome = AppWindowChromeComposition()
+        let snapshot = windowChrome.appearanceSnapshotFromUserDefaults(app: self)
+        let plan = snapshot.backdropPlan(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
+        _ = windowChrome.backdropController.apply(plan: plan, to: window)
         if backgroundLogEnabled {
             logBackground(
                 "applied window backdrop phase=\(plan.hostingPhase.rawValue) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur)"
@@ -3866,8 +3475,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _scrollbarLock.unlock()
 
         guard let pending else { return }
+        let wasPendingViewportJumpSync = keyboardCopyModePendingViewportJumpSync
         scrollbar = pending
         finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: pending)
+        if !wasPendingViewportJumpSync,
+           keyboardCopyModeVisualLineActive,
+           let surface {
+            reselectKeyboardCopyModeVisualLineSelection(surface: surface)
+        }
         NotificationCenter.default.post(
             name: .ghosttyDidUpdateScrollbar,
             object: self,
@@ -3935,10 +3550,20 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var keyboardCopyModePendingViewportJumpGeneration = 0
     private var keyboardCopyModePendingViewportJumpFallbackLineDelta: Int?
     private var keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+    private var keyboardCopyModePendingViewportJumpVisualLineReselect = false
+    private var keyboardCopyModePendingViewportJumpUpdatesVisualLineEndpoint = false
+    private var keyboardCopyModePendingViewportJumpVisualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
+    private var keyboardCopyModeViewportJumpSyncExpirationTimer: Timer?
     /// Tracks whether the user has explicitly entered visual selection mode (v).
     /// Separate from Ghostty's `has_selection` because non-visual copy mode keeps
     /// the cursor in AppKit overlay state until visual selection starts.
     private var keyboardCopyModeVisualActive = false
+    private var keyboardCopyModeVisualLineSelection: TerminalKeyboardCopyModeVisualLineSelection?
+    private var keyboardCopyModeVisualLineRuntimeSelectionSynced = false
+    private var keyboardCopyModeVisualLineActive: Bool {
+        keyboardCopyModeVisualLineSelection != nil
+    }
+    private static let keyboardCopyModeVisualLineFallbackMaxBytes: UInt = 2 * 1024 * 1024
     private let keyboardCopyModeCursorOverlayView = GhosttyFlashOverlayView(frame: .zero)
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
     // must match the conforming class's access level.
@@ -3968,6 +3593,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var trackingArea: NSTrackingArea?
     private var windowObserver: NSObjectProtocol?
     private var lastScrollEventTime: CFTimeInterval = 0
+    private let scrollSpeedAccumulator = TerminalScrollSpeedAccumulator()
     private var visibleInUI: Bool = true
     private var pendingSurfaceSize: CGSize?
     private var deferredSurfaceSizeRetryQueued = false, needsSurfaceSizeRetryAfterMetalLayerRealizes = false
@@ -4122,6 +3748,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    @MainActor
     func applyWindowBackgroundIfActive() {
         guard let window else { return }
         let appDelegate = AppDelegate.shared
@@ -4137,12 +3764,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return
         }
         applySurfaceBackground()
-        let windowRoot = WindowAppearanceSnapshot
-            .currentFromUserDefaults(app: GhosttyApp.shared)
+        let windowChrome = AppWindowChromeComposition()
+        let windowRoot = windowChrome
+            .appearanceSnapshotFromUserDefaults(app: GhosttyApp.shared)
             .windowRootBackdropResolution(surfaceBackgroundColor: backgroundColor)
-        let plan = windowRoot.snapshot.backdropPlan()
+        let plan = windowRoot.snapshot.backdropPlan(
+            glassEffectAvailable: windowChrome.glassEffect.isAvailable,
+            windowBackgroundPolicy: windowChrome.windowBackgroundPolicy
+        )
         let color = windowRoot.snapshot.compositedTerminalBackgroundColor
-        _ = WindowBackdropController.apply(plan: plan, to: window)
+        _ = windowChrome.backdropController.apply(plan: plan, to: window)
         if GhosttyApp.shared.backgroundLogEnabled {
             let signature = "\(plan.hostingPhase.rawValue):\(color.hexString()):\(String(format: "%.3f", color.alphaComponent)):\(GhosttyApp.shared.defaultBackgroundBlur)"
             if signature != lastLoggedWindowBackgroundSignature {
@@ -4303,6 +3934,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         updateSurfaceSize()
         syncKeyboardCopyModeCursorOverlay()
         invalidateTextInputCoordinates()
+        terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapplyIfReady(
+            reason: "becomeFirstResponder.hiddenOrTiny.layout"
+        )
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateSurfaceSize(bypassLiveResizeCoalescing: true)
+        invalidateTextInputCoordinates()
     }
 
     override var isOpaque: Bool { false }
@@ -4353,8 +3993,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func activeSurfaceResizeDeferralReason() -> String? {
-        if inLiveResize || window?.inLiveResize == true { return nil }
+        if isWindowLiveResizeActive { return nil }
         return Self.shouldDeferSurfaceResizeForActiveDrag() ? "tabDrag" : nil
+    }
+
+    private var isWindowLiveResizeActive: Bool {
+        inLiveResize || window?.inLiveResize == true
     }
 
     @discardableResult private func scheduleDeferredSurfaceSizeRetryIfNeeded() -> Bool {
@@ -4367,7 +4011,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @MainActor fileprivate func reconcileSurfaceSizeAfterMetalLayerAttachIfNeeded() { guard needsSurfaceSizeRetryAfterMetalLayerRealizes else { return }; deferredSurfaceSizeNonMetalRetryCount = 0; _ = updateSurfaceSize() }
 
     @discardableResult
-    private func updateSurfaceSize(size: CGSize? = nil) -> Bool {
+    private func updateSurfaceSize(
+        size: CGSize? = nil,
+        bypassLiveResizeCoalescing: Bool = false
+    ) -> Bool {
         guard let terminalSurface = terminalSurface else { return false }
         let size = resolvedSurfaceSize(preferred: size)
         guard size.width > 0 && size.height > 0 else {
@@ -4490,7 +4137,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             xScale: xScale,
             yScale: yScale,
             layerScale: layerScale,
-            backingSize: backingSize
+            backingSize: backingSize,
+            coalescePixelOnlyResize: isWindowLiveResizeActive && !bypassLiveResizeCoalescing
         )
         return didChange || surfaceSizeChanged
     }
@@ -4610,11 +4258,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func setKeyboardCopyModeActive(_ active: Bool) {
         keyboardCopyModeInputState.reset()
         keyboardCopyModeVisualActive = false
+        keyboardCopyModeVisualLineSelection = nil
+        keyboardCopyModeVisualLineRuntimeSelectionSynced = false
         keyboardCopyModePendingViewportJumpGeneration += 1
-        keyboardCopyModePendingViewportJumpSync = false
-        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
-        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
-        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+        clearKeyboardCopyModeViewportJumpCursorSync()
         keyboardCopyModeActive = active
         if active, let surface {
             _ = GhosttyRuntimeCInterop.clearSelection(surface)
@@ -4627,13 +4274,21 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.setKeyboardCopyModeActive(active)
     }
 
-    private func performBindingAction(_ action: String, repeatCount: Int) {
-        let count = terminalKeyboardCopyModeClampCount(repeatCount)
-        for _ in 0 ..< count {
-            _ = performBindingAction(action)
-        }
+    @discardableResult
+    private func performBindingAction(_ action: String, repeatCount: Int) -> Bool {
+        var performed = true
+        for _ in 0 ..< terminalKeyboardCopyModeClampCount(repeatCount) { performed = performBindingAction(action) && performed }
+        return performed
     }
 
+    private func performKeyboardCopyModeLineScroll(_ lineDelta: Int) -> Bool {
+        var remaining = lineDelta
+        while remaining != 0 {
+            let chunk = max(Int(Int16.min), min(Int(Int16.max), remaining)); remaining -= chunk
+            guard performBindingAction("scroll_page_lines:\(chunk)") else { return false }
+        }
+        return true
+    }
     private func currentKeyboardCopyModeViewportRow(surface: ghostty_surface_t) -> Int {
         let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
             ?? max(Int(ghostty_surface_size(surface).rows), 1)
@@ -4676,8 +4331,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let size = ghostty_surface_size(surface)
         let backingRows = max(Int(size.rows), 1)
         let columns = max(Int(size.columns), 1)
-        let resolvedCellWidth = cellSize.width > 0 ? cellSize.width : CGFloat(size.cell_width_px)
-        let resolvedCellHeight = cellSize.height > 0 ? cellSize.height : CGFloat(size.cell_height_px)
+        let backingScaleFactor = max(window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1, 1)
+        let resolvedCellWidth = cellSize.width > 0
+            ? cellSize.width
+            : CGFloat(size.cell_width_px) / backingScaleFactor
+        let resolvedCellHeight = cellSize.height > 0
+            ? cellSize.height
+            : CGFloat(size.cell_height_px) / backingScaleFactor
         guard resolvedCellWidth > 0, resolvedCellHeight > 0 else { return nil }
 
         let rows = terminalKeyboardCopyModeVisibleViewportRows(
@@ -4757,9 +4417,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             columns: metrics.columns
         )
         keyboardCopyModeCursor = cursor
-        if scrollDelta != 0 {
-            _ = performBindingAction("scroll_page_lines:\(scrollDelta)")
-        }
+        if scrollDelta != 0 { _ = performKeyboardCopyModeLineScroll(scrollDelta) }
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
@@ -4771,31 +4429,75 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         syncKeyboardCopyModeCursorOverlay(surface: surface)
     }
 
-    private func beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: Int? = nil) {
+    private func clearKeyboardCopyModeViewportJumpCursorSync() {
+        keyboardCopyModePendingViewportJumpSync = false; keyboardCopyModePendingViewportJumpVisualLineReselect = false; keyboardCopyModePendingViewportJumpUpdatesVisualLineEndpoint = false
+        keyboardCopyModePendingViewportJumpScrollbarOffset = nil; keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
+        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0; keyboardCopyModePendingViewportJumpVisualLineSelection = nil
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate(); keyboardCopyModeViewportJumpSyncExpirationTimer = nil
+    }
+
+    private func beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: Int? = nil, visualLineReselect: Bool = false, updatesVisualLineEndpoint: Bool = false) {
+        let flushedScrollbar = flushPendingScrollbarIfAvailable()
+        if keyboardCopyModePendingViewportJumpSync, !flushedScrollbar {
+            if keyboardCopyModePendingViewportJumpVisualLineReselect, visualLineReselect {
+                keyboardCopyModePendingViewportJumpFallbackLineDelta =
+                    (keyboardCopyModePendingViewportJumpFallbackLineDelta ?? 0) + (keyboardCopyModeBoundedFallbackLineDelta(fallbackLineDelta) ?? 0)
+                keyboardCopyModePendingViewportJumpVisualLineSelection = keyboardCopyModeVisualLineSelection; keyboardCopyModePendingViewportJumpUpdatesVisualLineEndpoint = keyboardCopyModePendingViewportJumpUpdatesVisualLineEndpoint || updatesVisualLineEndpoint
+                scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration(); return
+            }
+            if !keyboardCopyModePendingViewportJumpVisualLineReselect, !visualLineReselect {
+                scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration(); return
+            }
+        }
         keyboardCopyModePendingViewportJumpGeneration += 1
         keyboardCopyModePendingViewportJumpSync = true
         keyboardCopyModePendingViewportJumpScrollbarOffset = scrollbar?.offset
-        keyboardCopyModePendingViewportJumpFallbackLineDelta = fallbackLineDelta
+        keyboardCopyModePendingViewportJumpFallbackLineDelta = keyboardCopyModeBoundedFallbackLineDelta(fallbackLineDelta)
         keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+        keyboardCopyModePendingViewportJumpVisualLineReselect = visualLineReselect
+        keyboardCopyModePendingViewportJumpUpdatesVisualLineEndpoint = updatesVisualLineEndpoint
+        keyboardCopyModePendingViewportJumpVisualLineSelection = visualLineReselect ? keyboardCopyModeVisualLineSelection : nil
+        scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration()
     }
 
-    private func scheduleKeyboardCopyModeViewportJumpCursorSyncFallback() {
+    private func keyboardCopyModeBoundedFallbackLineDelta(_ lineDelta: Int?) -> Int? {
+        guard let lineDelta, let scrollbar else { return lineDelta }
+        guard lineDelta != 0 else { return 0 }
+
+        if lineDelta > 0 {
+            let maxOffset = scrollbar.total > scrollbar.len ? scrollbar.total - scrollbar.len : 0
+            let available = maxOffset > scrollbar.offset ? maxOffset - scrollbar.offset : 0
+            return min(lineDelta, Int(clamping: available))
+        }
+
+        return max(lineDelta, -Int(clamping: scrollbar.offset))
+    }
+
+    private func scheduleKeyboardCopyModeViewportJumpCursorSyncExpiration() {
         let generation = keyboardCopyModePendingViewportJumpGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
-            self?.previewKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
+        // Ghostty can omit scrollbar packets for no-op copy-mode jumps; expire stale sync state through a cancellable deadline.
+        let timer = Timer(timeInterval: 2, repeats: false) { [weak self] _ in
+            self?.cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(2)) { [weak self] in
-            self?.expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: generation)
-        }
+        keyboardCopyModeViewportJumpSyncExpirationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
-    private func previewKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: Int) {
+    private func resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: ghostty_surface_t) {
         guard keyboardCopyModePendingViewportJumpSync,
-              generation == keyboardCopyModePendingViewportJumpGeneration,
-              keyboardCopyModeActive,
-              let surface else { return }
+              keyboardCopyModeActive else { return }
 
         if flushPendingScrollbarIfAvailable() {
+            return
+        }
+
+        if keyboardCopyModePendingViewportJumpVisualLineReselect {
+            if keyboardCopyModePendingViewportJumpUpdatesVisualLineEndpoint {
+                updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: surface)
+            }
+            keyboardCopyModePendingViewportJumpVisualLineSelection = keyboardCopyModeVisualLineSelection
+            reselectKeyboardCopyModeVisualLineSelection(surface: surface)
             return
         }
 
@@ -4810,27 +4512,31 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         clampKeyboardCopyModeCursor(surface: surface)
     }
 
-    private func expireKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: Int) {
+    private func cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(generation: Int) {
         guard keyboardCopyModePendingViewportJumpSync,
               generation == keyboardCopyModePendingViewportJumpGeneration else { return }
 
-        keyboardCopyModePendingViewportJumpSync = false
-        keyboardCopyModePendingViewportJumpScrollbarOffset = nil
-        keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
-        keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+        clearKeyboardCopyModeViewportJumpCursorSync()
     }
 
     private func finishKeyboardCopyModeViewportJumpCursorSyncIfNeeded(newScrollbar: GhosttyScrollbar? = nil) {
         guard keyboardCopyModePendingViewportJumpSync else { return }
+        guard keyboardCopyModeActive, let surface else { clearKeyboardCopyModeViewportJumpCursorSync(); return }
+        let resolvedNewOffset = newScrollbar?.offset ?? scrollbar?.offset
+        if keyboardCopyModePendingViewportJumpVisualLineReselect,
+           let expectedOffset = keyboardCopyModePendingVisualLineScrollOffset(), let resolvedNewOffset,
+           let delta = keyboardCopyModePendingViewportJumpFallbackLineDelta,
+           delta != 0 && (delta > 0 ? resolvedNewOffset < expectedOffset : resolvedNewOffset > expectedOffset) { return }
         keyboardCopyModePendingViewportJumpSync = false
-        defer {
-            keyboardCopyModePendingViewportJumpScrollbarOffset = nil
-            keyboardCopyModePendingViewportJumpFallbackLineDelta = nil
-            keyboardCopyModePendingViewportJumpAppliedFallbackLineDelta = 0
+        defer { clearKeyboardCopyModeViewportJumpCursorSync() }
+        if keyboardCopyModePendingViewportJumpVisualLineReselect {
+            if keyboardCopyModePendingViewportJumpUpdatesVisualLineEndpoint, keyboardCopyModePendingViewportJumpVisualLineSelection == keyboardCopyModeVisualLineSelection {
+                updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: surface)
+            }
+            reselectKeyboardCopyModeVisualLineSelection(surface: surface)
+            return
         }
 
-        guard keyboardCopyModeActive, let surface else { return }
-        let resolvedNewOffset = newScrollbar?.offset ?? scrollbar?.offset
         if let previousOffset = keyboardCopyModePendingViewportJumpScrollbarOffset,
            let resolvedNewOffset {
             let lineDelta = keyboardCopyModeViewportLineDelta(
@@ -4930,7 +4636,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    private func copyCurrentViewportLinesToClipboard(
+    private func selectKeyboardCopyModeViewportLines(
         surface: ghostty_surface_t,
         startRow: Int,
         lineCount: Int
@@ -4965,9 +4671,267 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, mods)
         }
         ghostty_surface_mouse_pos(surface, Double(endX), Double(endY), mods)
-        guard ghostty_surface_has_selection(surface) else { return false }
+        return ghostty_surface_has_selection(surface)
+    }
+    private func keyboardCopyModePendingVisualLineScrollOffset() -> UInt64? {
+        guard keyboardCopyModePendingViewportJumpSync,
+              let lineDelta = keyboardCopyModePendingViewportJumpFallbackLineDelta,
+              let baseOffset = keyboardCopyModePendingViewportJumpScrollbarOffset else { return nil }
+        return TerminalKeyboardCopyModeVisualLineSelection.pendingScrollOffset(
+            baseOffset: baseOffset,
+            lineDelta: lineDelta,
+            totalRows: scrollbar?.total
+        )
+    }
 
-        return performBindingAction("copy_to_clipboard")
+    private func keyboardCopyModeBoundaryFallbackLineDelta(_ direction: TerminalKeyboardCopyModeSelectionMove, visibleRows: Int) -> Int? {
+        guard let scrollbar else { return nil }
+        return TerminalKeyboardCopyModeVisualLineSelection.boundaryFallbackLineDelta(
+            direction,
+            scrollOffset: scrollbar.offset,
+            totalRows: scrollbar.total,
+            visibleRows: UInt64(max(visibleRows, 1))
+        )
+    }
+
+    private func updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: ghostty_surface_t) {
+        guard var selection = keyboardCopyModeVisualLineSelection,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        keyboardCopyModeCursor = cursor
+        selection.updateEndpoint(
+            from: cursor,
+            viewportRows: metrics.rows,
+            scrollOffset: scrollbar?.offset ?? 0,
+            totalRows: scrollbar?.total
+        )
+        keyboardCopyModeVisualLineSelection = selection
+        _ = syncKeyboardCopyModeVisualLineRuntimeSelection(surface: surface)
+    }
+
+    private func clearKeyboardCopyModeVisualLineSelection(surface: ghostty_surface_t) {
+        keyboardCopyModeVisualActive = false
+        keyboardCopyModeVisualLineSelection = nil
+        keyboardCopyModeVisualLineRuntimeSelectionSynced = false
+        _ = GhosttyRuntimeCInterop.clearSelection(surface)
+    }
+
+    private func syncKeyboardCopyModeVisualLineSelectionFromRuntime(surface: ghostty_surface_t) -> Bool {
+        guard keyboardCopyModeVisualLineRuntimeSelectionSynced else { return true }
+        guard let selectedRows = GhosttyRuntimeCInterop.selectionScreenRows(surface),
+              var selection = keyboardCopyModeVisualLineSelection else { return false }
+        selection.replaceSelectedRows(selectedRows)
+        keyboardCopyModeVisualLineSelection = selection
+        return true
+    }
+
+    private func syncKeyboardCopyModeVisualLineRuntimeSelection(surface: ghostty_surface_t) -> Bool {
+        guard let selectedRows = keyboardCopyModeVisualLineSelection?.selectedRows else { return false }
+        let synced = GhosttyRuntimeCInterop.selectScreenRows(surface, selectedRows: selectedRows)
+        keyboardCopyModeVisualLineRuntimeSelectionSynced = synced
+        if !synced { _ = GhosttyRuntimeCInterop.clearSelection(surface) }
+        return synced
+    }
+
+    private func readKeyboardCopyModeVisualLineSelection(surface: ghostty_surface_t) -> String? {
+        _ = flushPendingScrollbarIfAvailable()
+        guard syncKeyboardCopyModeVisualLineSelectionFromRuntime(surface: surface) else { return nil }
+        guard let selectedRows = keyboardCopyModeVisualLineSelection?.selectedRows,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface),
+              let readRows = TerminalKeyboardCopyModeVisualLineSelection.boundedReadRows(
+                selectedRows: selectedRows,
+                columns: metrics.columns,
+                maxBytes: Self.keyboardCopyModeVisualLineFallbackMaxBytes
+              ) else { return nil }
+
+        var text = ghostty_text_s()
+        guard ghostty_surface_read_screen_clipboard_text(
+            surface,
+            readRows.lower,
+            readRows.upper,
+            Self.keyboardCopyModeVisualLineFallbackMaxBytes,
+            &text
+        ) else { return nil }
+        defer { ghostty_surface_free_text(surface, &text) }
+        guard text.text_len <= Self.keyboardCopyModeVisualLineFallbackMaxBytes,
+              let byteCount = Int(exactly: text.text_len),
+              let rawText = text.text else { return nil }
+        return String(decoding: Data(bytes: rawText, count: byteCount), as: UTF8.self)
+    }
+
+    private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t) -> Bool {
+        let generalPasteboard = NSPasteboard.general
+        let previousChangeCount = generalPasteboard.changeCount
+        let copied = performBindingAction("copy_to_clipboard")
+
+        // Ghostty owns clipboard formatting; the raw selection snapshot is only the no-op pasteboard fallback.
+        let ghosttyWroteFormattedText = generalPasteboard.changeCount != previousChangeCount
+            && generalPasteboard.availableType(from: [.string]) != nil
+        if ghosttyWroteFormattedText {
+            return true
+        }
+
+        guard let selectedText = readSelectionSnapshot(surface: surface)?.string, !selectedText.isEmpty else {
+            return copied
+        }
+
+        GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+        return true
+    }
+
+    private func copyKeyboardCopyModeSelectionToClipboard(surface: ghostty_surface_t) -> Bool {
+        if keyboardCopyModeVisualLineActive {
+            guard let selectedText = readKeyboardCopyModeVisualLineSelection(surface: surface) else { return false }
+            GhosttyApp.terminalPasteboard.writeString(selectedText, to: GHOSTTY_CLIPBOARD_STANDARD)
+            return true
+        }
+
+        return copyCurrentGhosttySelectionToClipboard(surface: surface)
+    }
+
+    private func hasCopyableTerminalSelection(surface: ghostty_surface_t) -> Bool {
+        keyboardCopyModeVisualLineActive || ghostty_surface_has_selection(surface)
+    }
+
+    private func copyCurrentViewportLinesToClipboard(
+        surface: ghostty_surface_t,
+        startRow: Int,
+        lineCount: Int
+    ) -> Bool {
+        guard selectKeyboardCopyModeViewportLines(
+            surface: surface,
+            startRow: startRow,
+            lineCount: lineCount
+        ) else {
+            return false
+        }
+        return copyKeyboardCopyModeSelectionToClipboard(surface: surface)
+    }
+
+    private func startKeyboardCopyModeLineSelection(surface: ghostty_surface_t, lineCount: Int) {
+        let startRow = currentKeyboardCopyModeViewportRow(surface: surface)
+        let clampedCount = terminalKeyboardCopyModeClampCount(lineCount)
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { clearKeyboardCopyModeVisualLineSelection(surface: surface); syncKeyboardCopyModeCursorOverlay(surface: surface); return }
+        keyboardCopyModeCursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        if clampedCount > 1 {
+            keyboardCopyModeCursor?.row = min(startRow + clampedCount - 1, metrics.rows - 1)
+        }
+        let scrollOffset = keyboardCopyModePendingVisualLineScrollOffset() ?? scrollbar?.offset ?? 0
+        let totalRows = scrollbar?.total
+        keyboardCopyModeVisualLineSelection = TerminalKeyboardCopyModeVisualLineSelection(
+            anchorScreenRow: TerminalKeyboardCopyModeVisualLineSelection.screenRow(
+                forViewportRow: startRow,
+                viewportRows: metrics.rows,
+                scrollOffset: scrollOffset,
+                totalRows: totalRows
+            ),
+            endpointScreenRow: TerminalKeyboardCopyModeVisualLineSelection.screenRow(
+                forViewportRow: keyboardCopyModeCursor?.row ?? startRow,
+                viewportRows: metrics.rows,
+                scrollOffset: scrollOffset,
+                totalRows: totalRows
+            )
+        )
+        guard syncKeyboardCopyModeVisualLineRuntimeSelection(surface: surface) else { clearKeyboardCopyModeVisualLineSelection(surface: surface); syncKeyboardCopyModeCursorOverlay(surface: surface); return }
+        keyboardCopyModeVisualActive = true
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
+    private func reselectKeyboardCopyModeVisualLineSelection(surface: ghostty_surface_t) {
+        guard syncKeyboardCopyModeVisualLineSelectionFromRuntime(surface: surface) else { clearKeyboardCopyModeVisualLineSelection(surface: surface); syncKeyboardCopyModeCursorOverlay(surface: surface); return }
+        guard let selection = keyboardCopyModeVisualLineSelection,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        let cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        keyboardCopyModeCursor = selection.endpointCursor(
+            column: cursor.column,
+            viewportRows: metrics.rows,
+            viewportColumns: metrics.columns,
+            scrollOffset: scrollbar?.offset ?? 0
+        )
+        guard syncKeyboardCopyModeVisualLineRuntimeSelection(surface: surface) else { clearKeyboardCopyModeVisualLineSelection(surface: surface); syncKeyboardCopyModeCursorOverlay(surface: surface); return }
+        syncKeyboardCopyModeCursorOverlay(surface: surface)
+    }
+
+    private func adjustKeyboardCopyModeVisualLineSelectionToBoundary(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        surface: ghostty_surface_t
+    ) {
+        guard let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        var cursor = (keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface))
+            .clamped(rows: metrics.rows, columns: metrics.columns)
+        switch direction {
+        case .home:
+            cursor.row = 0
+            cursor.column = 0
+        case .end:
+            cursor.row = metrics.rows - 1
+            cursor.column = metrics.columns - 1
+        default:
+            return
+        }
+        keyboardCopyModeCursor = cursor
+        var updatesEndpointFromCursor = true
+        if var selection = keyboardCopyModeVisualLineSelection, selection.moveEndpointToBoundary(direction, totalRows: scrollbar?.total) {
+            keyboardCopyModeVisualLineSelection = selection; updatesEndpointFromCursor = false
+            guard syncKeyboardCopyModeVisualLineRuntimeSelection(surface: surface) else { clearKeyboardCopyModeVisualLineSelection(surface: surface); syncKeyboardCopyModeCursorOverlay(surface: surface); return }
+        }
+
+        beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: keyboardCopyModeBoundaryFallbackLineDelta(direction, visibleRows: metrics.rows), visualLineReselect: true, updatesVisualLineEndpoint: updatesEndpointFromCursor)
+        let action = direction == .home ? "scroll_to_top" : "scroll_to_bottom"
+        guard performBindingAction(action) else {
+            cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                generation: keyboardCopyModePendingViewportJumpGeneration
+            )
+            if updatesEndpointFromCursor { updateKeyboardCopyModeVisualLineEndpointFromCursor(surface: surface) }
+            reselectKeyboardCopyModeVisualLineSelection(surface: surface)
+            return
+        }
+        resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+    }
+
+    private func adjustKeyboardCopyModeVisualLineSelection(
+        _ direction: TerminalKeyboardCopyModeSelectionMove,
+        count: Int,
+        surface: ghostty_surface_t
+    ) {
+        guard var selection = keyboardCopyModeVisualLineSelection,
+              let metrics = keyboardCopyModeGridMetrics(surface: surface) else { return }
+        if direction == .home || direction == .end {
+            adjustKeyboardCopyModeVisualLineSelectionToBoundary(direction, surface: surface)
+            return
+        }
+        let scrollOffset = keyboardCopyModePendingVisualLineScrollOffset() ?? scrollbar?.offset ?? 0
+        let currentCursor = keyboardCopyModeCursor ?? keyboardCopyModeInitialCursor(surface: surface)
+        let move = selection.moveEndpoint(
+            direction,
+            count: count,
+            currentColumn: currentCursor.column,
+            viewportRows: metrics.rows,
+            viewportColumns: metrics.columns,
+            scrollOffset: scrollOffset,
+            totalRows: scrollbar?.total
+        )
+        keyboardCopyModeVisualLineSelection = selection
+        keyboardCopyModeCursor = move.cursor
+        guard syncKeyboardCopyModeVisualLineRuntimeSelection(surface: surface) else { clearKeyboardCopyModeVisualLineSelection(surface: surface); syncKeyboardCopyModeCursorOverlay(surface: surface); return }
+        let scrollDelta = move.scrollDelta
+        if scrollDelta != 0 {
+            beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: scrollDelta, visualLineReselect: true, updatesVisualLineEndpoint: false)
+            guard performKeyboardCopyModeLineScroll(scrollDelta) else {
+                cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                    generation: keyboardCopyModePendingViewportJumpGeneration
+                )
+                reselectKeyboardCopyModeVisualLineSelection(surface: surface)
+                return
+            }
+            resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+            return
+        }
+
+        reselectKeyboardCopyModeVisualLineSelection(surface: surface)
     }
 
     private func handleKeyboardCopyModeIfNeeded(_ event: NSEvent, surface: ghostty_surface_t) -> Bool {
@@ -4999,37 +4963,49 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .startSelection:
             if selectKeyboardCopyModeCursorCell(surface: surface) {
                 keyboardCopyModeVisualActive = true
+                keyboardCopyModeVisualLineSelection = nil
+                keyboardCopyModeVisualLineRuntimeSelectionSynced = false
                 syncKeyboardCopyModeCursorOverlay(surface: surface)
             }
+        case .startLineSelection:
+            startKeyboardCopyModeLineSelection(surface: surface, lineCount: count)
         case .clearSelection:
-            keyboardCopyModeVisualActive = false
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
+            clearKeyboardCopyModeVisualLineSelection(surface: surface)
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case .copyAndExit:
-            _ = performBindingAction("copy_to_clipboard")
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
-            setKeyboardCopyModeActive(false)
+            if copyKeyboardCopyModeSelectionToClipboard(surface: surface) { _ = GhosttyRuntimeCInterop.clearSelection(surface); setKeyboardCopyModeActive(false) }
         case .copyLineAndExit:
             let startRow = currentKeyboardCopyModeViewportRow(surface: surface)
-            _ = copyCurrentViewportLinesToClipboard(
+            if copyCurrentViewportLinesToClipboard(
                 surface: surface,
                 startRow: startRow,
                 lineCount: count
-            )
-            _ = GhosttyRuntimeCInterop.clearSelection(surface)
-            setKeyboardCopyModeActive(false)
+            ) {
+                _ = GhosttyRuntimeCInterop.clearSelection(surface)
+                setKeyboardCopyModeActive(false)
+            }
         case let .scrollLines(delta):
             let lineDelta = delta * terminalKeyboardCopyModeClampCount(count)
             beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: lineDelta)
-            _ = performBindingAction("scroll_page_lines:\(lineDelta)")
-            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
+            if performKeyboardCopyModeLineScroll(lineDelta) {
+                resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+            } else {
+                cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                    generation: keyboardCopyModePendingViewportJumpGeneration
+                )
+            }
         case let .scrollPage(delta):
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let rows = keyboardCopyModeGridMetrics(surface: surface)?.rows
                 ?? max(Int(ghostty_surface_size(surface).rows), 1)
             beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * rows * clampedCount)
-            performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount)
-            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
+            if performBindingAction(delta > 0 ? "scroll_page_down" : "scroll_page_up", repeatCount: clampedCount) {
+                resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+            } else {
+                cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                    generation: keyboardCopyModePendingViewportJumpGeneration
+                )
+            }
         case let .scrollHalfPage(delta):
             let clampedCount = terminalKeyboardCopyModeClampCount(count)
             let fraction = delta > 0 ? 0.5 : -0.5
@@ -5037,8 +5013,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 ?? max(Int(ghostty_surface_size(surface).rows), 1)
             let linesPerScroll = Int((Double(rows) * 0.5).rounded(.towardZero))
             beginKeyboardCopyModeViewportJumpCursorSync(fallbackLineDelta: delta * linesPerScroll * clampedCount)
-            performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount)
-            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
+            if performBindingAction("scroll_page_fractional:\(fraction)", repeatCount: clampedCount) {
+                resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+            } else {
+                cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                    generation: keyboardCopyModePendingViewportJumpGeneration
+                )
+            }
         case .scrollToTop:
             if var cursor = keyboardCopyModeCursor {
                 if let metrics = keyboardCopyModeGridMetrics(surface: surface) {
@@ -5065,21 +5046,38 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             _ = performBindingAction("scroll_to_bottom")
             syncKeyboardCopyModeCursorOverlay(surface: surface)
         case let .jumpToPrompt(delta):
-            beginKeyboardCopyModeViewportJumpCursorSync()
-            _ = performBindingAction("jump_to_prompt:\(delta * count)")
-            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
+            beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: keyboardCopyModeVisualLineActive, updatesVisualLineEndpoint: keyboardCopyModeVisualLineActive)
+            if performBindingAction("jump_to_prompt:\(delta * count)") {
+                resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+            } else {
+                cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                    generation: keyboardCopyModePendingViewportJumpGeneration
+                )
+            }
         case .startSearch:
             _ = performBindingAction("start_search")
         case .searchNext:
-            beginKeyboardCopyModeViewportJumpCursorSync()
-            performBindingAction("navigate_search:next", repeatCount: count)
-            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
+            beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: keyboardCopyModeVisualLineActive, updatesVisualLineEndpoint: keyboardCopyModeVisualLineActive)
+            if performBindingAction("navigate_search:next", repeatCount: count) {
+                resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+            } else {
+                cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                    generation: keyboardCopyModePendingViewportJumpGeneration
+                )
+            }
         case .searchPrevious:
-            beginKeyboardCopyModeViewportJumpCursorSync()
-            performBindingAction("navigate_search:previous", repeatCount: count)
-            scheduleKeyboardCopyModeViewportJumpCursorSyncFallback()
+            beginKeyboardCopyModeViewportJumpCursorSync(visualLineReselect: keyboardCopyModeVisualLineActive, updatesVisualLineEndpoint: keyboardCopyModeVisualLineActive)
+            if performBindingAction("navigate_search:previous", repeatCount: count) {
+                resolveKeyboardCopyModeViewportJumpCursorSyncAfterBinding(surface: surface)
+            } else {
+                cancelKeyboardCopyModeViewportJumpCursorSyncIfNeeded(
+                    generation: keyboardCopyModePendingViewportJumpGeneration
+                )
+            }
         case let .adjustSelection(direction):
-            if keyboardCopyModeVisualActive {
+            if keyboardCopyModeVisualLineActive {
+                adjustKeyboardCopyModeVisualLineSelection(direction, count: count, surface: surface)
+            } else if keyboardCopyModeVisualActive {
                 adjustKeyboardCopyModeSelection(direction, count: count, surface: surface)
             } else {
                 moveKeyboardCopyModeCursor(direction, count: count, surface: surface)
@@ -5091,7 +5089,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // MARK: - Input Handling
 
     @IBAction func copy(_ sender: Any?) {
-        _ = performBindingAction("copy_to_clipboard")
+        guard let surface else {
+            _ = performBindingAction("copy_to_clipboard")
+            return
+        }
+        _ = copyKeyboardCopyModeSelectionToClipboard(surface: surface)
     }
 
     @IBAction func copyWorkspaceAndSurfaceIdentifiers(_ sender: Any?) {
@@ -5156,7 +5158,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         switch item.action {
         case #selector(copy(_:)):
             guard let surface = surface else { return false }
-            return ghostty_surface_has_selection(surface)
+            return hasCopyableTerminalSelection(surface: surface)
         case #selector(paste(_:)):
             return GhosttyApp.terminalPasteboard.hasString(for: GHOSTTY_CLIPBOARD_STANDARD)
         case #selector(pasteAsPlainText(_:)):
@@ -5237,8 +5239,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return snapshot.string.isEmpty ? nil : snapshot.string
     }
 
-    private func readSelectionSnapshot() -> SelectionSnapshot? {
-        guard let surface else { return nil }
+    private func readSelectionSnapshot(surface explicitSurface: ghostty_surface_t? = nil) -> SelectionSnapshot? {
+        guard let surface = explicitSurface ?? self.surface else { return nil }
 
         var text = ghostty_text_s()
         guard ghostty_surface_read_selection(surface, &text) else { return nil }
@@ -5297,6 +5299,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                ) == false {
                 desiredFocus = false
                 terminalSurface.recordExternalFocusState(false)
+                terminalSurface.hostedView.cancelSuppressedFirstResponderFocusReapply()
 #if DEBUG
                 dlog("focus.firstResponder SUPPRESSED (coordinator) surface=\(terminalSurface.id.uuidString.prefix(5))")
 #endif
@@ -5311,6 +5314,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             // becomeFirstResponder. Suppress onFocus + ghostty_surface_set_focus to prevent
             // the old view from stealing focus and creating model/surface divergence.
             if suppressingReparentFocus {
+                let hiddenInHierarchy = isHiddenOrHasHiddenAncestor
+                if isVisibleInUI && (!hasUsableFocusGeometry || hiddenInHierarchy) {
+                    terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
+                        reason: "becomeFirstResponder.reparent.hiddenOrTiny"
+                    )
+                }
 #if DEBUG
                 cmuxDebugLog("focus.firstResponder SUPPRESSED (reparent) surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
 #endif
@@ -5332,6 +5341,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) hidden=\(hiddenInHierarchy ? 1 : 0)"
                 )
 #endif
+                terminalSurface?.hostedView.scheduleSuppressedFirstResponderFocusReapply(
+                    reason: "becomeFirstResponder.hiddenOrTiny"
+                )
             }
         }
         if result, shouldApplySurfaceFocus, let surface = ensureSurfaceReadyForInput() {
@@ -5358,6 +5370,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 )
             }
             terminalSurface?.recordExternalFocusState(true)
+            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             ghostty_surface_set_focus(surface, true)
 
             // Ghostty only restarts its vsync display link on display-id changes while focused.
@@ -5378,6 +5391,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if result {
             imeConsumedKeyUps.removeAll()
             desiredFocus = false
+            terminalSurface?.hostedView.cancelSuppressedFirstResponderFocusReapply()
             terminalSurface?.recordExternalFocusState(false)
         }
         if result, let surface = surface {
@@ -7171,7 +7185,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             flashItem.target = self
             menu.addItem(.separator())
         }
-        if ghostty_surface_has_selection(surface) {
+        if hasCopyableTerminalSelection(surface: surface) {
             let item = menu.addItem(
                 withTitle: String(localized: "terminalContextMenu.copy", defaultValue: "Copy"),
                 action: #selector(copy(_:)),
@@ -7389,12 +7403,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             x *= 2
             y *= 2
         }
-
+        scrollSpeedAccumulator.apply(x: &x, y: &y, precision: precision)
         var mods: Int32 = 0
         if precision {
             mods |= 0b0000_0001
         }
-
         let momentum: Int32
         switch event.momentumPhase {
         case .began:
@@ -7445,6 +7458,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
+        keyboardCopyModeViewportJumpSyncExpirationTimer?.invalidate()
         terminalSurface = nil
     }
 
@@ -7905,7 +7919,9 @@ private final class TerminalViewportBorderOverlayView: NSView {
         // sidebar trailing edge, and tab-bar separators (one source of truth), so the
         // iOS-connected viewport border is pixel-identical to every other border in the
         // app instead of the previous hardcoded near-white separator stroke.
-        WindowChromeSeparatorColor.current().setStroke()
+        WindowChromeColorResolver()
+            .separatorColor(forChromeBackground: GhosttyBackgroundTheme.currentColor())
+            .setStroke()
         path.stroke()
     }
 }
@@ -8004,7 +8020,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var pendingDropZone: DropZone?
     private var dropZoneOverlayAnimationGeneration: UInt64 = 0
     private var pendingAutomaticFirstResponderApply = false
-    // Intentionally no focus retry loops: rely on AppKit first-responder and bonsplit selection.
+    private var pendingSuppressedFirstResponderFocusReapply = false
+    // Hidden/tiny focus retry is bounded by layout/visibility signals, not a timer loop.
 
     /// Tracks whether keyboard focus should go to the search field or the terminal
     /// when the window becomes key while the find bar is open.
@@ -8308,11 +8325,6 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeView.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
         keyboardCopyModeBadgeView.alphaValue = 0.97
         keyboardCopyModeBadgeIconView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardCopyModeBadgeIconView.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: 13,
-            weight: .regular,
-            scale: .medium
-        )
         keyboardCopyModeBadgeIconView.image = NSImage(
             systemSymbolName: "keyboard.badge.ellipsis",
             accessibilityDescription: terminalKeyTableIndicatorAccessibilityLabel
@@ -8320,7 +8332,7 @@ final class GhosttySurfaceScrollView: NSView {
         keyboardCopyModeBadgeIconView.contentTintColor = NSColor.secondaryLabelColor
         keyboardCopyModeBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
         keyboardCopyModeBadgeLabel.textColor = NSColor.labelColor
-        keyboardCopyModeBadgeLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+        applyKeyboardCopyModeBadgeFonts()
         keyboardCopyModeBadgeLabel.lineBreakMode = .byTruncatingTail
         keyboardCopyModeBadgeLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         keyboardCopyModeBadgeLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -8344,6 +8356,15 @@ final class GhosttySurfaceScrollView: NSView {
         ])
         keyboardCopyModeBadgeContainerView.isHidden = true
         addSubview(keyboardCopyModeBadgeContainerView)
+        observers.append(
+            NotificationCenter.default.addObserver(
+                forName: GlobalFontMagnification.didChangeNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.applyKeyboardCopyModeBadgeFonts()
+            }
+        )
         NSLayoutConstraint.activate([
             keyboardCopyModeBadgeContainerView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             keyboardCopyModeBadgeContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
@@ -8529,6 +8550,15 @@ final class GhosttySurfaceScrollView: NSView {
 
     }
 
+    private func applyKeyboardCopyModeBadgeFonts() {
+        keyboardCopyModeBadgeIconView.symbolConfiguration = NSImage.SymbolConfiguration(
+            pointSize: GlobalFontMagnification.scaledSize(13),
+            weight: .regular,
+            scale: .medium
+        )
+        keyboardCopyModeBadgeLabel.font = GlobalFontMagnification.systemFont(ofSize: 13, weight: .semibold)
+    }
+
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not implemented")
     }
@@ -8590,6 +8620,9 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeGeometryAndContent()
         _ = setFrameIfNeeded(paneDropTargetView, to: bounds)
         bringPaneDropTargetToFrontIfNeeded()
+        scheduleSuppressedFirstResponderFocusReapplyIfReady(
+            reason: "becomeFirstResponder.hiddenOrTiny.layout"
+        )
     }
 
     override func viewDidMoveToSuperview() {
@@ -10073,6 +10106,7 @@ final class GhosttySurfaceScrollView: NSView {
 
     func yieldTerminalSurfaceFocusForForeignResponder(reason: String) {
         surfaceView.desiredFocus = false
+        pendingSuppressedFirstResponderFocusReapply = false
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         terminalSurface.setFocus(false)
 #if DEBUG
@@ -10133,7 +10167,6 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard surfaceView.desiredFocus || surfaceOwnsFirstResponder else { return }
         guard surfaceView.isVisibleInUI else { return }
-        surfaceView.terminalSurface?.recordExternalFocusState(true)
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard !isHiddenForFocus, hasUsablePortalGeometry else {
 #if DEBUG
@@ -10162,6 +10195,39 @@ final class GhosttySurfaceScrollView: NSView {
         reassertTerminalSurfaceFocus(reason: "clearSuppressReparentFocus", force: true)
     }
 
+    fileprivate func scheduleSuppressedFirstResponderFocusReapply(reason: String) {
+        pendingSuppressedFirstResponderFocusReapply = true
+        scheduleAutomaticFirstResponderApply(reason: reason)
+    }
+
+    fileprivate func cancelSuppressedFirstResponderFocusReapply() {
+        pendingSuppressedFirstResponderFocusReapply = false
+    }
+
+    fileprivate func scheduleSuppressedFirstResponderFocusReapplyIfReady(reason: String) {
+        guard pendingSuppressedFirstResponderFocusReapply else { return }
+        guard !pendingAutomaticFirstResponderApply else { return }
+        guard isActive, surfaceView.desiredFocus, surfaceView.isVisibleInUI else { return }
+        guard currentTerminalSurfaceOwnsFirstResponder() else { return }
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        guard !isHiddenForFocus,
+              bounds.width > 1,
+              bounds.height > 1,
+              surfaceView.bounds.width > 1,
+              surfaceView.bounds.height > 1 else {
+            return
+        }
+        guard let window = uiWindow, window.isKeyWindow else { return }
+        guard let tabId = surfaceView.tabId,
+              let panelId = surfaceView.terminalSurface?.id,
+              isRightSidebarDockSurface || matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId),
+              AppDelegate.shared?.allowsTerminalKeyboardFocus(workspaceId: tabId, panelId: panelId, in: window) != false,
+              AppDelegate.shared?.isCommandPaletteEffectivelyVisible(for: window) != true else {
+            return
+        }
+        scheduleAutomaticFirstResponderApply(reason: reason)
+    }
+
     /// Returns true if the terminal's actual Ghostty surface view is (or contains) the window first responder.
     /// This is stricter than checking `hostedView` descendants, since the scroll view can sometimes become
     /// first responder transiently while focus is being applied.
@@ -10173,6 +10239,10 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
     func debugIsSuppressingReparentFocusForTesting() -> Bool {
         surfaceView.suppressingReparentFocus
+    }
+
+    func debugHasPendingAutomaticFirstResponderApplyForTesting() -> Bool {
+        pendingAutomaticFirstResponderApply
     }
 #endif
 
@@ -10235,7 +10305,37 @@ final class GhosttySurfaceScrollView: NSView {
         }
     }
 
+    private func prepareTerminalSurfaceFocusReassertion(reason: String, force: Bool) -> Bool {
+        let requiresUsableGeometry = pendingSuppressedFirstResponderFocusReapply || force
+        guard requiresUsableGeometry else { return true }
+
+        // `force` bypasses TerminalSurface focus coalescing, not AppKit geometry readiness.
+        let portalSize = bounds.size
+        let surfaceSize = surfaceView.bounds.size
+        let hasUsablePortalGeometry = portalSize.width > 1 && portalSize.height > 1
+        let hasUsableSurfaceGeometry = surfaceSize.width > 1 && surfaceSize.height > 1
+        let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
+        guard !isHiddenForFocus, hasUsablePortalGeometry, hasUsableSurfaceGeometry else {
+#if DEBUG
+            let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+            cmuxDebugLog(
+                "focus.surface.reassert.skip surface=\(surfaceShort) reason=\(reason).hidden_or_tiny " +
+                "hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "force=\(force ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", portalSize.width, portalSize.height)) " +
+                "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceSize.width, surfaceSize.height))"
+            )
+#endif
+            pendingSuppressedFirstResponderFocusReapply = true
+            scheduleAutomaticFirstResponderApply(reason: "\(reason).hiddenOrTiny")
+            return false
+        }
+
+        return true
+    }
+
     private func reassertTerminalSurfaceFocus(reason: String, force: Bool = false) {
+        guard prepareTerminalSurfaceFocusReassertion(reason: reason, force: force) else { return }
         guard let terminalSurface = surfaceView.terminalSurface else { return }
         if terminalSurface.surface == nil {
             terminalSurface.requestBackgroundSurfaceStartIfNeeded()
@@ -10244,6 +10344,7 @@ final class GhosttySurfaceScrollView: NSView {
         cmuxDebugLog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
         terminalSurface.setFocus(true, force: force)
+        pendingSuppressedFirstResponderFocusReapply = false
         refreshSurfaceAfterFocusIfNeeded(reason: reason)
     }
 
@@ -10270,16 +10371,25 @@ final class GhosttySurfaceScrollView: NSView {
             let size = bounds.size
             return size.width > 1 && size.height > 1
         }()
+        let hasUsableSurfaceGeometry: Bool = {
+            let size = surfaceView.bounds.size
+            return size.width > 1 && size.height > 1
+        }()
         let isHiddenForFocus = isHiddenOrHasHiddenAncestor || surfaceView.isHiddenOrHasHiddenAncestor
         let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
+        let requiresSuppressedSurfaceGeometry = pendingSuppressedFirstResponderFocusReapply
 
         guard isActive else { return }
         guard surfaceView.isVisibleInUI else { return }
-        guard !isHiddenForFocus, hasUsablePortalGeometry else {
+        guard !isHiddenForFocus,
+              hasUsablePortalGeometry,
+              (!requiresSuppressedSurfaceGeometry || hasUsableSurfaceGeometry) else {
 #if DEBUG
             cmuxDebugLog(
                 "focus.apply.skip surface=\(surfaceShort) " +
-                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height))"
+                "reason=hidden_or_tiny hidden=\(isHiddenForFocus ? 1 : 0) " +
+                "frame=\(String(format: "%.1fx%.1f", bounds.width, bounds.height)) " +
+                "surfaceFrame=\(String(format: "%.1fx%.1f", surfaceView.bounds.width, surfaceView.bounds.height))"
             )
 #endif
             return
@@ -10287,7 +10397,7 @@ final class GhosttySurfaceScrollView: NSView {
         guard let window = uiWindow, window.isKeyWindow else { return }
         guard let tabId = surfaceView.tabId,
               let panelId = surfaceView.terminalSurface?.id,
-              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) else {
+              matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: panelId) || (pendingSuppressedFirstResponderFocusReapply && isRightSidebarDockSurface && currentTerminalSurfaceOwnsFirstResponder()) else {
 #if DEBUG
             cmuxDebugLog("focus.apply.skip surface=\(surfaceShort) reason=stale_target")
 #endif
@@ -10350,6 +10460,7 @@ final class GhosttySurfaceScrollView: NSView {
         let surfaceShort = String(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil")
         switch searchFocusTarget {
         case .searchField:
+            pendingSuppressedFirstResponderFocusReapply = false
             if let firstResponder = window.firstResponder,
                isCurrentSurfaceSearchFieldResponder(firstResponder) {
                 surfaceView.terminalSurface?.setFocus(false)
@@ -10392,6 +10503,9 @@ final class GhosttySurfaceScrollView: NSView {
 #endif
         case .terminal:
             let result = requestSurfaceFirstResponder(in: window, reason: "restoreSearchFocus.terminal")
+            if result, isSurfaceViewFirstResponder() {
+                reassertTerminalSurfaceFocus(reason: "restoreSearchFocus.terminal")
+            }
 #if DEBUG
             cmuxDebugLog(
                 "find.restoreSearchFocus surface=\(surfaceShort) target=terminal " +
@@ -10563,6 +10677,7 @@ final class GhosttySurfaceScrollView: NSView {
         }
         if intent == .findField { _ = cmuxRememberFindSelection(in: searchOverlayHostingView) }
         surfaceView.terminalSurface?.setFocus(false)
+        pendingSuppressedFirstResponderFocusReapply = false
         resignOwnedFirstResponderIfNeeded(reason: "yieldPanelFocusIntent")
 #if DEBUG
         cmuxDebugLog(
@@ -10584,6 +10699,7 @@ final class GhosttySurfaceScrollView: NSView {
 
         guard ownsSurfaceResponder || isCurrentSurfaceSearchResponder(firstResponder) else { return }
 
+        pendingSuppressedFirstResponderFocusReapply = false
 #if DEBUG
         cmuxDebugLog(
             "focus.surface.resign surface=\(surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +

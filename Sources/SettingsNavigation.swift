@@ -115,7 +115,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .betaFeatures:
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
-            return "\(title) socket integrations hooks ports claude cursor gemini kiro"
+            return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -273,6 +273,8 @@ struct SettingsSearchEntry: Identifiable {
     let subtitle: String?
     let symbolName: String
     let normalizedSearchText: String
+    let normalizedSearchWords: [String]
+    let normalizedSearchWordSet: Set<String>
 
     init(
         id: String,
@@ -289,7 +291,10 @@ struct SettingsSearchEntry: Identifiable {
         self.title = title
         self.subtitle = subtitle
         self.symbolName = symbolName
-        normalizedSearchText = SettingsSearchIndex.normalized("\(title) \(subtitle ?? "") \(searchText)")
+        let normalizedSearchText = SettingsSearchIndex.normalized("\(title) \(subtitle ?? "") \(searchText)")
+        self.normalizedSearchText = normalizedSearchText
+        self.normalizedSearchWords = SettingsSearchIndex.normalizedTokens(for: normalizedSearchText)
+        self.normalizedSearchWordSet = Set(normalizedSearchWords)
     }
 }
 
@@ -323,7 +328,7 @@ enum SettingsSearchIndex {
         setting(.app, "file-drops", String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), "drag drop files finder path text terminal editor split preview shift"),
         setting(.app, "preferred-editor", String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), "editor code zed subl cmd click file"),
         setting(.app, "supported-file-previews", String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), "cmd click file preview pdf image audio video quick look editor"),
-        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview"),
+        setting(.app, "terminal-config", String(localized: "settings.app.configWindow", defaultValue: "Terminal Config"), "ghostty config merged preview macos-option-as-alt option as alt left option right option alt key meta"),
         setting(.app, "markdown-viewer", String(localized: "settings.app.openMarkdownInCmuxViewer", defaultValue: "Open Markdown in cmux Viewer"), "md markdown viewer"),
         setting(.app, "markdown-font-size", String(localized: "settings.app.markdownFontSize", defaultValue: "Markdown Viewer Font Size"), "md markdown viewer font size points zoom scale text bigger smaller"),
         setting(.app, "markdown-font-family", String(localized: "settings.app.markdownFontFamily", defaultValue: "Markdown Viewer Font"), "markdown.fontFamily md markdown viewer font font-family family typeface system stack custom"),
@@ -357,6 +362,8 @@ enum SettingsSearchIndex {
         ),
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
+        setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
+        setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "copy-on-select", String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), "terminal.copyOnSelect clipboard selection mouse double click triple click"),
         setting(.terminal, "tab-bar-font-size", String(localized: "settings.terminal.tabBarFontSize", defaultValue: "Tab Bar Font Size"), "font size text scale terminal browser pane tab title surface-tab-bar-font-size"),
@@ -396,6 +403,19 @@ enum SettingsSearchIndex {
         setting(.automation, "socket-password", String(localized: "settings.automation.socketPassword", defaultValue: "Socket Password"), "socket auth credential"),
         setting(.automation, "claude-code", String(localized: "settings.automation.claudeCode", defaultValue: "Claude Code Integration"), "agent hooks notifications"),
         setting(.automation, "claude-path", String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"), "custom claude executable"),
+        setting(
+            .automation,
+            "workspace-auto-naming",
+            String(localized: "settings.automation.workspaceAutoNaming", defaultValue: "Workspace Auto-Naming"),
+            [
+                "automation.workspaceAutoNaming automation.autoNamingAgent workspace auto naming auto name ai naming names rename workspace rename tab title titles generated name agent summarizer summarize conversation",
+                String(localized: "settings.automation.workspaceAutoNaming.subtitleOn", defaultValue: "Workspaces and tabs are named from agent conversations."),
+                String(localized: "settings.automation.workspaceAutoNaming.subtitleOff", defaultValue: "Workspace and tab names are never generated."),
+                String(localized: "settings.automation.workspaceAutoNaming.note", defaultValue: "When enabled, cmux summarizes supported agent sessions into short workspace and tab names using each agent's own binary, refreshed as the topic shifts. Manual renames always win and stop auto-naming for that workspace or tab. Uses your agent account for the short summarization calls."),
+                String(localized: "settings.automation.autoNamingAgent", defaultValue: "Naming Agent"),
+                String(localized: "settings.automation.autoNamingAgent.auto", defaultValue: "Automatic")
+            ].joined(separator: " ")
+        ),
         setting(.automation, "ripgrep-path", String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"), "custom ripgrep rg executable find search nix"),
         setting(.automation, "subagent-notifications", String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"), "nested child agent codex claude hooks notifications"),
         setting(.automation, "cursor", String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), "agent hooks notifications"),
@@ -431,7 +451,7 @@ enum SettingsSearchIndex {
         setting(.settingsJSON, "open-file", String(localized: "settings.settingsJSON.openFile", defaultValue: "Open cmux.json"), "config json file editor dotfiles"),
         setting(.settingsJSON, "documentation", String(localized: "settings.settingsJSON.documentation", defaultValue: "Documentation"), "cmux json schema reference docs"),
         setting(.reset, "reset-all", String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), "restore defaults")
-    ]
+    ] + terminalScrollSpeedSettingEntries
 
     private static let allEntries = sectionEntries + settingEntries
 
@@ -480,6 +500,8 @@ enum SettingsSearchIndex {
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
+        "canvas.paneGap": settingID(for: .app, idSuffix: "canvas-pane-gap"),
+        "canvas.snappingEnabled": settingID(for: .app, idSuffix: "canvas-snapping"),
         "sidebar.hideAllDetails": settingID(for: .sidebarAppearance, idSuffix: "hide-sidebar-details"),
         "sidebar.wrapWorkspaceTitles": settingID(for: .sidebarAppearance, idSuffix: "wrap-workspace-titles"),
         "sidebar.showWorkspaceDescription": settingID(for: .sidebarAppearance, idSuffix: "show-workspace-description"),
@@ -522,6 +544,7 @@ enum SettingsSearchIndex {
         "automation.socketPassword": settingID(for: .automation, idSuffix: "socket-password"),
         "automation.claudeCodeIntegration": settingID(for: .automation, idSuffix: "claude-code"),
         "automation.claudeBinaryPath": settingID(for: .automation, idSuffix: "claude-path"),
+        "automation.workspaceAutoNaming": settingID(for: .automation, idSuffix: "workspace-auto-naming"),
         "automation.ripgrepBinaryPath": settingID(for: .automation, idSuffix: "ripgrep-path"),
         "automation.suppressSubagentNotifications": settingID(for: .automation, idSuffix: "subagent-notifications"),
         "automation.cursorIntegration": settingID(for: .automation, idSuffix: "cursor"),
@@ -546,14 +569,24 @@ enum SettingsSearchIndex {
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")
-    ]
+    ].merging(terminalScrollSpeedSettingsPathAnchorIDs) { current, _ in current }
 
     static func entries(matching query: String) -> [SettingsSearchEntry] {
-        let tokens = normalizedTokens(for: query)
+        let tokens = normalizedQueryTokens(for: query)
         guard !tokens.isEmpty else { return sectionEntries }
-        return allEntries.filter { entry in
-            tokens.allSatisfy { token in entry.normalizedSearchText.contains(token) }
-        }
+        let normalizedQuery = normalized(query).trimmingCharacters(in: .whitespacesAndNewlines)
+        return allEntries.enumerated()
+            .compactMap { offset, entry -> (entry: SettingsSearchEntry, score: Int, offset: Int)? in
+                guard let score = matchScore(entry: entry, query: normalizedQuery, tokens: tokens) else {
+                    return nil
+                }
+                return (entry, score, offset)
+            }
+            .sorted { lhs, rhs in
+                if lhs.score != rhs.score { return lhs.score < rhs.score }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.entry)
     }
 
     static func entry(withID id: String) -> SettingsSearchEntry? {
@@ -569,37 +602,5 @@ enum SettingsSearchIndex {
 
     static func anchorID(forSettingsPath path: String) -> String? {
         settingsPathAnchorIDs[path]
-    }
-
-    static func normalized(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-    }
-
-    private static func setting(
-        _ target: SettingsNavigationTarget,
-        _ idSuffix: String,
-        _ title: String,
-        _ searchText: String
-    ) -> SettingsSearchEntry {
-        SettingsSearchEntry(
-            id: settingID(for: target, idSuffix: idSuffix),
-            kind: .setting,
-            target: target,
-            title: title,
-            subtitle: target.title,
-            symbolName: target.symbolName,
-            searchText: "\(target.rawValue) \(idSuffix) \(target.searchText) \(searchText) \(SettingsSearchAliasIndex.aliases(target: target, idSuffix: idSuffix))"
-        )
-    }
-
-    private static func normalizedTokens(for query: String) -> [String] {
-        normalized(query)
-            .split { character in
-                character.unicodeScalars.allSatisfy { scalar in
-                    CharacterSet.whitespacesAndNewlines.contains(scalar)
-                        || CharacterSet.punctuationCharacters.contains(scalar)
-                }
-            }
-            .map(String.init)
     }
 }

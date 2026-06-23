@@ -1,8 +1,10 @@
 import SwiftUI
 import Foundation
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxFoundation
 import Bonsplit
+import CmuxWorkspaces
 import CmuxTerminal
 
 enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
@@ -50,49 +52,6 @@ private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
     // covers titlebar chrome.
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-}
-
-struct TmuxPaneLayoutPane: Codable, Equatable, Sendable {
-    let paneId: String
-    let left: Int
-    let top: Int
-    let width: Int
-    let height: Int
-    let isActive: Bool
-}
-
-struct TmuxPaneLayoutReport: Codable, Equatable, Sendable {
-    let panes: [TmuxPaneLayoutPane]
-
-    var activePane: TmuxPaneLayoutPane? {
-        panes.first(where: \.isActive) ?? panes.first
-    }
-}
-
-func tmuxActivePaneOverlayRect(
-    surfaceFrame: CGRect,
-    cellSize: CGSize,
-    pane: TmuxPaneLayoutPane
-) -> CGRect? {
-    guard cellSize.width > 0,
-          cellSize.height > 0,
-          pane.width > 0,
-          pane.height > 0 else {
-        return nil
-    }
-
-    return CGRect(
-        x: surfaceFrame.origin.x + (CGFloat(pane.left) * cellSize.width),
-        y: surfaceFrame.origin.y + (CGFloat(pane.top) * cellSize.height),
-        width: CGFloat(pane.width) * cellSize.width,
-        height: CGFloat(pane.height) * cellSize.height
-    )
-}
-
-private extension PixelRect {
-    var cgRect: CGRect {
-        CGRect(x: x, y: y, width: width, height: height)
-    }
 }
 
 struct TmuxWorkspacePaneOverlayRenderState: Equatable {
@@ -164,6 +123,7 @@ struct WorkspaceContentView: View {
     let isWorkspaceInputActive: Bool
     let isFullScreen: Bool
     let workspacePortalPriority: Int
+    let windowAppearance: WindowAppearanceSnapshot
     let onThemeRefreshRequest: ((
         _ reason: String,
         _ backgroundEventId: UInt64?,
@@ -178,9 +138,7 @@ struct WorkspaceContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
-    private var isMinimalMode: Bool {
-        WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
-    }
+    private var isMinimalMode: Bool { WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal }
 
     static func panelVisibleInUI(
         isWorkspaceVisible: Bool,
@@ -267,7 +225,7 @@ struct WorkspaceContentView: View {
                         isVisibleInUI: isVisibleInUI,
                         portalPriority: workspacePortalPriority,
                         isSplit: isSplit,
-                        appearance: appearance,
+                        appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
                         terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                         onFocus: {
@@ -385,7 +343,7 @@ struct WorkspaceContentView: View {
                     isWorkspaceVisible: isWorkspaceVisible,
                     isWorkspaceInputActive: isWorkspaceInputActive,
                     portalPriority: workspacePortalPriority,
-                    appearance: appearance
+                    appearance: appearance, windowAppearance: windowAppearance
                 )
             } else {
                 bonsplitView
@@ -436,67 +394,18 @@ struct WorkspaceContentView: View {
         workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
     }
 
-    private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-
-    private enum TmuxWorkspacePaneOverlayTrimMode {
-        case workspaceLocal
-        case windowContent
-    }
-
-    private static func tmuxWorkspacePaneContentRect(
-        _ rect: CGRect,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
-    ) -> CGRect {
-        let topInset = min(tmuxWorkspacePaneTopChromeHeight, max(0, rect.height - 1))
-        switch trimMode {
-        case .workspaceLocal, .windowContent:
-            return CGRect(
-                x: rect.origin.x,
-                y: rect.origin.y + topInset,
-                width: rect.width,
-                height: max(0, rect.height - topInset)
-            )
-        }
-    }
-
-    private static func tmuxWorkspacePaneRect(
-        layoutSnapshot: LayoutSnapshot?,
-        paneId: PaneID?,
-        includeContainerOffset: Bool,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
-    ) -> CGRect? {
-        guard let layoutSnapshot,
-              let paneId,
-              let paneRect = layoutSnapshot.panes
-                .first(where: { $0.paneId == paneId.id.uuidString })?
-                .frame
-                .cgRect else {
-            return nil
-        }
-
-        let rect: CGRect
-        if includeContainerOffset {
-            rect = paneRect.offsetBy(
-                dx: 0,
-                dy: -CGFloat(layoutSnapshot.containerFrame.y)
-            )
-        } else {
-            rect = paneRect.offsetBy(
-                dx: -CGFloat(layoutSnapshot.containerFrame.x),
-                dy: -CGFloat(layoutSnapshot.containerFrame.y)
-            )
-        }
-        return tmuxWorkspacePaneContentRect(rect, trimMode: trimMode)
-    }
+    private static let tmuxPaneOverlayGeometry = TmuxPaneOverlayGeometry(
+        topChromeHeight: MinimalModeChromeMetrics.titlebarHeight
+    )
 
     private static func tmuxWorkspacePaneRects(
         workspace: Workspace,
         notificationStore: TerminalNotificationStore,
         layoutSnapshot: LayoutSnapshot?,
-        includeContainerOffset: Bool,
-        trimMode: TmuxWorkspacePaneOverlayTrimMode
+        includeContainerOffset: Bool
     ) -> [CGRect] {
         guard let layoutSnapshot else { return [] }
+        let geometry = tmuxPaneOverlayGeometry
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
 
@@ -532,7 +441,7 @@ struct WorkspaceContentView: View {
                     dy: -CGFloat(layoutSnapshot.containerFrame.y)
                 )
             }
-            return tmuxWorkspacePaneContentRect(rect, trimMode: trimMode)
+            return geometry.contentRect(rect)
         }
     }
 
@@ -540,11 +449,9 @@ struct WorkspaceContentView: View {
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
-        tmuxWorkspacePaneRect(
+        tmuxPaneOverlayGeometry.overlayRect(
             layoutSnapshot: layoutSnapshot,
-            paneId: paneId,
-            includeContainerOffset: false,
-            trimMode: .workspaceLocal
+            paneId: paneId
         )
     }
 
@@ -552,11 +459,9 @@ struct WorkspaceContentView: View {
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?
     ) -> CGRect? {
-        tmuxWorkspacePaneRect(
+        tmuxPaneOverlayGeometry.windowOverlayRect(
             layoutSnapshot: layoutSnapshot,
-            paneId: paneId,
-            includeContainerOffset: true,
-            trimMode: .windowContent
+            paneId: paneId
         )
     }
 
@@ -564,15 +469,10 @@ struct WorkspaceContentView: View {
         cachedSnapshot: LayoutSnapshot?,
         liveSnapshot: LayoutSnapshot?
     ) -> LayoutSnapshot? {
-        if let liveSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(liveSnapshot) {
-            return liveSnapshot
-        }
-        if let cachedSnapshot,
-           tmuxLayoutSnapshotHasRenderableGeometry(cachedSnapshot) {
-            return cachedSnapshot
-        }
-        return cachedSnapshot ?? liveSnapshot
+        tmuxPaneOverlayGeometry.effectiveSnapshot(
+            cachedSnapshot: cachedSnapshot,
+            liveSnapshot: liveSnapshot
+        )
     }
 
     static func tmuxWorkspacePaneUnreadRects(
@@ -584,8 +484,7 @@ struct WorkspaceContentView: View {
             workspace: workspace,
             notificationStore: notificationStore,
             layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: false,
-            trimMode: .workspaceLocal
+            includeContainerOffset: false
         )
     }
 
@@ -598,17 +497,8 @@ struct WorkspaceContentView: View {
             workspace: workspace,
             notificationStore: notificationStore,
             layoutSnapshot: layoutSnapshot,
-            includeContainerOffset: true,
-            trimMode: .windowContent
+            includeContainerOffset: true
         )
-    }
-
-    private static func tmuxLayoutSnapshotHasRenderableGeometry(_ snapshot: LayoutSnapshot) -> Bool {
-        snapshot.containerFrame.width > 1 &&
-            snapshot.containerFrame.height > 1 &&
-            snapshot.panes.contains { pane in
-                pane.frame.width > 1 && pane.frame.height > 1
-            }
     }
 
     private func flushDeferredThemeRefreshIfNeeded() {
@@ -799,7 +689,7 @@ struct EmptyPanelView: View {
 
         var body: some View {
             Text(text)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .cmuxFont(size: 11, weight: .semibold, design: .rounded)
                 .foregroundStyle(.white.opacity(0.9))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
@@ -867,11 +757,11 @@ struct EmptyPanelView: View {
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "terminal.fill")
-                .font(.system(size: 48))
+                .cmuxFont(size: 48)
                 .foregroundStyle(.tertiary)
 
-            Text("Empty Panel")
-                .font(.headline)
+            Text(String(localized: "emptyPanel.title", defaultValue: "Empty Panel"))
+                .cmuxFont(.headline)
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {

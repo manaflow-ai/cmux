@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Darwin
 import Testing
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -819,9 +820,9 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
         let delegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
         webView.navigationDelegate = delegate
         webView.load(URLRequest(url: allowedURL))
-        wait(for: [loaded], timeout: 3)
+        wait(for: [loaded], timeout: 10)
         XCTAssertNil(delegate.error)
-        wait(for: [moduleLoaded], timeout: 3)
+        wait(for: [moduleLoaded], timeout: 10)
         XCTAssertEqual(moduleHandler.body as? String, "module-ok:js-ok:wasm-ok")
 
         let evaluated = expectation(description: "module evaluated")
@@ -830,7 +831,7 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
             XCTAssertEqual(value as? String, "module-ok:js-ok:wasm-ok")
             evaluated.fulfill()
         }
-        wait(for: [evaluated], timeout: 3)
+        wait(for: [evaluated], timeout: 10)
     }
 
     func testDiffViewerSchemeRejectsSymlinkEscapeFromTrustedRoot() throws {

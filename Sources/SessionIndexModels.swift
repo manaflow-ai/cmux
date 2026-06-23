@@ -309,13 +309,13 @@ struct SessionEntry: Identifiable, Hashable {
         guard let cwd = resumeWorkingDirectory else {
             return command
         }
-        return "cd \(Self.shellQuote(cwd)) && \(command)"
+        return TerminalStartupWorkingDirectoryPrefix.prefix(command, workingDirectory: cwd)
     }
 
     private var resumeCommandWithoutWorkingDirectory: String? {
         switch specifics {
         case let .claude(model, permissionMode, configDirectoryForResume):
-            // Route through the wrapper shim token so a manually-resumed claude session
+            // Route through the wrapper resolver token so a manually-resumed claude session
             // re-injects cmux hooks even when the command runs in a shell where the
             // integration's PATH shim / `claude()` function are not active (e.g. the
             // `$SHELL -lic` restore launcher). The token is POSIX-only and this command
