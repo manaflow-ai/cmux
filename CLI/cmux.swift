@@ -26738,11 +26738,16 @@ struct CMUXCLI {
             return false
         }
         let launchArguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID)
+        let sanitizedLaunchArguments = codexSanitizedForkLaunchArguments(
+            launchArguments,
+            env: env,
+            fallbackKind: def.name
+        )
         let forkSurfaceId = normalizedHookValue(authoritativeForkSurfaceId)
         for candidate in [payloadSessionId, resolvedSessionId] {
             guard let candidate else { continue }
             guard let record = try? store.lookup(sessionId: candidate) else { continue }
-            if codexStoredSessionMatchesCurrentFork(record, launchArguments: launchArguments) {
+            if codexStoredSessionMatchesCurrentFork(record, sanitizedLaunchArguments: sanitizedLaunchArguments) {
                 continue
             }
             if let forkSurfaceId {
@@ -26759,15 +26764,33 @@ struct CMUXCLI {
 
     private func codexStoredSessionMatchesCurrentFork(
         _ record: ClaudeHookSessionRecord,
-        launchArguments: [String]?
+        sanitizedLaunchArguments: [String]?
     ) -> Bool {
-        guard let launchArguments,
-              codexForkCommandIndex(in: launchArguments) != nil,
-              let storedArguments = record.launchCommand?.arguments,
-              codexForkCommandIndex(in: storedArguments) != nil else {
+        guard let sanitizedLaunchArguments,
+              let storedArguments = record.launchCommand?.arguments else {
             return false
         }
-        return storedArguments == launchArguments
+        return storedArguments == sanitizedLaunchArguments
+    }
+
+    private func codexSanitizedForkLaunchArguments(
+        _ launchArguments: [String]?,
+        env: [String: String],
+        fallbackKind: String
+    ) -> [String]? {
+        guard let launchArguments,
+              codexForkCommandIndex(in: launchArguments) != nil else {
+            return nil
+        }
+        let envLauncher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"])
+        let launcher = AgentLaunchCaptureTrust.launcherDescribesKind(envLauncher, kind: fallbackKind)
+            ? (envLauncher ?? fallbackKind)
+            : fallbackKind
+        return sanitizedAgentLaunchArguments(
+            launchArguments,
+            launcher: launcher,
+            fallbackKind: fallbackKind
+        )
     }
 
     private func agentLaunchCommandFromEnvironment(
@@ -29710,6 +29733,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return processBindingCache == nil ? "nil" : "resolved"
         }
 #endif
+        if def.name == "codex",
+           (subcommand == "session-start" || subcommand == "active" || subcommand == "session-end"),
+           codexLaunchIsForkSession(env: env, fallbackPID: inferredPID) {
+            let isCodexForkParentLifecycle = shouldSkipCodexForkParentLifecycle(
+                def: def,
+                subcommand: subcommand,
+                input: input,
+                sessionId: sessionId,
+                store: store,
+                env: env,
+                fallbackPID: inferredPID,
+                authoritativeForkSurfaceId: processBinding()?.surfaceId
+            )
+            if isCodexForkParentLifecycle {
+                telemetry.breadcrumb("codex-hook.\(subcommand).fork-parent-skipped")
+                print("{}")
+                return
+            }
+        }
         let resolvedDirectSurfaceArg: String? = {
             guard let directSurfaceArg else { return nil }
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
@@ -34046,7 +34088,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             sessionId: sessionId,
             store: store,
             env: env,
-            fallbackPID: inferredPID
+            fallbackPID: inferredPID,
+            failClosedForStoredSelectorSessions: false
         )
         return HooksRawInputPreflight(handled: isParentLifecycle, rawInput: isParentLifecycle ? nil : rawInput)
     }

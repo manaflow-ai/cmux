@@ -3433,6 +3433,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let parentSurfaceId = "22222222-2222-2222-2222-222222222222"
         let forkSurfaceId = "33333333-3333-3333-3333-333333333333"
         let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let ttyName = "ttys304"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -3474,11 +3475,45 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = forkSurfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+
+        func startForkParentMockServer() -> XCTestExpectation {
+            startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else { return "OK" }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.v2Response(
+                        id: id, ok: true,
+                        result: ["surfaces": [
+                            ["id": parentSurfaceId, "ref": "surface:1", "focused": true],
+                            ["id": forkSurfaceId, "ref": "surface:2", "focused": false],
+                        ]]
+                    )
+                case "debug.terminals":
+                    return self.v2Response(
+                        id: id, ok: true,
+                        result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": forkSurfaceId]]]
+                    )
+                case "surface.resume.set", "surface.resume.clear":
+                    return self.v2Response(id: id, ok: true, result: ["ok": true])
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(
+                        id: id, ok: false,
+                        error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                    )
+                }
+            }
+        }
 
         let forkLaunches: [(label: String, arguments: [String])] = [
             (
@@ -3505,6 +3540,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             if forkLaunch.label.contains("selector") {
                 forkEnvironment["CMUX_SURFACE_ID"] = parentSurfaceId
             }
+            let needsSocket = forkLaunch.label.contains("selector")
+            let sessionStartServer = needsSocket ? startForkParentMockServer() : nil
 
             let sessionStart = runProcess(
                 executablePath: cliPath,
@@ -3513,6 +3550,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
                 timeout: 5
             )
+            if let sessionStartServer {
+                wait(for: [sessionStartServer], timeout: 5)
+            }
+
+            let sessionEndServer = needsSocket ? startForkParentMockServer() : nil
 
             let sessionEnd = runProcess(
                 executablePath: cliPath,
@@ -3521,6 +3563,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#,
                 timeout: 5
             )
+            if let sessionEndServer {
+                wait(for: [sessionEndServer], timeout: 5)
+            }
 
             XCTAssertFalse(sessionStart.timedOut, "\(forkLaunch.label): \(sessionStart.stderr)")
             XCTAssertEqual(sessionStart.status, 0, "\(forkLaunch.label): \(sessionStart.stderr)")
@@ -3601,7 +3646,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "launchCommand": [
                         "launcher": "codex",
                         "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex", "fork", parentSessionId],
+                        "arguments": ["/usr/local/bin/codex"],
                         "workingDirectory": root.path,
                         "capturedAt": now,
                         "source": "test",
