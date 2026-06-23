@@ -72,7 +72,7 @@
       "openSource": "오픈 소스",
       "openSourceDesc": ": 무료이며 GPL 라이선스",
       "ios": "iOS 컴패니언",
-      "iosDesc": ": iPhone에서 터미널에 연결하세요"
+      "iosDesc": ": 터미널이 iPhone과 iPad로 실시간 동기화"
     },
     "faqGhosttyQ": "cmux와 Ghostty는 어떤 관계인가요?",
     "faqGhosttyA": "cmux는 Ghostty의 포크가 아닙니다. 앱이 웹 뷰에 WebKit을 사용하는 것처럼, 터미널 렌더링을 위한 라이브러리로 <link>libghostty</link>를 사용합니다. Ghostty는 독립형 터미널이고, cmux는 그 렌더링 엔진 위에 구축된 별도의 앱입니다.",

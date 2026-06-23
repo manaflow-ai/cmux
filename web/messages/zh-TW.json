@@ -72,7 +72,7 @@
       "openSource": "開源",
       "openSourceDesc": "：免費且採用 GPL 授權",
       "ios": "iOS 伴侶應用程式",
-      "iosDesc": "：從你的 iPhone 連接到你的終端機"
+      "iosDesc": "：你的終端機即時同步到 iPhone 和 iPad"
     },
     "faqGhosttyQ": "cmux 和 Ghostty 有什麼關係？",
     "faqGhosttyA": "cmux 不是 Ghostty 的分支。它使用 <link>libghostty</link> 作為終端機渲染的函式庫，就像應用程式使用 WebKit 來顯示網頁一樣。Ghostty 是一個獨立的終端機；cmux 是建立在其渲染引擎之上的不同應用程式。",

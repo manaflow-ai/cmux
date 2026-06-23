@@ -72,7 +72,7 @@
       "openSource": "مفتوح المصدر",
       "openSourceDesc": ": مجاني ومرخّص بموجب GPL",
       "ios": "تطبيق iOS المرافق",
-      "iosDesc": ": اتصل بأجهزتك الطرفية من iPhone"
+      "iosDesc": ": تتزامن طرفياتك مع iPhone وiPad في الوقت الفعلي"
     },
     "faqGhosttyQ": "ما علاقة cmux بـ Ghostty؟",
     "faqGhosttyA": "cmux ليس نسخة معدلة من Ghostty. يستخدم <link>libghostty</link> كمكتبة لعرض الطرفية، بنفس الطريقة التي تستخدم بها التطبيقات WebKit لعرض الويب. Ghostty طرفية مستقلة؛ cmux تطبيق مختلف مبني فوق محرك العرض الخاص بها.",

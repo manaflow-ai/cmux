@@ -72,7 +72,7 @@
       "openSource": "Otvoreni kod",
       "openSourceDesc": ": besplatan i licenciran pod GPL",
       "ios": "iOS pratilac",
-      "iosDesc": ": povežite se na svoje terminale s vašeg iPhone-a"
+      "iosDesc": ": vaši terminali se sinhroniziraju na iPhone i iPad u stvarnom vremenu"
     },
     "faqGhosttyQ": "Kakav je odnos cmux-a i Ghostty-ja?",
     "faqGhosttyA": "cmux nije fork Ghostty-ja. Koristi <link>libghostty</link> kao biblioteku za renderiranje terminala, na isti način kao što aplikacije koriste WebKit za web prikaze. Ghostty je samostalni terminal; cmux je drugačija aplikacija izgrađena na njegovom rendering engine-u.",

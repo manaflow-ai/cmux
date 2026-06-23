@@ -1,7 +1,6 @@
 import { useTranslations, useLocale } from "next-intl";
-import { FadeImage } from "./components/fade-image";
+import { HeroScreenshot } from "./components/hero-screenshot";
 import Balancer from "react-wrap-balancer";
-import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
@@ -75,10 +74,7 @@ function HomeContent() {
 
         {/* Tagline */}
         <p className="text-lg leading-relaxed mb-3 text-foreground">
-          <span className="sr-only">
-            {t("taglinePrefix")}
-            {t("typingCodingAgents")}, {t("typingMultitasking")}
-          </span>
+          <span className="sr-only">{t("taglineStatic")}</span>
           <span aria-hidden="true">
             {t("taglinePrefix")}
             <TypingTagline />
@@ -185,14 +181,9 @@ function HomeContent() {
         {/* Screenshot */}
         <div
           data-dev="screenshot"
-          className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
         >
-          <FadeImage
-            src={landingImage}
-            alt="cmux terminal app screenshot"
-            priority
-            className="w-full rounded-xl"
-          />
+          <HeroScreenshot />
         </div>
 
         {/* FAQ */}

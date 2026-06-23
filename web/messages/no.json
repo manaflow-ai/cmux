@@ -72,7 +72,7 @@
       "openSource": "Åpen kildekode",
       "openSourceDesc": ": gratis og GPL-lisensiert",
       "ios": "iOS-følgesvenn",
-      "iosDesc": ": koble til terminalene dine fra iPhone-en din"
+      "iosDesc": ": terminalene dine synkroniseres til iPhone og iPad i sanntid"
     },
     "faqGhosttyQ": "Hva er forholdet mellom cmux og Ghostty?",
     "faqGhosttyA": "cmux er ikke en fork av Ghostty. Den bruker <link>libghostty</link> som et bibliotek for terminalgjengivelse, på samme måte som apper bruker WebKit for nettvisninger. Ghostty er en frittstående terminal; cmux er en annen app bygget på toppen av gjengivelsesmotoren.",
