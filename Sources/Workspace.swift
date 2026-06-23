@@ -5631,6 +5631,7 @@ final class Workspace: Identifiable, ObservableObject {
            !startupCommand.isEmpty,
            let reconnectingSurfaceId = remoteReconnectTerminalSurfaceId(requestedSurfaceId: surfaceId) {
             let shouldRespawnSurface =
+                isDefaultFreestyleSSHDRemoteWorkspace ||
                 surfaceId != nil ||
                 remoteDisconnectPlaceholderPanelIds.contains(reconnectingSurfaceId) ||
                 !activeRemoteTerminalSurfaceIds.contains(reconnectingSurfaceId) ||
