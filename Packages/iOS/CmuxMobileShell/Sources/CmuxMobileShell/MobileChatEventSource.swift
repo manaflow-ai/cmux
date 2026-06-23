@@ -38,6 +38,29 @@ public actor MobileChatEventSource: ChatEventSource {
         return try coding.decode(MobileChatSessionsResponse.self, from: result).sessions
     }
 
+    /// Pulls the authoritative snapshot of one session by id.
+    ///
+    /// The client's reconcile path: on (re)connect, foreground, a detected
+    /// version gap, or manual refresh, the host fetches the current descriptor
+    /// and folds it through the same version-gated upsert as a push, so a pull
+    /// that races a newer push converges. Pull is authoritative; push is a
+    /// best-effort hint, so a missed or out-of-order push self-heals here.
+    ///
+    /// Not part of ``CmuxAgentChat/ChatEventSource`` (which is scoped to one
+    /// conversation). Throws when the host no longer knows the session (treat
+    /// as gone) or the request fails.
+    ///
+    /// - Parameter sessionID: The session to snapshot.
+    /// - Returns: The session's current descriptor, with its `version`.
+    public func session(sessionID: String) async throws -> ChatSessionDescriptor {
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.chat.session",
+            params: ["session_id": sessionID]
+        )
+        let result = try await client.sendRequest(request)
+        return try coding.decode(MobileChatSessionResponse.self, from: result).session
+    }
+
     /// Opens the live stream of session-list events for every session the
     /// Mac knows about (not scoped to one conversation).
     ///
