@@ -22,6 +22,7 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     private let probe: @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot]
     private let now: @Sendable () -> Date
     private let cacheTTL: TimeInterval
+    private let saveTolerance: TimeInterval
     private let coldProbeWindow: TimeInterval
     private let maxColdProbesPerWindow: Int
 
@@ -36,12 +37,14 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
 
     init(
         cacheTTL: TimeInterval = 20,
+        saveTolerance: TimeInterval = 300,
         coldProbeWindow: TimeInterval = 10,
         maxColdProbesPerWindow: Int = 6,
         now: @escaping @Sendable () -> Date = { Date() },
         probe: @escaping @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot] = claudeBackgroundAgentsProbe
     ) {
         self.cacheTTL = cacheTTL
+        self.saveTolerance = max(saveTolerance, cacheTTL)
         self.coldProbeWindow = coldProbeWindow
         self.maxColdProbesPerWindow = maxColdProbesPerWindow
         self.now = now
@@ -52,7 +55,7 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     /// caches the result. Must not be called on the main thread.
     func live(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
         let key = configDir ?? ""
-        if let fresh = freshCachedAgents(forKey: key) {
+        if let fresh = freshCachedAgents(forKey: key, maxAge: cacheTTL) {
             return fresh
         }
 
@@ -60,7 +63,7 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         defer { fetchLock.unlock() }
         // Re-check under the fetch lock: a concurrent probe for this key may have just filled
         // the cache while we waited.
-        if let fresh = freshCachedAgents(forKey: key) {
+        if let fresh = freshCachedAgents(forKey: key, maxAge: cacheTTL) {
             return fresh
         }
 
@@ -79,33 +82,38 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     }
 
     /// Main-thread safe: returns whatever the off-main loaders have already cached for this
-    /// config dir, never spawning `claude`. The synchronous session-save path uses this so it
-    /// reconciles from the warm cache without a subprocess on the main thread. Applies the same
-    /// TTL as ``live(configDir:)`` so a stale entry — where the daemon would now report zero, a
-    /// different, or multiple ambiguous agents — degrades to no reconciliation instead of
-    /// persisting a wrong session.
+    /// config dir, never spawning `claude`. The synchronous quit/power-off session-save path
+    /// uses this so it reconciles from the warm cache without a subprocess on the main thread.
+    ///
+    /// Tolerates a longer staleness than ``live(configDir:)``'s probe TTL (`saveTolerance`):
+    /// `SharedLiveAgentIndex` refreshes the cache only every so often, so binding the save to
+    /// the short probe TTL would drop the reconciliation — and overwrite the persisted snapshot
+    /// with the empty ghost id — whenever the app is quit a little after the last refresh. A
+    /// reconciled id maps to a real on-disk transcript (the panel's actual conversation), so a
+    /// slightly-stale reconciliation is still correct; only a long-idle entry expires.
     func cachedOnly(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
-        freshCachedAgents(forKey: configDir ?? "") ?? []
+        freshCachedAgents(forKey: configDir ?? "", maxAge: saveTolerance) ?? []
     }
 
-    private func freshCachedAgents(forKey key: String) -> [ClaudeBackgroundAgentSnapshot]? {
+    private func freshCachedAgents(forKey key: String, maxAge: TimeInterval) -> [ClaudeBackgroundAgentSnapshot]? {
         lock.lock()
         defer { lock.unlock() }
-        guard let cached = cache[key], now().timeIntervalSince(cached.fetchedAt) < cacheTTL else {
+        guard let cached = cache[key], now().timeIntervalSince(cached.fetchedAt) < maxAge else {
             return nil
         }
         return cached.agents
     }
 
-    /// Writes the freshly probed result and drops every expired entry, so this process-wide
-    /// singleton's cache does not accumulate config-dir keys (which are unbounded user/session
-    /// data) over a long-running app. https://github.com/manaflow-ai/cmux/issues/6622
+    /// Writes the freshly probed result and drops entries past the save tolerance, so this
+    /// process-wide singleton's cache does not accumulate config-dir keys (which are unbounded
+    /// user/session data) over a long-running app while still retaining a reconciliation long
+    /// enough for the synchronous save path. https://github.com/manaflow-ai/cmux/issues/6622
     private func storeAndEvictExpired(key: String, agents: [ClaudeBackgroundAgentSnapshot]) {
         lock.lock()
         defer { lock.unlock() }
         let writtenAt = now()
         cache[key] = (agents, writtenAt)
-        cache = cache.filter { writtenAt.timeIntervalSince($0.value.fetchedAt) < cacheTTL }
+        cache = cache.filter { writtenAt.timeIntervalSince($0.value.fetchedAt) < saveTolerance }
     }
 }
 

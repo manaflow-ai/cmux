@@ -1047,7 +1047,13 @@ struct RestorableAgentSessionIndex: Sendable {
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
-        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
+        // This overload is always off-main (Task.detached), so it reconciles ghost panels by
+        // default: every async caller (command-palette forkability, hibernation, …) sees the
+        // same real session id as SharedLiveAgentIndex instead of silently opting out.
+        // https://github.com/manaflow-ai/cmux/issues/6622
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = {
+            ClaudeBackgroundAgentsQuery.shared.live(configDir: $0)
+        }
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(

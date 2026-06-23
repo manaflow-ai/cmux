@@ -1552,11 +1552,12 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(calls.value, 2, "each distinct config dir probes once; the repeat is cached")
     }
 
-    func testClaudeBackgroundAgentsQueryCachedOnlyRespectsTTLAndNeverProbes() {
+    func testClaudeBackgroundAgentsQueryCachedOnlyToleratesProbeTTLStalenessThenExpires() {
         let clock = TestClock(Date(timeIntervalSince1970: 1000))
         let calls = CallCounter()
         let query = ClaudeBackgroundAgentsQuery(
             cacheTTL: 20,
+            saveTolerance: 100,
             now: { clock.current },
             probe: { _ in
                 calls.increment()
@@ -1570,8 +1571,17 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         _ = query.live(configDir: "/cfg")
         XCTAssertEqual(query.cachedOnly(configDir: "/cfg").first?.sessionId, "real", "a warm cache is reused")
 
+        // Past the probe TTL but within the save tolerance: the synchronous save still
+        // reconciles (so a quit shortly after the last refresh keeps the real session id).
         clock.current = clock.current.addingTimeInterval(25)
-        XCTAssertTrue(query.cachedOnly(configDir: "/cfg").isEmpty, "a stale entry degrades to no reconciliation")
+        XCTAssertEqual(
+            query.cachedOnly(configDir: "/cfg").first?.sessionId, "real",
+            "cachedOnly tolerates probe-TTL staleness for the save path"
+        )
+
+        // Past the save tolerance: degrade to no reconciliation.
+        clock.current = clock.current.addingTimeInterval(100)
+        XCTAssertTrue(query.cachedOnly(configDir: "/cfg").isEmpty, "a long-idle entry expires")
         XCTAssertEqual(calls.value, 1, "cachedOnly never spawns the probe")
     }
 
