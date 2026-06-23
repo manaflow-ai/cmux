@@ -147,4 +147,64 @@ import Testing
         #expect(performedDrops.first?.1 == [target])
         #expect(activeStates == [true, false])
     }
+
+    @Test @MainActor func pendingFastReleaseSurvivesDragConclusionUntilTargetsArrive() async {
+        let bridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
+        let view = SidebarWorkspaceReorderDropOverlay.DropView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 160)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 160),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        bridge.attach(view)
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-reorder-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            UUID().uuidString,
+            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        )
+        let sender = MockDraggingInfo(
+            window: window,
+            location: NSPoint(x: 32, y: 48),
+            pasteboard: pasteboard
+        )
+        let target = SidebarWorkspaceReorderDropOverlay.Target(
+            workspaceId: UUID(),
+            groupId: nil,
+            isGroupHeader: false,
+            frame: CGRect(x: 0, y: 40, width: 200, height: 24)
+        )
+
+        var activeStates: [Bool] = []
+        var performedDrops: [(CGPoint, [SidebarWorkspaceReorderDropOverlay.Target])] = []
+        view.isValidDrag = { true }
+        view.setWorkspaceDropTargetCollectionActive = { activeStates.append($0) }
+        view.clearDropIndicator = {}
+        view.updateDrag = { _, _ in true }
+        view.performDropAtPoint = { point, targets in
+            performedDrops.append((point, targets))
+            return true
+        }
+
+        #expect(view.draggingEntered(sender) == .move)
+        let expectedDropPoint = view.convert(sender.draggingLocation, from: nil)
+        #expect(view.performDragOperation(sender))
+        view.concludeDragOperation(sender)
+        for _ in 0..<5 {
+            await Task.yield()
+        }
+        #expect(performedDrops.isEmpty)
+
+        bridge.updateTargets([target])
+
+        #expect(performedDrops.count == 1)
+        #expect(performedDrops.first?.0 == expectedDropPoint)
+        #expect(performedDrops.first?.1 == [target])
+        #expect(activeStates == [true, false])
+    }
 }

@@ -40,7 +40,6 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         guard pendingDrop == nil else {
-            completeOrClearPendingDropAfterDragTeardown()
             clearDropIndicator?()
             return
         }
@@ -52,6 +51,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
         guard accepts(sender), let performDropAtPoint else { return false }
         let point = convert(sender.draggingLocation, from: nil)
         guard !targets.isEmpty else {
+            setTargetCollectionActive(true)
             pendingDrop = SidebarWorkspaceReorderPendingDrop(requestId: targetRequestId, point: point)
             return true
         }
@@ -66,7 +66,6 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
         guard pendingDrop == nil else {
-            completeOrClearPendingDropAfterDragTeardown()
             clearDropIndicator?()
             return
         }
@@ -100,6 +99,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     }
 
     private func setTargetCollectionActive(_ isActive: Bool) {
+        guard isRequestingTargets != isActive else { return }
         if isActive, !isRequestingTargets {
             targetRequestId &+= 1
         }
@@ -108,34 +108,6 @@ final class SidebarWorkspaceReorderDropView: NSView {
         }
         isRequestingTargets = isActive
         setWorkspaceDropTargetCollectionActive?(isActive)
-    }
-
-    private func completeOrClearPendingDropAfterDragTeardown() {
-        completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: 3)
-    }
-
-    private func completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: Int) {
-        guard let pendingDrop else { return }
-        let requestId = pendingDrop.requestId
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            guard let self,
-                  self.pendingDrop?.requestId == requestId else {
-                return
-            }
-
-            if self.targets.isEmpty, remainingFrameWaits > 0 {
-                self.completeOrClearPendingDropAfterDragTeardown(
-                    remainingFrameWaits: remainingFrameWaits - 1
-                )
-                return
-            }
-
-            self.performPendingDropIfPossible()
-            guard self.pendingDrop?.requestId == requestId else { return }
-            self.setTargetCollectionActive(false)
-            self.clearDropIndicator?()
-        }
     }
 
     private func accepts(_ sender: NSDraggingInfo) -> Bool {

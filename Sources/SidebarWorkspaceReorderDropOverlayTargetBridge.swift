@@ -14,8 +14,6 @@ final class SidebarWorkspaceReorderDropOverlayTargetBridge {
         self.targets = targets
         view?.targets = targets
         guard !targets.isEmpty else { return }
-        Task { @MainActor [weak view] in
-            view?.performPendingDropIfPossible()
-        }
+        view?.performPendingDropIfPossible()
     }
 }

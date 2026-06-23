@@ -12492,6 +12492,7 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
     private static let escapeKeyCode: UInt16 = 53
     // One-shot timer bridges synchronous AppKit event monitors to a cancellable drag-teardown deadline.
     private var pendingClearTimer: DispatchSourceTimer?
+    private var pendingClearGeneration: UInt64 = 0
     private var appResignObserver: NSObjectProtocol?
     private var keyDownMonitor: Any?
     private var localMouseMonitor: Any?
@@ -12546,6 +12547,7 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
     }
 
     func stop() {
+        pendingClearGeneration &+= 1
         pendingClearTimer?.cancel()
         pendingClearTimer = nil
         if let appResignObserver {
@@ -12573,14 +12575,17 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
         cmuxDebugLog("sidebar.dragFailsafe.schedule reason=\(reason)")
 #endif
         let timer = DispatchSource.makeTimerSource(queue: .main)
+        pendingClearGeneration &+= 1
+        let generation = pendingClearGeneration
         timer.schedule(deadline: .now() + SidebarDragFailsafePolicy.clearDelay)
         timer.setEventHandler { [weak self] in
             Task { @MainActor [weak self] in
+                guard let self, self.pendingClearGeneration == generation else { return }
 #if DEBUG
                 cmuxDebugLog("sidebar.dragFailsafe.fire reason=\(reason)")
 #endif
-                self?.pendingClearTimer = nil
-                self?.onRequestClear?(reason)
+                self.pendingClearTimer = nil
+                self.onRequestClear?(reason)
             }
         }
         pendingClearTimer = timer
