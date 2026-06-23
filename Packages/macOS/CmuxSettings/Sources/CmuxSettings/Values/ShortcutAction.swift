@@ -67,6 +67,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case newSurface
     case toggleTerminalCopyMode
     case focusTextBoxInput
+    /// Cycles the TextBox submit button to the next configured action.
     case cycleTextBoxSubmitAction
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.

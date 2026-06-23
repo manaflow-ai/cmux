@@ -264,6 +264,20 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testTextBoxPendingNonClaudeLaunchDoesNotForceSubmitContext() throws {
+        let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
+        XCTAssertEqual(codex.pendingTerminalAgentContext, nil)
+        XCTAssertEqual(
+            TextBoxInputContainer.textEntryTerminalAgentContext(
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: "",
+                pendingProviderLaunchAction: codex
+            ),
+            ""
+        )
+    }
+
 
     @Test
     func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {

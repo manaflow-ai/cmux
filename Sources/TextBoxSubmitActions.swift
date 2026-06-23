@@ -46,7 +46,7 @@ extension TextBoxInputContainer {
     }
 
     var shouldForceTextEntrySubmit: Bool {
-        pendingProviderLaunchAction != nil || Self.shouldForceTextEntrySubmit(
+        pendingProviderLaunchAction?.pendingTerminalAgentContext != nil || Self.shouldForceTextEntrySubmit(
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext
         )
