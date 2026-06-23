@@ -20,12 +20,13 @@
 #
 #   --attach   also pair to the running Mac. Uses CMUX_DOGFOOD_ATTACH_URL when it
 #              is already set (as dev-setup.sh passes it), else mints a fresh
-#              ticket: the mobile-attach QR server (default :17321) if up, else
-#              directly against the tagged Mac debug socket. Needs the tagged Mac
-#              app running with the pairing host enabled (see --ensure-mac).
+#              tag-scoped ticket directly against THIS tag's Mac debug socket
+#              (never an untagged QR-server ticket, which could pair the wrong
+#              Mac). Needs the tagged Mac app running with the pairing host
+#              enabled (see --ensure-mac).
 #   --ensure-mac  imply --attach and, before minting, enable the tagged Mac app's
 #              pairing host + launch it if its debug socket is down. Lets a device
-#              reload auto-pair with no separately-running Mac app or QR server.
+#              reload auto-pair with no separately-running Mac app.
 #   --agent    sign in with the shared agent account instead of the dogfood one.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
 #              running after this script exits.
@@ -41,7 +42,6 @@ ATTACH=0
 ENSURE_MAC=0
 AGENT=0
 DETACH=0
-QR_PORT="${CMUX_QR_PORT:-17321}"
 ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 
 usage() { sed -n '2,30p' "$0"; }
@@ -58,7 +58,7 @@ while [[ $# -gt 0 ]]; do
     --attach) ATTACH=1; shift ;;
     # --ensure-mac: before minting, enable the tagged Mac app's pairing host and
     # launch it if its debug socket is down, so --attach can mint without a
-    # separately-running Mac app or QR server. Implies --attach.
+    # separately-running Mac app. Implies --attach.
     --ensure-mac) ENSURE_MAC=1; ATTACH=1; shift ;;
     --agent) AGENT=1; shift ;;
     --detach) DETACH=1; shift ;;
@@ -107,26 +107,21 @@ BUNDLE_ID="dev.cmux.ios.$slug"
 # backend (CMUX_UITEST_MOCK_DATA=0).
 ATTACH_URL=""
 if [[ "$ATTACH" -eq 1 ]]; then
-  if [[ "$ENSURE_MAC" -eq 1 ]]; then
-    # We are pairing to THIS tag's Mac app: ensure it is up, then mint straight
-    # from its socket. Ignore any ambient CMUX_DOGFOOD_ATTACH_URL (it may be a
-    # stale ticket for another tag) and do NOT consult the QR server (its
-    # /ticket.json has no tag parameter and could hand back a different Mac's
-    # ticket and silently mispair).
-    cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" || true
-    if cmux_attach_mac_socket_ready "$TAG"; then
-      ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
-    fi
-  else
-    # Plain --attach: honor a pre-minted URL the caller deliberately passed
-    # (dev-setup.sh sets it + --attach), else prefer a running QR server, else
-    # mint directly from the tagged socket when it is up.
+  # An attach URL the caller deliberately pre-minted (dev-setup.sh sets it +
+  # --attach) wins. Ignore it under --ensure-mac, which is an explicit "(re)pair
+  # to THIS tag's Mac" intent that must always mint fresh for this tag.
+  if [[ "$ENSURE_MAC" -eq 0 ]]; then
     ATTACH_URL="${CMUX_DOGFOOD_ATTACH_URL:-}"
-    if [[ -z "$ATTACH_URL" ]]; then
-      ATTACH_URL="$(curl -fsS -m 8 "http://127.0.0.1:${QR_PORT}/ticket.json" 2>/dev/null \
-        | python3 -c 'import sys,json; print(json.load(sys.stdin).get("attach_url",""))' 2>/dev/null || true)"
+  fi
+  if [[ -z "$ATTACH_URL" ]]; then
+    if [[ "$ENSURE_MAC" -eq 1 ]]; then
+      cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" || true
     fi
-    if [[ -z "$ATTACH_URL" ]] && cmux_attach_mac_socket_ready "$TAG"; then
+    # Always mint tag-scoped from THIS tag's socket. Never consult the
+    # tag-agnostic QR server: its /ticket.json has no tag parameter and is served
+    # from whatever tag the QR server last set, so it could hand back a different
+    # Mac's ticket and silently pair the phone to the wrong app.
+    if cmux_attach_mac_socket_ready "$TAG"; then
       ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
     fi
   fi

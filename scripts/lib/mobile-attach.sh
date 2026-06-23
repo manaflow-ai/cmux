@@ -84,12 +84,14 @@ cmux_attach_mac_socket_ready() {
 #   - socket down  -> launch the local tagged build and wait for the socket.
 #   - socket up    -> the pairing default is only read at launch, so a live
 #                     socket does NOT prove the listener is bound. Probe by
-#                     minting; if it already works, done (no disruption). If not,
-#                     the running process predates the default — relaunch it so
-#                     the fresh process binds the listener.
+#                     minting; if it already works, done. If not, a tagged app is
+#                     already running — by default DO NOT disturb it (degrade to
+#                     signed-in-only with guidance to relaunch). Set
+#                     CMUX_ATTACH_ALLOW_RELAUNCH=1 to opt into auto-relaunching
+#                     the tagged app so it binds the listener.
 # Args: <tag> [<repo_root>] (repo_root enables the mint readiness probe). Returns
 # 0 if the Mac is ready to mint, 1 otherwise (caller degrades to signed-in-only).
-# Never fails the calling script.
+# Never fails the calling script and never force-kills a running app by default.
 cmux_attach_ensure_mac() {
   local tag="$1" repo_root="${2:-}" sock app slug _i
   sock="$(cmux_attach_socket_path "$tag")"
@@ -98,16 +100,22 @@ cmux_attach_ensure_mac() {
   cmux_attach_enable_pairing_host "$tag" || true
 
   if [[ -S "$sock" ]]; then
-    # Quick probe (2 attempts ~1s): if pairing already mints, leave the running
-    # app untouched.
+    # Quick probe (2 attempts ~1s): if pairing already mints, done.
     if [[ -n "$repo_root" ]] && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" 2)" ]]; then
       return 0
     fi
-    if [[ ! -d "$app" ]]; then
-      echo "warning: tagged Mac app for '$tag' is running but its pairing listener is not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only)." >&2
+    # A tagged app is running but its pairing listener is not ready (launched
+    # before the default was set, prompt pending, or briefly busy). Protect the
+    # running instance: do NOT force-kill it unless explicitly opted in.
+    if [[ "${CMUX_ATTACH_ALLOW_RELAUNCH:-0}" != "1" ]]; then
+      echo "warning: tagged Mac app for '$tag' is running but its iOS pairing listener is not bound (it was likely launched before pairing was enabled, or the macOS Local Network prompt is pending). Relaunch it to enable auto-pair, or re-run with CMUX_ATTACH_ALLOW_RELAUNCH=1; signing in only for now." >&2
       return 1
     fi
-    echo "==> relaunching tagged Mac app to bind the pairing listener ($tag)" >&2
+    if [[ ! -d "$app" ]]; then
+      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable (signing in only)." >&2
+      return 1
+    fi
+    echo "==> relaunching tagged Mac app to bind the pairing listener ($tag) [CMUX_ATTACH_ALLOW_RELAUNCH=1]" >&2
     # Scoped to this tag's executable only (never the stable app or other tags).
     pkill -f "cmux DEV ${slug}.app/Contents/MacOS/cmux DEV" 2>/dev/null || true
     for _i in $(seq 1 25); do [[ -S "$sock" ]] || break; sleep 0.2; done
