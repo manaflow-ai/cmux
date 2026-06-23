@@ -235,6 +235,7 @@ Commands:
 - `cmux workspace tasks list [workspace] [--workspace <id|ref|index>] [--window <id|ref|index>]`
 - `cmux workspace tasks add [title] [--title <text>] [--before <task-uuid>|--after <task-uuid>|--index <n>] [--workspace <id|ref|index>]`
 - `cmux workspace tasks archive <task-uuid> [--workspace <id|ref|index>]`
+- `cmux workspace tasks unarchive <task-uuid> [--workspace <id|ref|index>]`
 - `cmux workspace tasks remove <task-uuid> [--workspace <id|ref|index>]`
 - `cmux workspace tasks move <task-uuid> (--before <task-uuid>|--after <task-uuid>|--index <n>) [--workspace <id|ref|index>]`
 - `cmux workspace tasks open [workspace] [--focus <true|false>] [--workspace <id|ref|index>]`
@@ -245,10 +246,11 @@ Mutation output is `OK task=<uuid> workspace=<handle>`. `open` output is
 `archived`, `tasks`, counts, workspace refs, and the changed task or surface when
 applicable.
 
-`archive` is the completion path and moves a task into Archived. `remove`
-deletes the task. `move` reorders only within the task's current bucket.
-Commands default to `CMUX_WORKSPACE_ID` when present, then the selected workspace
-for the target window.
+`archive` is the completion path and moves a task into Archived. `unarchive`
+restores an archived task to the end of Open. `remove` deletes the task. `move`
+reorders only within the task's current bucket. Commands default to
+`CMUX_WORKSPACE_ID` when present, then the selected workspace for the target
+window.
 
 ### Workspace environment variables
 

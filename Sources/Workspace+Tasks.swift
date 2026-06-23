@@ -75,6 +75,20 @@ extension Workspace {
     }
 
     @discardableResult
+    func unarchiveWorkspaceTask(id taskId: UUID) -> WorkspaceTask? {
+        var tasks = Self.sanitizedWorkspaceTasks(workspaceTasks)
+        guard let index = tasks.firstIndex(where: { $0.id == taskId }) else { return nil }
+        guard tasks[index].isArchived else { return tasks[index] }
+        let openCount = tasks.prefix { $0.isOpen }.count
+        guard openCount < WorkspaceTask.maximumOpenTaskCount else { return nil }
+        var task = tasks.remove(at: index)
+        task.archivedAt = nil
+        tasks.insert(task, at: openCount)
+        workspaceTasks = tasks
+        return task
+    }
+
+    @discardableResult
     func removeWorkspaceTask(id taskId: UUID) -> WorkspaceTask? {
         var tasks = Self.sanitizedWorkspaceTasks(workspaceTasks)
         guard let index = tasks.firstIndex(where: { $0.id == taskId }) else { return nil }

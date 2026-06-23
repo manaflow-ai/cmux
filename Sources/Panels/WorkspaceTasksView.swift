@@ -20,17 +20,12 @@ struct WorkspaceTasksView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    WorkspaceTaskAddComposer(
-                        draft: $addDraft,
-                        placeholder: String(localized: "workspaceTasks.add.placeholder", defaultValue: "Add a task"),
-                        submitLabel: String(localized: "workspaceTasks.add.label", defaultValue: "Add task"),
-                        submit: { submitAddDraft(afterTaskId: nil) }
-                    )
                     WorkspaceTasksSectionView(
                         title: String(localized: "workspaceTasks.open.title", defaultValue: "Open"),
                         emptyText: String(localized: "workspaceTasks.empty.open", defaultValue: "No open tasks"),
                         tasks: openTasks,
                         canArchive: true,
+                        addDraft: $addDraft,
                         insertionAfterTaskId: $insertionAfterTaskId,
                         insertionDraft: $insertionDraft,
                         actions: actions
@@ -40,6 +35,7 @@ struct WorkspaceTasksView: View {
                         emptyText: String(localized: "workspaceTasks.empty.archived", defaultValue: "No archived tasks"),
                         tasks: archivedTasks,
                         canArchive: false,
+                        addDraft: .constant(""),
                         insertionAfterTaskId: .constant(nil),
                         insertionDraft: .constant(""),
                         actions: actions
@@ -47,17 +43,6 @@ struct WorkspaceTasksView: View {
                 }
                 .padding(16)
             }
-        }
-    }
-
-    private func submitAddDraft(afterTaskId: UUID?) {
-        let draft = afterTaskId == nil ? addDraft : insertionDraft
-        guard actions.add(draft, afterTaskId) else { return }
-        if afterTaskId == nil {
-            addDraft = ""
-        } else {
-            insertionDraft = ""
-            insertionAfterTaskId = nil
         }
     }
 }

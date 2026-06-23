@@ -1114,8 +1114,8 @@ class TerminalController {
             return v2Result(id: request.id, v2WorkspaceTasksList(params: request.params))
         case "workspace.tasks.add":
             return v2Result(id: request.id, v2WorkspaceTasksAdd(params: request.params))
-        case "workspace.tasks.archive":
-            return v2Result(id: request.id, v2WorkspaceTasksArchive(params: request.params))
+        case "workspace.tasks.archive": return v2Result(id: request.id, v2WorkspaceTasksArchive(params: request.params))
+        case "workspace.tasks.unarchive": return v2Result(id: request.id, v2WorkspaceTasksUnarchive(params: request.params))
         case "workspace.tasks.remove":
             return v2Result(id: request.id, v2WorkspaceTasksRemove(params: request.params))
         case "workspace.tasks.move":
@@ -1999,7 +1999,7 @@ class TerminalController {
             "workspace.env",
             "workspace.tasks.list",
             "workspace.tasks.add",
-            "workspace.tasks.archive",
+            "workspace.tasks.archive", "workspace.tasks.unarchive",
             "workspace.tasks.remove",
             "workspace.tasks.move",
             "workspace.tasks.open",

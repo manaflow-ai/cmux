@@ -109,9 +109,14 @@ import Testing
         #expect(removed.id == third.id)
         #expect(workspace.openWorkspaceTasks.map(\.id) == [second.id])
         #expect(workspace.archivedWorkspaceTasks.map(\.id) == [first.id])
+
+        let restored = try #require(workspace.unarchiveWorkspaceTask(id: first.id))
+        #expect(restored.archivedAt == nil)
+        #expect(workspace.openWorkspaceTasks.map(\.id) == [second.id, first.id])
+        #expect(workspace.archivedWorkspaceTasks.isEmpty)
     }
 
-    @Test func addAndArchiveRespectTaskCountCaps() throws {
+    @Test func addArchiveAndUnarchiveRespectTaskCountCaps() throws {
         let workspace = Workspace(title: "Tasks")
         workspace.workspaceTasks = (0..<WorkspaceTask.maximumOpenTaskCount).map { index in
             WorkspaceTask(
@@ -132,6 +137,21 @@ import Testing
             )
         }
         #expect(workspace.archiveWorkspaceTask(id: openTask.id) == nil)
+
+        let archivedTask = WorkspaceTask(
+            id: UUID(),
+            title: "Archived overflow",
+            createdAt: Date(timeIntervalSince1970: 5_000),
+            archivedAt: Date(timeIntervalSince1970: 6_000)
+        )
+        workspace.workspaceTasks = (0..<WorkspaceTask.maximumOpenTaskCount).map { index in
+            WorkspaceTask(
+                id: UUID(),
+                title: "Open \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        } + [archivedTask]
+        #expect(workspace.unarchiveWorkspaceTask(id: archivedTask.id) == nil)
     }
 
     @Test func socketArchiveReportsLimitWhenArchiveBucketIsFull() throws {
@@ -167,6 +187,42 @@ import Testing
             #expect(code == "limit_exceeded")
             let payload = try #require(data as? [String: Any])
             #expect(payload["maximum_archived_tasks"] as? Int == WorkspaceTask.maximumArchivedTaskCount)
+        }
+    }
+
+    @Test func socketUnarchiveReportsLimitWhenOpenBucketIsFull() throws {
+        try withWorkspaceTasksBetaEnabled {
+            let tabManager = TabManager()
+            let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+            TerminalController.shared.setActiveTabManager(tabManager)
+            defer { TerminalController.shared.setActiveTabManager(nil) }
+
+            let archivedTask = WorkspaceTask(
+                id: UUID(),
+                title: "Archived",
+                createdAt: Date(timeIntervalSince1970: 1),
+                archivedAt: Date(timeIntervalSince1970: 2)
+            )
+            workspace.workspaceTasks = (0..<WorkspaceTask.maximumOpenTaskCount).map { index in
+                WorkspaceTask(
+                    id: UUID(),
+                    title: "Open \(index)",
+                    createdAt: Date(timeIntervalSince1970: TimeInterval(index + 10))
+                )
+            } + [archivedTask]
+
+            let result = TerminalController.shared.v2WorkspaceTasksUnarchive(params: [
+                "workspace_id": workspace.id.uuidString,
+                "task_id": archivedTask.id.uuidString
+            ])
+
+            guard case let .err(code, _, data) = result else {
+                Issue.record("Expected unarchive limit error, got \(result)")
+                return
+            }
+            #expect(code == "limit_exceeded")
+            let payload = try #require(data as? [String: Any])
+            #expect(payload["maximum_open_tasks"] as? Int == WorkspaceTask.maximumOpenTaskCount)
         }
     }
 
@@ -323,7 +379,7 @@ import Testing
         #expect(enabled.controls == [.tasks, .close])
     }
 
-    @Test func workspaceRowControlsLayoutGrowsMinimumWidthOnlyForExtraControls() {
+    @Test func workspaceRowControlsLayoutKeepsMinimumWidthWhenControlsIncrease() {
         let oneControl = WorkspaceRowControlsLayout.requiredMinimumSidebarWidth(
             controlCount: 1,
             fontScale: 1
@@ -342,9 +398,9 @@ import Testing
         )
 
         #expect(oneControl == 220)
-        #expect(twoControls == 240)
-        #expect(threeControls == 260)
-        #expect(beyondCap == threeControls)
+        #expect(twoControls == 220)
+        #expect(threeControls == 220)
+        #expect(beyondCap == 220)
     }
 
     private func withWorkspaceTasksBetaEnabled(_ body: () throws -> Void) rethrows {

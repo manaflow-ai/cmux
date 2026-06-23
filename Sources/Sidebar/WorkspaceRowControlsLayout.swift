@@ -3,7 +3,6 @@ import CoreGraphics
 
 struct WorkspaceRowControlsLayout: Equatable {
     private static let baseMinimumSidebarWidth: CGFloat = 220
-    private static let reservedSingleControlWidth: CGFloat = 16
     private static let baseControlHitSize: CGFloat = 16
     private static let baseControlSpacing: CGFloat = 4
 
@@ -28,11 +27,6 @@ struct WorkspaceRowControlsLayout: Equatable {
     }
 
     static func requiredMinimumSidebarWidth(controlCount: Int, fontScale: CGFloat) -> CGFloat {
-        let layout = WorkspaceRowControlsLayout(
-            controlCount: min(max(controlCount, 1), WorkspaceRowControlOption.maximumVisibleControls),
-            fontScale: fontScale
-        )
-        let extraWidth = max(0, layout.trailingWidth - Self.reservedSingleControlWidth)
-        return Self.baseMinimumSidebarWidth + extraWidth
+        Self.baseMinimumSidebarWidth
     }
 }

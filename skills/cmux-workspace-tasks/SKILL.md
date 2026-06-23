@@ -58,6 +58,13 @@ Complete a task by moving it to Archived:
 cmux workspace tasks archive --workspace "${CMUX_WORKSPACE_ID:-}" <task-uuid>
 ```
 
+Restore an archived task to Open:
+
+```bash
+cmux workspace tasks unarchive --workspace "${CMUX_WORKSPACE_ID:-}" <task-uuid>
+cmux workspace tasks restore --workspace "${CMUX_WORKSPACE_ID:-}" <task-uuid>
+```
+
 Remove a task:
 
 ```bash
@@ -77,4 +84,5 @@ cmux workspace tasks open --workspace "${CMUX_WORKSPACE_ID:-}" --focus true
 - Use `--json` when you need stable task UUIDs for follow-up mutations.
 - Never mutate tasks from another workspace unless the user explicitly names that workspace.
 - Prefer `archive` for completed work. Use `remove` only when the user asks to delete or discard an item.
+- Use `unarchive` or `restore` when the user asks to reopen, restore, undo completion, or move an archived task back to Open.
 - If the command says Workspace Tasks beta is disabled, tell the user it must be enabled in Settings > Beta Features before task operations work.

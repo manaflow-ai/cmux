@@ -112,6 +112,41 @@ extension TerminalController {
         }
     }
 
+    nonisolated func v2WorkspaceTasksUnarchive(params: [String: Any]) -> V2CallResult {
+        guard let taskId = v2UUID(params, "task_id") ?? v2UUID(params, "id") else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceTasks.taskIdRequired", defaultValue: "workspace task command requires task_id"),
+                data: nil
+            )
+        }
+        return v2WorkspaceTasksCommand(params: params) { workspace, tabManager in
+            let currentTasks = Workspace.sanitizedWorkspaceTasks(workspace.workspaceTasks)
+            if let existingTask = currentTasks.first(where: { $0.id == taskId }),
+               existingTask.isArchived {
+                let openCount = currentTasks.prefix { $0.isOpen }.count
+                if openCount >= WorkspaceTask.maximumOpenTaskCount {
+                    return .err(
+                        code: "limit_exceeded",
+                        message: String(
+                            format: String(
+                                localized: "socket.workspaceTasks.unarchive.openLimitReached",
+                                defaultValue: "Workspace Tasks supports up to %d open tasks per workspace"
+                            ),
+                            locale: .current,
+                            WorkspaceTask.maximumOpenTaskCount
+                        ),
+                        data: ["maximum_open_tasks": WorkspaceTask.maximumOpenTaskCount]
+                    )
+                }
+            }
+            guard let task = workspace.unarchiveWorkspaceTask(id: taskId) else {
+                return .err(code: "not_found", message: String(localized: "socket.workspaceTasks.notFound", defaultValue: "Task not found"), data: ["task_id": taskId.uuidString])
+            }
+            return .ok(v2WorkspaceTasksPayload(workspace: workspace, tabManager: tabManager, changedTask: task))
+        }
+    }
+
     nonisolated func v2WorkspaceTasksRemove(params: [String: Any]) -> V2CallResult {
         guard let taskId = v2UUID(params, "task_id") ?? v2UUID(params, "id") else {
             return .err(

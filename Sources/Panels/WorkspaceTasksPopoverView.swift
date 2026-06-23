@@ -8,6 +8,7 @@ struct WorkspaceTasksPopoverView: View {
     @State private var addDraft = ""
     @State private var insertionAfterTaskId: UUID?
     @State private var insertionDraft = ""
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @LiveSetting(\.betaFeatures.workspaceTasks) private var workspaceTasksBetaEnabled
 
     var body: some View {
@@ -33,26 +34,44 @@ struct WorkspaceTasksPopoverView: View {
     private var actions: WorkspaceTasksActions {
         WorkspaceTasksActions(
             add: { title, afterTaskId in
-                withAnimation(.easeInOut(duration: 0.16)) {
+                mutate {
                     workspace.addWorkspaceTask(title: title, after: afterTaskId) != nil
                 }
             },
             archive: { taskId in
-                withAnimation(.easeInOut(duration: 0.16)) {
+                mutate {
                     _ = workspace.archiveWorkspaceTask(id: taskId)
                 }
             },
+            unarchive: { taskId in
+                mutate {
+                    _ = workspace.unarchiveWorkspaceTask(id: taskId)
+                }
+            },
             remove: { taskId in
-                withAnimation(.easeInOut(duration: 0.16)) {
+                mutate {
                     _ = workspace.removeWorkspaceTask(id: taskId)
                 }
             },
-            move: { taskId, index in
-                withAnimation(.easeInOut(duration: 0.16)) {
-                    _ = workspace.moveWorkspaceTask(id: taskId, index: index)
+            move: { taskId, beforeTaskId, afterTaskId, index in
+                mutate {
+                    _ = workspace.moveWorkspaceTask(
+                        id: taskId,
+                        before: beforeTaskId,
+                        after: afterTaskId,
+                        index: index
+                    )
                 }
             },
             openSurface: openSurface
         )
+    }
+
+    @discardableResult
+    private func mutate<T>(_ body: () -> T) -> T {
+        if reduceMotion {
+            return body()
+        }
+        return withAnimation(.easeInOut(duration: 0.16), body)
     }
 }
