@@ -12933,14 +12933,20 @@ class TerminalController {
         guard let fontSize = v2Double(params, "font_size") else {
             return .err(
                 code: "invalid_params",
-                message: "Missing or invalid font_size",
+                message: String(
+                    localized: "socket.mobile.setFont.error.missingOrInvalidFontSize",
+                    defaultValue: "Missing or invalid font_size"
+                ),
                 data: nil
             )
         }
         guard fontSize.isFinite, fontSize > 0 else {
             return .err(
                 code: "invalid_params",
-                message: "font_size must be a positive number of points",
+                message: String(
+                    localized: "socket.mobile.setFont.error.positiveFontSizeRequired",
+                    defaultValue: "font_size must be a positive number of points"
+                ),
                 data: ["font_size": fontSize]
             )
         }
