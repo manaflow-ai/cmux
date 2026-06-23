@@ -58,7 +58,6 @@ extension TextBoxInputContainer {
 
     var isProviderLaunchAwaitingAgentOrCommand: Bool {
         pendingProviderLaunchAction != nil
-            && !TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
     }
 
     func startPendingProviderLaunch(_ action: TextBoxSubmitAction) {
