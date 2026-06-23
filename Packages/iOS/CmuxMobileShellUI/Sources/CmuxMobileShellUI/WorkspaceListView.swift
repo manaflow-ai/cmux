@@ -42,9 +42,29 @@ struct WorkspaceListView: View {
     /// previews), the menu is hidden.
     var rescanQR: (() -> Void)?
     var signOut: (() -> Void)?
+    /// Manual reconnect for the offline status row. `nil` in previews.
+    var reconnect: (() -> Void)?
+    /// Present the add-device (pairing) flow from the Computers screen. `nil`
+    /// hides the add affordance there.
+    var showAddDevice: (() -> Void)?
     /// The shell store, forwarded to Settings to drive the multi-Mac switcher.
     /// `nil` in previews.
     var store: CMUXMobileShellStore?
+
+    /// Machines present in the (aggregated) workspace list, for the filter's
+    /// machine multi-select. Single-machine yields no machine section. Names
+    /// come from the device tree (registry or paired Macs), falling back to id.
+    private var filterMachines: [WorkspaceFilterMachine] {
+        let ids = MobileWorkspaceListFilter.machineIDs(in: workspaces)
+        guard ids.count > 1 else { return [] }
+        var names: [String: String] = [:]
+        for device in store?.deviceTreeDevices ?? [] {
+            if let name = device.displayName, !name.isEmpty {
+                names[device.deviceId] = name
+            }
+        }
+        return ids.map { WorkspaceFilterMachine(id: $0, name: names[$0] ?? $0) }
+    }
     /// Optional: rename a workspace on the Mac. When present, each row offers a
     /// Rename context-menu action.
     var renameWorkspace: ((MobileWorkspacePreview.ID, String) -> Void)?
@@ -129,7 +149,7 @@ struct WorkspaceListView: View {
         List {
             if connectionStatus != .connected {
                 Section {
-                    MobileMacConnectionStatusRow(host: host, status: connectionStatus)
+                    MobileMacConnectionStatusRow(host: host, status: connectionStatus, reconnect: reconnect)
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }
@@ -151,6 +171,14 @@ struct WorkspaceListView: View {
         }
         .listStyle(.plain)
         .workspaceListRefreshable(refresh)
+        .onChange(of: MobileWorkspaceListFilter.machineIDs(in: workspaces)) { _, present in
+            // Drop machine filters whose Mac left the aggregated list (a secondary
+            // Mac disconnected, or the list fell below two machines so the filter
+            // menu's machine section hid). Otherwise a stale machine id rejects
+            // every row and strands the user on a blank list with no visible
+            // control to clear the filter.
+            filter.pruneMachines(notIn: present)
+        }
         .navigationTitle(L10n.string("mobile.workspaces.title", defaultValue: "Workspaces"))
         .mobileInlineNavigationTitle()
         .searchable(text: $searchText)
@@ -165,12 +193,12 @@ struct WorkspaceListView: View {
                 }
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
-                WorkspaceListFilterMenu(filter: $filter)
+                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
                 newWorkspaceButton
             }
             #else
             ToolbarItemGroup {
-                WorkspaceListFilterMenu(filter: $filter)
+                WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
                 newWorkspaceButton
             }
             #endif
@@ -194,7 +222,7 @@ struct WorkspaceListView: View {
         // leaving a parent sheet covering it.
         .sheet(isPresented: $showingDeviceTree) {
             if let store {
-                DeviceTreeView(store: store, selectWorkspace: selectWorkspace)
+                DeviceTreeView(store: store, selectWorkspace: selectWorkspace, showAddDevice: showAddDevice)
             }
         }
         #endif
@@ -205,9 +233,9 @@ struct WorkspaceListView: View {
         Button {
             showingDeviceTree = true
         } label: {
-            Image(systemName: "rectangle.stack")
+            Image(systemName: "desktopcomputer")
         }
-        .accessibilityLabel(L10n.string("mobile.settings.devices", defaultValue: "Devices"))
+        .accessibilityLabel(L10n.string("mobile.computers.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")
     }
     #endif
@@ -248,9 +276,10 @@ struct WorkspaceListView: View {
 
     @ViewBuilder
     private func workspaceRow(_ workspace: MobileWorkspacePreview, indented: Bool) -> some View {
+        let capabilities = workspace.actionCapabilities
         WorkspaceNavigationRow(
             workspace: workspace,
-            connectionStatus: connectionStatus,
+            connectionStatus: workspace.macConnectionStatus ?? connectionStatus,
             isSelected: navigationStyle == .sidebar && selectedWorkspaceID == workspace.id,
             navigationStyle: navigationStyle,
             wrapWorkspaceTitles: wrapWorkspaceTitles,
@@ -259,14 +288,14 @@ struct WorkspaceListView: View {
             profilePictureLeftShift: profilePictureLeftShift,
             profilePictureSize: profilePictureSize,
             selectWorkspace: selectWorkspace,
-            renameWorkspace: renameWorkspace,
-            setPinned: setPinned,
-            setUnread: setUnread,
-            closeWorkspace: requestWorkspaceClose,
+            renameWorkspace: capabilities.supportsWorkspaceActions ? renameWorkspace : nil,
+            setPinned: capabilities.supportsWorkspaceActions ? setPinned : nil,
+            setUnread: capabilities.supportsReadStateActions ? setUnread : nil,
+            closeWorkspace: capabilities.supportsCloseActions ? requestWorkspaceClose : nil,
             isConfirmingClose: closeConfirmationBinding(for: workspace.id),
-            confirmCloseWorkspace: closeWorkspace == nil ? nil : { _ in
+            confirmCloseWorkspace: capabilities.supportsCloseActions && closeWorkspace != nil ? { _ in
                 confirmCloseWorkspace()
-            }
+            } : nil
         )
         .listRowInsets(EdgeInsets(top: 4, leading: indented ? 32 : 12, bottom: 4, trailing: 12))
         .listRowSeparator(.hidden)
