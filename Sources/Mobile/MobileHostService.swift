@@ -1343,7 +1343,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketAuthorizationError(
+    nonisolated private static func ticketAuthorizationError(
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1357,7 +1357,7 @@ final class MobileHostService {
         )
     }
 
-    private static func ticketAuthorizationError(
+    nonisolated private static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1409,7 +1409,7 @@ final class MobileHostService {
         }
     }
 
-    private static func ticketTerminalAuthorizationError(
+    nonisolated private static func ticketTerminalAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         workspaceSelection: String?,
         terminalSelection: String?
@@ -1448,7 +1448,7 @@ final class MobileHostService {
         return nil
     }
 
-    static func debugTicketAuthorizationError(
+    nonisolated static func debugTicketAuthorizationError(
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest,
         createdWorkspaceIDs: Set<String> = [],
@@ -1464,18 +1464,18 @@ final class MobileHostService {
         )
     }
 
-    private static var scopedTicketError: MobileHostRPCError {
+    nonisolated private static var scopedTicketError: MobileHostRPCError {
         MobileHostRPCError(
             code: "forbidden",
             message: "Attach ticket is not valid for this workspace or terminal."
         )
     }
 
-    private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
+    nonisolated private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
         params["workspaceID"] != nil || params["terminalID"] != nil
     }
 
-    private static func stringParamSelection(
+    nonisolated private static func stringParamSelection(
         _ params: [String: Any],
         keys: [String]
     ) -> StringParamSelection {
