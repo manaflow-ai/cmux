@@ -85,9 +85,9 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
 
 /// Runs `claude agents --json` and parses the live background agents, or returns none on any
 /// failure (claude not found, non-zero exit, malformed JSON, or the bounded probe timing out).
+/// The default `probe` for ``ClaudeBackgroundAgentsQuery``.
 /// https://github.com/manaflow-ai/cmux/issues/6622
-@Sendable
-func claudeBackgroundAgentsProbe(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
+let claudeBackgroundAgentsProbe: @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot] = { configDir in
     ClaudeBackgroundAgentsProbeRunner(configDir: configDir).run()
 }
 
