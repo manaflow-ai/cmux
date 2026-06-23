@@ -3,7 +3,7 @@
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   WAITLIST_PLATFORMS,
   type WaitlistTarget,
@@ -14,6 +14,11 @@ import { Modal } from "./modal";
 // The real validation is PostHog-side; this only catches obvious typos before
 // we record the signup.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// A short, intentional pause so the submit feels considered: the PostHog calls
+// are fire-and-forget (nothing to await), so this is a deliberate delight beat,
+// not a real network wait. Kept brief so it never feels like lag.
+const SUBMIT_DELAY_MS = 750;
 
 export function WaitlistDialog({
   target,
@@ -57,16 +62,21 @@ function WaitlistBody({
 }) {
   const t = useTranslations("waitlist");
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "error" | "done">("idle");
+  const [status, setStatus] = useState<
+    "idle" | "error" | "submitting" | "done"
+  >("idle");
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isAny = target === "any";
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (status === "submitting") return;
     const trimmed = email.trim();
     if (!EMAIL_PATTERN.test(trimmed)) {
       setStatus("error");
       return;
     }
+    setStatus("submitting");
     const platforms = isAny ? [...WAITLIST_PLATFORMS] : [target];
     // Identify the visitor by the email they gave so the signup becomes a real
     // PostHog person (queryable in People, not just a raw event). `$set_once`
@@ -84,27 +94,48 @@ function WaitlistBody({
     posthog.setPersonProperties(
       Object.fromEntries(platforms.map((p) => [`waitlist_${p}`, true])),
     );
-    setStatus("done");
+    timerRef.current = setTimeout(() => setStatus("done"), SUBMIT_DELAY_MS);
   };
+
+  const submitting = status === "submitting";
 
   if (status === "done") {
     return (
-      <div className="flex flex-col">
-        <Dialog.Title className="text-lg font-semibold tracking-tight">
-          {t("successTitle")}
-        </Dialog.Title>
-        <Dialog.Description className="mt-2 text-[15px] text-muted" style={{ lineHeight: 1.5 }}>
-          {isAny ? t("successBodyAny") : t("successBody", { platform: targetLabel })}
-        </Dialog.Description>
-        <div className="mt-6 flex justify-end">
-          <Dialog.Close
-            autoFocus
-            className="inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium hover:opacity-85 transition-opacity"
-            style={{ color: "var(--background)" }}
+      <div className="flex flex-col items-center text-center">
+        {/* Checkmark pops in from the @starting-style (Tailwind `starting:`). */}
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-foreground transition-all duration-500 ease-out starting:scale-50 starting:opacity-0">
+          <svg
+            width="26"
+            height="26"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--background)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
           >
-            {t("done")}
-          </Dialog.Close>
+            <path d="m5 13 4 4L19 7" />
+          </svg>
         </div>
+        <div className="transition-all delay-100 duration-500 ease-out starting:opacity-0">
+          <Dialog.Title className="mt-5 text-lg font-semibold tracking-tight">
+            {t("successTitle")}
+          </Dialog.Title>
+          <Dialog.Description
+            className="mt-2 text-[15px] text-muted"
+            style={{ lineHeight: 1.5 }}
+          >
+            {isAny ? t("successBodyAny") : t("successBody", { platform: targetLabel })}
+          </Dialog.Description>
+        </div>
+        <Dialog.Close
+          autoFocus
+          className="mt-6 inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium hover:opacity-85 transition-opacity"
+          style={{ color: "var(--background)" }}
+        >
+          {t("done")}
+        </Dialog.Close>
       </div>
     );
   }
@@ -128,6 +159,7 @@ function WaitlistBody({
         autoFocus
         required
         value={email}
+        disabled={submitting}
         onChange={(event) => {
           setEmail(event.target.value);
           if (status === "error") setStatus("idle");
@@ -135,7 +167,7 @@ function WaitlistBody({
         placeholder={t("emailPlaceholder")}
         aria-invalid={status === "error"}
         aria-describedby={status === "error" ? "waitlist-email-error" : undefined}
-        className="mt-1.5 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-foreground aria-[invalid=true]:border-red-500"
+        className="mt-1.5 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-foreground aria-[invalid=true]:border-red-500 disabled:opacity-60"
       />
       {status === "error" ? (
         <p id="waitlist-email-error" role="alert" className="mt-1.5 text-sm text-red-500">
@@ -144,17 +176,56 @@ function WaitlistBody({
       ) : null}
 
       <div className="mt-6 flex justify-end gap-2">
-        <Dialog.Close className="inline-flex items-center justify-center rounded-full border border-border px-5 py-2.5 text-sm font-medium text-foreground hover:bg-code-bg transition-colors">
+        <Dialog.Close
+          disabled={submitting}
+          className="inline-flex items-center justify-center rounded-full border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-code-bg disabled:opacity-50"
+        >
           {t("cancel")}
         </Dialog.Close>
         <button
           type="submit"
-          className="inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium hover:opacity-85 transition-opacity"
+          disabled={submitting}
+          aria-busy={submitting}
+          className="inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-90"
           style={{ color: "var(--background)" }}
         >
-          {t("join")}
+          {submitting ? (
+            <>
+              <Spinner />
+              {t("joining")}
+            </>
+          ) : (
+            t("join")
+          )}
         </button>
       </div>
     </form>
+  );
+}
+
+/** A small spinning ring that inherits the button's text color. */
+function Spinner() {
+  return (
+    <svg
+      className="h-4 w-4 animate-spin"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeOpacity="0.25"
+        strokeWidth="3"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }

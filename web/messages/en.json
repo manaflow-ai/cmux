@@ -1890,6 +1890,7 @@
     "emailLabel": "Email",
     "emailPlaceholder": "you@example.com",
     "join": "Join waitlist",
+    "joining": "Joining…",
     "cancel": "Cancel",
     "invalidEmail": "Enter a valid email address.",
     "successTitle": "You're on the list",

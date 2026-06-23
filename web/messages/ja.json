@@ -1892,6 +1892,7 @@
     "emailLabel": "メールアドレス",
     "emailPlaceholder": "you@example.com",
     "join": "リストに登録",
+    "joining": "登録中…",
     "cancel": "キャンセル",
     "invalidEmail": "有効なメールアドレスを入力してください。",
     "successTitle": "登録が完了しました",
