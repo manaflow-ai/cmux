@@ -182,6 +182,11 @@ build_and_launch_ios() {
 
   echo "==> launching iOS dev app${attach_url:+ (auto-pairing)}"
   local launch_args=(--tag "$TAG")
+  # Express attach intent so mobile-dev-launch.sh honors the pre-minted URL we
+  # pass via CMUX_DOGFOOD_ATTACH_URL (it ignores an ambient URL without --attach).
+  if [[ -n "$attach_url" ]]; then
+    launch_args+=(--attach)
+  fi
   if [[ "$AGENT" -eq 1 ]]; then
     launch_args+=(--agent)
   fi

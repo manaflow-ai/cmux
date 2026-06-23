@@ -170,14 +170,17 @@ MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
 # non-zero on any failure so callers can warn + leave the app installed. $1 =
 # device|simulator, $2 = device install id (device only).
 auto_setup_launch() {
-  local kind="$1" dev_id="${2:-}"
+  local kind="$1" id="${2:-}"
   local args=(--tag "$TAG")
   if [[ "$kind" == "device" ]]; then
     args+=(--device)
-    [[ -n "$dev_id" ]] && args+=(--device-id "$dev_id")
+    [[ -n "$id" ]] && args+=(--device-id "$id")
   else
     # --detach: do not attach the simulator console (would block this script).
+    # Pass the exact resolved UDID so the launch targets the sim we installed
+    # onto, not just the first booted sim sharing the name.
     args+=(--simulator "$SIMULATOR_NAME" --detach)
+    [[ -n "$id" ]] && args+=(--simulator-id "$id")
   fi
   # Auto-pair by default (--ensure-mac enables the pairing host + launches the
   # tagged Mac app if down, then mints a ticket); --no-attach signs in only.
@@ -495,7 +498,7 @@ PY
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
     if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
-    elif ! auto_setup_launch simulator; then
+    elif ! auto_setup_launch simulator "$SIM_ID"; then
       echo "warning: signed launch failed; launching plain (sign in manually)" >&2
       xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
     fi

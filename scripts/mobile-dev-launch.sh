@@ -35,6 +35,7 @@ set -euo pipefail
 TAG=""
 TARGET="simulator"          # simulator | device
 SIMULATOR_NAME="iPhone 17"
+SIMULATOR_ID=""             # exact booted sim UDID (wins over name when set)
 DEVICE_ID=""
 ATTACH=0
 ENSURE_MAC=0
@@ -49,6 +50,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag) TAG="${2:-}"; shift 2 ;;
     --simulator) TARGET="simulator"; SIMULATOR_NAME="${2:-}"; shift 2 ;;
+    # Exact booted simulator UDID; wins over --simulator name so callers that
+    # already resolved/installed onto a specific sim launch on THAT one.
+    --simulator-id) TARGET="simulator"; SIMULATOR_ID="${2:-}"; shift 2 ;;
     --device) TARGET="device"; shift ;;
     --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
     --attach) ATTACH=1; shift ;;
@@ -90,29 +94,32 @@ slug="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$slug"
 
 # --- attach ticket ----------------------------------------------------------
-# Prefer a pre-minted CMUX_DOGFOOD_ATTACH_URL (dev-setup.sh sets it directly).
-# Otherwise, with --attach, mint one ourselves: first try the mobile-attach QR
-# server, then fall back to minting directly against the tagged Mac socket (no QR
-# server needed). With --ensure-mac we first enable the pairing host + launch the
-# tagged Mac app if its socket is down. The URL is injected as
-# CMUX_DOGFOOD_ATTACH_URL, the NOT-mock-gated var the app reads with the real
+# ATTACH_URL stays empty unless attach was explicitly requested, so a stale
+# ambient CMUX_DOGFOOD_ATTACH_URL can NEVER auto-pair an unrequested launch
+# (e.g. --no-attach from the reload scripts leaves ATTACH=0). The URL is injected
+# as CMUX_DOGFOOD_ATTACH_URL, the NOT-mock-gated var the app reads with the real
 # backend (CMUX_UITEST_MOCK_DATA=0).
-ATTACH_URL="${CMUX_DOGFOOD_ATTACH_URL:-}"
-if [[ -z "$ATTACH_URL" && "$ATTACH" -eq 1 ]]; then
+ATTACH_URL=""
+if [[ "$ATTACH" -eq 1 ]]; then
   if [[ "$ENSURE_MAC" -eq 1 ]]; then
     # We are pairing to THIS tag's Mac app: ensure it is up, then mint straight
-    # from its socket. Do NOT consult the QR server — its /ticket.json has no tag
-    # parameter and is served from whatever tag the QR server last set, so it
-    # could hand back a ticket for a DIFFERENT Mac and silently mispair.
+    # from its socket. Ignore any ambient CMUX_DOGFOOD_ATTACH_URL (it may be a
+    # stale ticket for another tag) and do NOT consult the QR server (its
+    # /ticket.json has no tag parameter and could hand back a different Mac's
+    # ticket and silently mispair).
     cmux_attach_ensure_mac "$TAG" "$REPO_ROOT" || true
     if cmux_attach_mac_socket_ready "$TAG"; then
       ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
     fi
   else
-    # Plain --attach (legacy dev flow): prefer a running QR server, else mint
-    # directly from the tagged socket when it is up.
-    ATTACH_URL="$(curl -fsS -m 8 "http://127.0.0.1:${QR_PORT}/ticket.json" 2>/dev/null \
-      | python3 -c 'import sys,json; print(json.load(sys.stdin).get("attach_url",""))' 2>/dev/null || true)"
+    # Plain --attach: honor a pre-minted URL the caller deliberately passed
+    # (dev-setup.sh sets it + --attach), else prefer a running QR server, else
+    # mint directly from the tagged socket when it is up.
+    ATTACH_URL="${CMUX_DOGFOOD_ATTACH_URL:-}"
+    if [[ -z "$ATTACH_URL" ]]; then
+      ATTACH_URL="$(curl -fsS -m 8 "http://127.0.0.1:${QR_PORT}/ticket.json" 2>/dev/null \
+        | python3 -c 'import sys,json; print(json.load(sys.stdin).get("attach_url",""))' 2>/dev/null || true)"
+    fi
     if [[ -z "$ATTACH_URL" ]] && cmux_attach_mac_socket_ready "$TAG"; then
       ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
     fi
@@ -130,9 +137,15 @@ fi
 echo "==> launching $BUNDLE_ID on $TARGET (signed in as $CMUX_UITEST_STACK_EMAIL${ATTACH_URL:+, auto-pairing})"
 
 if [[ "$TARGET" == "simulator" ]]; then
-  SIM_UDID="$(xcrun simctl list devices booted 2>/dev/null | grep -F "$SIMULATOR_NAME" | grep -oE '[0-9A-F-]{36}' | head -1)"
+  if [[ -n "$SIMULATOR_ID" ]]; then
+    # Exact UDID the caller installed onto; do not re-resolve by name (multiple
+    # booted sims can share a name across runtimes).
+    SIM_UDID="$SIMULATOR_ID"
+  else
+    SIM_UDID="$(xcrun simctl list devices booted 2>/dev/null | grep -F "$SIMULATOR_NAME" | grep -oE '[0-9A-F-]{36}' | head -1)"
+  fi
   if [[ -z "$SIM_UDID" ]]; then
-    echo "error: simulator '$SIMULATOR_NAME' is not booted (boot it or pass --simulator <name>)" >&2
+    echo "error: simulator '${SIMULATOR_ID:-$SIMULATOR_NAME}' is not booted (boot it or pass --simulator <name>)" >&2
     exit 1
   fi
   xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1 || true
