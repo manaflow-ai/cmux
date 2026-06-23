@@ -82,7 +82,7 @@ Press Shift-Tab in the TextBox to cycle the default action. Right-click the subm
         "id": "codex",
         "title": "Codex",
         "kind": "commandTemplate",
-        "commandTemplate": "codex --yolo {{prompt}}",
+        "commandTemplate": "codex {{prompt}}",
         "systemImage": "sparkles",
         "assetName": "AgentIcons/Codex",
         "backgroundColorHex": "#8FDBFF"
@@ -104,6 +104,7 @@ Press Shift-Tab in the TextBox to cycle the default action. Right-click the subm
 Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 
 Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
+Add provider permission flags in a custom `textBoxSubmitActions` entry if you want that behavior.
 
 Action fields:
 

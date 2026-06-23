@@ -228,7 +228,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "claude",
             title: "Claude",
             kind: .commandTemplate,
-            commandTemplate: "claude --dangerously-skip-permissions {{prompt}}",
+            commandTemplate: "claude {{prompt}}",
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
             backgroundColorHex: "#F6D5C8"
@@ -237,7 +237,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "codex",
             title: "Codex",
             kind: .commandTemplate,
-            commandTemplate: "codex --yolo {{prompt}}",
+            commandTemplate: "codex {{prompt}}",
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
