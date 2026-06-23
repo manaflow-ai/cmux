@@ -14,6 +14,7 @@ actor InMemoryPairedMacStore: MobilePairedMacStoring {
         routes: [CmxAttachRoute],
         markActive: Bool,
         stackUserID: String?,
+        teamID: String?,
         now: Date
     ) async throws {
         let existing = macsByID[macDeviceID]
@@ -24,45 +25,102 @@ actor InMemoryPairedMacStore: MobilePairedMacStoring {
             createdAt: existing?.createdAt ?? now,
             lastSeenAt: now,
             isActive: markActive || existing?.isActive == true,
-            stackUserID: stackUserID
+            stackUserID: stackUserID,
+            teamID: teamID
         )
         if markActive {
             activeMacID = macDeviceID
         }
     }
 
-    func loadAll(stackUserID: String?) async throws -> [MobilePairedMac] {
+    func loadAll(stackUserID: String?, teamID: String?) async throws -> [MobilePairedMac] {
         macsByID.values
-            .filter { stackUserID == nil || $0.stackUserID == stackUserID }
+            .filter { isVisible($0, stackUserID: stackUserID, teamID: teamID) }
             .sorted { $0.lastSeenAt > $1.lastSeenAt }
     }
 
-    func activeMac(stackUserID: String?) async throws -> MobilePairedMac? {
+    func activeMac(stackUserID: String?, teamID: String?) async throws -> MobilePairedMac? {
         guard let activeMacID,
               let mac = macsByID[activeMacID],
-              stackUserID == nil || mac.stackUserID == stackUserID else {
+              isVisible(mac, stackUserID: stackUserID, teamID: teamID) else {
             return nil
         }
         return mac
     }
 
-    func setActive(macDeviceID: String) async throws {
+    func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
         activeMacID = macDeviceID
         for id in macsByID.keys {
+            guard let mac = macsByID[id],
+                  isVisible(mac, stackUserID: stackUserID, teamID: teamID) else {
+                continue
+            }
             macsByID[id]?.isActive = id == macDeviceID
         }
     }
 
-    func remove(macDeviceID: String) async throws {
-        macsByID.removeValue(forKey: macDeviceID)
-        if activeMacID == macDeviceID {
-            activeMacID = nil
+    func clearActive(stackUserID: String?, teamID: String?) async throws {
+        if let activeMacID,
+           let mac = macsByID[activeMacID],
+           isVisible(mac, stackUserID: stackUserID, teamID: teamID) {
+            self.activeMacID = nil
+        }
+        for id in macsByID.keys {
+            guard let mac = macsByID[id],
+                  isVisible(mac, stackUserID: stackUserID, teamID: teamID) else {
+                continue
+            }
+            macsByID[id]?.isActive = false
+        }
+    }
+
+    func setCustomization(
+        macDeviceID: String,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
+        guard var mac = macsByID[macDeviceID],
+              isVisible(mac, stackUserID: stackUserID, teamID: teamID) else {
+            return
+        }
+        mac.customName = customName
+        mac.customColor = customColor
+        mac.customIcon = customIcon
+        mac.lastSeenAt = now
+        macsByID[macDeviceID] = mac
+    }
+
+    func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        if let mac = macsByID[macDeviceID],
+           isVisible(mac, stackUserID: stackUserID, teamID: teamID) {
+            macsByID.removeValue(forKey: macDeviceID)
+            if activeMacID == macDeviceID {
+                activeMacID = nil
+            }
         }
     }
 
     func removeAll() async throws {
         macsByID.removeAll()
         activeMacID = nil
+    }
+
+    private func isVisible(
+        _ mac: MobilePairedMac,
+        stackUserID: String?,
+        teamID: String?
+    ) -> Bool {
+        if let stackUserID, mac.stackUserID != stackUserID {
+            return false
+        }
+        guard let teamID else {
+            return true
+        }
+        return mac.teamID == nil || mac.teamID == teamID
     }
 }
 
@@ -90,6 +148,7 @@ func makeDisconnectedStoreWithActivePairedMac(
         routes: [route],
         markActive: true,
         stackUserID: nil,
+        teamID: nil,
         now: clock.now
     )
     return MobileShellComposite(

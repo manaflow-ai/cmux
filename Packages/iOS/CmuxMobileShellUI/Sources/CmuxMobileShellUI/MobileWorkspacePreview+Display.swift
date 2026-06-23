@@ -27,19 +27,29 @@ extension MobileWorkspacePreview {
         }
     }
 
+    /// The default avatar symbol (per-workspace terminal count), used when the
+    /// owning Mac has no custom icon.
     var avatarSymbolName: String {
         terminals.count > 1 ? "rectangle.stack.fill" : "terminal.fill"
     }
 
+    /// The avatar icon to render: the owning Mac's custom icon (SF Symbol or
+    /// emoji) if set, else the default terminal-count symbol.
+    var avatarIcon: MacAvatarIcon {
+        MacAvatarIcon.resolve(custom: machineCustomIcon, defaultSymbol: avatarSymbolName)
+    }
+
     var avatarGradient: LinearGradient {
-        let palettes: [[Color]] = [
-            [Color.blue, Color.cyan],
-            [Color.green, Color.teal],
-            [Color.orange, Color.yellow],
-            [Color.gray, Color.blue],
-        ]
-        let colors = palettes[abs(stableAvatarSeed) % palettes.count]
-        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
+        // Color is keyed to the owning Mac so every workspace on the same machine —
+        // and that Mac's row on the Computers screen — share one color. Honor the
+        // user's custom color first, then the distinct per-Mac color index assigned
+        // by the aggregation, then a hash of the id.
+        MachineAvatarColors.gradient(
+            customColor: machineCustomColor,
+            fallbackIndex: machineColorIndex,
+            machineID: macDeviceID,
+            fallbackID: id.rawValue
+        )
     }
 
     /// The row's trailing slot: the connection problem when there is one,
@@ -95,9 +105,4 @@ extension MobileWorkspacePreview {
     /// `.distantPast` (which buckets to `.none`, an empty trailing slot).
     private var latestActivityDate: Date { lastActivityAt ?? previewAt ?? .distantPast }
 
-    private var stableAvatarSeed: Int {
-        id.rawValue.unicodeScalars.reduce(0) { partialResult, scalar in
-            partialResult + Int(scalar.value)
-        }
-    }
 }

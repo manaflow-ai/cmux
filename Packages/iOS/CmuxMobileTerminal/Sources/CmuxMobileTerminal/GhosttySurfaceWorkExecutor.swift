@@ -21,7 +21,7 @@ final class GhosttySurfaceWorkExecutor {
         )
     }
 
-    func async(_ work: @escaping () -> Void) {
+    func async(_ work: @escaping @Sendable () -> Void) {
         queue.async(execute: work)
     }
 
@@ -29,11 +29,22 @@ final class GhosttySurfaceWorkExecutor {
         queue.async(execute: workItem)
     }
 
-    func retire(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
-        let retainedBridge = Unmanaged.passRetained(bridge)
+    func async(
+        surface: ghostty_surface_t,
+        _ work: @escaping @Sendable (GhosttySurfaceWorkHandle) -> Void
+    ) {
+        let handle = GhosttySurfaceWorkHandle(surface: surface)
         queue.async {
-            ghostty_surface_free(surface)
-            retainedBridge.release()
+            work(handle)
+        }
+    }
+
+    func retire(surface: ghostty_surface_t, bridge: GhosttySurfaceBridge) {
+        let surfaceHandle = GhosttySurfaceWorkHandle(surface: surface)
+        let bridgeRetain = GhosttySurfaceBridgeRetain(bridge)
+        queue.async {
+            ghostty_surface_free(surfaceHandle.surface)
+            bridgeRetain.release()
         }
     }
 }

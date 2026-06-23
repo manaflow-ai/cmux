@@ -1301,7 +1301,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         FeedCoordinator.shared.install(
             store: WorkstreamStore(
                 transport: NullWorkstreamTransport(),
-                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL())
+                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
+                titleProvider: Self.feedWorkstreamTitle(for:)
             )
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
@@ -1544,6 +1545,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+    }
+
+    private nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
+        switch event.hookEventName {
+        case .preCompact, .postCompact:
+            return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
+        case .subagentStart, .subagentStop:
+            return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
+        default:
+            return nil
+        }
     }
 
 #if DEBUG
@@ -2031,6 +2043,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        // DEV-only: auto-publish this Mac's attach route to the signed-in user's
+        // pairedMacs backup so a fresh dev iOS build restores it (no manual host
+        // entry). No-op on Release / when the flag is off.
+        MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()

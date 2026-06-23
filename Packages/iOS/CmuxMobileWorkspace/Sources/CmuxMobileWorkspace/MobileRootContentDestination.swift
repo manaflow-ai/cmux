@@ -16,6 +16,6 @@ public enum MobileRootContentDestination: Equatable, Sendable {
     case pairedMacDetermining
     /// Show onboarding.
     case onboarding
-    /// Show the disconnected workspace shell with cached state.
+    /// Show the disconnected add-device shell for installs with no saved Mac.
     case disconnectedWorkspaceShell
 }

@@ -60,6 +60,29 @@ import Testing
 }
 
 @MainActor
+@Test func replayRecoveryFailureSurfacesRetryStateUntilOutputApplies() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let otherSurfaceID = "other-terminal"
+
+    store.terminalReplayRecoveryDidFail(surfaceID: surfaceID)
+    #expect(store.connectionRecoveryFailed)
+
+    var otherIterator = store.terminalOutputStream(surfaceID: otherSurfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("unrelated".utf8), surfaceID: otherSurfaceID)
+    let otherChunk = try #require(await otherIterator.next())
+    store.terminalOutputDidProcess(surfaceID: otherSurfaceID, streamToken: otherChunk.streamToken)
+    #expect(store.connectionRecoveryFailed)
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("recovered".utf8), surfaceID: surfaceID)
+    let chunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+
+    #expect(!store.connectionRecoveryFailed)
+}
+
+@MainActor
 @Test func queuedRenderGridSequenceIsDeliveredOnlyAfterSurfaceAck() async throws {
     let store = MobileShellComposite.preview()
     let surfaceID = "terminal"

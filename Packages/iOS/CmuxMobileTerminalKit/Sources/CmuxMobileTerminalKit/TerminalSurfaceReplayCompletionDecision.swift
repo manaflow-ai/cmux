@@ -6,6 +6,6 @@ public enum TerminalSurfaceReplayCompletionDecision: Equatable, Sendable {
     case delivered
     /// Replay did not deliver output; retry the specified generation if budget remains.
     case retry(generation: UInt64)
-    /// Replay failed too many times; stop blocking renders and keep fallback presentation.
+    /// Replay failed too many times; keep fallback presentation until output arrives.
     case failClosed(generation: UInt64)
 }

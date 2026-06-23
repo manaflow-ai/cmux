@@ -107,6 +107,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var store: CMUXMobileShellStore?
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
+        private var liveFontTask: Task<Void, Never>?
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
@@ -153,11 +154,24 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     }
                 }
             }
+            // Drive Mac-pushed live font-size changes (`terminal.set_font`) into
+            // the surface's shared zoom apply path. Runs for the surface's whole
+            // mount, ending when the representable is dismantled.
+            liveFontTask = Task { @MainActor [weak surfaceView, weak store] in
+                guard let store else { return }
+                for await points in store.terminalLiveFontStream(surfaceID: surfaceID) {
+                    guard !Task.isCancelled else { return }
+                    guard let surfaceView else { return }
+                    surfaceView.setLiveFontSize(points)
+                }
+            }
         }
 
         func detach() {
             outputTask?.cancel()
             outputTask = nil
+            liveFontTask?.cancel()
+            liveFontTask = nil
         }
 
         // MARK: - Composer band hosting
@@ -305,6 +319,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         func ghosttySurfaceViewNeedsReplay(_ surfaceView: GhosttySurfaceView) async -> Bool {
             guard let store else { return false }
             return await store.performTerminalReplay(surfaceID: surfaceID)
+        }
+
+        func ghosttySurfaceViewReplayRecoveryFailed(_ surfaceView: GhosttySurfaceView) {
+            store?.terminalReplayRecoveryDidFail(surfaceID: surfaceID)
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {

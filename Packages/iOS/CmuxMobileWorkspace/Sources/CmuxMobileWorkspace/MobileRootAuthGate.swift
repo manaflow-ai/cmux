@@ -270,7 +270,7 @@ public struct MobileRootAuthGate {
         if showsOnboarding {
             return .onboarding
         }
-        if connectionState != .connected {
+        if connectionState != .connected, !hasKnownPairedMac {
             return .disconnectedWorkspaceShell
         }
         return .workspaceShell

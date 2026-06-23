@@ -211,6 +211,25 @@ public struct TerminalSurfaceSessionState: Equatable, Sendable {
         return .abandonAndRebuild(stalledGeneration: generation)
     }
 
+    /// Marks the current generation untrusted because output did not apply.
+    ///
+    /// Output application is the proof that a surface generation can consume the
+    /// Mac replay/live stream. When that proof times out, retrying transport alone
+    /// can queue more bytes behind a wedged Ghostty executor, so the generation
+    /// follows the same bounded abandon/fail-closed path as a stale render.
+    public mutating func markOutputApplyStalled(
+        generation stalledGeneration: UInt64,
+        startedAt: Double
+    ) -> TerminalSurfaceRecoveryDecision {
+        guard isMounted, generation == stalledGeneration else { return .none }
+        renderPhase = .stalled(generation: stalledGeneration, startedAt: startedAt)
+        guard automaticRebuilds < maxAutomaticRebuilds else {
+            return .failClosed(stalledGeneration: stalledGeneration)
+        }
+        automaticRebuilds += 1
+        return .abandonAndRebuild(stalledGeneration: stalledGeneration)
+    }
+
     /// Completes a render for a generation and returns whether another coalesced frame is needed.
     public mutating func completeRender(generation completedGeneration: UInt64) -> TerminalSurfaceRenderCompletionDecision {
         guard case .inFlight(let generation, _, _, let needsCoalescedRender) = renderPhase,
@@ -290,7 +309,6 @@ public struct TerminalSurfaceSessionState: Equatable, Sendable {
     private mutating func failClosedReplayRecovery(generation failedGeneration: UInt64) {
         guard replayRecovery?.generation == failedGeneration else { return }
         replayRecovery = nil
-        renderBlockedUntilOutput = false
         renderPhase = .idle
     }
 

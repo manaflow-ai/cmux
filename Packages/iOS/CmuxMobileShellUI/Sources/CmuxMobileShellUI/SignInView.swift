@@ -10,7 +10,6 @@ import SwiftUI
 #elseif os(macOS)
 import AppKit
 #endif
-
 struct SignInView: View {
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
@@ -25,7 +24,6 @@ struct SignInView: View {
     @State private var signInTask: Task<Void, Never>?
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
-
     var body: some View {
         NavigationStack {
             ZStack {
@@ -38,10 +36,8 @@ struct SignInView: View {
                         UIApplication.shared.dismissMobileKeyboard()
                     }
                     .ignoresSafeArea()
-
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
-
                     signInEntrySwitcher
                 }
             }
@@ -77,6 +73,7 @@ struct SignInView: View {
         authCard {
             VStack(spacing: 20) {
                 brandHeader
+                SignInAuthRestoreStatusView()
 
                 Button {
                     signInTask = Task {
@@ -167,6 +164,7 @@ struct SignInView: View {
         authCard {
             VStack(spacing: 18) {
                 brandHeader
+                SignInAuthRestoreStatusView()
 
                 VStack(spacing: 6) {
                     Text(L10n.string("mobile.signIn.checkEmail", defaultValue: "Check your email"))
@@ -244,8 +242,12 @@ struct SignInView: View {
         }
     }
 
-    private var isAuthInProgress: Bool {
+    private var isInteractiveAuthInProgress: Bool {
         authManager.isLoading || isAppleSigningIn || isGoogleSigningIn
+    }
+
+    private var isAuthInProgress: Bool {
+        isInteractiveAuthInProgress || authManager.isRestoringSession
     }
 
     /// Escape hatch while a sign-in flow is in flight: cancels the running
@@ -254,7 +256,7 @@ struct SignInView: View {
     /// whole screen disabled with no way out.
     @ViewBuilder
     private var cancelSignInButton: some View {
-        if isAuthInProgress {
+        if isInteractiveAuthInProgress {
             Button {
                 signInTask?.cancel()
             } label: {

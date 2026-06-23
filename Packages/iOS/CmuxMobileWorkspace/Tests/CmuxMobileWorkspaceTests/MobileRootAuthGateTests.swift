@@ -246,4 +246,32 @@ import Testing
             showsOnboarding: false
         ) == .workspaceShell)
     }
+
+    @Test func savedMacDisconnectedFallbackKeepsWorkspaceShell() {
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: true,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .workspaceShell)
+
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .disconnectedWorkspaceShell)
+    }
 }

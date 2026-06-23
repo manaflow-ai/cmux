@@ -11,6 +11,45 @@ private let mobileShellReplayLog = Logger(
 )
 
 extension MobileShellComposite {
+    /// Request and apply an authoritative terminal replay for one mounted surface.
+    ///
+    /// Concurrent callers for the same surface join the same in-flight replay, and
+    /// stale completions cannot clear a newer replay slot.
+    @discardableResult
+    public func performTerminalReplay(surfaceID: String) async -> Bool {
+        if let existingTask = terminalReplayRetryTasksBySurfaceID[surfaceID] {
+            #if DEBUG
+            mobileShellReplayLog.info("CMUX_REPLAY join surface=\(surfaceID, privacy: .public) reason=in_flight")
+            #endif
+            return await existingTask.value
+        }
+        guard let client = remoteClient,
+              let workspaceID = workspaceID(forTerminalID: surfaceID) else {
+            #if DEBUG
+            mobileShellReplayLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=missing_context")
+            #endif
+            return false
+        }
+        let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            return await self.executeTerminalReplay(
+                surfaceID: surfaceID,
+                client: client,
+                workspaceID: remoteWorkspaceID
+            )
+        }
+        terminalReplayRetryTasksBySurfaceID[surfaceID] = task
+        terminalReplayRetryTaskIDsBySurfaceID[surfaceID] = taskID
+        let delivered = await task.value
+        if terminalReplayRetryTaskIDsBySurfaceID[surfaceID] == taskID {
+            terminalReplayRetryTasksBySurfaceID[surfaceID] = nil
+            terminalReplayRetryTaskIDsBySurfaceID[surfaceID] = nil
+        }
+        return delivered
+    }
+
     func executeTerminalReplay(
         surfaceID: String,
         client: MobileCoreRPCClient,

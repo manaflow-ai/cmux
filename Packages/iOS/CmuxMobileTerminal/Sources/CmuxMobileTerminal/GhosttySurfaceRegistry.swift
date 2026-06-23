@@ -95,13 +95,12 @@ extension GhosttySurfaceView {
                 candidate.hostSurfaceID == surfaceID && candidate.surface != nil
                     && candidate.window != nil && !candidate.isHidden
                     && candidate.alpha > 0.01
-            }
+        }
         guard let surface = matchingView?.surface else { return nil }
         guard let executor = matchingView?.surfaceExecutor else { return nil }
-        let handle = CopyableTextSurfaceHandle(surface: surface)
         return await withCheckedContinuation { continuation in
             let continuationBox = CopyableTextContinuationBox(continuation)
-            executor.async {
+            executor.async(surface: surface) { handle in
                 // SCREEN = scrollback + all written rows. Fall back to the
                 // viewport-only read if the screen read fails outright.
                 let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)

@@ -17,9 +17,9 @@ extension GhosttySurfaceView {
         let cellHeightPt = max(Double(cellPixelSize.height) / scale, 1)
         let posX = (Double(max(0, col)) + 0.5) * cellWidthPt
         let posY = (Double(max(0, row)) + 0.5) * cellHeightPt
-        enqueueSurfaceWork(surface: surface) { surface in
-            ghostty_surface_mouse_pos(surface, posX, posY, GHOSTTY_MODS_NONE)
-            ghostty_surface_mouse_scroll(surface, 0, lines, 0)
+        enqueueSurfaceWork(surface: surface) { handle in
+            ghostty_surface_mouse_pos(handle.surface, posX, posY, GHOSTTY_MODS_NONE)
+            ghostty_surface_mouse_scroll(handle.surface, 0, lines, 0)
         }
         drawForWakeup()
     }

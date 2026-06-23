@@ -67,6 +67,24 @@ import Testing
     #expect(session.shouldShowSnapshotFallback)
 }
 
+@Test func terminalSurfaceSessionAbandoningStalledSurfacePreservesSnapshotFallback() {
+    var session = TerminalSurfaceSessionState()
+    let oldGeneration = session.mountNewSurfaceGeneration()
+    session.markSnapshotAvailable(true)
+
+    #expect(session.requestRender(now: 1) == .enqueue(generation: oldGeneration))
+    let didBeginRender = session.beginRenderExecution(generation: oldGeneration, now: 1)
+    #expect(didBeginRender)
+    #expect(session.markRenderStale(now: 4, timeout: 3) == .abandonAndRebuild(stalledGeneration: oldGeneration))
+
+    session.didAbandonStalledSurface(stalledGeneration: oldGeneration)
+
+    #expect(session.generation != oldGeneration)
+    #expect(session.presentation == .snapshotFallback)
+    #expect(session.shouldShowSnapshotFallback)
+    #expect(session.requestRender(now: 4.1) == .blockedUntilOutput)
+}
+
 @Test func terminalSurfaceSessionAbandoningStaleGenerationInvalidatesLateCompletion() {
     var session = TerminalSurfaceSessionState()
     let oldGeneration = session.mountNewSurfaceGeneration()
@@ -136,9 +154,9 @@ import Testing
     #expect(session.completeReplayAttempt(generation: rebuiltGeneration, deliveredOutput: false) == .retry(generation: rebuiltGeneration))
     #expect(session.beginReplayAttempt() == .request(generation: rebuiltGeneration, attempt: 2))
     #expect(session.completeReplayAttempt(generation: rebuiltGeneration, deliveredOutput: false) == .failClosed(generation: rebuiltGeneration))
-    #expect(session.requestRender(now: 5.5) == .enqueue(generation: rebuiltGeneration))
+    #expect(session.requestRender(now: 5.5) == .blockedUntilOutput)
     #expect(session.presentation == .liveFrame)
-    #expect(session.completeRender(generation: rebuiltGeneration) == .idle)
+    #expect(session.beginReplayAttempt() == .none)
     session.markOutputApplied()
     #expect(session.requestRender(now: 5.6) == .enqueue(generation: rebuiltGeneration))
     #expect(session.completeRender(generation: rebuiltGeneration) == .idle)
@@ -186,6 +204,52 @@ import Testing
     #expect(session.markRenderStale(now: 8, timeout: 3) == .failClosed(stalledGeneration: rebuiltGeneration))
     #expect(session.requestRender(now: 8.1) == .blockedByStalledSurface)
     #expect(session.generation == rebuiltGeneration)
+}
+
+@Test func terminalSurfaceSessionOutputApplyStallAbandonsGeneration() {
+    var session = TerminalSurfaceSessionState(maxAutomaticRebuilds: 1)
+    let oldGeneration = session.mountNewSurfaceGeneration()
+
+    #expect(session.requestRender(now: 1) == .enqueue(generation: oldGeneration))
+    session.markOutputApplied()
+    #expect(session.completeRender(generation: oldGeneration) == .idle)
+    #expect(session.presentation == .liveFrame)
+
+    #expect(
+        session.markOutputApplyStalled(generation: oldGeneration, startedAt: 2)
+            == .abandonAndRebuild(stalledGeneration: oldGeneration)
+    )
+    #expect(session.presentation == .renderStalledLiveFrame)
+    session.didAbandonStalledSurface(stalledGeneration: oldGeneration)
+
+    #expect(session.generation != oldGeneration)
+    #expect(session.presentation == .liveFrame)
+    #expect(session.requestRender(now: 4.1) == .blockedUntilOutput)
+    #expect(session.completeRender(generation: oldGeneration) == .ignoredStaleCompletion)
+}
+
+@Test func terminalSurfaceSessionOutputApplyStallFailsClosedAfterBudget() {
+    var session = TerminalSurfaceSessionState(maxAutomaticRebuilds: 1)
+    let oldGeneration = session.mountNewSurfaceGeneration()
+
+    #expect(session.requestRender(now: 1) == .enqueue(generation: oldGeneration))
+    session.markOutputApplied()
+    #expect(session.completeRender(generation: oldGeneration) == .idle)
+    #expect(
+        session.markOutputApplyStalled(generation: oldGeneration, startedAt: 2)
+            == .abandonAndRebuild(stalledGeneration: oldGeneration)
+    )
+    session.didAbandonStalledSurface(stalledGeneration: oldGeneration)
+    let rebuiltGeneration = session.generation
+
+    #expect(
+        session.markOutputApplyStalled(generation: rebuiltGeneration, startedAt: 4)
+            == .failClosed(stalledGeneration: rebuiltGeneration)
+    )
+    #expect(session.generation == rebuiltGeneration)
+    #expect(session.presentation == .renderStalledLiveFrame)
+    #expect(session.requestRender(now: 6) == .blockedUntilOutput)
+    #expect(session.markOutputApplyStalled(generation: oldGeneration, startedAt: 6) == .none)
 }
 
 @Test func terminalSurfaceSessionRebuildBudgetPersistsAfterReplay() {

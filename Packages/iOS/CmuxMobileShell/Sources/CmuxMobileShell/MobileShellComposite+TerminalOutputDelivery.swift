@@ -39,6 +39,7 @@ extension MobileShellComposite {
     public func terminalOutputDidProcess(surfaceID: String, streamToken: UUID) {
         guard terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken,
               var queue = terminalOutputQueuesBySurfaceID[surfaceID] else { return }
+        clearTerminalReplayRecoveryFailure(surfaceID: surfaceID)
         if let endSeq = queue.inFlightEndSeq {
             markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
         }
@@ -64,4 +65,5 @@ extension MobileShellComposite {
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
         queuedTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
     }
+
 }

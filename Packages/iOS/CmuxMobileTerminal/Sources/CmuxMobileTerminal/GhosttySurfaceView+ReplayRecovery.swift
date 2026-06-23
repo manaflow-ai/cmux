@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import UIKit
 
 extension GhosttySurfaceView {
@@ -21,6 +22,7 @@ extension GhosttySurfaceView {
         case let .failClosed(generation):
             MobileDebugLog.anchormux("render.replay fail_closed generation=\(generation) reason=max_attempts_before_request")
             syncSnapshotFallback()
+            delegate?.ghosttySurfaceViewReplayRecoveryFailed(self)
         }
     }
 
@@ -56,6 +58,7 @@ extension GhosttySurfaceView {
             recoveryReplayTask?.cancel()
             recoveryReplayTask = nil
             syncSnapshotFallback()
+            delegate?.ghosttySurfaceViewReplayRecoveryFailed(self)
         }
     }
 }

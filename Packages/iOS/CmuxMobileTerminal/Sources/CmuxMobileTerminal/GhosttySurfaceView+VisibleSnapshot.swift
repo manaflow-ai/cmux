@@ -33,31 +33,21 @@ extension GhosttySurfaceView {
         }
 
         let group = DispatchGroup()
-        let sections = UnsafeMutableBufferPointer<String?>.allocate(capacity: pending.count)
-        sections.initialize(repeating: nil)
-        let releaseSections = {
-            sections.deinitialize()
-            sections.deallocate()
-        }
+        let boxes = pending.map { _ in VisibleTerminalSnapshotResultBox() }
         for (index, item) in pending.enumerated() {
             group.enter()
-            item.executor.async {
-                let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
+            item.executor.async(surface: item.surface) { handle in
+                let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
                 let section = "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
                     + text
-                sections[index] = section
+                boxes[index].section = section
                 group.leave()
             }
         }
         if group.wait(timeout: .now() + 0.6) == .timedOut {
-            group.notify(queue: .global(qos: .utility)) {
-                releaseSections()
-            }
             return "===== visible terminal: (snapshot skipped — render busy) ====="
         }
-        let snapshot = sections.compactMap { $0 }.joined(separator: "\n\n")
-        releaseSections()
-        return snapshot
+        return boxes.compactMap(\.section).joined(separator: "\n\n")
     }
 }
 #endif

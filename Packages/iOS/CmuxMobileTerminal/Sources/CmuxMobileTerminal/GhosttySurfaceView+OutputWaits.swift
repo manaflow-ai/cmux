@@ -3,6 +3,8 @@ import CmuxMobileTerminalKit
 import UIKit
 
 extension GhosttySurfaceView {
+    static let outputApplyTimeoutSeconds = 2.0
+
     /// Process terminal output and return after the output has been applied.
     ///
     /// The call still performs libghostty output processing on the serial
@@ -28,28 +30,38 @@ extension GhosttySurfaceView {
         return id
     }
 
+    @discardableResult
     func completePendingOutput(
         generation: UInt64,
         id: TerminalSurfaceOutputWaitState.WaitID?,
         applied: Bool
-    ) {
+    ) -> Bool {
         guard let id,
               pendingOutputWaits.complete(generation: generation, id: id),
               let completion = pendingOutputCompletions[generation]?.removeValue(forKey: id) else {
-            return
+            return false
+        }
+        pendingOutputTimeoutTasks[generation]?.removeValue(forKey: id)?.cancel()
+        if pendingOutputTimeoutTasks[generation]?.isEmpty == true {
+            pendingOutputTimeoutTasks[generation] = nil
         }
         if pendingOutputCompletions[generation]?.isEmpty == true {
             pendingOutputCompletions[generation] = nil
         }
         completion(applied)
+        return true
     }
 
     func completeAllPendingOutput(generation: UInt64) {
         for id in pendingOutputWaits.cancel(generation: generation) {
+            pendingOutputTimeoutTasks[generation]?.removeValue(forKey: id)?.cancel()
             guard let completion = pendingOutputCompletions[generation]?.removeValue(forKey: id) else {
                 continue
             }
             completion(false)
+        }
+        if pendingOutputTimeoutTasks[generation]?.isEmpty == true {
+            pendingOutputTimeoutTasks[generation] = nil
         }
         if pendingOutputCompletions[generation]?.isEmpty == true {
             pendingOutputCompletions[generation] = nil
@@ -58,11 +70,13 @@ extension GhosttySurfaceView {
 
     func completeAllPendingOutput() {
         for wait in pendingOutputWaits.cancelAll() {
+            pendingOutputTimeoutTasks[wait.generation]?.removeValue(forKey: wait.id)?.cancel()
             guard let completion = pendingOutputCompletions[wait.generation]?.removeValue(forKey: wait.id) else {
                 continue
             }
             completion(false)
         }
+        pendingOutputTimeoutTasks.removeAll()
         pendingOutputCompletions.removeAll()
     }
 }
