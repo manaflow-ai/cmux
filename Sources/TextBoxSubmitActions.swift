@@ -81,7 +81,7 @@ extension TextBoxInputContainer {
         if let pendingContext = pendingProviderLaunchAction?.pendingTerminalAgentContext {
             return pendingContext
         }
-        allowsCommandTemplateSubmit ? "" : terminalAgentContext
+        return allowsCommandTemplateSubmit ? "" : terminalAgentContext
     }
 
     var effectiveSubmitAction: TextBoxSubmitAction {
