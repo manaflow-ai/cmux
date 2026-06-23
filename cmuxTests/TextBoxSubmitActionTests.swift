@@ -393,11 +393,11 @@ struct TextBoxSubmitActionTests {
     func testTerminalPanelPublishesShellActivityStateForTextBoxRouting() {
         let panel = TerminalPanel(workspaceId: UUID())
 
-        XCTAssertEqual(panel.shellActivityState, .unknown)
+        XCTAssertEqual(panel.shellActivity.state, .unknown)
         panel.updateShellActivityState(.promptIdle)
-        XCTAssertEqual(panel.shellActivityState, .promptIdle)
+        XCTAssertEqual(panel.shellActivity.state, .promptIdle)
         panel.updateShellActivityState(.commandRunning)
-        XCTAssertEqual(panel.shellActivityState, .commandRunning)
+        XCTAssertEqual(panel.shellActivity.state, .commandRunning)
     }
 
     private func makeTemporaryDirectory() throws -> URL {

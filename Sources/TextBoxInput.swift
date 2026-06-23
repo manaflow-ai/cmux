@@ -2605,6 +2605,7 @@ struct TextBoxInputContainer: View {
                 pendingProviderLaunchAction = nil
             }
         }
+        .onChange(of: allowsCommandTemplateSubmit) { _, _ in clearPendingProviderLaunchIfPromptIdleWithoutAgentContext() }
     }
 
     private func addFilesButton(foreground: Color) -> some View {

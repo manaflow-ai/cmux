@@ -46,10 +46,18 @@ extension TextBoxInputContainer {
     }
 
     var shouldForceTextEntrySubmit: Bool {
-        pendingProviderLaunchAction?.pendingTerminalAgentContext != nil || Self.shouldForceTextEntrySubmit(
+        pendingProviderLaunchAction != nil || Self.shouldForceTextEntrySubmit(
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext
         )
+    }
+
+    func clearPendingProviderLaunchIfPromptIdleWithoutAgentContext() {
+        guard allowsCommandTemplateSubmit,
+              !TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) else {
+            return
+        }
+        pendingProviderLaunchAction = nil
     }
 
     static func shouldForceTextEntrySubmit(
