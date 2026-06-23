@@ -17,6 +17,15 @@ cmux_attach__slug() {
   printf '%s' "$cleaned"
 }
 
+# True iff the tag has at least one alphanumeric character, i.e. its slug is real
+# and not the empty-input fallback. Tag identity is correctness-critical (it
+# selects the bundle id / socket / Mac app), so entry points must reject tags
+# that would otherwise silently collapse onto the shared fallback identity and
+# target an unrelated app/socket. Callers should fail closed on a false result.
+cmux_attach_tag_has_alnum() {
+  [[ -n "$(printf '%s' "$1" | tr -cd '[:alnum:]')" ]]
+}
+
 # bundle id segment: lowercase, non-alnum -> '.', trimmed/collapsed.
 cmux_attach__bundle_seg() {
   local cleaned
