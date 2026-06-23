@@ -207,6 +207,15 @@
         "web/app/[locale]/page.tsx",
         "web/messages/en.json"
       ]
+    },
+    {
+      "path": ".github/review-bot-rules/landing-page-registry-parity.md",
+      "description": "Source-of-truth cmux review rule for keeping new landing pages registered in sitemap.ts, agentReadablePages, the /guides index, and landing.links.",
+      "scope": [
+        "web/app/[locale]/(landing)/**/page.tsx",
+        "web/app/sitemap.ts",
+        "web/app/lib/agent-page-paths.ts"
+      ]
     }
   ]
 }
