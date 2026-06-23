@@ -1,14 +1,17 @@
 import AppKit
 import Combine
+import CmuxFoundation
 import SwiftUI
 
 @MainActor
 final class WindowToolbarController: NSObject, NSToolbarDelegate {
     private let commandItemIdentifier = NSToolbarItem.Identifier("cmux.focusedCommand")
+    private let layoutModeItemIdentifier = NSToolbarItem.Identifier("cmux.layoutMode")
 
     private weak var tabManager: TabManager?
 
     private var commandLabels: [ObjectIdentifier: NSTextField] = [:]
+    private var layoutModeControls: [ObjectIdentifier: NSSegmentedControl] = [:]
     private var observers: [NSObjectProtocol] = []
     private let focusedCommandUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var lastKnownPresentationMode: WorkspacePresentationModeSettings.Mode = WorkspacePresentationModeSettings.mode()
@@ -36,9 +39,24 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             forName: .ghosttyDidSetTitle,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.scheduleFocusedCommandTextUpdate()
+        ) { [weak self] notification in
+            let changedWorkspaceId = GhosttyTitleChange(notification: notification)?.tabId
+            Task { @MainActor [weak self, changedWorkspaceId] in
+                guard let self,
+                      self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == true else { return }
+                self.scheduleFocusedCommandTextUpdate()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: tabManager,
+            queue: .main
+        ) { [weak self] notification in
+            let changedWorkspaceId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID
+            Task { @MainActor [weak self, changedWorkspaceId] in
+                guard let self, changedWorkspaceId == self.tabManager?.selectedTabId, self.tabManager?.shouldScheduleRawTitleRefresh(forWorkspaceId: changedWorkspaceId) == false else { return }
+                self.scheduleFocusedCommandTextUpdate()
             }
         })
 
@@ -49,6 +67,17 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.scheduleFocusedCommandTextUpdate()
+                self?.updateLayoutModeSelection()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: .workspaceLayoutModeDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateLayoutModeSelection()
             }
         })
 
@@ -84,6 +113,16 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.updateToolbarVisibilityIfNeeded()
+            }
+        })
+
+        observers.append(center.addObserver(
+            forName: GlobalFontMagnification.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applyCommandLabelFont()
             }
         })
     }
@@ -166,21 +205,28 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
         }
     }
 
+    private func applyCommandLabelFont() {
+        let font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
+        for label in commandLabels.values {
+            label.font = font
+        }
+    }
+
     // MARK: - NSToolbarDelegate
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [commandItemIdentifier, .flexibleSpace]
+        [layoutModeItemIdentifier, commandItemIdentifier, .flexibleSpace]
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [commandItemIdentifier, .flexibleSpace]
+        [layoutModeItemIdentifier, commandItemIdentifier, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if itemIdentifier == commandItemIdentifier {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             let label = NSTextField(labelWithString: "Cmd: —")
-            label.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+            label.font = GlobalFontMagnification.systemFont(ofSize: 12, weight: .medium)
             label.textColor = .secondaryLabelColor
             label.lineBreakMode = .byTruncatingMiddle
             label.setContentHuggingPriority(.defaultHigh, for: .horizontal)
@@ -190,8 +236,61 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             return item
         }
 
+        if itemIdentifier == layoutModeItemIdentifier {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            let segmented = NSSegmentedControl()
+            segmented.segmentStyle = .texturedRounded
+            segmented.trackingMode = .selectOne
+            segmented.segmentCount = 2
+            segmented.controlSize = .small
+            segmented.setImage(
+                NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: nil),
+                forSegment: LayoutModeSegment.splits.rawValue
+            )
+            segmented.setImage(
+                NSImage(systemSymbolName: "square.on.square.dashed", accessibilityDescription: nil),
+                forSegment: LayoutModeSegment.canvas.rawValue
+            )
+            segmented.setToolTip(
+                String(localized: "toolbar.layout.splits", defaultValue: "Split panes"),
+                forSegment: LayoutModeSegment.splits.rawValue
+            )
+            segmented.setToolTip(
+                String(localized: "toolbar.layout.canvas", defaultValue: "Canvas"),
+                forSegment: LayoutModeSegment.canvas.rawValue
+            )
+            segmented.target = self
+            segmented.action = #selector(layoutModeSegmentChanged(_:))
+            item.view = segmented
+            item.label = String(localized: "toolbar.layout.label", defaultValue: "Layout")
+            item.toolTip = String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+            layoutModeControls[ObjectIdentifier(toolbar)] = segmented
+            updateLayoutModeSelection()
+            return item
+        }
 
         return nil
+    }
+
+    // MARK: - Layout mode toggle
+
+    private enum LayoutModeSegment: Int {
+        case splits = 0
+        case canvas = 1
+    }
+
+    @objc private func layoutModeSegmentChanged(_ sender: NSSegmentedControl) {
+        guard let workspace = tabManager?.selectedWorkspace else { return }
+        let target: WorkspaceLayoutMode = sender.selectedSegment == LayoutModeSegment.canvas.rawValue ? .canvas : .splits
+        workspace.setLayoutMode(target)
+    }
+
+    private func updateLayoutModeSelection() {
+        let mode = tabManager?.selectedWorkspace?.layoutMode ?? .splits
+        let segment = mode == .canvas ? LayoutModeSegment.canvas.rawValue : LayoutModeSegment.splits.rawValue
+        for control in layoutModeControls.values where control.selectedSegment != segment {
+            control.selectedSegment = segment
+        }
     }
 
 }

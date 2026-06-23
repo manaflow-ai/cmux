@@ -1,4 +1,5 @@
 import type { CodeViewItem } from "@pierre/diffs";
+import type { CommentAnnotationMetadata } from "./comments/types";
 import type { DiffViewerLabelResolver } from "./labels";
 import type { FileTreeRefreshSource } from "./file-tree-refresh";
 
@@ -24,7 +25,7 @@ export type FileStats = {
   deleted: number;
 };
 
-export type DiffItem = CodeViewItem & {
+export type DiffItem = CodeViewItem<CommentAnnotationMetadata> & {
   collapsed?: boolean;
   fileDiff?: any;
   id: string;

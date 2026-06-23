@@ -1,5 +1,9 @@
+import CmuxFoundation
 import AppKit
+import CmuxTerminal
 import Carbon.HIToolbox
+import CmuxSettingsUI
+import Observation
 import SwiftUI
 import UniformTypeIdentifiers
 import os
@@ -24,10 +28,19 @@ private enum TextBoxLayout {
     static let leadingButtonHorizontalOffset: CGFloat = -1
     static let trailingButtonHorizontalOffset: CGFloat = 1
     static let attachmentControlSpacing: CGFloat = 2
-    static let attachmentImageSize: CGFloat = 16
-    static let attachmentChipHeight: CGFloat = 18
-    static let inlineAttachmentMaxTextWidth: CGFloat = 118
-    static let inlineAttachmentTrailingControlWidth: CGFloat = 14
+    static var attachmentImageSize: CGFloat {
+        GlobalFontMagnification.scaledSize(16)
+    }
+    static var attachmentChipHeight: CGFloat {
+        let font = GlobalFontMagnification.systemFont(ofSize: 11, weight: .semibold)
+        return max(18, ceil(font.ascender - font.descender + font.leading) + 6)
+    }
+    static var inlineAttachmentMaxTextWidth: CGFloat {
+        GlobalFontMagnification.scaledSize(118)
+    }
+    static var inlineAttachmentTrailingControlWidth: CGFloat {
+        GlobalFontMagnification.scaledSize(14)
+    }
 
     static func textInset(forLineCount lineCount: Int) -> NSSize {
         lineCount <= minLines ? textInset : multilineTextInset
@@ -269,7 +282,7 @@ struct TextBoxAttachment: Identifiable {
     }
 
     static func shouldCleanupLocalURLWhenDisposed(_ fileURL: URL) -> Bool {
-        GhosttyPasteboardHelper.isOwnedTemporaryImageFile(fileURL)
+        GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(fileURL)
             || TextBoxDraftAttachmentStorage.isOwnedDraftCopy(fileURL)
     }
 
@@ -305,7 +318,7 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return fallbackSnapshot(for: attachment)
         }
         let standardizedLocalURL = localURL.standardizedFileURL
@@ -346,7 +359,7 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func prepareDurableCopy(for attachment: TextBoxAttachment) {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return
         }
         let standardizedLocalURL = localURL.standardizedFileURL
@@ -555,7 +568,7 @@ private enum TextBoxDraftAttachmentStorage {
 #if DEBUG
     static func debugPrepareDurableCopySynchronously(for attachment: TextBoxAttachment) -> URL? {
         guard let localURL = attachment.localURL,
-              GhosttyPasteboardHelper.isOwnedTemporaryImageFile(localURL) else {
+              GhosttyApp.terminalPasteboard.isOwnedTemporaryImageFile(localURL) else {
             return nil
         }
         let originalURL = localURL.standardizedFileURL
@@ -862,7 +875,7 @@ private enum TextBoxInlineAttachmentRenderer {
         foregroundColor: NSColor,
         isFocused: Bool
     ) -> NSImage {
-        let textFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        let textFont = GlobalFontMagnification.systemFont(ofSize: 11, weight: .semibold)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingMiddle
         let textAttributes: [NSAttributedString.Key: Any] = [
@@ -930,7 +943,7 @@ private enum TextBoxInlineAttachmentRenderer {
         (attachment.displayName as NSString).draw(in: textRect, withAttributes: textAttributes)
 
         let closeAttributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9, weight: .bold),
+            .font: GlobalFontMagnification.systemFont(ofSize: 9, weight: .bold),
             .foregroundColor: foregroundColor.withAlphaComponent(0.48)
         ]
         let closeString = "×" as NSString
@@ -1022,7 +1035,7 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
             if attachment.localURL != nil {
                 Button(action: openInPreview) {
                     Text(String(localized: "textbox.openWithPreview.button", defaultValue: "Open with Preview"))
-                        .font(.system(size: 12, weight: .semibold))
+                        .cmuxFont(size: 12, weight: .semibold)
                         .lineLimit(1)
                 }
                 .buttonStyle(TextBoxAttachmentPreviewOpenButtonStyle())
@@ -1063,9 +1076,9 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "doc")
-                    .font(.system(size: 42, weight: .regular))
+                    .cmuxFont(size: 42, weight: .regular)
                 Text(attachment.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .truncationMode(.middle)
@@ -1145,7 +1158,7 @@ private struct TextBoxAttachmentChip: View {
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             } else {
                 Image(systemName: "doc")
-                    .font(.system(size: 12, weight: .medium))
+                    .cmuxFont(size: 12, weight: .medium)
                     .frame(
                         width: TextBoxLayout.attachmentImageSize,
                         height: TextBoxLayout.attachmentImageSize
@@ -1153,14 +1166,14 @@ private struct TextBoxAttachmentChip: View {
             }
 
             Text(attachment.displayName)
-                .font(.system(size: 11, weight: .medium))
+                .cmuxFont(size: 11, weight: .medium)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: 118, alignment: .leading)
 
             Button(action: onRemove) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .cmuxFont(size: 8, weight: .bold)
                     .frame(width: 14, height: 14)
             }
             .buttonStyle(.plain)
@@ -1257,7 +1270,7 @@ func textBoxCommandShortcutKey(
     return normalizedCharacters(event).lowercased()
 }
 
-private enum TextBoxAgentDetection: CaseIterable {
+enum TextBoxAgentDetection: CaseIterable {
     case claudeCode
     case codex
     case opencode
@@ -1521,7 +1534,7 @@ private struct TextBoxMentionCompletionPopoverView: View {
                                 onSelect(suggestion)
                             } label: {
                                 Text(Self.highlightedTitle(suggestion.title, query: searchTerm))
-                                    .font(.system(size: 12, weight: .semibold))
+                                    .cmuxFont(size: 12, weight: .semibold)
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                     .padding(.horizontal, 8)
@@ -2676,9 +2689,16 @@ struct TextBoxInputContainer: View {
     @State private var hasMarkedText = false
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
+    @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
+
+    private var pendingCommentCount: Int {
+        commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
+    }
+
+    private var textBasePointSize: CGFloat { max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2) }
 
     private var textFont: NSFont {
-        NSFont.systemFont(ofSize: max(14, terminalFont.pointSize + 2), weight: .regular)
+        GlobalFontMagnification.systemFont(ofSize: textBasePointSize, weight: .regular)
     }
 
     private func heightForLines(_ lines: Int) -> CGFloat {
@@ -2712,12 +2732,17 @@ struct TextBoxInputContainer: View {
         let background = Color(nsColor: terminalBackgroundColor)
         let canSend = shouldEnableTextBoxSubmit(
             text: text,
-            attachmentCount: attachments.count,
+            attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
             hasMarkedText: hasMarkedText
         )
 
-        HStack(alignment: .bottom, spacing: 6) {
+        VStack(alignment: .leading, spacing: 6) {
+            if pendingCommentCount > 0 {
+                pendingCommentsChip(count: pendingCommentCount, foreground: foreground)
+                    .padding(.top, 6)
+            }
+            HStack(alignment: .bottom, spacing: 6) {
             addFilesButton(foreground: foreground)
                 .offset(x: TextBoxLayout.leadingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
@@ -2756,7 +2781,7 @@ struct TextBoxInputContainer: View {
                     hasMarkedText: hasMarkedText
                 ) {
                     Text(String(localized: "textbox.placeholder", defaultValue: "Prompt or command"))
-                        .font(.system(size: textFont.pointSize))
+                        .cmuxFont(size: textBasePointSize)
                         .foregroundStyle(Color(nsColor: terminalForegroundColor).opacity(0.36))
                         .padding(.leading, TextBoxLayout.textInset.width)
                         .frame(height: clampedHeight, alignment: .center)
@@ -2770,6 +2795,7 @@ struct TextBoxInputContainer: View {
             sendButton(canSend: canSend, foreground: foreground)
                 .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
+            }
         }
         .padding(.horizontal, TextBoxLayout.pillHorizontalPadding)
         .padding(.vertical, TextBoxLayout.pillVerticalPadding)
@@ -2786,7 +2812,7 @@ struct TextBoxInputContainer: View {
     private func addFilesButton(foreground: Color) -> some View {
         Button(action: chooseFiles) {
             Image(systemName: "plus")
-                .font(.system(size: TextBoxLayout.iconSymbolSize, weight: .semibold))
+                .cmuxFont(size: TextBoxLayout.iconSymbolSize, weight: .semibold)
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
                 .background(
                     Circle()
@@ -2825,7 +2851,7 @@ struct TextBoxInputContainer: View {
     private func sendButton(canSend: Bool, foreground: Color) -> some View {
         Button(action: submit) {
             Image(systemName: "arrow.up")
-                .font(.system(size: TextBoxLayout.sendSymbolSize, weight: .bold))
+                .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         }
         .buttonStyle(TextBoxSendButtonStyle(canSend: canSend))
@@ -2834,6 +2860,95 @@ struct TextBoxInputContainer: View {
         .accessibilityLabel(String(localized: "textbox.send.tooltip", defaultValue: "Send"))
         .disabled(!canSend)
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
+    }
+
+    @State private var showPendingCommentsPreview = false
+
+    private func pendingCommentsChip(count: Int, foreground: Color) -> some View {
+        HStack(spacing: 5) {
+            Button {
+                showPendingCommentsPreview.toggle()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "text.bubble")
+                        .cmuxFont(size: 11, weight: .medium)
+                    Text(pendingCommentsLabel(count))
+                        .cmuxFont(size: 12, weight: .medium)
+                        .lineLimit(1)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "textbox.diffComments.preview",
+                defaultValue: "Show comments"
+            ))
+            Button {
+                dismissPendingComments()
+            } label: {
+                Image(systemName: "xmark")
+                    .cmuxFont(size: 9, weight: .bold)
+                    .frame(width: 16, height: 16)
+                    .background(Circle().fill(foreground.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .help(String(
+                localized: "textbox.diffComments.dismiss",
+                defaultValue: "Dismiss comments without sending"
+            ))
+        }
+        .padding(.leading, 9)
+        .padding(.trailing, 5)
+        .frame(height: 26)
+        .background(
+            Capsule().fill(foreground.opacity(0.10))
+        )
+        .overlay(
+            Capsule().strokeBorder(foreground.opacity(0.18), lineWidth: 1)
+        )
+        .foregroundStyle(foreground.opacity(0.92))
+        .popover(isPresented: $showPendingCommentsPreview, arrowEdge: .top) {
+            pendingCommentsPreview()
+        }
+        .accessibilityLabel(pendingCommentsLabel(count))
+    }
+
+    private func pendingCommentsPreview() -> some View {
+        let entries = surface.owningWorkspace().map {
+            commentPool.entriesByWorkspace[$0.id] ?? []
+        } ?? []
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    Text(entry.submissionText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .cmuxFont(size: 11, design: .monospaced)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 14)
+            .padding(.bottom, 12)
+        }
+        .frame(minWidth: 320, idealWidth: 440, maxWidth: 520, maxHeight: 360)
+    }
+
+    private func dismissPendingComments() {
+        guard let workspaceId = surface.owningWorkspace()?.id else { return }
+        let dismissed = DiffCommentSubmissionPool.shared.consumeAll(workspaceId: workspaceId)
+        // Mark consumed so viewer reloads do not resurrect the chip; the
+        // comments stay saved in the diff viewer.
+        for (repoRoot, entries) in Dictionary(grouping: dismissed, by: \.repoRoot) {
+            DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+        }
+    }
+
+    private func pendingCommentsLabel(_ count: Int) -> String {
+        count == 1
+            ? String(localized: "textbox.diffComments.one", defaultValue: "1 comment")
+            : String(
+                format: String(localized: "textbox.diffComments.many", defaultValue: "%d comments"),
+                count
+            )
     }
 
     private func submit() {
@@ -2848,9 +2963,21 @@ struct TextBoxInputContainer: View {
 
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
-        guard TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts) else {
+        let poolWorkspaceId = surface.owningWorkspace()?.id
+        let hasTypedContent = TextBoxSubmissionFormatter.hasSubmittableContent(submittedParts)
+        guard hasTypedContent || pendingCommentCount > 0 else {
             NSSound.beep()
             return
+        }
+        // Claim the workspace's pending diff comments: this submission carries
+        // them, and the chip clears from every other TextBox in the workspace.
+        let pendingComments = poolWorkspaceId.map {
+            DiffCommentSubmissionPool.shared.consumeAll(workspaceId: $0)
+        } ?? []
+        var partsToSend = submittedParts
+        if !pendingComments.isEmpty {
+            let bundle = pendingComments.map(\.submissionText).joined(separator: "\n")
+            partsToSend.append(.text(hasTypedContent ? "\n\n" + bundle : bundle))
         }
         let submittedTextView = textView
         let preservedContent = submittedTextView?.attributedContentForPreservation()
@@ -2866,11 +2993,17 @@ struct TextBoxInputContainer: View {
             attachmentCount: 0
         )
         TextBoxSubmit.send(
-            submittedParts,
+            partsToSend,
             via: surface,
             terminalAgentContext: terminalAgentContext
         ) { completionContext in
             guard completionContext.didSubmit else {
+                if let poolWorkspaceId, !pendingComments.isEmpty {
+                    DiffCommentSubmissionPool.shared.restorePending(
+                        pendingComments,
+                        workspaceId: poolWorkspaceId
+                    )
+                }
                 guard TextBoxFailedSubmitRollbackPolicy.shouldRestore(
                     rollbackSnapshot: rollbackSnapshot,
                     currentSnapshot: currentRollbackSnapshot()
@@ -2889,6 +3022,11 @@ struct TextBoxInputContainer: View {
                 }
                 NSSound.beep()
                 return
+            }
+            if !pendingComments.isEmpty {
+                for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
+                    DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
+                }
             }
             let submittedAttachments = submittedParts.compactMap { part -> TextBoxAttachment? in
                 if case .attachment(let attachment) = part { return attachment }
@@ -3087,7 +3225,7 @@ struct TextBoxInputContainer: View {
                 surface?.hostedView.endImageTransferIndicator(for: operation)
                 guard operation.finish() else {
                     removePendingPlaceholder()
-                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                     return
                 }
 
@@ -3095,7 +3233,7 @@ struct TextBoxInputContainer: View {
                 case .success(let remotePaths):
                     guard !remotePaths.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
                         return
                     }
@@ -3110,14 +3248,14 @@ struct TextBoxInputContainer: View {
                     }
                     guard !newAttachments.isEmpty else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         NSSound.beep()
                         return
                     }
                     guard textViewReference.textView === textView,
                           textView.canAcceptPendingAttachmentUpload(validationToken: uploadValidationToken) else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
                     }
                     guard textView.replacePendingAttachmentUploadPlaceholder(
@@ -3125,14 +3263,14 @@ struct TextBoxInputContainer: View {
                         with: newAttachments
                     ) else {
                         removePendingPlaceholder()
-                        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                         return
                     }
                     attachments = textView.inlineAttachments()
                     text = textView.plainText()
                 case .failure:
                     removePendingPlaceholder()
-                    GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(fileURLs)
+                    GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(fileURLs)
                     NSSound.beep()
                 }
             }
@@ -3752,7 +3890,7 @@ final class TextBoxInputTextView: NSTextView {
         clearAttachmentFocus(dismissPreview: true)
         textStorage?.setAttributedString(content)
         refreshInlineAttachmentCells(
-            font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor
         )
         typingAttributes = currentTextAttributes()
@@ -3999,7 +4137,7 @@ final class TextBoxInputTextView: NSTextView {
             clearAttachmentFocus(dismissPreview: isAttachmentPreviewShown)
         }
         refreshInlineAttachmentCells(
-            font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             foregroundColor: textColor ?? .labelColor
         )
     }
@@ -4014,7 +4152,7 @@ final class TextBoxInputTextView: NSTextView {
         let targetHeight = bounds.height > 0 ? bounds.height : TextBoxLayout.minimumTextHeight
         var targetVerticalInset: CGFloat
         if lineFragmentCount <= TextBoxLayout.minLines {
-            let currentFont = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+            let currentFont = font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
             let lineHeight = ceil(currentFont.ascender - currentFont.descender + currentFont.leading)
             let singleLineHeight = max(
                 TextBoxLayout.minimumTextHeight,
@@ -5041,18 +5179,26 @@ final class TextBoxInputTextView: NSTextView {
 
     private func handleConfiguredTextBoxShortcut(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown,
-              !KeyboardShortcutRecorderActivity.isAnyRecorderActive else {
+              !KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              !RecorderHostButton.isActivelyRecording else {
             return false
         }
-        if KeyboardShortcutSettings.shortcut(for: .focusTextBoxInput).matches(event: event) {
+        if textBoxShortcut(event, matches: .focusTextBoxInput) {
             onToggleFocus()
             return true
         }
-        if KeyboardShortcutSettings.shortcut(for: .attachTextBoxFile).matches(event: event) {
+        if textBoxShortcut(event, matches: .attachTextBoxFile) {
             onChooseFiles()
             return true
         }
         return false
+    }
+
+    private func textBoxShortcut(_ event: NSEvent, matches action: KeyboardShortcutSettings.Action) -> Bool {
+        guard KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
+            return false
+        }
+        return AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
     }
 
     private func handleStandardEditShortcut(_ event: NSEvent) -> Bool {
@@ -5482,7 +5628,7 @@ final class TextBoxInputTextView: NSTextView {
         foregroundColor explicitForegroundColor: NSColor? = nil
     ) -> [NSAttributedString.Key: Any] {
         [
-            .font: explicitFont ?? font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .font: explicitFont ?? font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
             .foregroundColor: explicitForegroundColor ?? textColor ?? .labelColor,
             .baselineOffset: textBaselineOffsetForCurrentContent()
         ]
@@ -5492,7 +5638,7 @@ final class TextBoxInputTextView: NSTextView {
         let attributed = NSMutableAttributedString(
             attachment: TextBoxInlineTextAttachment(
                 attachment: attachment,
-                font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                font: font ?? GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize),
                 foregroundColor: textColor ?? .labelColor
             )
         )
@@ -5620,7 +5766,7 @@ final class TextBoxInputTextView: NSTextView {
             TextBoxDraftAttachmentStorage.removeCopiedDraftForOriginalTemporaryFile(url)
             return !TextBoxDraftAttachmentStorage.removeIfOwnedDraftCopy(url)
         }
-        GhosttyPasteboardHelper.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
+        GhosttyApp.terminalPasteboard.cleanupTransferredTemporaryImageFiles(ghosttyTemporaryURLs)
     }
 
     func cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(_ attachments: [TextBoxAttachment]) {

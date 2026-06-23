@@ -1,5 +1,8 @@
 import Foundation
+import CmuxCore
 import Darwin
+import CmuxNotifications
+import CmuxSidebar
 
 extension Workspace {
     struct DetachedAgentRuntimeState {
@@ -23,6 +26,7 @@ extension Workspace {
         let ttyName: String?
         let cachedTitle: String?
         let customTitle: String?
+        let customTitleSource: Workspace.CustomTitleSource?
         let manuallyUnread: Bool
         let restoredUnreadIndicator: RestoredPanelUnreadIndicator?
         let restorableAgent: SessionRestorableAgentSnapshot?
@@ -49,6 +53,7 @@ extension Workspace {
                 ttyName: ttyName,
                 cachedTitle: cachedTitle,
                 customTitle: customTitle,
+                customTitleSource: customTitleSource,
                 manuallyUnread: manuallyUnread,
                 restoredUnreadIndicator: restoredUnreadIndicator,
                 restorableAgent: restorableAgent,

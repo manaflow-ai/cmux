@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTestSupport
 
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
@@ -219,7 +220,7 @@ final class WindowDecorationsController {
             lastMinimalModeTitlebarClick = nil
             return false
         }
-        guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+        guard !minimalModeTitlebarDoubleClickShouldDefer(window: window, locationInWindow: locationInWindow) else {
             lastMinimalModeTitlebarClick = nil
             return false
         }
@@ -286,7 +287,7 @@ final class WindowDecorationsController {
         slot: MinimalModeSidebarControlActionSlot?
     ) {
         guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
-        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+        _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
             if event.type == .leftMouseDown {
                 let count = (payload["minimalSidebarWindowMonitorLeftMouseDownCount"] as? String).flatMap(Int.init) ?? 0
                 payload["minimalSidebarWindowMonitorLeftMouseDownCount"] = String(count + 1)
@@ -310,7 +311,7 @@ final class WindowDecorationsController {
         slot: MinimalModeSidebarControlActionSlot?
     ) {
         guard ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" else { return }
-        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+        _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
             let count = (payload["minimalSidebarWindowSendEventLeftMouseDownCount"] as? String).flatMap(Int.init) ?? 0
             payload["minimalSidebarWindowSendEventLeftMouseDownCount"] = String(count + 1)
             payload["minimalSidebarWindowSendEventLastWindowNumber"] = String(window.windowNumber)
@@ -328,7 +329,7 @@ final class WindowDecorationsController {
         anchorView: NSView? = nil
     ) {
         #if DEBUG
-        _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+        _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
             payload["minimalSidebarWindowMonitorLastAction"] = slot.debugName
         }
         #endif
@@ -381,7 +382,7 @@ final class WindowDecorationsController {
               let contentView = window.contentView else {
             #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarTitlebarClickTargetInstalled"] = "false"
                     payload["minimalSidebarTitlebarClickTargetWindowNumber"] = String(window.windowNumber)
                 }
@@ -435,7 +436,7 @@ final class WindowDecorationsController {
 
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-            _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+            _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                 payload["minimalSidebarTitlebarClickTargetInstalled"] = "true"
                 payload["minimalSidebarTitlebarClickTargetWindowNumber"] = String(window.windowNumber)
                 payload["minimalSidebarTitlebarClickTargetFrameInWindow"] = NSStringFromRect(target.convert(target.bounds, to: nil))

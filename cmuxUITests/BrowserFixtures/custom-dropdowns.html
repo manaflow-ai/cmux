@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>custom-dropdowns</title></head>
+<body>
+<select id="native">
+  <option value="a">Alpha</option>
+  <option value="b">Beta</option>
+  <option value="c">Gamma</option>
+</select>
+<input id="combo" role="combobox" aria-expanded="false" aria-controls="combo-list">
+<div id="combo-holder"></div>
+<button id="menu-trigger">menu</button>
+<div id="menu" hidden>
+  <div data-value="alpha">alpha</div>
+  <div data-value="beta">beta</div>
+  <div data-value="gamma">gamma</div>
+</div>
+<div id="status">PENDING</div>
+<pre id="event-log"></pre>
+<script>
+  window.__cmuxLog = [];
+  const logEl = document.getElementById('event-log');
+  const statusEl = document.getElementById('status');
+  let seq = 0;
+  function logEvent(ev, target, extra) {
+    window.__cmuxLog.push(Object.assign(
+      { seq: ++seq, type: ev.type, target, isTrusted: ev.isTrusted },
+      extra || {}
+    ));
+    logEl.textContent = JSON.stringify(window.__cmuxLog);
+  }
+
+  let nativeOk = false;
+  let comboOk = false;
+  let menuOk = false;
+  function check() {
+    if (nativeOk && comboOk && menuOk) statusEl.textContent = 'PASS';
+  }
+
+  const nativeSel = document.getElementById('native');
+  let nativeLastInput = null;
+  nativeSel.addEventListener('input', (ev) => {
+    nativeLastInput = { seq: seq + 1, value: nativeSel.value };
+    logEvent(ev, '#native', { value: nativeSel.value });
+  });
+  nativeSel.addEventListener('change', (ev) => {
+    logEvent(ev, '#native', { value: nativeSel.value });
+    if (nativeSel.value === 'c' && nativeLastInput && nativeLastInput.value === 'c') {
+      nativeOk = true;
+    }
+    check();
+  });
+
+  const combo = document.getElementById('combo');
+  function showComboList() {
+    if (document.getElementById('combo-list')) return;
+    const list = document.createElement('ul');
+    list.id = 'combo-list';
+    list.setAttribute('role', 'listbox');
+    for (const opt of ['alpha', 'beta', 'gamma']) {
+      const li = document.createElement('li');
+      li.setAttribute('role', 'option');
+      li.dataset.opt = opt;
+      li.textContent = opt;
+      li.addEventListener('click', (ev) => {
+        combo.value = opt;
+        combo.setAttribute('aria-expanded', 'false');
+        logEvent(ev, '#combo-list [data-opt="' + opt + '"]', { value: opt });
+        if (opt === 'beta') comboOk = true;
+        check();
+      });
+      list.appendChild(li);
+    }
+    combo.setAttribute('aria-expanded', 'true');
+    document.getElementById('combo-holder').appendChild(list);
+  }
+  combo.addEventListener('focus', showComboList);
+  combo.addEventListener('click', showComboList);
+
+  const menu = document.getElementById('menu');
+  document.getElementById('menu-trigger').addEventListener('click', (ev) => {
+    menu.hidden = false;
+    logEvent(ev, '#menu-trigger');
+  });
+  for (const item of menu.querySelectorAll('[data-value]')) {
+    item.addEventListener('click', (ev) => {
+      menu.hidden = true;
+      logEvent(ev, '#menu [data-value="' + item.dataset.value + '"]', { value: item.dataset.value });
+      if (item.dataset.value === 'gamma') menuOk = true;
+      check();
+    });
+  }
+</script>
+</body>
+</html>
