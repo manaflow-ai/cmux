@@ -360,8 +360,10 @@ struct MobileHostAuthorizationTests {
     #if DEBUG
     @Test func testPairingWindowGrantAuthorizesAttachTicketCreateWithoutStackToken() async {
         let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("mac-user")
         let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
         defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
             service.debugClearManualPairingTicketMintForTesting()
         }
         let request = MobileHostRPCRequest(
@@ -374,6 +376,63 @@ struct MobileHostAuthorizationTests {
         let result = await service.debugAuthorizationError(for: request)
 
         #expect(result == nil)
+    }
+
+    @Test func testRevokedPairingWindowGrantRejectsAttachTicketCreateWithoutStackToken() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("mac-user")
+        let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
+        service.revokeManualPairingTicketMint()
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+            service.debugClearManualPairingTicketMintForTesting()
+        }
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-create",
+            method: "mobile.attach_ticket.create",
+            params: ["trusted_network_pairing_secret": pairingSecret],
+            auth: nil
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result != nil)
+    }
+
+    @Test func testStoredAttachTicketForPreviousMacUserIsRejectedWithoutStackToken() async throws {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("current-user")
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+        }
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let ticket = try service.debugCreateAttachTicketForTesting(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route],
+            macUserID: "previous-user"
+        )
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        guard case let .failure(error) = result else {
+            Issue.record("expected previous-user attach token to be rejected")
+            return
+        }
+        #expect(error.code == "account_mismatch")
     }
 
     @Test func testStoredAttachTicketAuthorizesCoveredRequestWithoutStackToken() async throws {

@@ -400,6 +400,7 @@ final class MobileHostService {
     private var manualPairingTicketMintExpiresAt: Date?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
+    private var debugAuthenticatedLocalUserID: String?
     #endif
 
     private init() {}
@@ -413,6 +414,11 @@ final class MobileHostService {
     /// pairing checks can't race it. `nil` when signed out (or before the auth
     /// graph is configured), which the authorization policy rejects.
     func currentAuthenticatedLocalUserID() async -> String? {
+        #if DEBUG
+        if let debugAuthenticatedLocalUserID {
+            return debugAuthenticatedLocalUserID
+        }
+        #endif
         guard let auth else { return nil }
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
@@ -439,6 +445,10 @@ final class MobileHostService {
         manualPairingTicketMintExpiresAt = Date().addingTimeInterval(max(30, ttl))
         manualPairingTicketMintSecret = secret
         return secret
+    }
+
+    func revokeManualPairingTicketMint() {
+        clearManualPairingTicketMint()
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -1306,7 +1316,11 @@ final class MobileHostService {
         // TCP; they can only present a short-lived attach token minted by this Mac
         // and scoped by `ticketAuthorizationError`.
         if let authorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
-            if let ticketError = Self.ticketAuthorizationError(authorization: authorization, request: request) {
+            if let accountError = await attachTicketAccountAuthorizationError(authorization: authorization) {
+                if request.auth?.stackAccessToken == nil {
+                    return .failure(accountError)
+                }
+            } else if let ticketError = Self.ticketAuthorizationError(authorization: authorization, request: request) {
                 if request.auth?.stackAccessToken == nil {
                     return .failure(ticketError)
                 }
@@ -1317,7 +1331,8 @@ final class MobileHostService {
         if request.method == "mobile.attach_ticket.create",
            request.auth?.stackAccessToken == nil,
            request.auth?.attachToken == nil,
-           manualPairingTicketMintAllowed(params: request.params) {
+           manualPairingTicketMintAllowed(params: request.params),
+           await currentAuthenticatedLocalUserID() != nil {
             return nil
         }
         if devStackTokenAuthorized(request) {
@@ -1349,6 +1364,23 @@ final class MobileHostService {
         try await Task.detached(priority: .utility) {
             try await MobileHostStackAuthVerifier.shared.verify(auth: auth)
         }.value
+    }
+
+    private func attachTicketAccountAuthorizationError(
+        authorization: MobileAttachTicketAuthorization
+    ) async -> MobileHostRPCError? {
+        guard let ticketUserID = authorization.ticket.macUserID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ticketUserID.isEmpty else {
+            return nil
+        }
+        guard let localUserID = await currentAuthenticatedLocalUserID(),
+              localUserID == ticketUserID else {
+            return MobileHostRPCError(
+                code: "account_mismatch",
+                message: "Sign in with the account that owns this Mac to continue."
+            )
+        }
+        return nil
     }
 
     func consumeManualPairingTicketMint(params: [String: Any], now: Date = Date()) -> Bool {
@@ -1791,18 +1823,24 @@ extension MobileHostService {
         workspaceID: String,
         terminalID: String?,
         routes: [CmxAttachRoute],
-        ttl: TimeInterval = 3600
+        ttl: TimeInterval = 3600,
+        macUserID: String? = nil
     ) throws -> CmxAttachTicket {
         try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
             routes: routes,
-            ttl: ttl
+            ttl: ttl,
+            macUserID: macUserID
         )
     }
 
     func debugClearManualPairingTicketMintForTesting() {
         clearManualPairingTicketMint()
+    }
+
+    func debugConfigureAuthenticatedLocalUserIDForTesting(_ userID: String?) {
+        debugAuthenticatedLocalUserID = userID
     }
 
     func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {

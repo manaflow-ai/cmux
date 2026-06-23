@@ -77,6 +77,7 @@ final class MobilePairingModel {
     func refresh() async {
         refreshGeneration &+= 1
         let generation = refreshGeneration
+        host.revokeManualPairingTicketMint()
         state = .loading
         guard let coordinator else {
             state = .failed(
@@ -91,6 +92,7 @@ final class MobilePairingModel {
         guard generation == refreshGeneration else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
+            host.revokeManualPairingTicketMint()
             state = .signedOut
             return
         }
@@ -213,6 +215,7 @@ final class MobilePairingModel {
     func stopObserving() {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        host.revokeManualPairingTicketMint()
     }
 
     /// Watches the mobile host's connection status while a code is displayed and
