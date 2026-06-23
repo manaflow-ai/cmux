@@ -105,14 +105,22 @@ resolve_hook_cmux_bin() {
     printf '%s' "cmux"
 }
 
-# Only the interactive session and `exec`/`e` entrypoints start a Codex session;
-# everything else (resume, review, login, mcp, doctor, --help, --version, ...)
-# must pass through untouched so it never receives session/hook flags. Mirrors
-# should_inject_claude_hooks: a leading non-option token that is a known Codex
-# subcommand means "not a session" unless it is the exec alias.
+# The interactive session, `exec`/`e`, and `resume` entrypoints all START a
+# Codex session, so all three must receive cmux's hook injection; everything
+# else (review, login, mcp, doctor, --help, --version, ...) passes through
+# untouched. `resume` is critical: cmux auto-resumes a session as `codex resume
+# <id>` after a Mac relaunch, and without hooks the resumed process fires no
+# SessionStart, so the registry keeps only the stale pre-relaunch record (its
+# old pid is dead -> seeded `.ended`) and the iOS GUI shows it read-only with no
+# input bar. Injecting hooks on resume lets the live resumed session re-bind and
+# flip back to idle/editable. codex accepts the global `--enable hooks` /
+# `--dangerously-bypass-hook-trust` / `-c hooks.X=...` flags before the `resume`
+# subcommand, so prepending them is safe. Mirrors should_inject_claude_hooks: a
+# leading non-option token that is a known Codex subcommand means "not a session"
+# unless it is exec or resume.
 codex_subcommand_starts_session() {
     case "$1" in
-        exec|e) return 0 ;;
+        exec|e|resume) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -153,7 +161,8 @@ codex_passthrough_option_flag() {
 
 # Decide whether this invocation is a Codex SESSION entrypoint we should inject
 # hooks into. Bare `codex` (no args) and `codex [prompt]` are interactive
-# sessions; `codex exec ...` is a non-interactive session; any other leading
+# sessions; `codex exec ...` is a non-interactive session; `codex resume ...`
+# (picker, <id>, --last, --all <id>) resumes a session; any other leading
 # subcommand is not.
 should_inject_codex_hooks() {
     (( $# == 0 )) && return 0
@@ -192,6 +201,32 @@ should_inject_codex_hooks() {
     return 0
 }
 
+# Extract the resumed session id from a `codex resume ...` argv. codex does NOT
+# fire its own SessionStart hook when resuming a session, so without this the GUI
+# never learns the resumed session's new live pid: it keeps the stale
+# pre-relaunch record whose pid is already dead, the exit watcher flips it to
+# `.ended`, and the iOS chat shows it read-only with no input bar. The wrapper,
+# unlike codex, knows the resumed id (it is in argv) and the new live pid ($$),
+# so it fires the session-start itself (below). The id is the first UUID-shaped
+# token after the `resume` subcommand; flags (`--all`, `-c k=v`, `--last`, ...)
+# are skipped because they are not UUID-shaped. `codex resume` with no id (the
+# interactive picker) and `--last` carry no id at launch, so this returns
+# non-zero and those are left to codex.
+cmux_codex_resume_session_id() {
+    local seen_resume=false arg
+    for arg in "$@"; do
+        if [[ "$seen_resume" == true ]]; then
+            if [[ "$arg" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+                printf '%s' "$arg"
+                return 0
+            fi
+        elif [[ "$arg" == "resume" ]]; then
+            seen_resume=true
+        fi
+    done
+    return 1
+}
+
 # Whether the invocation uses the non-interactive `exec`/`e` subcommand, which
 # requires --skip-git-repo-check tolerance differently; we never add flags codex
 # would reject, so this only gates the best-effort wrapper-fired session-start
@@ -225,7 +260,7 @@ if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
     exec_real_codex_passthrough "$@"
 fi
 
-# Not a session entrypoint (resume/doctor/--help/...): pass through unchanged.
+# Not a session entrypoint (review/login/doctor/--help/...): pass through.
 if ! should_inject_codex_hooks "$@"; then
     exec_real_codex_passthrough "$@"
 fi
@@ -250,11 +285,35 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
 
-# NOTE: no wrapper-fired launch session-start. Codex's own injected SessionStart
-# hook (below) fires within ~1s carrying Codex's REAL session_id, so it is the
-# single authoritative signal. A pre-exec wrapper-fired session-start has no
-# session id and made the handler mint a junk `fallback-*` record alongside the
-# real one (a phantom duplicate in the GUI), so it is intentionally omitted.
+# On a FRESH launch, no wrapper-fired session-start: codex's own injected
+# SessionStart hook (below) fires within ~1s carrying codex's REAL session_id, so
+# it is the single authoritative signal. A pre-exec wrapper-fired session-start
+# there had no session id and minted a junk `fallback-*` record (a phantom in the
+# GUI), so it stays omitted for fresh launches.
+#
+# RESUME is different: codex does NOT fire SessionStart when resuming, so the
+# injected hooks alone would never re-bind the session (its only pid-refreshing
+# event never arrives), leaving it stuck on the dead pre-relaunch pid -> `.ended`
+# -> read-only with no input bar, with no way out (you cannot submit a prompt
+# from a GUI that has no composer). The wrapper has the resumed id (from argv) and
+# the new live pid ($$, exported as CMUX_CODEX_PID above), so it fires the
+# session-start ITSELF. The handler binds surface/workspace/cwd from the cmux env
+# and pid from CMUX_CODEX_PID, re-binding the resumed session to its live pid and
+# flipping it back to idle/editable. Fire-and-forget (backgrounded + disowned) so
+# it never blocks the launch; best-effort so a failure can never break `codex`.
+cmux_codex_resume_sid="$(cmux_codex_resume_session_id "$@")"
+if [[ -n "$cmux_codex_resume_sid" \
+      && -n "$CMUX_CODEX_HOOK_CMUX_BIN" && -x "$CMUX_CODEX_HOOK_CMUX_BIN" ]]; then
+    cmux_codex_resume_payload="{\"session_id\":\"$cmux_codex_resume_sid\",\"cwd\":\"$PWD\"}"
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        ( printf '%s' "$cmux_codex_resume_payload" \
+            | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" --socket "$CMUX_SOCKET_PATH" hooks codex session-start >/dev/null 2>&1 ) &
+    else
+        ( printf '%s' "$cmux_codex_resume_payload" \
+            | nohup "$CMUX_CODEX_HOOK_CMUX_BIN" hooks codex session-start >/dev/null 2>&1 ) &
+    fi
+    disown 2>/dev/null || true
+fi
 
 # Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
 # list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
