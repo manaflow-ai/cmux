@@ -7167,7 +7167,10 @@ struct CMUXCLI {
         let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
         let (windowOpt, rem5) = parseOption(rem4, name: "--window")
         let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
-        let (envFiles, envPairs, remaining) = parseWorkspaceEnvOptions(rem6)
+        let (groupOpt, rem7) = parseOption(rem6, name: "--group")
+        let (groupPlacementOpt, rem8) = parseOption(rem7, name: "--group-placement")
+        let (groupReferenceOpt, rem9) = parseOption(rem8, name: "--group-reference")
+        let (envFiles, envPairs, remaining) = parseWorkspaceEnvOptions(rem9)
         if remaining.last == "--env" {
             throw CLIError(message: String(
                 format: String(
@@ -7192,7 +7195,7 @@ struct CMUXCLI {
             throw CLIError(message: String(
                 format: String(
                     localized: "cli.workspace.create.error.unknownFlag",
-                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>"
+                    defaultValue: "%@: unknown flag '%@'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --env KEY=VALUE, --env-file <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>, --group <id|ref>, --group-placement <afterCurrent|top|end>, --group-reference <workspace>"
                 ),
                 locale: .current,
                 commandName,
@@ -7206,6 +7209,9 @@ struct CMUXCLI {
         }
         if let nameOpt { params["title"] = nameOpt }
         if let descriptionOpt { params["description"] = descriptionOpt }
+        if let groupOpt { params["group_id"] = groupOpt }
+        if let groupPlacementOpt { params["group_placement"] = groupPlacementOpt }
+        if let groupReferenceOpt { params["group_reference_workspace_id"] = groupReferenceOpt }
         let workspaceEnv = try buildWorkspaceEnvironment(envFiles: envFiles, envPairs: envPairs, commandName: commandName)
         if !workspaceEnv.isEmpty {
             params["workspace_env"] = workspaceEnv
@@ -14705,7 +14711,7 @@ struct CMUXCLI {
             """
         case "new-workspace":
             return """
-            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+            Usage: cmux new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--env KEY=VALUE]... [--env-file <path>]... [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
 
             Create a new workspace in the caller's window.
 
@@ -14714,18 +14720,16 @@ struct CMUXCLI {
               --description <text> Set a custom description for the new workspace
               --cwd <path>         Set the working directory for the new workspace
               --command <text>     Send text+Enter to the new workspace after creation
-              --env KEY=VALUE      Set an environment variable for every shell in the
-                                   workspace (initial shell plus every later pane/split,
-                                   and across session restore). Repeatable. Reserved
-                                   CMUX_* variables cannot be overridden.
-              --env-file <path>    Load KEY=VALUE lines from a file into the workspace
-                                   environment. Repeatable; --env overrides file values.
-              --layout <json>      Create workspace with a predefined split layout (inline JSON).
-                                   Uses the same schema as cmux.json layout definitions.
-                                   When provided, --command is ignored (layout surfaces define their own commands).
-              --window <id|ref|index>
-                                   Target window (default: caller's window from $CMUX_WORKSPACE_ID/$CMUX_SURFACE_ID)
+              --env KEY=VALUE      Set a workspace environment variable. Repeatable.
+                                   Reserved CMUX_* variables cannot be overridden.
+              --env-file <path>    Load KEY=VALUE lines from a file. Repeatable.
+              --layout <json>      Create workspace with a predefined split layout.
+                                   Layout surfaces define their own commands.
+              --window <id|ref|index> Target window (default: caller's window)
               --focus <true|false> Focus the new workspace (default: false)
+              --group <id|ref>     Add the new workspace to a workspace group
+              --group-placement afterCurrent|top|end Placement within --group (default: top)
+              --group-reference <workspace> Reference workspace for afterCurrent placement
 
             Example:
               cmux new-workspace
@@ -14733,8 +14737,6 @@ struct CMUXCLI {
               cmux new-workspace --name "Launch" --description "Ship checklist"
               cmux new-workspace --cwd ~/projects/myapp
               cmux new-workspace --cwd . --command "npm test"
-              cmux new-workspace --cwd . --env AWS_PROFILE=prod --env API_BASE=https://api.example.com
-              cmux new-workspace --cwd . --env-file ./.cmux.env
               cmux new-workspace --name "Dev" --layout '{"direction":"horizontal","split":0.5,"children":[{"pane":{"surfaces":[{"type":"terminal","command":"vim"}]}},{"pane":{"surfaces":[{"type":"terminal","command":"npm run start"}]}}]}'
             """
         case "list-workspaces":
@@ -14760,8 +14762,7 @@ struct CMUXCLI {
 
             Subcommands:
               list                    List workspaces in a window
-              create [flags]          Create a workspace (same flags as new-workspace,
-                                      including --env KEY=VALUE and --env-file <path>)
+              create [flags]          Create a workspace (same flags as new-workspace)
               env [workspace] [--mask]
                                       Print a workspace's configured environment
                                       variables (--mask redacts the values)
@@ -14781,7 +14782,6 @@ struct CMUXCLI {
             Examples:
               cmux workspace list --json
               cmux workspace create --name Build --cwd ~/projects/myapp
-              cmux workspace create --cwd . --env AWS_PROFILE=prod --env-file ./.cmux.env
               cmux workspace env workspace:3 --mask
               cmux workspace close workspace:3
               cmux workspace reconnect
@@ -27254,7 +27254,7 @@ function looksLikeOpenCodeScript(value) {
 function isOpenCodeInternalWorkerArg(value) {
   if (!value) return false;
   const normalized = String(value).replaceAll("\\", "/");
-  return normalized.includes("/$bunfs/") && normalized.includes("/src/cli/cmd/tui/worker.js");
+  return normalized.includes("/$bunfs/") && normalized.endsWith("/tui/worker.js");
 }
 
 function withoutOpenCodeInternalWorkerArgs(argv) {
@@ -34376,7 +34376,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           workspace-action --action <name> [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces [--window <id|ref|index>]
-          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
+          new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--group <id|ref>] [--group-placement afterCurrent|top|end] [--group-reference <workspace>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
           ssh-tmux <destination> [--port <n>] [--identity <path>] [--no-focus]
           ssh-session-list [--workspace <id|ref|index> | --all-workspaces]

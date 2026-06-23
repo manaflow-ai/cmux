@@ -71,10 +71,10 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
-    /// Extra blank top padding for the terminal/chat, on top of the safe area, so
-    /// the first rows sit clear of the Dynamic Island / nav bar with breathing
-    /// room instead of being jammed against them.
-    private var terminalTopPadding: CGFloat { 20 }
+    /// Extra blank top padding for the terminal/chat, on top of the safe area. The
+    /// grid already sits below the nav bar (in the top safe area), so this is just
+    /// a hairline so the first row is not jammed against the bar's bottom edge.
+    private var terminalTopPadding: CGFloat { 4 }
 
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
@@ -364,6 +364,24 @@ struct WorkspaceDetailView: View {
                 .padding(.top, 10)
                 .padding(.leading, 10)
         }
+        .overlay {
+            // When the phone is not connected to this Mac, show a clear
+            // reconnecting/offline state with an action instead of a black
+            // terminal (the recurring "black screen" — a dropped connection left
+            // the user staring at an unrendered surface).
+            if connectionStatus != .connected {
+                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+                    Task {
+                        if let macDeviceID = workspace.macDeviceID,
+                           !macDeviceID.isEmpty,
+                           await store.switchToMac(macDeviceID: macDeviceID) {
+                            return
+                        }
+                        await store.reconnectOrRefresh()
+                    }
+                }
+            }
+        }
         #if os(iOS) && DEBUG
         // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
         // store flags that drive the surface's composer mirror, so a UI test can assert
@@ -541,10 +559,9 @@ struct WorkspaceDetailView: View {
             .accessibilityIdentifier("MobileNewBrowserMenuItem")
         }
 
-        // Rename the current workspace from the terminal-icon menu, mirroring the
-        // workspace list's rename action. Gated on the same capability the list
-        // uses, so it stays hidden on older Macs.
-        if store.supportsWorkspaceActions {
+        // Rename the current workspace from the terminal-icon menu, mirroring
+        // the workspace list's row-scoped capability gate.
+        if workspace.actionCapabilities.supportsWorkspaceActions {
             Section {
                 Button(action: presentRenameFromMenu) {
                     Label(
@@ -557,9 +574,8 @@ struct WorkspaceDetailView: View {
         }
 
         // Mark the current workspace read/unread from the terminal-icon menu,
-        // mirroring the workspace list's swipe action. Only when the Mac supports
-        // read-state actions, so it stays hidden on older Macs.
-        if store.supportsWorkspaceReadStateActions {
+        // mirroring the workspace list's row-scoped capability gate.
+        if workspace.actionCapabilities.supportsReadStateActions {
             Section {
                 Button(action: toggleWorkspaceReadStateFromMenu) {
                     Label(

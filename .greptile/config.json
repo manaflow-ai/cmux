@@ -171,6 +171,37 @@
       "severity": "high"
     },
     {
+      "id": "cmux-no-ambient-global-state",
+      "rule": "Flag new ambient global state in production Swift: a top-level (file-scope) func used as API, a top-level mutable var or a stub class/struct holding a global flag/once-token, a caseless enum/empty struct used purely as a static func/static let namespace or a type whose API is mostly static funcs, or a new singleton (static let shared/standard/default, or new app-delegate state) for runtime state that should be owned by a scoped type and injected at the app seam. Prefer methods on a constructable, injectable owning type and private/fileprivate file-scope helpers. Pass for static let constants, enum cases, protocol/extension conformances, existing globals only touched incidentally, and platform/@main boundaries that require top-level declarations.",
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-hot-path-allocating-formatting",
+      "rule": "Flag per-call allocating formatting on hot or concurrent Swift paths (git index/signature encoding, terminal input/render, sidebar/feed/list rows, snapshot builders, per-byte/row/keystroke/frame loops): String(format:) with per-element conversions, a NumberFormatter/DateFormatter/ISO8601DateFormatter/ByteCountFormatter allocated per call inside a loop or row body, or repeated per-element string building where a preallocated buffer would avoid the churn. Canonical P0: cmux PR 5347, where String(format:) byte-to-hex in the concurrent git-index snapshot path caused unbounded memory growth and user crashes. Pass for cold paths, reused/cached formatters, fixed-table buffer encoding, tests/benchmarks, and existing formatting not moved into a hotter or concurrent path.",
+      "scope": [
+        "**/*.swift"
+      ],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-reliability-single-source-of-truth",
+      "rule": "Flag correctness-critical detection/identity derived unreliably: a value the UI trusts (which agent is running, agent/session lifecycle and liveness, workspace/pane/surface identity, controls enable/route input) derived from a window/pane/terminal title, name, or process-argv heuristic; an unreliable but-better-than-nothing fallback branch where a wrong value is a correctness bug; more than one disagreeing source of truth for the same fact; or a throttle/poll interval on the read that introduces a visible staleness window. Require a single reliable structured source (session id, registered agent descriptor, typed lifecycle event) and failing closed when it is missing. Pass for genuinely cosmetic non-authoritative hints and coalescing that does not delay the observable value.",
+      "scope": [
+        "**/*.swift",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.mjs",
+        "**/*.cjs"
+      ],
+      "severity": "high"
+    },
+    {
       "id": "cmux-source-control-artifacts",
       "rule": "Flag local tool output, generated logs, screenshots, recordings, temp folders, dependency checkouts, caches, build output, DerivedData, package-manager downloads, and broad scratch directories that enter source control without a deliberate product, docs, fixture, build, release, or test-system reason. Pass for intentional source files, configs, localization catalogs, review rules, durable docs assets, required fixtures, generated files that are already part of the repo's source-of-truth model, and PRs that only remove or ignore existing accidental artifacts.",
       "scope": [

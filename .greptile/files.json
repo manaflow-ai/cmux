@@ -136,6 +136,34 @@
       ]
     },
     {
+      "path": ".github/review-bot-rules/no-ambient-global-state.md",
+      "description": "Source-of-truth cmux review rule against ambient global state: top-level free functions, global mutable vars, static-only namespace types, and new singletons that should be owned and injected.",
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/hot-path-allocating-formatting.md",
+      "description": "Source-of-truth cmux review rule against per-call allocating formatting (String(format:), per-call formatters) on hot or concurrent Swift paths.",
+      "scope": [
+        "**/*.swift"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/reliability-single-source-of-truth.md",
+      "description": "Source-of-truth cmux review rule requiring a single reliable source of truth for correctness-critical detection/identity, with no title/name heuristics or unreliable fallbacks.",
+      "scope": [
+        "**/*.swift",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.mjs",
+        "**/*.cjs"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/source-control-artifacts.md",
       "description": "Source-of-truth cmux review rule for local/generated artifacts that should not enter source control.",
       "scope": [

@@ -1,10 +1,18 @@
 import Foundation
+import CmuxSettings
 @testable import CmuxControlSocket
 
 @MainActor
 final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     var listResolution: ControlWorkspaceListResolution = .tabManagerUnavailable
     var currentResolution: ControlWorkspaceCurrentResolution = .tabManagerUnavailable
+    var addWorkspaceToGroupResolution: ControlWorkspaceGroupAddResolution = .tabManagerUnavailable
+    var addWorkspaceToGroupCall: (
+        groupID: UUID,
+        workspaceID: UUID,
+        placement: WorkspaceGroupNewPlacement?,
+        referenceWorkspaceID: UUID?
+    )?
 
     func controlWindowSummaries() -> [ControlWindowSummary] { [] }
     func controlResolveCurrentWindow(routing: ControlRoutingSelectors) -> ControlCurrentWindowResolution {
@@ -39,5 +47,21 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
 
     func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution {
         currentResolution
+    }
+
+    func controlAddWorkspaceToGroup(
+        routing: ControlRoutingSelectors,
+        groupID: UUID,
+        workspaceID: UUID,
+        placement: WorkspaceGroupNewPlacement?,
+        referenceWorkspaceID: UUID?
+    ) -> ControlWorkspaceGroupAddResolution {
+        addWorkspaceToGroupCall = (
+            groupID: groupID,
+            workspaceID: workspaceID,
+            placement: placement,
+            referenceWorkspaceID: referenceWorkspaceID
+        )
+        return addWorkspaceToGroupResolution
     }
 }
