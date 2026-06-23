@@ -502,7 +502,7 @@
         },
         "textBoxDefaultSubmitAction": {
           "type": "string",
-          "default": "text-entry",
+          "default": "claude",
           "description": "Default TextBox submit action ID for new terminal sessions. Use text-entry for plain input or one of the configured action IDs."
         },
         "textBoxSubmitActions": {
@@ -512,7 +512,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "title", "kind"],
+            "required": ["id", "title", "kind", "systemImage", "backgroundColorHex"],
             "properties": {
               "id": {
                 "type": "string",
@@ -553,7 +553,36 @@
                 "pattern": "^#?[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
                 "description": "Submit button fill color as RGB or RGBA hex."
               }
-            }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": ["kind"],
+                  "properties": {
+                    "kind": { "const": "commandTemplate" }
+                  }
+                },
+                "then": {
+                  "required": ["commandTemplate"],
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "commandTemplate": {
+                          "type": "string",
+                          "pattern": "\\{\\{prompt\\}\\}"
+                        }
+                      }
+                    },
+                    {
+                      "required": ["preservePromptAfterLaunch"],
+                      "properties": {
+                        "preservePromptAfterLaunch": { "const": true }
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
           }
         },
         "resumeCommands": {
