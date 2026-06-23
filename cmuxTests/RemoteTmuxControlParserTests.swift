@@ -512,6 +512,28 @@ import Testing
         #expect(state.command == "node")
         #expect(state.hasActiveCommand)
     }
+
+    // MARK: - Remote agent classification (sidebar agent chip)
+
+    @Test func foregroundedAgentCLIsAreClassified() {
+        // An interactive `claude` reports pane_current_command == "claude"
+        // (verified empirically), so the comm name maps straight to a provider.
+        #expect(State(rawValue: "0|claude").agentProvider == .claude)
+        #expect(State(rawValue: "0|codex").agentProvider == .codex)
+        #expect(State(rawValue: "0|opencode").agentProvider == .opencode)
+    }
+
+    @Test func nonAgentForegroundCommandsAreNotClassified() {
+        // Shells and ordinary tools must not be mistaken for an agent.
+        for raw in ["0|bash", "0|-zsh", "0|vim", "0|node", "0|python", "0|", ""] {
+            #expect(State(rawValue: raw).agentProvider == nil, "raw=\(raw)")
+        }
+    }
+
+    @Test func agentClassificationIgnoresAlternateScreenFlag() {
+        // The provider is derived from the comm name regardless of alt-screen.
+        #expect(State(rawValue: "1|claude").agentProvider == .claude)
+    }
 }
 
 /// The `refresh-client -B` subscribe lines must keep their `name:target:format`

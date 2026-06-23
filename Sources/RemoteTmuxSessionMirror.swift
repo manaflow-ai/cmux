@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSidebar
 
 /// Mirrors one remote tmux session into a dedicated cmux sidebar workspace.
 ///
@@ -172,6 +173,9 @@ final class RemoteTmuxSessionMirror {
             mirror.teardown()
         }
         windowMirrorByWindowId.removeAll()
+        // Clear the sidebar agent chip so a torn-down mirror doesn't leave a stale
+        // "agent running" row behind.
+        workspace?.statusEntries[Self.agentStatusKey] = nil
     }
 
     /// The tmux window id (if any) whose layout currently contains `paneId`.
@@ -251,6 +255,9 @@ final class RemoteTmuxSessionMirror {
         if desiredPanelOrder.count > 1 {
             workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
         }
+        // A closed window/pane can remove the agent that was foregrounded, so
+        // reconcile the sidebar agent chip on topology changes too.
+        refreshAgentStatus()
     }
 
     nonisolated static func shouldSeedSinglePaneDisplay(for window: RemoteTmuxWindow) -> Bool {
@@ -420,6 +427,10 @@ final class RemoteTmuxSessionMirror {
     /// Routes exactly like ``routeOutput(paneId:data:)`` — multi-pane windows own
     /// their pane surfaces, single-pane windows use the tab's panel surface.
     private func routeNoReflow(paneId: Int, noReflow: Bool) {
+        // The foreground-command classification that drives reflow also tells us
+        // whether an agent CLI is now foregrounded in this pane, so refresh the
+        // sidebar agent chip on the same signal.
+        refreshAgentStatus()
         if let windowId = windowIdContaining(pane: paneId),
            let mirror = windowMirrorByWindowId[windowId] {
             mirror.surface(forPane: paneId)?.setManualIONoReflow(noReflow)
@@ -429,6 +440,56 @@ final class RemoteTmuxSessionMirror {
               let panelId = panelIdByPane[paneId],
               let panel = workspace.panels[panelId] as? TerminalPanel else { return }
         panel.surface.setManualIONoReflow(noReflow)
+    }
+
+    /// Sidebar status-entry key for the mirror's remote-agent chip. Stable per
+    /// mirror so repeated writes replace (rather than stack) the row.
+    private static let agentStatusKey = "remote-tmux.agent"
+
+    /// Reflects "a coding agent CLI is running in this remote session" into the
+    /// workspace's sidebar status row, driven by the per-pane foreground command
+    /// already streamed for reflow classification (`pane_current_command`). Writes
+    /// a single keyed `SidebarStatusEntry` when any pane foregrounds a known agent,
+    /// and clears it otherwise. This is the same runtime status surface the control
+    /// socket writes to (``Workspace/statusEntries``), so the existing sidebar
+    /// renders it with no UI change.
+    ///
+    /// Coarse by design: the remote tmux exposes only the foreground comm name, so
+    /// this reports presence ("Claude Code running"), not busy/idle or model — that
+    /// richer signal is a planned follow-up that reads the remote `~/.claude` state
+    /// over the shared SSH master.
+    private func refreshAgentStatus() {
+        guard let workspace else { return }
+        let provider = foregroundedAgentProvider()
+        let existing = workspace.statusEntries[Self.agentStatusKey]
+        guard let provider else {
+            if existing != nil { workspace.statusEntries[Self.agentStatusKey] = nil }
+            return
+        }
+        let value = String(
+            localized: "remoteTmux.agentStatus.running",
+            defaultValue: "\(provider.displayName) running"
+        )
+        // Replace only on a meaningful change so an unrelated foreground flap
+        // (e.g. a non-agent pane) doesn't churn the row's timestamp.
+        if existing?.value == value, existing?.key == Self.agentStatusKey { return }
+        workspace.statusEntries[Self.agentStatusKey] = SidebarStatusEntry(
+            key: Self.agentStatusKey,
+            value: value,
+            icon: "sparkles",
+            priority: 50,
+            timestamp: Date()
+        )
+    }
+
+    /// The agent provider foregrounded in any of this session's panes (focused/
+    /// active panes are not privileged — any pane running an agent surfaces it),
+    /// or `nil` when no pane foregrounds a known agent.
+    private func foregroundedAgentProvider() -> AgentSessionProviderID? {
+        for state in connection.paneForegroundStates.values {
+            if let provider = state.agentProvider { return provider }
+        }
+        return nil
     }
 
     /// Routes a split of a mirror window-tab (by its panel id) to tmux
