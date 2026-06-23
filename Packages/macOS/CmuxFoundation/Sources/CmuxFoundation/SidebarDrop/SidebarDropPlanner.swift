@@ -18,6 +18,30 @@ public struct SidebarDropPlanner {
         targetHeight: CGFloat? = nil,
         preserveTargetEdge: Bool = false
     ) -> SidebarDropIndicator? {
+        indicator(
+            draggedTabId: draggedTabId,
+            targetTabId: targetTabId,
+            tabIds: tabIds,
+            pinnedTabIds: pinnedTabIds,
+            legalInsertionRange: legalInsertionRange,
+            pointerY: pointerY,
+            targetHeight: targetHeight,
+            preserveTargetEdge: preserveTargetEdge,
+            suppressesNoOp: true
+        )
+    }
+
+    func indicator(
+        draggedTabId: UUID?,
+        targetTabId: UUID?,
+        tabIds: [UUID],
+        pinnedTabIds: Set<UUID>,
+        legalInsertionRange: ClosedRange<Int>? = nil,
+        pointerY: CGFloat? = nil,
+        targetHeight: CGFloat? = nil,
+        preserveTargetEdge: Bool = false,
+        suppressesNoOp: Bool
+    ) -> SidebarDropIndicator? {
         guard tabIds.count > 1, let draggedTabId else { return nil }
         guard let fromIndex = tabIds.firstIndex(of: draggedTabId) else { return nil }
 
@@ -45,12 +69,14 @@ public struct SidebarDropPlanner {
             pinnedTabIds: pinnedTabIds,
             legalInsertionRange: legalInsertionRange
         )
-        let legalTargetIndex = resolvedTargetIndex(
-            from: fromIndex,
-            insertionPosition: legalInsertionPosition,
-            totalCount: tabIds.count
-        )
-        guard legalTargetIndex != fromIndex else { return nil }
+        if suppressesNoOp {
+            let legalTargetIndex = resolvedTargetIndex(
+                from: fromIndex,
+                insertionPosition: legalInsertionPosition,
+                totalCount: tabIds.count
+            )
+            guard legalTargetIndex != fromIndex else { return nil }
+        }
         if preserveTargetEdge, legalInsertionPosition == insertionPosition {
             return proposedIndicator
         }

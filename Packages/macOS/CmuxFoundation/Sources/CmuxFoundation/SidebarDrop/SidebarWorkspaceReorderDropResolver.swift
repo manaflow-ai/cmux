@@ -268,7 +268,13 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         )
         let requestedIndicator = logicalIndicator(for: rootTarget)
         let tabIds = usesTopLevelRows
-            ? topLevelWorkspaceIds(workspaces: request.workspaces, groupsById: groupsById, promotingWorkspaceId: request.draggedWorkspaceId)
+            ? topLevelWorkspaceIds(
+                workspaces: request.workspaces,
+                workspacesById: workspacesById,
+                groupsById: groupsById,
+                groupByAnchorId: groupByAnchorId,
+                promotingWorkspaceId: request.draggedWorkspaceId
+            )
             : request.workspaces.map(\.id)
         let pinnedTabIds = usesTopLevelRows
             ? topLevelPinnedWorkspaceIds(
@@ -289,6 +295,9 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
 
+        let promotesGroupedWorkspace = usesTopLevelRows &&
+            draggedWorkspace.groupId != nil &&
+            groupByAnchorId[draggedWorkspace.id] == nil
         let plannedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: rootTarget.workspaceId,
@@ -296,12 +305,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             pinnedTabIds: pinnedTabIds,
             pointerY: rootTarget.pointerY,
             targetHeight: rootTarget.targetHeight,
-            preserveTargetEdge: true
+            preserveTargetEdge: true,
+            suppressesNoOp: !promotesGroupedWorkspace
         )
-        let promotesGroupedWorkspace = usesTopLevelRows &&
-            draggedWorkspace.groupId != nil &&
-            groupByAnchorId[draggedWorkspace.id] == nil
-        guard let indicator = plannedIndicator ?? (promotesGroupedWorkspace ? rootTarget.indicator ?? requestedIndicator : nil) else {
+        guard let indicator = plannedIndicator else {
             return nil
         }
         let renderedIndicator = renderedRootIndicator(
@@ -341,7 +348,9 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         let requestedIndicator = logicalIndicator(for: rootTarget)
         let topLevelIds = topLevelWorkspaceIds(
             workspaces: request.workspaces,
+            workspacesById: workspacesById,
             groupsById: groupsById,
+            groupByAnchorId: groupByAnchorId,
             promotingWorkspaceId: nil
         )
         let proposedInsertionIndex = insertionPosition(for: requestedIndicator, tabIds: topLevelIds)
@@ -604,7 +613,9 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
 
     private func topLevelWorkspaceIds(
         workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot],
+        workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
         promotingWorkspaceId: UUID?
     ) -> [UUID] {
         var emittedGroupIds = Set<UUID>()
@@ -626,7 +637,16 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
            let groupId = promoted.groupId,
            let group = groupsById[groupId],
            let groupIndex = ids.firstIndex(of: group.anchorWorkspaceId) {
-            ids.insert(promotingWorkspaceId, at: min(groupIndex + 1, ids.count))
+            ids.insert(
+                promotingWorkspaceId,
+                at: promotedTopLevelInsertionIndex(
+                    ids: ids,
+                    groupIndex: groupIndex,
+                    promotedIsPinned: promoted.isPinned,
+                    workspacesById: workspacesById,
+                    groupByAnchorId: groupByAnchorId
+                )
+            )
         }
         return ids
     }
@@ -640,14 +660,40 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     ) -> Set<UUID> {
         Set(topLevelWorkspaceIds(
             workspaces: workspaces,
+            workspacesById: workspacesById,
             groupsById: groupsById,
+            groupByAnchorId: groupByAnchorId,
             promotingWorkspaceId: promotingWorkspaceId
         ).filter { id in
-            if let group = groupByAnchorId[id] {
-                return group.isPinned
-            }
-            return workspacesById[id]?.isPinned == true
+            topLevelWorkspaceIdIsPinned(id, workspacesById: workspacesById, groupByAnchorId: groupByAnchorId)
         })
+    }
+
+    private func promotedTopLevelInsertionIndex(
+        ids: [UUID],
+        groupIndex: Int,
+        promotedIsPinned: Bool,
+        workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+    ) -> Int {
+        let desiredIndex = min(groupIndex + 1, ids.count)
+        let pinnedCount = ids.reduce(into: 0) { count, id in
+            if topLevelWorkspaceIdIsPinned(id, workspacesById: workspacesById, groupByAnchorId: groupByAnchorId) {
+                count += 1
+            }
+        }
+        return promotedIsPinned ? min(desiredIndex, pinnedCount) : max(desiredIndex, pinnedCount)
+    }
+
+    private func topLevelWorkspaceIdIsPinned(
+        _ id: UUID,
+        workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+    ) -> Bool {
+        if let group = groupByAnchorId[id] {
+            return group.isPinned
+        }
+        return workspacesById[id]?.isPinned == true
     }
 
     private func pointerY(for edge: SidebarDropEdge, targetHeight: CGFloat?) -> CGFloat? {
