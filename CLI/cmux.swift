@@ -26631,9 +26631,7 @@ struct CMUXCLI {
                 let end = min(arguments.count, index + width)
                 if index + 2 < end {
                     for candidateIndex in (index + 2)..<end where arguments[candidateIndex] == "fork" {
-                        if codexForkSessionIdentifier(in: arguments, after: candidateIndex) != nil {
-                            return candidateIndex
-                        }
+                        return candidateIndex
                     }
                 }
             }
