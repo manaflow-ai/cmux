@@ -1,19 +1,18 @@
 import XCTest
 
 /// App Store screenshot capture, driven by `fastlane snapshot` (see
-/// ios/fastlane/Snapfile). Runs against a DEBUG build with the existing
-/// `CMUX_UITEST_MOCK_DATA` hook, which skips onboarding and lands on a
-/// signed-in shell populated with the PreviewMobileHost sample workspaces, so no
-/// Apple sign-in, Mac pairing, or network is required.
+/// ios/fastlane/Snapfile / Fastfile). Runs against a DEBUG build using the app's
+/// standalone preview hooks, which render real UI deterministically with no
+/// sign-in, Mac pairing, or network:
+///   - CMUX_UITEST_WORKSPACE_LIST_PREVIEW=1 -> workspace list fixture
+///   - CMUX_UITEST_TERMINAL_PREVIEW=1        -> terminal surface fixture
+/// (CMUX_UITEST_MOCK_DATA alone lands on the add-device/pairing screen, which is
+/// signed-in-but-unpaired and not a useful store screenshot.)
 ///
 /// `setupSnapshot(app)` injects the locale fastlane is capturing (en-US / ja),
-/// so this test must NOT hardcode `-AppleLanguages` the way the functional UI
-/// tests do.
-///
-/// Selectors mirror the accessibility identifiers used in cmuxUITests.swift
-/// (`MobileWorkspaceList`, `MobileTerminalSurface`, ...). Capture is best-effort
-/// per screen so a layout change degrades to fewer screenshots rather than a
-/// hard failure.
+/// so this test must NOT hardcode `-AppleLanguages`. Each screen is a separate
+/// launch with the relevant preview env; `snapshot()` is called after the screen
+/// settles.
 final class SnapshotUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = true
@@ -23,38 +22,37 @@ final class SnapshotUITests: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         let app = XCUIApplication()
         setupSnapshot(app)
+
+        // The preview screens are the root view for their env flag, so they
+        // render on launch; wait for the first window + a brief settle rather
+        // than a specific identifier (the preview views don't expose one).
+        func settle() {
+            _ = app.wait(for: .runningForeground, timeout: 15)
+            _ = app.windows.firstMatch.waitForExistence(timeout: 15)
+            _ = app.staticTexts.firstMatch.waitForExistence(timeout: 8)
+        }
+
+        // 1) Workspace list.
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = "1"
+        app.launchEnvironment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] = "1"
         app.launch()
+        settle()
+        snapshot("01-Workspaces")
+        app.terminate()
 
-        let workspaceList = app.otherElements["MobileWorkspaceList"]
-        let terminalSurface = app.otherElements["MobileTerminalSurface"]
+        // 2) Terminal surface (keyboard down).
+        app.launchEnvironment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] = nil
+        app.launchEnvironment["CMUX_UITEST_TERMINAL_PREVIEW"] = "1"
+        app.launchEnvironment["CMUX_UITEST_SHOW_ZOOM"] = "1"
+        app.launch()
+        settle()
+        snapshot("02-Terminal")
 
-        // 1) Workspace list with sample workspaces.
-        if workspaceList.waitForExistence(timeout: 30) {
-            snapshot("01-Workspaces")
-
-            // Drill into the first workspace to reach the terminal, unless the
-            // shell already auto-opened one.
-            if !terminalSurface.exists {
-                let firstCell = workspaceList.buttons.firstMatch
-                if firstCell.waitForExistence(timeout: 5), firstCell.isHittable {
-                    firstCell.tap()
-                }
-            }
-        }
-
-        // 2) Terminal surface.
-        if terminalSurface.waitForExistence(timeout: 30) {
-            snapshot("02-Terminal")
-
-            // 3) Composer / keyboard-up layout, if reachable.
-            let composeButton = app.buttons["terminal.inputAccessory.composeButton"]
-                .exists ? app.buttons["terminal.inputAccessory.composeButton"]
-                        : app.buttons.matching(NSPredicate(format: "identifier CONTAINS 'compose'")).firstMatch
-            if composeButton.exists, composeButton.isHittable {
-                composeButton.tap()
-                snapshot("03-Compose")
-            }
-        }
+        // 3) Terminal with the software keyboard up (input layout).
+        app.terminate()
+        app.launchEnvironment["CMUX_UITEST_FAKE_KEYBOARD_HEIGHT"] = "336"
+        app.launch()
+        settle()
+        snapshot("03-Terminal-Keyboard")
     }
 }
