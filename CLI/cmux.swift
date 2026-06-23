@@ -26702,11 +26702,30 @@ struct CMUXCLI {
     private func cmuxLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
         guard let first = arguments.first else { return 0 }
         let executableName = first.split(separator: "/").last.map(String.init) ?? first
-        return executableName == "cmux" ? 1 : 0
+        return executableName == "cmux" || executableName.hasPrefix("cmux ") ? 1 : 0
     }
 
     private func codexLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
-        ((arguments.first?.split(separator: "/").last).map(String.init) ?? arguments.first ?? "") == "codex" ? 1 : 0
+        guard let first = arguments.first else { return 0 }
+        let executableName = first.split(separator: "/").last.map(String.init) ?? first
+        if executableName == "codex" {
+            return 1
+        }
+        if executableName == "node" || executableName == "bun" {
+            for index in arguments.indices.dropFirst() where codexScriptArgumentDescribesCodex(arguments[index]) {
+                return index + 1
+            }
+        }
+        return 0
+    }
+
+    private func codexScriptArgumentDescribesCodex(_ argument: String) -> Bool {
+        let lowered = argument.lowercased()
+        let basename = argument.split(separator: "/").last.map(String.init)?.lowercased() ?? lowered
+        return basename == "codex"
+            || basename == "codex.js"
+            || lowered.contains("/@openai/codex/")
+            || lowered.contains("/node_modules/@openai/codex/")
     }
 
     private func codexRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
@@ -26832,17 +26851,20 @@ struct CMUXCLI {
         for candidate in [payloadSessionId, resolvedSessionId] {
             guard let candidate else { continue }
             guard let record = try? store.lookup(sessionId: candidate) else { continue }
+            if codexStoredSessionMatchesCurrentRawFork(record, launchArguments: launchArguments) {
+                continue
+            }
             if let forkSurfaceId {
                 if record.surfaceId != forkSurfaceId {
                     return true
                 }
                 continue
             }
-            if failClosedForStoredSelectorSessions && !hasExplicitParentSessionId {
-                return true
-            }
             if codexStoredSessionMatchesCurrentFork(record, sanitizedLaunchArguments: sanitizedLaunchArguments) {
                 continue
+            }
+            if failClosedForStoredSelectorSessions && !hasExplicitParentSessionId {
+                return true
             }
         }
         return false
@@ -26857,6 +26879,18 @@ struct CMUXCLI {
             return false
         }
         return storedArguments == sanitizedLaunchArguments
+    }
+
+    private func codexStoredSessionMatchesCurrentRawFork(
+        _ record: ClaudeHookSessionRecord,
+        launchArguments: [String]?
+    ) -> Bool {
+        guard let launchArguments,
+              codexForkCommandIndex(in: launchArguments) != nil,
+              let storedArguments = record.launchCommand?.arguments else {
+            return false
+        }
+        return storedArguments == launchArguments
     }
 
     private func codexSanitizedForkLaunchArguments(

@@ -127,6 +127,16 @@ public enum AgentLaunchCaptureTrust {
             }) {
                 descriptors.insert("claude")
             }
+            if arguments.dropFirst().contains(where: { argument in
+                let lowered = argument.lowercased()
+                let basename = processBasename(argument)
+                return basename == "codex"
+                    || basename == "codex.js"
+                    || lowered.contains("/@openai/codex/")
+                    || lowered.contains("/node_modules/@openai/codex/")
+            }) {
+                descriptors.insert("codex")
+            }
             return descriptors
         }
 

@@ -3522,10 +3522,15 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let forkLaunches: [(label: String, arguments: [String], includeTTYBinding: Bool)] = [
             ("explicit parent id", ["/usr/local/bin/codex", "fork", parentSessionId, "--model", "gpt-5.4"], true),
+            ("node codex.js explicit parent id", ["node", "/Users/alice/.bun/install/global/node_modules/@openai/codex/bin/codex.js", "fork", parentSessionId], true),
+            ("node flagged codex.js explicit parent id", ["node", "--enable-source-maps", "/Users/alice/.bun/install/global/node_modules/@openai/codex/bin/codex.js", "fork", parentSessionId], true),
+            ("node shim explicit parent id", ["node", "/opt/homebrew/bin/codex", "fork", parentSessionId], true),
+            ("bun codex.js explicit parent id", ["bun", "/Users/alice/.bun/install/global/node_modules/@openai/codex/bin/codex.js", "fork", parentSessionId], true),
             ("variadic image explicit parent id", ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", parentSessionId, "--model", "gpt-5.4"], true),
             ("variadic image --last selector", ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", "--last", "continue from here"], true),
             ("variadic image picker selector", ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork"], true),
             ("codex teams wrapper", ["/usr/local/bin/cmux", "codex-teams", "fork", parentSessionId, "--model", "gpt-5.4"], true),
+            ("tagged codex teams wrapper", ["/Applications/cmux DEV cfork.app/Contents/MacOS/cmux DEV cfork", "codex-teams", "fork", parentSessionId, "--model", "gpt-5.4"], true),
             ("--last selector with prompt", ["/usr/local/bin/codex", "fork", "--last", "continue from here"], true),
             ("picker selector", ["/usr/local/bin/codex", "fork"], true),
             ("picker selector ambient only", ["/usr/local/bin/codex", "fork"], false),
@@ -3624,6 +3629,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let forkSurfaceId = "33333333-3333-3333-3333-333333333333"
         let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
         let childSessionId = "019dad34-d218-7943-b81a-eddac5c87952"
+        let ttyName = "ttys305"
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer {
@@ -3650,12 +3656,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 childSessionId: [
                     "sessionId": childSessionId,
                     "workspaceId": workspaceId,
-                    "surfaceId": forkSurfaceId,
+                    "surfaceId": parentSurfaceId,
                     "cwd": root.path,
                     "pid": NSNull(),
                     "runtimeStatus": "active",
                     "startedAt": now,
                     "updatedAt": now,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "fork", "--last"],
+                        "workingDirectory": root.path,
+                        "capturedAt": now,
+                        "source": "test",
+                    ],
                 ],
             ],
         ]
@@ -3670,6 +3684,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             switch method {
             case "surface.list":
                 return self.surfaceListResponse(id: id, surfaceId: forkSurfaceId)
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": forkSurfaceId]]]
+                )
             case "system.top":
                 return self.v2Response(
                     id: id,
@@ -3703,6 +3723,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = workspaceId
         environment["CMUX_SURFACE_ID"] = forkSurfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
         environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
@@ -3711,7 +3732,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
             "/usr/local/bin/codex",
             "fork",
-            parentSessionId,
+            "--last",
         ])
 
         let sessionStart = runProcess(
