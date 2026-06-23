@@ -2729,6 +2729,7 @@ struct TextBoxInputContainer: View {
     private var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     private var configuredSubmitActionsJSON = ""
+    @State private var submitActionImageCache: [String: NSImage] = [:]
 
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
@@ -2762,6 +2763,21 @@ struct TextBoxInputContainer: View {
             return TextBoxSubmitAction.normalizedCatalog(configuredActions)
         }
         return TextBoxSubmitAction.builtInActions
+    }
+
+    private var submitActionImagePaths: [String] {
+        let paths = submitActions.compactMap { action -> String? in
+            guard let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !path.isEmpty else {
+                return nil
+            }
+            return expandedSubmitActionImagePath(path)
+        }
+        return Array(Set(paths)).sorted()
+    }
+
+    private var submitActionImagePathCacheKey: String {
+        submitActionImagePaths.joined(separator: "\u{1F}")
     }
 
     private var hasActiveAgentSession: Bool {
@@ -2904,6 +2920,9 @@ struct TextBoxInputContainer: View {
         )
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .task(id: submitActionImagePathCacheKey) {
+            await refreshSubmitActionImageCache(paths: submitActionImagePaths)
+        }
     }
 
     private func addFilesButton(foreground: Color) -> some View {
@@ -2992,7 +3011,7 @@ struct TextBoxInputContainer: View {
     @ViewBuilder
     private func submitActionImage(_ action: TextBoxSubmitAction) -> some View {
         if let path = action.imagePath,
-           let image = NSImage(contentsOfFile: NSString(string: path).expandingTildeInPath) {
+           let image = submitActionImageCache[expandedSubmitActionImagePath(path)] {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
@@ -3015,6 +3034,27 @@ struct TextBoxInputContainer: View {
         } else {
             Label(title, systemImage: action.systemImage)
         }
+    }
+
+    @MainActor
+    private func refreshSubmitActionImageCache(paths: [String]) async {
+        let pathSet = Set(paths)
+        submitActionImageCache = submitActionImageCache.filter { pathSet.contains($0.key) }
+
+        for path in paths where submitActionImageCache[path] == nil {
+            let data = await Task.detached(priority: .utility) {
+                try? Data(contentsOf: URL(fileURLWithPath: path, isDirectory: false))
+            }.value
+            guard !Task.isCancelled else { return }
+            if let data,
+               let image = NSImage(data: data) {
+                submitActionImageCache[path] = image
+            }
+        }
+    }
+
+    private func expandedSubmitActionImagePath(_ path: String) -> String {
+        NSString(string: path).expandingTildeInPath
     }
 
     @State private var showPendingCommentsPreview = false
