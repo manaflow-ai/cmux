@@ -5477,6 +5477,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         var desiredPortalZPriority: Int = 0
         var lastPortalHostId: ObjectIdentifier?
         var lastSynchronizedHostGeometryRevision: UInt64 = 0
+        var ownsLocalInlineHosting = false
     }
 
     final class HostContainerView: NSView {
@@ -7352,6 +7353,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             !isAlreadyInLocalHost && !shouldPreserveExternalFullscreenHost
 
         let coordinator = context.coordinator
+        coordinator.ownsLocalInlineHosting = false
         coordinator.desiredPortalVisibleInUI = false
         coordinator.desiredPortalZPriority = 0
         coordinator.attachGeneration += 1
@@ -7441,6 +7443,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             webView,
             in: host.currentHostedWebViewContainer(preferredSlotView: slotView)
         )
+        coordinator.ownsLocalInlineHosting = !shouldPreserveExternalFullscreenHost
+        panel.canvasInlineHostingActive = coordinator.ownsLocalInlineHosting
         // Local-inline hosting takes ownership of the live WKWebView hierarchy.
         // Drop any stale portal entry once local-inline hosting owns the live
         // WKWebView hierarchy so deferred portal recovery cannot mutate the
@@ -7546,6 +7550,8 @@ struct WebViewRepresentable: NSViewRepresentable {
 
     private func updateUsingWindowPortal(_ nsView: NSView, context: Context, webView: WKWebView) -> Bool {
         guard let host = nsView as? HostContainerView else { return false }
+        panel.canvasInlineHostingActive = false
+        context.coordinator.ownsLocalInlineHosting = false
         if panel.shouldUseLocalInlineDeveloperToolsHosting() {
             host.clearStaleHostedInspectorOwnershipState()
             host.releaseHostedWebViewConstraints()
@@ -7930,6 +7936,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         coordinator.attachGeneration += 1
         clearPortalCallbacks(for: nsView)
         if let panel = coordinator.panel, let host = nsView as? HostContainerView {
+            if coordinator.ownsLocalInlineHosting,
+               let webView = coordinator.webView,
+               host.containsManagedLocalInlineContent(webView) {
+                panel.canvasInlineHostingActive = false
+                coordinator.ownsLocalInlineHosting = false
+            }
             panel.releasePortalHostIfOwned(
                 hostId: ObjectIdentifier(host),
                 reason: "dismantle"

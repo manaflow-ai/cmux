@@ -37,7 +37,7 @@ public final class CanvasRootView: NSView {
     var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
-    var commandScrollMonitor: Any?
+    var commandScrollEventRouter: CanvasCommandScrollEventRouter?
     /// Debounced settle after option+scroll zoom (which, unlike a trackpad
     /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
     /// zoom gesture stops.

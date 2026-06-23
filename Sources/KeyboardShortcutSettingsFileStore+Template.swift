@@ -206,6 +206,13 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "canvas": [
+                    "paneGap": Int(CanvasLayoutSettings.defaultPaneGap),
+                    "snappingEnabled": CanvasLayoutSettings.defaultSnappingEnabled,
+                    "splitDividerThickness": CanvasLayoutSettings.defaultSplitDividerThickness,
+                ],
+            ],
+            [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
                 ],

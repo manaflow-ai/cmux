@@ -1124,7 +1124,7 @@
     },
     "canvas": {
       "title": "canvas",
-      "description": "Freeform canvas workspace layout settings.",
+      "description": "Canvas and zoomable split workspace layout settings.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -1141,6 +1141,14 @@
           "default": true,
           "description": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture.",
           "descriptionKey": "schemaDescriptions.canvas.snappingEnabled"
+        },
+        "splitDividerThickness": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12,
+          "default": 1,
+          "description": "Divider thickness, in points, for packed split panes and zoomable split panes.",
+          "descriptionKey": "schemaDescriptions.canvas.splitDividerThickness"
         }
       }
     },
@@ -1272,6 +1280,22 @@
               "toggleFileExplorer",
               "fileExplorerOpenSelection",
               "fileExplorerOpenSelectionFinderAlias",
+              "toggleCanvasLayout",
+              "toggleZoomableSplitLayout",
+              "canvasRevealFocusedPane",
+              "canvasOverview",
+              "canvasZoomIn",
+              "canvasZoomOut",
+              "canvasZoomReset",
+              "canvasTidy",
+              "canvasAlignLeft",
+              "canvasAlignRight",
+              "canvasAlignTop",
+              "canvasAlignBottom",
+              "canvasEqualizeWidths",
+              "canvasEqualizeHeights",
+              "canvasDistributeHorizontally",
+              "canvasDistributeVertically",
               "saveFilePreview",
               "openBrowser",
               "focusBrowserAddressBar",

@@ -11765,6 +11765,7 @@ extension GhosttyNSView: NSTextInputClient {
 
 struct GhosttyTerminalView: NSViewRepresentable {
     @Environment(\.paneDropZone) var paneDropZone
+    @Environment(\.cmuxDirectTerminalHosting) private var directTerminalHosting
 
     let terminalSurface: TerminalSurface
     let paneId: PaneID
@@ -11780,7 +11781,7 @@ struct GhosttyTerminalView: NSViewRepresentable {
     var onFocus: ((UUID) -> Void)? = nil
     var onTriggerFlash: (() -> Void)? = nil
 
-    private final class HostContainerView: NSView {
+    final class HostContainerView: NSView {
         private static var nextInstanceSerial: UInt64 = 0
 
         var onDidMoveToWindow: (() -> Void)?
@@ -11964,13 +11965,16 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         let hostContainer = nsView as? HostContainerView
         let hostOwnsPortalNow = hostContainer.map { host in
+            // In direct hosting mode the same lease prevents stale replacement
+            // hosts from stealing the terminal while SwiftUI rebuilds the tree;
+            // no window-portal bind happens on that path.
             terminalSurface.claimPortalHost(
                 hostId: ObjectIdentifier(host),
                 paneId: paneId,
                 instanceSerial: host.instanceSerial,
                 inWindow: host.window != nil,
                 bounds: host.bounds,
-                reason: "update"
+                reason: directTerminalHosting ? "directHosting.update" : "update"
             )
         } ?? true
 
@@ -12027,6 +12031,19 @@ struct GhosttyTerminalView: NSViewRepresentable {
 
         coordinator.attachGeneration += 1
         let generation = coordinator.attachGeneration
+
+        if directTerminalHosting {
+            updateDirectHostedTerminal(
+                hostedView: hostedView,
+                hostContainer: hostContainer,
+                coordinator: coordinator,
+                hostOwnsPortalNow: hostOwnsPortalNow,
+                generation: generation,
+                portalBindingStillLive: portalBindingStillLive,
+                desiredStateChanged: desiredStateChanged
+            )
+            return
+        }
 
         if let host = hostContainer {
             host.onDidMoveToWindow = { [weak host, weak hostedView, weak coordinator] in

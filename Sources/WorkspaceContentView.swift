@@ -135,6 +135,8 @@ struct WorkspaceContentView: View {
     @State private var deferredThemeRefresh: DeferredThemeRefresh?
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
+    @AppStorage(CanvasLayoutSettings.splitDividerThicknessKey)
+    private var splitDividerThickness = CanvasLayoutSettings.defaultSplitDividerThickness
     @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject var notificationStore: TerminalNotificationStore
 
@@ -280,6 +282,7 @@ struct WorkspaceContentView: View {
         .id(splitZoomRenderIdentity)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            applySplitDividerThickness(splitDividerThickness)
             updateAgentHibernationPresentationVisibility()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
@@ -291,6 +294,9 @@ struct WorkspaceContentView: View {
         }
         .onChange(of: isWorkspaceInputActive) { _, _ in
             updateAgentHibernationPresentationVisibility()
+        }
+        .onChange(of: splitDividerThickness) { _, value in
+            applySplitDividerThickness(value)
         }
         .onDisappear {
             workspace.setAgentHibernationAutoResumePresentationVisible(false)
@@ -345,11 +351,24 @@ struct WorkspaceContentView: View {
                     portalPriority: workspacePortalPriority,
                     appearance: appearance, windowAppearance: windowAppearance
                 )
+            } else if workspace.layoutMode == .zoomableSplits {
+                ZoomableSplitHostView(
+                    workspace: workspace, isWorkspaceInputActive: isWorkspaceInputActive,
+                    content: AnyView(
+                        bonsplitView
+                            .environment(\.cmuxCanvasInlineBrowserHosting, true)
+                            .environment(\.cmuxDirectTerminalHosting, true)
+                    )
+                ).id(workspace.id)
             } else {
                 bonsplitView
             }
         }
         .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+    }
+
+    private func applySplitDividerThickness(_ value: Int) {
+        workspace.applySplitDividerThickness(CGFloat(value))
     }
 
     private func syncBonsplitNotificationBadges() {

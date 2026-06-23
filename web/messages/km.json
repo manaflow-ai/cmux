@@ -818,6 +818,9 @@
           "fontFamily": "Default body font family for newly opened markdown viewers. Leave empty for the system markdown font stack.",
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
+        "canvas": {
+          "splitDividerThickness": "កម្រាស់របារបែងចែក ជាចំណុច សម្រាប់ផ្ទាំងបែងចែកដែលបានរៀបជាប់គ្នា និងផ្ទាំងបែងចែកដែលអាចពង្រីកបង្រួមបាន។"
+        },
         "sidebar": {
           "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
         },

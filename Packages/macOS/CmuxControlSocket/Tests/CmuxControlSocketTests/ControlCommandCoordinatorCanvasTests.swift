@@ -191,6 +191,15 @@ struct ControlCommandCoordinatorCanvasTests {
         #expect(result == .ok(.object(["mode": .string("canvas")])))
     }
 
+    @Test(arguments: ["zoomable", "zoomable-splits", "zoomable_splits", "zoomableSplits"])
+    func setModeAcceptsZoomableSplitAliases(mode: String) {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .ok(mode: "zoomableSplits")
+        let result = coordinator.handle(request("canvas.set_mode", ["mode": .string(mode)]))
+        #expect(context.lastMode == "zoomableSplits")
+        #expect(result == .ok(.object(["mode": .string("zoomableSplits")])))
+    }
+
     @Test func setFrameRequiresSurfaceAndPositiveSize() {
         let (coordinator, context) = makeCoordinator()
         let surfaceID = UUID()
@@ -447,6 +456,19 @@ struct ControlCommandCoordinatorCanvasTests {
             return
         }
         #expect(code == "invalid_state")
+    }
+
+    @Test func notFreeformCanvasModeMapsToInvalidState() {
+        let (coordinator, context) = makeCoordinator()
+        context.actionResolution = .notFreeformCanvasMode
+        guard case .err(let code, let message, _) = coordinator.handle(
+            request("canvas.align", ["command": .string("tidy")])
+        ) else {
+            Issue.record("expected err")
+            return
+        }
+        #expect(code == "invalid_state")
+        #expect(!message.isEmpty)
     }
 
     @Test func paneNotFoundMapsToNotFoundWithSurfaceData() {

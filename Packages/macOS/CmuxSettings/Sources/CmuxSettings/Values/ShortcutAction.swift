@@ -92,6 +92,8 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
 
     // MARK: Canvas
     case toggleCanvasLayout
+    /// Toggles the current workspace between regular split panes and zoomable split panes.
+    case toggleZoomableSplitLayout
     case canvasRevealFocusedPane
     case canvasOverview
     case canvasZoomIn
@@ -190,7 +192,8 @@ extension ShortcutAction {
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
              .toggleSplitZoom, .equalizeSplits, .splitBrowserRight, .splitBrowserDown,
              .toggleRightSidebar, .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias,
-             .toggleCanvasLayout, .canvasRevealFocusedPane, .canvasOverview,
+             .toggleCanvasLayout, .toggleZoomableSplitLayout,
+             .canvasRevealFocusedPane, .canvasOverview,
              .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
              .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
              .canvasEqualizeWidths, .canvasEqualizeHeights,
@@ -381,16 +384,18 @@ extension ShortcutAction {
             return String(localized: "shortcut.fileExplorerOpenSelectionFinderAlias.label", defaultValue: "File Explorer: Open Selection (Finder Alias)")
         case .toggleCanvasLayout:
             return String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+        case .toggleZoomableSplitLayout:
+            return String(localized: "shortcut.toggleZoomableSplitLayout.label", defaultValue: "Toggle Zoomable Split Layout")
         case .canvasRevealFocusedPane:
-            return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas: Reveal Focused Pane")
+            return String(localized: "shortcut.canvasRevealFocusedPane.label", defaultValue: "Canvas/Zoomable: Reveal Focused Pane")
         case .canvasOverview:
-            return String(localized: "shortcut.canvasOverview.label", defaultValue: "Canvas: Toggle Overview")
+            return String(localized: "shortcut.canvasOverview.label", defaultValue: "Canvas/Zoomable: Toggle Overview")
         case .canvasZoomIn:
-            return String(localized: "shortcut.canvasZoomIn.label", defaultValue: "Canvas: Zoom In")
+            return String(localized: "shortcut.canvasZoomIn.label", defaultValue: "Canvas/Zoomable: Zoom In")
         case .canvasZoomOut:
-            return String(localized: "shortcut.canvasZoomOut.label", defaultValue: "Canvas: Zoom Out")
+            return String(localized: "shortcut.canvasZoomOut.label", defaultValue: "Canvas/Zoomable: Zoom Out")
         case .canvasZoomReset:
-            return String(localized: "shortcut.canvasZoomReset.label", defaultValue: "Canvas: Actual Size")
+            return String(localized: "shortcut.canvasZoomReset.label", defaultValue: "Canvas/Zoomable: Actual Size")
         case .canvasTidy:
             return String(localized: "shortcut.canvasTidy.label", defaultValue: "Canvas: Tidy Panes")
         case .canvasAlignLeft:

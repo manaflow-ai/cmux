@@ -1030,7 +1030,12 @@ struct cmuxApp: App {
                 CanvasActionExecutor(workspace: workspace).perform(.toggleLayout)
             }
 
-            splitCommandButton(title: String(localized: "menu.view.canvasOverview", defaultValue: "Canvas Overview"), shortcut: menuShortcut(for: .canvasOverview)) {
+            splitCommandButton(title: String(localized: "menu.view.toggleZoomableSplitLayout", defaultValue: "Toggle Zoomable Split Layout"), shortcut: menuShortcut(for: .toggleZoomableSplitLayout)) {
+                guard let workspace = activeTabManager.selectedWorkspace else { return }
+                CanvasActionExecutor(workspace: workspace).perform(.toggleZoomableSplitLayout)
+            }
+
+            splitCommandButton(title: String(localized: "menu.view.canvasOverview", defaultValue: "Canvas/Zoomable Overview"), shortcut: menuShortcut(for: .canvasOverview)) {
                 guard let workspace = activeTabManager.selectedWorkspace else { return }
                 CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
             }

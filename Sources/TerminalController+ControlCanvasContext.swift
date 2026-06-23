@@ -1,3 +1,4 @@
+import Bonsplit
 import CmuxCanvas
 import CmuxCanvasUI
 import CmuxControlSocket
@@ -7,6 +8,23 @@ import Foundation
 /// mutations route through `CanvasActionExecutor` / the model so the socket
 /// shares one execution path with shortcuts, the palette, and the View menu.
 extension TerminalController: ControlCanvasContext {
+    func controlCanvasStrings() -> ControlCanvasStrings {
+        ControlCanvasStrings(
+            invalidMode: String(
+                localized: "control.canvas.error.invalidMode",
+                defaultValue: "mode must be canvas, zoomableSplits, splits, or toggle"
+            ),
+            notCanvasOrZoomable: String(
+                localized: "control.canvas.error.notCanvasOrZoomable",
+                defaultValue: "Workspace is not in canvas or zoomable split layout (run canvas.set_mode first)"
+            ),
+            requiresFreeformCanvas: String(
+                localized: "control.canvas.error.requiresFreeformCanvas",
+                defaultValue: "Command requires freeform canvas layout (run canvas.set_mode with mode=canvas first)"
+            )
+        )
+    }
+
     /// The routing twin used by every canvas verb: TabManager, then workspace.
     func resolveCanvasWorkspace(routing: ControlRoutingSelectors) -> Workspace? {
         guard let tabManager = resolveTabManager(routing: routing) else { return nil }
@@ -23,25 +41,51 @@ extension TerminalController: ControlCanvasContext {
     func controlCanvasInfo(routing: ControlRoutingSelectors) -> ControlCanvasInfoSnapshot? {
         guard let ws = resolveCanvasWorkspace(routing: routing) else { return nil }
         let focusedPanelId = ws.focusedPanelId
-        let panes: [ControlCanvasPaneSummary] = ws.canvasModel.layout.panes.map { pane in
-            let panelIDs = pane.panelIds.map(\.rawValue)
-            return ControlCanvasPaneSummary(
-                surfaceID: pane.id.rawValue,
-                frame: ControlCanvasFrame(
-                    x: pane.frame.x,
-                    y: pane.frame.y,
-                    width: pane.frame.width,
-                    height: pane.frame.height
-                ),
-                isFocused: focusedPanelId.map(panelIDs.contains) ?? false,
-                panelIDs: panelIDs,
-                selectedPanelID: pane.selectedPanelId.rawValue
-            )
+        let panes: [ControlCanvasPaneSummary]
+        if ws.layoutMode == .zoomableSplits {
+            let snapshot = ws.bonsplitController.layoutSnapshot()
+            panes = snapshot.panes.compactMap { pane in
+                let panelIDs = pane.tabIds.compactMap { UUID(uuidString: $0) }
+                    .compactMap { ws.panelIdFromSurfaceId(TabID(uuid: $0)) }
+                guard !panelIDs.isEmpty else { return nil }
+                let selectedPanelID = pane.selectedTabId
+                    .flatMap { UUID(uuidString: $0) }
+                    .flatMap { ws.panelIdFromSurfaceId(TabID(uuid: $0)) }
+                    ?? panelIDs[0]
+                return ControlCanvasPaneSummary(
+                    surfaceID: selectedPanelID,
+                    frame: ControlCanvasFrame(
+                        x: pane.frame.x - snapshot.containerFrame.x,
+                        y: pane.frame.y - snapshot.containerFrame.y,
+                        width: pane.frame.width,
+                        height: pane.frame.height
+                    ),
+                    isFocused: focusedPanelId.map(panelIDs.contains) ?? false,
+                    panelIDs: panelIDs,
+                    selectedPanelID: selectedPanelID
+                )
+            }
+        } else {
+            panes = ws.canvasModel.layout.panes.map { pane in
+                let panelIDs = pane.panelIds.map(\.rawValue)
+                return ControlCanvasPaneSummary(
+                    surfaceID: pane.id.rawValue,
+                    frame: ControlCanvasFrame(
+                        x: pane.frame.x,
+                        y: pane.frame.y,
+                        width: pane.frame.width,
+                        height: pane.frame.height
+                    ),
+                    isFocused: focusedPanelId.map(panelIDs.contains) ?? false,
+                    panelIDs: panelIDs,
+                    selectedPanelID: pane.selectedPanelId.rawValue
+                )
+            }
         }
         var magnification: Double?
         var centerX: Double?
         var centerY: Double?
-        if ws.layoutMode == .canvas, let viewport = ws.canvasModel.viewport {
+        if let viewport = activeViewport(for: ws) {
             magnification = Double(viewport.currentMagnification)
             let center = viewport.currentCenterInCanvas
             centerX = Double(center.x)
@@ -69,6 +113,8 @@ extension TerminalController: ControlCanvasContext {
             ws.toggleCanvasLayout()
         case "canvas":
             ws.setLayoutMode(.canvas)
+        case "zoomableSplits", "zoomable-splits", "zoomable_splits", "zoomable":
+            ws.setLayoutMode(.zoomableSplits)
         default:
             ws.setLayoutMode(.splits)
         }
@@ -83,7 +129,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode == .canvas else { return .notFreeformCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else {
             return .paneNotFound(surfaceID)
         }
@@ -102,7 +148,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode == .canvas else { return .notFreeformCanvasMode }
         CanvasActionExecutor(workspace: ws).perform(.alignment(command.alignmentCommand))
         return .ok(mode: ws.layoutMode.rawValue)
     }
@@ -114,14 +160,16 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard let viewport = activeViewport(for: ws) else {
+            return missingViewportResolution(for: ws)
+        }
         guard let target = surfaceID ?? ws.focusedPanelId else {
             return .noFocusedPane
         }
-        guard ws.canvasModel.frame(of: target) != nil else {
+        guard viewportContainsPane(target, in: ws) else {
             return .paneNotFound(target)
         }
-        ws.canvasModel.viewport?.revealPane(target, animated: true)
+        viewport.revealPane(target, animated: true)
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -131,8 +179,10 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        ws.canvasModel.viewport?.toggleOverview()
+        guard let viewport = activeViewport(for: ws) else {
+            return missingViewportResolution(for: ws)
+        }
+        viewport.toggleOverview()
         return .ok(mode: ws.layoutMode.rawValue)
     }
 
@@ -143,7 +193,9 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard activeViewport(for: ws) != nil else {
+            return missingViewportResolution(for: ws)
+        }
         let executor = CanvasActionExecutor(workspace: ws)
         switch direction {
         case .zoomIn:
@@ -164,7 +216,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode == .canvas else { return .notFreeformCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         guard ws.canvasModel.frame(of: targetSurfaceID) != nil else { return .paneNotFound(targetSurfaceID) }
         if ws.canvasModel.joinPanel(surfaceID, withPaneContaining: targetSurfaceID) {
@@ -181,7 +233,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode == .canvas else { return .notFreeformCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         if ws.canvasModel.breakOutPanel(surfaceID) {
             ws.canvasModel.viewport?.modelDidChangeExternally(animated: true)
@@ -198,7 +250,7 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode == .canvas else { return .notFreeformCanvasMode }
         guard ws.canvasModel.frame(of: surfaceID) != nil else { return .paneNotFound(surfaceID) }
         // focusPanel selects the tab in canvas mode and moves keyboard focus.
         ws.focusPanel(surfaceID)
@@ -215,8 +267,10 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
-        ws.canvasModel.viewport?.setViewport(
+        guard let viewport = activeViewport(for: ws) else {
+            return missingViewportResolution(for: ws)
+        }
+        viewport.setViewport(
             center: CGPoint(x: centerX, y: centerY),
             magnification: magnification.map { CGFloat($0) }
         )
@@ -230,12 +284,45 @@ extension TerminalController: ControlCanvasContext {
         guard let ws = resolveCanvasWorkspace(routing: routing) else {
             return .workspaceNotFound
         }
-        guard ws.layoutMode == .canvas else { return .notCanvasMode }
+        guard ws.layoutMode == .canvas else { return .notFreeformCanvasMode }
         let paneType: CanvasNewPaneType = (type == "browser") ? .browser : .terminal
         guard let surfaceID = ws.openNewCanvasPane(type: paneType, focus: true) else {
             return .tabManagerUnavailable
         }
         return .created(mode: ws.layoutMode.rawValue, surfaceID: surfaceID)
+    }
+}
+
+private extension TerminalController {
+    func activeViewport(for workspace: Workspace) -> (any CanvasViewportControlling)? {
+        switch workspace.layoutMode {
+        case .canvas:
+            workspace.canvasModel.viewport
+        case .zoomableSplits:
+            workspace.zoomableSplitViewport
+        case .splits:
+            nil
+        }
+    }
+
+    func missingViewportResolution(for workspace: Workspace) -> ControlCanvasActionResolution {
+        switch workspace.layoutMode {
+        case .canvas, .zoomableSplits:
+            .viewportUnavailable
+        case .splits:
+            .notCanvasMode
+        }
+    }
+
+    func viewportContainsPane(_ panelId: UUID, in workspace: Workspace) -> Bool {
+        switch workspace.layoutMode {
+        case .canvas:
+            workspace.canvasModel.frame(of: panelId) != nil
+        case .zoomableSplits:
+            workspace.paneId(forPanelId: panelId) != nil
+        case .splits:
+            false
+        }
     }
 }
 

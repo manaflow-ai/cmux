@@ -1,5 +1,20 @@
 internal import Foundation
 
+private func normalizedCanvasMode(_ raw: String) -> String? {
+    switch raw.lowercased().replacingOccurrences(of: "_", with: "-") {
+    case "canvas":
+        return "canvas"
+    case "zoomablesplits", "zoomable-splits", "zoomable":
+        return "zoomableSplits"
+    case "splits", "split":
+        return "splits"
+    case "toggle":
+        return "toggle"
+    default:
+        return nil
+    }
+}
+
 /// The canvas domain (`canvas.*`): workspace canvas-layout introspection and
 /// control. The coordinator owns param parsing and ref minting; the
 /// app-coupled work (layout mode, canvas model mutations, viewport
@@ -82,14 +97,13 @@ extension ControlCommandCoordinator {
 
     // MARK: - set_mode
 
-    /// `canvas.set_mode` — switch the workspace between `canvas`, `splits`,
-    /// or `toggle`.
+    /// `canvas.set_mode` — switch the workspace between `canvas`,
+    /// `zoomableSplits`, `splits`, or `toggle`.
     func canvasSetMode(_ params: [String: JSONValue]) -> ControlCallResult {
-        guard let mode = string(params, "mode"),
-              ["canvas", "splits", "toggle"].contains(mode) else {
+        guard let mode = string(params, "mode").flatMap(normalizedCanvasMode) else {
             return .err(
                 code: "invalid_params",
-                message: "mode must be canvas, splits, or toggle",
+                message: canvasStrings.invalidMode,
                 data: nil
             )
         }
@@ -278,6 +292,14 @@ extension ControlCommandCoordinator {
 
     // MARK: - Shared resolution mapping
 
+    private var canvasStrings: ControlCanvasStrings {
+        context?.controlCanvasStrings() ?? ControlCanvasStrings(
+            invalidMode: "mode must be canvas, zoomableSplits, splits, or toggle",
+            notCanvasOrZoomable: "Workspace is not in canvas or zoomable split layout (run canvas.set_mode first)",
+            requiresFreeformCanvas: "Command requires freeform canvas layout (run canvas.set_mode with mode=canvas first)"
+        )
+    }
+
     func canvasActionResult(_ resolution: ControlCanvasActionResolution) -> ControlCallResult {
         switch resolution {
         case .ok(let mode):
@@ -295,7 +317,13 @@ extension ControlCommandCoordinator {
         case .notCanvasMode:
             return .err(
                 code: "invalid_state",
-                message: "Workspace is not in canvas layout (run canvas.set_mode first)",
+                message: canvasStrings.notCanvasOrZoomable,
+                data: nil
+            )
+        case .notFreeformCanvasMode:
+            return .err(
+                code: "invalid_state",
+                message: canvasStrings.requiresFreeformCanvas,
                 data: nil
             )
         case .viewportUnavailable:

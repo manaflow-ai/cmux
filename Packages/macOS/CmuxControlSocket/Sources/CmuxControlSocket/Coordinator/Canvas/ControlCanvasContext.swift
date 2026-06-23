@@ -9,12 +9,15 @@ public import Foundation
 /// selectors and return ``ControlCanvasActionResolution``.
 @MainActor
 public protocol ControlCanvasContext: AnyObject {
+    /// The localized canvas error messages, resolved against the app bundle.
+    func controlCanvasStrings() -> ControlCanvasStrings
+
     /// Snapshots the resolved workspace's canvas state for `canvas.info`.
     /// Returns `nil` when no workspace resolves.
     func controlCanvasInfo(routing: ControlRoutingSelectors) -> ControlCanvasInfoSnapshot?
 
     /// Sets the layout mode for `canvas.set_mode`. `mode` is `"canvas"`,
-    /// `"splits"`, or `"toggle"` (validated by the coordinator).
+    /// `"zoomableSplits"`, `"splits"`, or `"toggle"` (validated by the coordinator).
     func controlCanvasSetMode(
         routing: ControlRoutingSelectors,
         mode: String
@@ -34,17 +37,20 @@ public protocol ControlCanvasContext: AnyObject {
     ) -> ControlCanvasActionResolution
 
     /// Scrolls a pane into view for `canvas.reveal` (`nil` = focused pane).
+    /// Applies in canvas and zoomable split layout modes.
     func controlCanvasReveal(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?
     ) -> ControlCanvasActionResolution
 
     /// Toggles the fit-all overview zoom for `canvas.overview`.
+    /// Applies in canvas and zoomable split layout modes.
     func controlCanvasToggleOverview(
         routing: ControlRoutingSelectors
     ) -> ControlCanvasActionResolution
 
-    /// Zooms the canvas viewport for `canvas.zoom`.
+    /// Zooms the active canvas-style viewport for `canvas.zoom`.
+    /// Applies in canvas and zoomable split layout modes.
     func controlCanvasZoom(
         routing: ControlRoutingSelectors,
         direction: ControlCanvasZoomDirection
@@ -71,7 +77,7 @@ public protocol ControlCanvasContext: AnyObject {
     ) -> ControlCanvasActionResolution
 
     /// Centers and zooms the viewport for `canvas.set_viewport`. `center` is
-    /// in canvas coordinates; `magnification` nil keeps the current zoom.
+    /// in active viewport coordinates; `magnification` nil keeps the current zoom.
     func controlCanvasSetViewport(
         routing: ControlRoutingSelectors,
         centerX: Double,

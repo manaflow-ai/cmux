@@ -241,11 +241,15 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             let segmented = NSSegmentedControl()
             segmented.segmentStyle = .texturedRounded
             segmented.trackingMode = .selectOne
-            segmented.segmentCount = 2
+            segmented.segmentCount = 3
             segmented.controlSize = .small
             segmented.setImage(
                 NSImage(systemSymbolName: "rectangle.split.2x1", accessibilityDescription: nil),
                 forSegment: LayoutModeSegment.splits.rawValue
+            )
+            segmented.setImage(
+                NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil),
+                forSegment: LayoutModeSegment.zoomableSplits.rawValue
             )
             segmented.setImage(
                 NSImage(systemSymbolName: "square.on.square.dashed", accessibilityDescription: nil),
@@ -256,6 +260,10 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
                 forSegment: LayoutModeSegment.splits.rawValue
             )
             segmented.setToolTip(
+                String(localized: "toolbar.layout.zoomableSplits", defaultValue: "Zoomable split panes"),
+                forSegment: LayoutModeSegment.zoomableSplits.rawValue
+            )
+            segmented.setToolTip(
                 String(localized: "toolbar.layout.canvas", defaultValue: "Canvas"),
                 forSegment: LayoutModeSegment.canvas.rawValue
             )
@@ -263,7 +271,7 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
             segmented.action = #selector(layoutModeSegmentChanged(_:))
             item.view = segmented
             item.label = String(localized: "toolbar.layout.label", defaultValue: "Layout")
-            item.toolTip = String(localized: "shortcut.toggleCanvasLayout.label", defaultValue: "Toggle Canvas Layout")
+            item.toolTip = String(localized: "toolbar.layout.label", defaultValue: "Layout")
             layoutModeControls[ObjectIdentifier(toolbar)] = segmented
             updateLayoutModeSelection()
             return item
@@ -276,18 +284,35 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private enum LayoutModeSegment: Int {
         case splits = 0
-        case canvas = 1
+        case zoomableSplits = 1
+        case canvas = 2
     }
 
     @objc private func layoutModeSegmentChanged(_ sender: NSSegmentedControl) {
         guard let workspace = tabManager?.selectedWorkspace else { return }
-        let target: WorkspaceLayoutMode = sender.selectedSegment == LayoutModeSegment.canvas.rawValue ? .canvas : .splits
+        let target: WorkspaceLayoutMode
+        switch sender.selectedSegment {
+        case LayoutModeSegment.canvas.rawValue:
+            target = .canvas
+        case LayoutModeSegment.zoomableSplits.rawValue:
+            target = .zoomableSplits
+        default:
+            target = .splits
+        }
         workspace.setLayoutMode(target)
     }
 
     private func updateLayoutModeSelection() {
         let mode = tabManager?.selectedWorkspace?.layoutMode ?? .splits
-        let segment = mode == .canvas ? LayoutModeSegment.canvas.rawValue : LayoutModeSegment.splits.rawValue
+        let segment: Int
+        switch mode {
+        case .canvas:
+            segment = LayoutModeSegment.canvas.rawValue
+        case .zoomableSplits:
+            segment = LayoutModeSegment.zoomableSplits.rawValue
+        case .splits:
+            segment = LayoutModeSegment.splits.rawValue
+        }
         for control in layoutModeControls.values where control.selectedSegment != segment {
             control.selectedSegment = segment
         }

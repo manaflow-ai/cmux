@@ -10,6 +10,8 @@ import CmuxCanvasUI
 enum CanvasAction: Equatable {
     /// Toggle the workspace between split and canvas layout.
     case toggleLayout
+    /// Toggle the workspace between split and zoomable split layout.
+    case toggleZoomableSplitLayout
     /// Scroll the focused pane fully into view.
     case revealFocusedPane
     /// Toggle the fit-all overview zoom.
@@ -28,6 +30,7 @@ extension KeyboardShortcutSettings.Action {
     /// All shortcut actions that map onto canvas actions, in dispatch order.
     static let canvasActions: [KeyboardShortcutSettings.Action] = [
         .toggleCanvasLayout,
+        .toggleZoomableSplitLayout,
         .canvasRevealFocusedPane,
         .canvasOverview,
         .canvasZoomIn,
@@ -48,6 +51,7 @@ extension KeyboardShortcutSettings.Action {
     var canvasAction: CanvasAction? {
         switch self {
         case .toggleCanvasLayout: return .toggleLayout
+        case .toggleZoomableSplitLayout: return .toggleZoomableSplitLayout
         case .canvasRevealFocusedPane: return .revealFocusedPane
         case .canvasOverview: return .toggleOverview
         case .canvasZoomIn: return .zoomIn
@@ -84,26 +88,29 @@ struct CanvasActionExecutor {
         case .toggleLayout:
             workspace.toggleCanvasLayout()
             return true
+        case .toggleZoomableSplitLayout:
+            workspace.toggleZoomableSplitLayout()
+            return true
         case .revealFocusedPane:
-            guard workspace.layoutMode == .canvas,
+            guard let viewport = activeViewport,
                   let panelId = workspace.focusedPanelId else { return false }
-            workspace.canvasModel.viewport?.revealPane(panelId, animated: true)
+            viewport.revealPane(panelId, animated: true)
             return true
         case .toggleOverview:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.toggleOverview()
+            guard let viewport = activeViewport else { return false }
+            viewport.toggleOverview()
             return true
         case .zoomIn:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.zoom(by: Self.zoomStepFactor)
+            guard let viewport = activeViewport else { return false }
+            viewport.zoom(by: Self.zoomStepFactor)
             return true
         case .zoomOut:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.zoom(by: 1 / Self.zoomStepFactor)
+            guard let viewport = activeViewport else { return false }
+            viewport.zoom(by: 1 / Self.zoomStepFactor)
             return true
         case .zoomReset:
-            guard workspace.layoutMode == .canvas else { return false }
-            workspace.canvasModel.viewport?.resetZoom()
+            guard let viewport = activeViewport else { return false }
+            viewport.resetZoom()
             return true
         case .alignment(let command):
             guard workspace.layoutMode == .canvas else { return false }
@@ -116,6 +123,17 @@ struct CanvasActionExecutor {
                 workspace.canvasModel.viewport?.modelDidChangeExternally(animated: true)
             }
             return changed
+        }
+    }
+
+    private var activeViewport: (any CanvasViewportControlling)? {
+        switch workspace.layoutMode {
+        case .canvas:
+            workspace.canvasModel.viewport
+        case .zoomableSplits:
+            workspace.zoomableSplitViewport
+        case .splits:
+            nil
         }
     }
 }

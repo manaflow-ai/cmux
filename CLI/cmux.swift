@@ -7718,8 +7718,11 @@ struct CMUXCLI {
             method = "canvas.info"
         case "mode":
             guard let mode = positionals.first?.lowercased(),
-                  ["canvas", "splits", "toggle"].contains(mode) else {
-                throw CLIError(message: "Usage: cmux canvas mode <canvas|splits|toggle>")
+                  ["canvas", "splits", "zoomable", "zoomable-splits", "zoomable_splits", "zoomablesplits", "toggle"].contains(mode) else {
+                throw CLIError(message: String(
+                    localized: "cli.canvas.error.modeUsage",
+                    defaultValue: "Usage: cmux canvas mode <canvas|zoomable-splits|splits|toggle>"
+                ))
             }
             params["mode"] = mode
             method = "canvas.set_mode"
@@ -14042,24 +14045,25 @@ struct CMUXCLI {
             Print server capabilities as JSON.
             """
         case "canvas":
-            return """
+            return String(localized: "cli.help.canvas", defaultValue: """
             Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]
 
-            Control a workspace's freeform canvas layout.
+            Control a workspace's canvas or zoomable split layout.
 
             Subcommands:
               info                          Print layout mode and pane frames (z-order)
-              mode <canvas|splits|toggle>   Switch layout mode
+              mode <canvas|zoomable-splits|splits|toggle>  Switch layout mode
               set-frame <surface> --x <n> --y <n> --width <n> --height <n>
-                                            Place one pane at an explicit frame
+                                            Place one canvas pane at an explicit frame
               align <command>               tidy, align-left, align-right, align-top,
                                             align-bottom, equalize-widths, equalize-heights,
                                             distribute-horizontally, distribute-vertically
-              reveal [<surface>]            Scroll a pane into view (default: focused)
-              overview                      Toggle fit-all overview zoom
-              zoom <in|out|reset>           Step viewport magnification
+                                            (canvas layout only)
+              reveal [<surface>]            Scroll a pane into view (canvas or zoomable split)
+              overview                      Toggle fit-all overview zoom (canvas or zoomable split)
+              zoom <in|out|reset>           Step viewport magnification (canvas or zoomable split)
               set-viewport --x <n> --y <n> [--zoom <n>]
-                                            Center the viewport on a canvas point
+                                            Center the viewport on a layout point
                                             (optionally set magnification)
               new-pane [--type terminal|browser]
                                             Create a new free-floating canvas pane
@@ -14069,11 +14073,12 @@ struct CMUXCLI {
 
             Example:
               cmux canvas mode canvas
+              cmux canvas mode zoomable-splits
               cmux canvas set-frame surface:1 --x 0 --y 0 --width 800 --height 520
               cmux canvas set-viewport --x 400 --y 260 --zoom 1.0
               cmux canvas new-pane --type terminal
               cmux canvas align tidy
-            """
+            """)
         case "events":
             return """
             Usage: cmux events [options]

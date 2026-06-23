@@ -9,8 +9,10 @@ public enum ControlCanvasActionResolution: Sendable, Equatable {
     case created(mode: String, surfaceID: UUID)
     case tabManagerUnavailable
     case workspaceNotFound
-    /// A canvas-only action was requested while the workspace is in splits.
+    /// A viewport action was requested while the workspace is in plain splits.
     case notCanvasMode
+    /// A freeform canvas-only action was requested outside freeform canvas mode.
+    case notFreeformCanvasMode
     /// The workspace is in canvas mode, but no live viewport is attached.
     case viewportUnavailable
     case paneNotFound(UUID)
