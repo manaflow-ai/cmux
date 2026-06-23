@@ -10660,6 +10660,14 @@ struct VerticalTabsSidebar: View {
                             )
                     }
                 }
+                .overlay(alignment: .top) {
+                    workspaceReorderDropOverlay(
+                        renderContext: renderContext,
+                        pointOffset: CGSize(width: 0, height: -scrollInsets.top)
+                    )
+                    .frame(maxWidth: .infinity)
+                    .frame(height: scrollInsets.top)
+                }
                 .background(Color.clear)
                 .modifier(ClearScrollBackground())
                 .onAppear {
@@ -12073,7 +12081,10 @@ struct VerticalTabsSidebar: View {
         )
     }
 
-    private func workspaceReorderDropOverlay(renderContext: WorkspaceListRenderContext) -> some View {
+    private func workspaceReorderDropOverlay(
+        renderContext: WorkspaceListRenderContext,
+        pointOffset: CGSize = .zero
+    ) -> some View {
         SidebarWorkspaceReorderDropOverlay(
             targetBridge: workspaceReorderDropTargetBridge,
             isValidDrag: {
@@ -12092,7 +12103,8 @@ struct VerticalTabsSidebar: View {
             setWorkspaceDropTargetCollectionActive: { isActive in
                 guard isWorkspaceReorderDropTargetCollectionActive != isActive else { return }
                 isWorkspaceReorderDropTargetCollectionActive = isActive
-            }
+            },
+            pointOffset: pointOffset
         )
     }
 

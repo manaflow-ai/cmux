@@ -12,6 +12,25 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
     let performDrop: (CGPoint, [Target]) -> Bool
     let clearDropIndicator: () -> Void
     let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
+    let pointOffset: CGSize
+
+    init(
+        targetBridge: TargetBridge,
+        isValidDrag: @escaping () -> Bool,
+        updateDrag: @escaping (CGPoint, [Target]) -> Bool,
+        performDrop: @escaping (CGPoint, [Target]) -> Bool,
+        clearDropIndicator: @escaping () -> Void,
+        setWorkspaceDropTargetCollectionActive: @escaping (Bool) -> Void,
+        pointOffset: CGSize = .zero
+    ) {
+        self.targetBridge = targetBridge
+        self.isValidDrag = isValidDrag
+        self.updateDrag = updateDrag
+        self.performDrop = performDrop
+        self.clearDropIndicator = clearDropIndicator
+        self.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
+        self.pointOffset = pointOffset
+    }
 
     func makeNSView(context: Context) -> DropView {
         let view = DropView()
@@ -32,6 +51,7 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         view.performDropAtPoint = performDrop
         view.clearDropIndicator = clearDropIndicator
         view.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
+        view.pointOffset = pointOffset
     }
 
     static let pasteboardType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)

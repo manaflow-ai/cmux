@@ -2,17 +2,19 @@ import Foundation
 
 @MainActor
 final class SidebarWorkspaceReorderDropOverlayTargetBridge {
-    private weak var view: SidebarWorkspaceReorderDropView?
+    private let views = NSHashTable<SidebarWorkspaceReorderDropView>.weakObjects()
     private var targets: [SidebarWorkspaceReorderDropOverlayTarget] = []
 
     func attach(_ view: SidebarWorkspaceReorderDropView) {
-        self.view = view
+        views.add(view)
         view.targets = targets
     }
 
     func updateTargets(_ targets: [SidebarWorkspaceReorderDropOverlayTarget]) {
         self.targets = targets
-        view?.targets = targets
-        view?.targetsDidUpdate()
+        for view in views.allObjects {
+            view.targets = targets
+            view.targetsDidUpdate()
+        }
     }
 }

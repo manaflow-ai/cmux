@@ -85,6 +85,57 @@ import Testing
         ))
     }
 
+    @Test @MainActor func targetBridgeUpdatesEveryAttachedDropView() {
+        let bridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
+        let firstView = SidebarWorkspaceReorderDropOverlay.DropView()
+        let secondView = SidebarWorkspaceReorderDropOverlay.DropView()
+        bridge.attach(firstView)
+        bridge.attach(secondView)
+
+        let target = SidebarWorkspaceReorderDropOverlay.Target(
+            workspaceId: UUID(),
+            groupId: nil,
+            isGroupHeader: false,
+            frame: CGRect(x: 0, y: 40, width: 200, height: 24)
+        )
+        bridge.updateTargets([target])
+
+        #expect(firstView.targets == [target])
+        #expect(secondView.targets == [target])
+    }
+
+    @Test @MainActor func topStripOverlayOffsetsDropPointIntoContentCoordinates() {
+        let view = SidebarWorkspaceReorderDropOverlay.DropView(
+            frame: NSRect(x: 0, y: 0, width: 240, height: 28)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 28),
+            styleMask: [],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("workspace-reorder-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString(
+            UUID().uuidString,
+            forType: NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
+        )
+        let sender = MockDraggingInfo(
+            window: window,
+            location: NSPoint(x: 32, y: 12),
+            pasteboard: pasteboard
+        )
+
+        let rawPoint = view.convert(sender.draggingLocation, from: nil)
+        view.pointOffset = CGSize(width: 0, height: -28)
+        let dropPoint = view.dropPoint(from: sender)
+
+        #expect(dropPoint.x == rawPoint.x)
+        #expect(dropPoint.y == rawPoint.y - 28)
+    }
+
     @Test @MainActor func fastReleaseQueuesDropUntilTargetsArrive() async {
         let bridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
         let view = SidebarWorkspaceReorderDropOverlay.DropView(

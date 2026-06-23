@@ -8,6 +8,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     var performDropAtPoint: ((CGPoint, [SidebarWorkspaceReorderDropOverlay.Target]) -> Bool)?
     var clearDropIndicator: (() -> Void)?
     var setWorkspaceDropTargetCollectionActive: ((Bool) -> Void)?
+    var pointOffset: CGSize = .zero
     private var isRequestingTargets = false
     private var targetRequestId: UInt64 = 0
     private var pendingDrop: SidebarWorkspaceReorderPendingDrop?
@@ -51,7 +52,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         guard accepts(sender), let performDropAtPoint else { return false }
-        let point = convert(sender.draggingLocation, from: nil)
+        let point = dropPoint(from: sender)
         guard !targets.isEmpty else {
             setTargetCollectionActive(true)
             awaitsTargetsAfterDragTeardown = false
@@ -119,8 +120,13 @@ final class SidebarWorkspaceReorderDropView: NSView {
             clearDropIndicator?()
             return .move
         }
-        let point = convert(sender.draggingLocation, from: nil)
+        let point = dropPoint(from: sender)
         return updateDrag(point, targets) ? .move : []
+    }
+
+    func dropPoint(from sender: NSDraggingInfo) -> CGPoint {
+        let point = convert(sender.draggingLocation, from: nil)
+        return CGPoint(x: point.x + pointOffset.width, y: point.y + pointOffset.height)
     }
 
     private func setTargetCollectionActive(_ isActive: Bool) {
