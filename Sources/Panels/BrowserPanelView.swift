@@ -7204,7 +7204,12 @@ struct WebViewRepresentable: NSViewRepresentable {
         }
 
         if let directChild = directTransferChild(of: sourceSuperview, containing: primaryWebView) {
-            append(directChild)
+            if let inspectorFrontendWebView = primaryWebView.cmuxInspectorFrontendWebView(),
+               inspectorFrontendWebView === directChild || inspectorFrontendWebView.isDescendant(of: directChild) {
+                append(primaryWebView)
+            } else {
+                append(directChild)
+            }
         } else {
             append(primaryWebView)
         }

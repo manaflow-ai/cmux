@@ -4406,6 +4406,55 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
+    func testPortalBindDoesNotMoveTransferRootContainingInspectorFrontend() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        contentView.addSubview(sourceSlot)
+        let anchor = NSView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
+        contentView.addSubview(anchor)
+
+        let webKitWrapper = NSView(frame: sourceSlot.bounds)
+        sourceSlot.addSubview(webKitWrapper)
+        panel.webView.frame = webKitWrapper.bounds
+        webKitWrapper.addSubview(panel.webView)
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: webKitWrapper.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
+        )
+        webKitWrapper.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        BrowserWindowPortalRegistry.bind(webView: panel.webView, to: anchor, visibleInUI: true, zPriority: 1)
+        BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
+
+        XCTAssertFalse(
+            panel.webView.superview === webKitWrapper,
+            "The page web view should still move to the portal host"
+        )
+        XCTAssertTrue(
+            frontendWebView.superview === webKitWrapper,
+            "The portal must not move a direct transfer root that also contains WebKit's inspector frontend"
+        )
+    }
+
     func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
