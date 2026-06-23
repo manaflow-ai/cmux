@@ -62,14 +62,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowSyncTypingDemo: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.syncTypingDemoEnabled
-        #else
-        return false
-        #endif
-    }
-
     private var shouldShowWorkspaceListLayoutPreview: Bool {
         #if os(iOS) && DEBUG
         return UITestConfig.workspaceListLayoutPreviewEnabled
@@ -172,9 +164,7 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowSyncTypingDemo {
-            SyncTypingDemoView()
-        } else if shouldShowTerminalLayoutPreview {
+        if shouldShowTerminalLayoutPreview {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             WorkspaceListLayoutPreviewView()
