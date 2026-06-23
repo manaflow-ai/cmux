@@ -554,6 +554,13 @@ private func main() {
     let reuseRunning = arguments.contains("--reuse-running")
     let useCGVisibility = arguments.contains("--cg-visibility")
     let sampleCount = arguments.dropFirst(3).first(where: { Int($0) != nil }).flatMap(Int.init) ?? 15
+    let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
+        .replacingOccurrences(of: "\n", with: " ")
+    print(
+        "benchmark_env os=\"\(osVersion)\" user=\(NSUserName()) bundle=\(bundleIdentifier) samples=\(sampleCount) " +
+            "cmd_tab=\(cmdTabActivation ? 1 : 0) cg_visibility=\(useCGVisibility ? 1 : 0) " +
+            "activate_all_windows=\(cmdTabActivateAllWindows ? 1 : 0) reuse_running=\(reuseRunning ? 1 : 0)"
+    )
     if !cmdTabActivation || !useCGVisibility || verbose {
         requireTrustedAccessibility()
     }
