@@ -311,8 +311,8 @@ func makeRoutingConnectedStore(
                 terminals: terminals
             ),
         ],
-        offlineAgentNoteQueue: offlineAgentNoteQueue,
-        pendingDismissQueue: pendingDismissQueue
+        pendingDismissQueue: pendingDismissQueue,
+        offlineAgentNoteQueue: offlineAgentNoteQueue
     )
     // 127.0.0.1 is a Stack-auth-trusted route, so authorized requests carry the
     // Stack token and do not throw insecureManualRoute before reaching the
