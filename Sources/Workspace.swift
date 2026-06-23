@@ -9525,7 +9525,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the next surface in the currently focused pane
     func selectNextSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: 1) { return }
+        if layoutMode == .canvas {
+            _ = selectAdjacentCanvasTab(offset: 1)
+            return
+        }
         bonsplitController.selectNextTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -9536,7 +9539,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the previous surface in the currently focused pane
     func selectPreviousSurface() {
-        if layoutMode == .canvas, selectAdjacentCanvasTab(offset: -1) { return }
+        if layoutMode == .canvas {
+            _ = selectAdjacentCanvasTab(offset: -1)
+            return
+        }
         bonsplitController.selectPreviousTab()
 
         if let paneId = bonsplitController.focusedPaneId,
@@ -9547,6 +9553,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select a surface by index in the currently focused pane
     func selectSurface(at index: Int) {
+        if layoutMode == .canvas {
+            _ = selectCanvasTab(at: index)
+            return
+        }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
         let tabs = bonsplitController.tabs(inPane: focusedPaneId)
         guard index >= 0 && index < tabs.count else { return }
@@ -9559,6 +9569,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Select the last surface in the currently focused pane
     func selectLastSurface() {
+        if layoutMode == .canvas {
+            _ = selectCanvasTab(at: 8)
+            return
+        }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
         let tabs = bonsplitController.tabs(inPane: focusedPaneId)
         guard let last = tabs.last else { return }

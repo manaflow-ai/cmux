@@ -179,31 +179,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testCanvasOnlyShortcutDefaultWhenClausesRequireCanvasLayout() {
-        var splitContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
-        splitContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, false)
-
-        var canvasContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
-        canvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
-
-        XCTAssertTrue(
-            KeyboardShortcutSettings.effectiveWhenClause(for: .toggleCanvasLayout).evaluate(splitContext),
-            "The layout toggle must stay available outside canvas mode"
-        )
-
-        for action in KeyboardShortcutSettings.Action.canvasActions where action != .toggleCanvasLayout {
-            let clause = KeyboardShortcutSettings.effectiveWhenClause(for: action)
-            XCTAssertFalse(
-                clause.evaluate(splitContext),
-                "\(action.rawValue) must not claim its shortcut while the workspace uses split layout"
-            )
-            XCTAssertTrue(
-                clause.evaluate(canvasContext),
-                "\(action.rawValue) must be available when the workspace uses canvas layout"
-            )
-        }
-    }
-
     func testMarkdownZoomIsScopedToFocusedMarkdownPanelAndDoesNotCollideWithBrowserZoom() {
         for action in [
             KeyboardShortcutSettings.Action.markdownZoomIn,

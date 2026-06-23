@@ -11413,7 +11413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         writeGotoSplitTestData(updates)
     }
 
-    private func recordGotoSplitZoomIfNeeded(tabManager: TabManager? = nil) {
+    func recordGotoSplitZoomIfNeeded(tabManager: TabManager? = nil) {
         guard isGotoSplitUITestRecordingEnabled() else { return }
         guard let workspace = (tabManager ?? self.tabManager)?.selectedWorkspace else { return }
 
@@ -13592,15 +13592,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if let workspace = routedManager?.selectedWorkspace,
-               workspace.layoutMode == .canvas {
-                _ = CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
-            } else {
-                _ = routedManager?.toggleFocusedSplitZoom()
-#if DEBUG
-                recordGotoSplitZoomIfNeeded(tabManager: routedManager)
-#endif
-            }
+            performToggleSplitZoomShortcut(tabManager: routedManager)
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
@@ -14508,10 +14500,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
         let didCreateSplit: Bool = {
             if let terminalContext {
+                if let workspace = terminalContext.tabManager.tabs.first(where: { $0.id == terminalContext.workspaceId }),
+                   workspace.layoutMode == .canvas {
+                    return workspace.openNewCanvasPane(
+                        type: .terminal,
+                        focus: true,
+                        direction: direction.canvasDirection
+                    ) != nil
+                }
                 return terminalContext.tabManager.createSplit(
                     tabId: terminalContext.workspaceId,
                     surfaceId: terminalContext.panelId,
                     direction: direction
+                ) != nil
+            }
+            if let workspace = tabManager?.selectedWorkspace,
+               workspace.layoutMode == .canvas {
+                return workspace.openNewCanvasPane(
+                    type: .terminal,
+                    focus: true,
+                    direction: direction.canvasDirection
                 ) != nil
             }
             return tabManager?.createSplit(direction: direction) != nil
@@ -14555,6 +14563,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         _ = synchronizeActiveMainWindowContext(preferredWindow: shortcutRoutingActiveWindow)
+
+        if let workspace = tabManager?.selectedWorkspace,
+           workspace.layoutMode == .canvas {
+            return workspace.openNewCanvasPane(
+                type: .browser,
+                focus: true,
+                direction: direction.canvasDirection
+            ) != nil
+        }
 
         #if DEBUG
         let directionLabel: String

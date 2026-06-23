@@ -174,8 +174,7 @@ extension NavigationDirection {
 
 extension Workspace {
     /// Cycles the focused canvas pane's tabs by `offset` (wrapping). Returns
-    /// `false` when the focused pane has fewer than two tabs, so the caller
-    /// can fall back to bonsplit cycling semantics.
+    /// `false` when the focused pane has fewer than two tabs.
     func selectAdjacentCanvasTab(offset: Int) -> Bool {
         guard let focusedPanelId,
               let paneID = canvasModel.paneID(containing: focusedPanelId),
@@ -187,6 +186,22 @@ extension Workspace {
         }
         let next = tabs[(index + offset + tabs.count) % tabs.count]
         focusPanel(next.rawValue)
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        return true
+    }
+
+    /// Selects a tab by index inside the focused canvas pane. Index 8 maps to
+    /// the last tab, matching the normal pane shortcut's 9 = last convention.
+    func selectCanvasTab(at index: Int) -> Bool {
+        guard let focusedPanelId,
+              let paneID = canvasModel.paneID(containing: focusedPanelId),
+              let tabs = canvasModel.layout.panelIds(in: paneID),
+              !tabs.isEmpty else {
+            return false
+        }
+        let resolvedIndex = index == 8 ? tabs.count - 1 : index
+        guard tabs.indices.contains(resolvedIndex) else { return false }
+        focusPanel(tabs[resolvedIndex].rawValue)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
         return true
     }
@@ -205,9 +220,14 @@ extension Workspace {
     /// when creation fails (e.g. no focused bonsplit pane, or the browser is
     /// disabled). Must be called in canvas mode.
     @discardableResult
-    func openNewCanvasPane(type: CanvasNewPaneType, focus: Bool = true) -> UUID? {
+    func openNewCanvasPane(
+        type: CanvasNewPaneType,
+        focus: Bool = true,
+        direction: CanvasDirection? = nil
+    ) -> UUID? {
         guard layoutMode == .canvas else { return nil }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        let anchorPanelId = focusedPanelId
         let newPanelId: UUID
         switch type {
         case .terminal:
@@ -223,7 +243,11 @@ extension Workspace {
         }
         // Give the new surface its own canvas pane (the placer positions it
         // near the focused pane) rather than joining it as a tab.
-        canvasModel.syncPanes(panelIds: orderedPanelIds, focusedPanelId: newPanelId)
+        canvasModel.syncPanes(
+            panelIds: orderedPanelIds,
+            focusedPanelId: anchorPanelId,
+            preferredDirection: direction
+        )
         focusPanel(newPanelId)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
         canvasModel.viewport?.revealPane(newPanelId, animated: true)

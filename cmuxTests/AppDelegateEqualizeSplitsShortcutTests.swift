@@ -193,6 +193,187 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         shortcutRoutingAssertPaneFramesMatch(cachedEqualizedLayout, liveEqualizedLayout)
     }
 
+    func testCmdDInCanvasCreatesFloatingCanvasPaneWithoutBonsplitSplit() {
+        withTemporaryShortcut(action: .splitRight) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let focusedPanelId = workspace.focusedPanelId,
+                  let event = makeKeyDownEvent(key: "d", modifiers: [.command], keyCode: 2, windowNumber: window.windowNumber) else {
+                XCTFail("Expected focused workspace and Cmd+D event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let originalBonsplitPaneCount = workspace.bonsplitController.allPaneIds.count
+            let originalPanelIds = Set(workspace.panels.keys)
+            let originalFrame = workspace.canvasModel.frame(of: focusedPanelId)
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            let newPanelIds = Set(workspace.panels.keys).subtracting(originalPanelIds)
+            XCTAssertEqual(newPanelIds.count, 1)
+            XCTAssertEqual(
+                workspace.bonsplitController.allPaneIds.count,
+                originalBonsplitPaneCount,
+                "Canvas split shortcuts should create visible canvas panes without splitting the hidden Bonsplit tree"
+            )
+            XCTAssertEqual(workspace.canvasModel.persistablePanes.count, 2)
+
+            if let newPanelId = newPanelIds.first,
+               let originalFrame,
+               let newFrame = workspace.canvasModel.frame(of: newPanelId) {
+                XCTAssertGreaterThanOrEqual(newFrame.minX, originalFrame.maxX)
+                XCTAssertEqual(workspace.focusedPanelId, newPanelId)
+            } else {
+                XCTFail("Expected the new canvas pane to have a frame")
+            }
+        }
+    }
+
+    func testCmdShiftDInCanvasPlacesFloatingCanvasPaneBelowFocusedPane() {
+        withTemporaryShortcut(action: .splitDown) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let focusedPanelId = workspace.focusedPanelId,
+                  let event = makeKeyDownEvent(key: "d", modifiers: [.command, .shift], keyCode: 2, windowNumber: window.windowNumber) else {
+                XCTFail("Expected focused workspace and Cmd+Shift+D event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let originalPanelIds = Set(workspace.panels.keys)
+            let originalFrame = workspace.canvasModel.frame(of: focusedPanelId)
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            let newPanelIds = Set(workspace.panels.keys).subtracting(originalPanelIds)
+            XCTAssertEqual(newPanelIds.count, 1)
+            if let newPanelId = newPanelIds.first,
+               let originalFrame,
+               let newFrame = workspace.canvasModel.frame(of: newPanelId) {
+                XCTAssertGreaterThanOrEqual(newFrame.minY, originalFrame.maxY)
+            } else {
+                XCTFail("Expected the new canvas pane to have a frame")
+            }
+        }
+    }
+
+    func testNumberedSurfaceShortcutSelectsCanvasPaneTab() {
+        withTemporaryShortcut(action: .selectSurfaceByNumber) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let event = makeKeyDownEvent(key: "2", modifiers: [.control], keyCode: 19, windowNumber: window.windowNumber) else {
+                XCTFail("Expected two canvas tabs and Ctrl+2 event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            guard let secondPanel = workspace.newTerminalSurfaceInFocusedPane(focus: true) else {
+                XCTFail("Expected second canvas tab")
+                return
+            }
+            workspace.focusPanel(firstPanelId)
+            XCTAssertEqual(workspace.focusedPanelId, firstPanelId)
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            XCTAssertEqual(workspace.focusedPanelId, secondPanel.id)
+        }
+    }
+
+    func testEqualizeSplitsShortcutInCanvasEqualizesCanvasPaneSizesOnly() {
+        withTemporaryShortcut(action: .equalizeSplits) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let firstPanelId = workspace.focusedPanelId,
+                  let event = makeKeyDownEvent(key: "=", modifiers: [.command, .control], keyCode: 24, windowNumber: window.windowNumber) else {
+                XCTFail("Expected focused workspace and Cmd+Ctrl+= event")
+                return
+            }
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            guard let secondPanelId = workspace.openNewCanvasPane(type: .terminal, focus: true) else {
+                XCTFail("Expected second canvas pane")
+                return
+            }
+            let originalBonsplitPaneCount = workspace.bonsplitController.allPaneIds.count
+            workspace.canvasModel.setFrame(CGRect(x: 0, y: 0, width: 640, height: 420), for: firstPanelId)
+            workspace.canvasModel.setFrame(CGRect(x: 720, y: 0, width: 320, height: 260), for: secondPanelId)
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            return
+#endif
+
+            guard let firstFrame = workspace.canvasModel.frame(of: firstPanelId),
+                  let secondFrame = workspace.canvasModel.frame(of: secondPanelId) else {
+                XCTFail("Expected canvas frames after equalize")
+                return
+            }
+            XCTAssertEqual(firstFrame.width, secondFrame.width, accuracy: 0.000_1)
+            XCTAssertEqual(firstFrame.height, secondFrame.height, accuracy: 0.000_1)
+            XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, originalBonsplitPaneCount)
+        }
+    }
+
     private func shortcutRoutingSplitNodes(in node: ExternalTreeNode) -> [ExternalSplitNode] {
         switch node {
         case .pane:
