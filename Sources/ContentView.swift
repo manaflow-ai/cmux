@@ -6083,7 +6083,8 @@ struct ContentView: View {
             guard action.shortcutContext.isAvailable(
                 focusedBrowserPanel: context.bool(CommandPaletteContextKeys.panelIsBrowser),
                 focusedMarkdownPanel: context.bool(CommandPaletteContextKeys.panelIsMarkdown),
-                rightSidebarFocused: false
+                rightSidebarFocused: false,
+                workspaceCanvasLayout: context.bool(CommandPaletteContextKeys.workspaceCanvasLayout)
             ) else {
                 return nil
             }

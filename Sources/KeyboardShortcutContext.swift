@@ -8,8 +8,8 @@ struct ShortcutEventFocusContext {
     let rightSidebarFocused: Bool
     /// The full context snapshot a ``ShortcutWhenClause`` evaluates against: the
     /// focus atoms plus the non-focus keys (`commandPaletteVisible`, `sidebarMode`,
-    /// `terminalFindVisible`, `paneCount`, `workspaceCount`) read from the shortcut
-    /// window's state.
+    /// `terminalFindVisible`, `workspaceCanvasLayout`, `paneCount`,
+    /// `workspaceCount`) read from the shortcut window's state.
     let shortcutContext: ShortcutContext
 
     /// Projects the runtime focus snapshot onto the atoms a
@@ -35,12 +35,18 @@ extension KeyboardShortcutSettings.Action {
         case browserPanel
         case markdownPanel
         case rightSidebarFocus
+        case canvasLayout
 
         var isAlwaysAvailable: Bool {
             self == .application
         }
 
-        func isAvailable(focusedBrowserPanel: Bool, focusedMarkdownPanel: Bool, rightSidebarFocused: Bool) -> Bool {
+        func isAvailable(
+            focusedBrowserPanel: Bool,
+            focusedMarkdownPanel: Bool,
+            rightSidebarFocused: Bool,
+            workspaceCanvasLayout: Bool = false
+        ) -> Bool {
             switch self {
             case .application:
                 return true
@@ -52,6 +58,8 @@ extension KeyboardShortcutSettings.Action {
                 return focusedMarkdownPanel
             case .rightSidebarFocus:
                 return rightSidebarFocused
+            case .canvasLayout:
+                return workspaceCanvasLayout
             }
         }
 
@@ -59,7 +67,8 @@ extension KeyboardShortcutSettings.Action {
             isAvailable(
                 focusedBrowserPanel: context.browserPanel != nil,
                 focusedMarkdownPanel: context.markdownPanel != nil,
-                rightSidebarFocused: context.rightSidebarFocused
+                rightSidebarFocused: context.rightSidebarFocused,
+                workspaceCanvasLayout: context.shortcutContext.bool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             )
         }
 
@@ -77,6 +86,8 @@ extension KeyboardShortcutSettings.Action {
                 return .atom(.markdownFocus)
             case .rightSidebarFocus:
                 return .atom(.sidebarFocus)
+            case .canvasLayout:
+                return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
             }
         }
 
@@ -136,6 +147,12 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
+        case .canvasRevealFocusedPane, .canvasOverview,
+             .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
+             .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
+            return .canvasLayout
         default:
             return .application
         }
@@ -210,6 +227,10 @@ extension AppDelegate {
             context.setInt(ShortcutContextKnownKey.workspaceCount.rawValue, tabManager.tabs.count)
             if let workspace = tabManager.selectedWorkspace {
                 context.setInt(ShortcutContextKnownKey.paneCount.rawValue, workspace.panels.count)
+                context.setBool(
+                    ShortcutContextKnownKey.workspaceCanvasLayout.rawValue,
+                    workspace.layoutMode == .canvas
+                )
                 context.setBool(
                     ShortcutContextKnownKey.terminalFindVisible.rawValue,
                     workspace.focusedTerminalPanel?.searchState != nil

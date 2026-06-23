@@ -278,6 +278,12 @@ extension ShortcutAction {
             return .atom(.browserFocus)
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .atom(.markdownFocus)
+        case .canvasRevealFocusedPane, .canvasOverview,
+             .canvasZoomIn, .canvasZoomOut, .canvasZoomReset, .canvasTidy,
+             .canvasAlignLeft, .canvasAlignRight, .canvasAlignTop, .canvasAlignBottom,
+             .canvasEqualizeWidths, .canvasEqualizeHeights,
+             .canvasDistributeHorizontally, .canvasDistributeVertically:
+            return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
         default:
             return .always
         }

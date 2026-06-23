@@ -181,10 +181,10 @@ final class KeyboardShortcutContextTests: XCTestCase {
 
     func testCanvasOnlyShortcutDefaultWhenClausesRequireCanvasLayout() {
         var splitContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
-        splitContext.setBool("workspaceCanvasLayout", false)
+        splitContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, false)
 
         var canvasContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
-        canvasContext.setBool("workspaceCanvasLayout", true)
+        canvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
 
         XCTAssertTrue(
             KeyboardShortcutSettings.effectiveWhenClause(for: .toggleCanvasLayout).evaluate(splitContext),

@@ -13592,10 +13592,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            _ = routedManager?.toggleFocusedSplitZoom()
+            if let workspace = routedManager?.selectedWorkspace,
+               workspace.layoutMode == .canvas {
+                _ = CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
+            } else {
+                _ = routedManager?.toggleFocusedSplitZoom()
 #if DEBUG
-            recordGotoSplitZoomIfNeeded(tabManager: routedManager)
+                recordGotoSplitZoomIfNeeded(tabManager: routedManager)
 #endif
+            }
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
