@@ -2667,8 +2667,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    static func ticketNeedsHostIdentityAdoption(_ ticket: CmxAttachTicket?) -> Bool {
+        guard let macDeviceID = ticket?.macDeviceID else { return false }
+        return macDeviceID.isEmpty || macDeviceID.hasPrefix("manual-")
+    }
+
     /// Recovers the Mac's identity for a connection whose ticket arrived
-    /// without a device id (the minimal v2 pairing QR), as its own
+    /// without a real device id, as its own
     /// `mobile.host.status` request with the default RPC timeout.
     ///
     /// Identity recovery must not depend on the terminal-output capability
@@ -2682,7 +2687,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// feed the same guarded
     /// ``applyHostReportedIdentity(client:deviceID:displayName:)`` path.
     private func scheduleHostIdentityAdoptionIfNeeded(client: MobileCoreRPCClient) {
-        guard activeTicket?.macDeviceID.isEmpty == true else { return }
+        guard Self.ticketNeedsHostIdentityAdoption(activeTicket) else { return }
         hostIdentityAdoptionTask?.cancel()
         hostIdentityAdoptionTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled, self.remoteClient === client else { return }
@@ -2709,10 +2714,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Adopts the identity (`mac_device_id`, `mac_display_name`) reported by
-    /// `mobile.host.status`. The minimal pairing QR carries neither, so this
-    /// post-handshake report is what makes a QR-paired Mac identifiable: the
-    /// device id keys the paired-Mac record (launch reconnect, host switcher)
-    /// and the name replaces the placeholder in the UI.
+    /// `mobile.host.status`. The minimal pairing QR carries neither, and a
+    /// manual fallback ticket carries only a synthetic `manual-...` id. This
+    /// post-handshake report is what makes the Mac identifiable: the device id
+    /// keys the paired-Mac record (launch reconnect, host switcher) and the name
+    /// replaces the placeholder in the UI.
     ///
     /// `client` is the connection the status reply belongs to. Every state
     /// read/mutation re-checks `remoteClient === client` after a suspension,
@@ -2728,7 +2734,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         if let reportedID = deviceID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !reportedID.isEmpty,
            let ticket = activeTicket,
-           ticket.macDeviceID.isEmpty,
+           Self.ticketNeedsHostIdentityAdoption(ticket),
            let adopted = try? CmxAttachTicket(
                version: ticket.version,
                workspaceID: ticket.workspaceID,
@@ -2759,7 +2765,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             adoptForegroundMacIdentity(reportedID)
             // The connection is now attributable to a real Mac: persist it so
             // reconnect-on-launch and the host switcher have a record (the
-            // empty-id ticket was skipped by the connect-time persist).
+            // anonymous/synthetic ticket was skipped by the connect-time persist).
             await persistPairedMacFromTicket(
                 adopted,
                 ifStillCurrent: { [weak self] in self?.remoteClient === client }
