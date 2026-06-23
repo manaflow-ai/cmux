@@ -973,7 +973,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         sticky: Bool
     ) {
         let usesStableScrollableAppearance = (button as? AccessoryActionButton)?
-            .usesStableScrollableAppearance ?? false
+            .usesStableScrollableAppearance ?? true
         var config = accessoryButtonConfiguration(
             armed: armed,
             sticky: sticky,
