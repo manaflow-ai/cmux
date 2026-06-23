@@ -10908,9 +10908,9 @@ class TerminalController {
             storedKey = "↑"
             keyCode = 126
             charactersIgnoringModifiers = storedKey
-        case "enter", "return":
-            storedKey = "\r"
-            keyCode = UInt16(kVK_Return)
+        case "enter", "return", "tab":
+            storedKey = keyToken.lowercased() == "tab" ? "\t" : "\r"
+            keyCode = UInt16(keyToken.lowercased() == "tab" ? kVK_Tab : kVK_Return)
             charactersIgnoringModifiers = storedKey
         default:
             let key = keyToken.lowercased()

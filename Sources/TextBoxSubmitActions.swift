@@ -67,6 +67,10 @@ private enum TextBoxSubmitActionImageLoader {
     }
 }
 
+private enum TextBoxSubmitActionIconMetrics {
+    static let size: CGFloat = 16
+}
+
 extension TextBoxInputContainer {
     var submitActions: [TextBoxSubmitAction] {
         submitActionsCache
@@ -160,6 +164,10 @@ extension TextBoxInputContainer {
         } label: {
             submitActionImage(presentation.action)
                 .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
+                .frame(
+                    width: TextBoxSubmitActionIconMetrics.size,
+                    height: TextBoxSubmitActionIconMetrics.size
+                )
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         }
         .buttonStyle(TextBoxSendButtonStyle(
@@ -197,12 +205,24 @@ extension TextBoxInputContainer {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
+                .frame(
+                    width: TextBoxSubmitActionIconMetrics.size,
+                    height: TextBoxSubmitActionIconMetrics.size
+                )
         } else if let assetName = action.assetName {
             Image(assetName)
                 .resizable()
                 .scaledToFit()
+                .frame(
+                    width: TextBoxSubmitActionIconMetrics.size,
+                    height: TextBoxSubmitActionIconMetrics.size
+                )
         } else {
             Image(systemName: action.systemImage)
+                .frame(
+                    width: TextBoxSubmitActionIconMetrics.size,
+                    height: TextBoxSubmitActionIconMetrics.size
+                )
         }
     }
 
