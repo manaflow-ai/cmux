@@ -6,6 +6,7 @@ import XCTest
 @testable import cmux
 #endif
 
+@MainActor
 final class TerminalNotificationMuteTests: XCTestCase {
     func testMutedWorkspaceRecordsUnreadNotificationWithoutSideEffects() throws {
         let store = TerminalNotificationStore.shared
