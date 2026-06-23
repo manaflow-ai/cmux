@@ -397,6 +397,34 @@ struct MobileHostAuthorizationTests {
         #expect(!service.manualPairingTicketMintAllowed(params: params))
     }
 
+    @Test func testStackAuthorizedTrafficDoesNotRevokeDisplayedPairingWindowGrant() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("mac-user")
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
+            service.debugClearManualPairingTicketMintForTesting()
+        }
+        let request = MobileHostRPCRequest(
+            id: "existing-phone",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: nil,
+                stackAccessToken: "cmux-dev-token"
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+        #expect(service.manualPairingTicketMintAllowed(params: [
+            "trusted_network_pairing_secret": pairingSecret
+        ]))
+    }
+
     @Test func testRevokedPairingWindowGrantRejectsAttachTicketCreateWithoutStackToken() async {
         let service = MobileHostService.shared
         service.debugConfigureAuthenticatedLocalUserIDForTesting("mac-user")

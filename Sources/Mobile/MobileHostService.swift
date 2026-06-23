@@ -469,16 +469,6 @@ final class MobileHostService {
         clearManualPairingTicketMint()
     }
 
-    private func revokeManualPairingTicketMintAfterVerifiedConnection() async {
-        await MainActor.run {
-            guard manualPairingTicketMintSecret != nil,
-                  !manualPairingTicketMintReserved else {
-                return
-            }
-            clearManualPairingTicketMint()
-        }
-    }
-
     private func revokeManualPairingTicketMintAfterAttachTokenUse(_ authToken: String?) async {
         let normalizedAuthToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard normalizedAuthToken?.isEmpty == false else { return }
@@ -1415,12 +1405,10 @@ final class MobileHostService {
             return nil
         }
         if devStackTokenAuthorized(request) {
-            await revokeManualPairingTicketMintAfterVerifiedConnection()
             return nil
         }
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
-            await revokeManualPairingTicketMintAfterVerifiedConnection()
             return nil
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different
