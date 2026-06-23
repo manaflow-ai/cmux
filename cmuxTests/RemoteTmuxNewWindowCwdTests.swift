@@ -76,6 +76,40 @@ import Testing
                 == "new-window -a -t @7"
         )
     }
+
+    @Test func keepsDirectoryWhenSourcePanelHasLiveMirrorWindow() {
+        let sourcePanelId = UUID()
+
+        #expect(
+            RemoteTmuxController.liveMirrorWindowWorkingDirectory(
+                "/srv/remote/project",
+                sourcePanelId: sourcePanelId,
+                windowIdForPanel: { panelId in panelId == sourcePanelId ? 7 : nil }
+            ) == "/srv/remote/project"
+        )
+    }
+
+    @Test func dropsDirectoryWhenSourcePanelHasNoLiveMirrorWindow() {
+        let sourcePanelId = UUID()
+
+        #expect(
+            RemoteTmuxController.liveMirrorWindowWorkingDirectory(
+                "/Users/local/project",
+                sourcePanelId: sourcePanelId,
+                windowIdForPanel: { _ in nil }
+            ) == nil
+        )
+    }
+
+    @Test func dropsDirectoryWhenSourcePanelIsUnknown() {
+        #expect(
+            RemoteTmuxController.liveMirrorWindowWorkingDirectory(
+                "/Users/local/project",
+                sourcePanelId: nil,
+                windowIdForPanel: { _ in 7 }
+            ) == nil
+        )
+    }
 }
 
 /// Coverage for the workspace-side resolution that feeds the command above. A

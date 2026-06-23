@@ -7258,9 +7258,11 @@ final class Workspace: Identifiable, ObservableObject {
             // remoteTmuxNewWindowWorkingDirectory). The socket/CLI layer rejects an
             // explicit working_directory for mirror workspaces
             // (mirrorRoutedUnsupportedOptions), so inheritance is the only source.
+            let inheritSourcePanelId = inheritWorkingDirectoryFallback
+                ? anchorPanelId ?? selectedTerminalPanelId(inPane: paneId)
+                : nil
             let resolvedWorkingDirectory: String?
-            if inheritWorkingDirectoryFallback {
-                let inheritSourcePanelId = anchorPanelId ?? selectedTerminalPanelId(inPane: paneId)
+            if let inheritSourcePanelId {
                 resolvedWorkingDirectory = remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: inheritSourcePanelId)
             } else {
                 resolvedWorkingDirectory = nil
@@ -7269,7 +7271,8 @@ final class Workspace: Identifiable, ObservableObject {
                 .handleMirrorNewTabRequested(
                     workspaceId: id,
                     placement: placement,
-                    workingDirectory: resolvedWorkingDirectory
+                    workingDirectory: resolvedWorkingDirectory,
+                    workingDirectorySourcePanelId: inheritSourcePanelId
                 ) ?? false
             return routed ? .routedToRemote : .failed
         }

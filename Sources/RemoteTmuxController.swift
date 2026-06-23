@@ -457,14 +457,16 @@ final class RemoteTmuxController {
     /// - Parameter workingDirectory: the directory the new tmux window should
     ///   start in (the active tab's cwd, resolved by the caller), so a new tab
     ///   inherits the active tab's directory the way local cmux does. A
-    ///   nil/blank/unsafe value omits `-c` and lets tmux pick its default-path.
+    ///   nil/blank/unsafe value, or a source panel that is not backed by a live
+    ///   mirror window, omits `-c` and lets tmux pick its default-path.
     /// - Returns: `true` if routed to the remote; `false` if there is no live
     ///   mirror/connection (callers must still NOT create a local tab in a
     ///   mirror workspace — they report failure instead).
     func handleMirrorNewTabRequested(
         workspaceId: UUID,
         placement: RemoteTmuxMirrorNewTabPlacement,
-        workingDirectory: String?
+        workingDirectory: String?,
+        workingDirectorySourcePanelId: UUID?
     ) -> Bool {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
               mirror.connection.connectionState == .connected else { return false }
@@ -476,9 +478,31 @@ final class RemoteTmuxController {
             // nil (panel has no live window) falls back to end placement.
             afterWindowId = mirror.windowId(forPanel: panelId)
         }
-        return mirror.connection.send(
-            Self.newWindowCommand(afterWindowId: afterWindowId, workingDirectory: workingDirectory)
+        let commandWorkingDirectory = Self.liveMirrorWindowWorkingDirectory(
+            workingDirectory,
+            sourcePanelId: workingDirectorySourcePanelId,
+            windowIdForPanel: mirror.windowId(forPanel:)
         )
+        return mirror.connection.send(
+            Self.newWindowCommand(afterWindowId: afterWindowId, workingDirectory: commandWorkingDirectory)
+        )
+    }
+
+    /// Returns a cwd only when its source panel is backed by a live tmux window.
+    ///
+    /// A mirror workspace can briefly contain a local bootstrap/default terminal
+    /// before the first remote topology rebuild replaces it. That panel may have
+    /// a local cwd, but sending it as `new-window -c` to the remote host would be
+    /// wrong, so unresolved panels omit `-c`.
+    nonisolated static func liveMirrorWindowWorkingDirectory(
+        _ workingDirectory: String?,
+        sourcePanelId: UUID?,
+        windowIdForPanel: (UUID) -> Int?
+    ) -> String? {
+        guard let workingDirectory,
+              let sourcePanelId,
+              windowIdForPanel(sourcePanelId) != nil else { return nil }
+        return workingDirectory
     }
 
     /// Builds the tmux `new-window` command for a mirror new-tab. Pure (testable).
