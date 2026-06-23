@@ -1281,8 +1281,8 @@ final class MobileHostService {
         return routes
     }
 
-    private static let irohSecretKeyKeychainService = "dev.cmux.iroh.host-secret-key"
-    private static let irohSecretKeyByteCount = 32
+    private nonisolated static let irohSecretKeyKeychainService = "dev.cmux.iroh.host-secret-key"
+    private nonisolated static let irohSecretKeyByteCount = 32
 
     /// The Mac's persisted iroh secret key. Stored in the Keychain as a generic
     /// password with `AfterFirstUnlockThisDeviceOnly` and no iCloud sync (a synced
