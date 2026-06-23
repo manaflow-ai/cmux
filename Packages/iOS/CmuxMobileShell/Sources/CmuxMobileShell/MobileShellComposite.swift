@@ -5281,20 +5281,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // applying its empty groups array would wrongly clear the sections. Only a
         // full-list response (the non-merge path, which the event-driven refresh
         // and initial sync use) carries authoritative group state.
-        if !mergeExistingWorkspaces {
-            let mappedGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
-            if groupsAreAuthoritative {
-                // Apply this device's collapse state over the Mac's reported groups
-                // (seeding any group seen for the first time, pruning departed ones).
-                // Folder collapse is device-local, so the Mac's live `isCollapsed`
-                // never overrides a choice this phone already made.
-                workspaceGroups = groupCollapseStore.apply(to: mappedGroups)
-            } else {
-                // Scoped attach responses omit `groups`; feeding that empty list to
-                // the store would prune saved collapse choices. Leave it untouched —
-                // the full refresh that follows re-applies authoritatively.
-                workspaceGroups = mappedGroups
-            }
+        if !mergeExistingWorkspaces, groupsAreAuthoritative {
+            // Apply this device's collapse state over the Mac's reported groups
+            // (seeding any group seen for the first time, pruning departed ones).
+            // Folder collapse is device-local, so the Mac's live `isCollapsed` never
+            // overrides a choice this phone already made.
+            //
+            // Only authoritative (full-list) responses reach here. A scoped attach
+            // response omits `groups`; it must neither prune the collapse store nor
+            // clear the visible group sections (which would flatten grouped
+            // workspaces until a full refresh that is not guaranteed for a tokenless
+            // ticket), so leave `workspaceGroups` untouched in that case.
+            workspaceGroups = groupCollapseStore.apply(
+                to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+            )
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
