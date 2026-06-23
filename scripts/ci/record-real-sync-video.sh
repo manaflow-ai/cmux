@@ -156,7 +156,7 @@ cmux_tagged() {
 }
 
 json_field() {
-  python3 - "$1" <<'PY'
+  python3 -c '
 import json
 import sys
 
@@ -168,7 +168,7 @@ if value is None:
 if value is None:
     raise SystemExit(1)
 print(value)
-PY
+' "$1"
 }
 
 mint_attach_url() {
