@@ -239,13 +239,20 @@ export type OwnerCheck =
  *
  * The pin lives in DO storage and is durable: it is never pruned with the
  * 24h presence tail, so an idle device cannot be re-claimed by a co-member.
- * Known residual (accepted until the registry's planned per-device
- * key-pinning phase, see the `devices` schema note): the very first claim of
- * a deviceId is first-authenticated-writer-wins, because the presence
- * service deliberately has no synchronous dependency on the Aurora registry
- * (presence must stay available when the web API is not) and the registry
- * does not yet issue verifiable device credentials. Blast radius is presence
- * display only; attach routes and durable identity stay registry-owned.
+ *
+ * TODO(security): Known residual — the very first claim of a deviceId is
+ * first-authenticated-writer-wins. Any authenticated team member can race the
+ * legitimate owner to claim an unannounced deviceId (device ids are visible to
+ * the whole team), after which the real owner is locked out (403
+ * device_owner_mismatch) until manual intervention. Accepted for now because
+ * the presence service deliberately has no synchronous dependency on the Aurora
+ * registry (presence must stay available when the web API is not) and the
+ * registry does not yet issue verifiable per-device credentials. The fix is the
+ * registry's planned per-device key-pinning phase (see the `devices` schema
+ * note): cross-check the first claim against the registry's pinned registering
+ * userId, or have the registry issue a verifiable credential presence validates
+ * on first contact. Blast radius is presence display only; attach routes and
+ * durable identity stay registry-owned.
  * Pure for tests. */
 export function checkDeviceOwner(
   existingOwner: string | undefined,
