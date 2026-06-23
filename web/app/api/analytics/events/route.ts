@@ -40,17 +40,31 @@ export async function POST(request: Request): Promise<Response> {
   // gate, not auth. The PostHog key is already public (the web client posts to
   // r.cmux.com directly), so an anonymous proxy is no weaker than today.
   //
-  // Rate limiting is deferred for Phase A (tracked in
-  // https://github.com/manaflow-ai/cmux/issues/5569). The only reusable limiter in
-  // the codebase (`services/apns/rateLimit.ts`) is a per-`userId` Postgres-
-  // transaction gate, which does not fit an anonymous-first, high-volume telemetry
-  // ingest path (no user id pre-auth, and a DB write + advisory lock per analytics
-  // batch would defeat a lightweight proxy; in-memory limiting does not work on
-  // Vercel's per-instance stateless functions). The shape gate (allowlist + 64 KB
-  // body cap + per-batch/per-event bounds below) limits payload abuse; a dedicated
-  // anonymous IP/edge rate limit on cmux's own compute is the follow-up. The
-  // downstream PostHog quota risk is no worse than the already-public direct
-  // r.cmux.com path.
+  // Anonymous IP/edge rate limiting (Vercel Firewall, keyed on the request IP,
+  // mirroring /api/feedback) bounds PostHog quota and function-invocation abuse
+  // from unauthenticated callers. The per-`userId` Postgres limiter in
+  // `services/apns/rateLimit.ts` does not fit this anonymous-first path. When
+  // CMUX_ANALYTICS_RATE_LIMIT_ID is unset the route degrades to the shape gate
+  // (allowlist + 64 KB body cap + per-batch/per-event bounds below) only.
+  // Read the rate-limit id from process.env directly (not the t3 `env` singleton)
+  // so importing this route does not cache `env` before other test files set
+  // their own env vars — matching how `process.env.VERCEL` is read just below.
+  const analyticsRateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID;
+  if (process.env.VERCEL === "1" && analyticsRateLimitId) {
+    const { checkRateLimit } = await import("@vercel/firewall");
+    const { error, rateLimited } = await checkRateLimit(analyticsRateLimitId, {
+      request,
+    });
+    if (rateLimited || error === "blocked") {
+      return jsonResponse({ error: "rate_limited" }, 429);
+    }
+    if (error === "not-found") {
+      console.error("analytics.events.rate_limit_not_found", analyticsRateLimitId);
+    } else if (error) {
+      console.error("analytics.events.rate_limit_error", error);
+    }
+  }
+
   const user = await verifyRequest(request, { allowCookie: false });
 
   const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
