@@ -3521,6 +3521,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 ["/usr/local/bin/codex", "fork", parentSessionId, "--model", "gpt-5.4"]
             ),
             (
+                "variadic image explicit parent id",
+                ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", parentSessionId, "--model", "gpt-5.4"]
+            ),
+            (
                 "codex teams wrapper",
                 ["/usr/local/bin/cmux", "codex-teams", "fork", parentSessionId, "--model", "gpt-5.4"]
             ),

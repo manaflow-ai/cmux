@@ -26626,7 +26626,18 @@ struct CMUXCLI {
             if !argument.hasPrefix("-") || argument == "-" {
                 return argument == "fork" ? index : nil
             }
-            index += codexForkOptionWidth(arguments, index: index)
+            let width = codexForkOptionWidth(arguments, index: index)
+            if codexForkOptionIsVariadicImage(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end where arguments[candidateIndex] == "fork" {
+                        if codexForkSessionIdentifier(in: arguments, after: candidateIndex) != nil {
+                            return candidateIndex
+                        }
+                    }
+                }
+            }
+            index += width
         }
         return nil
     }
@@ -26680,7 +26691,17 @@ struct CMUXCLI {
             if !argument.hasPrefix("-") || argument == "-" {
                 return normalizedHookValue(argument)
             }
-            index += codexForkOptionWidth(arguments, index: index)
+            let width = codexForkOptionWidth(arguments, index: index)
+            if codexForkOptionIsVariadicImage(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 1 < end {
+                    for candidateIndex in (index + 1)..<end
+                    where codexLooksLikeSessionIdentifier(arguments[candidateIndex]) {
+                        return normalizedHookValue(arguments[candidateIndex])
+                    }
+                }
+            }
+            index += width
         }
         return nil
     }
@@ -26693,11 +26714,17 @@ struct CMUXCLI {
         if argument.contains("=") {
             return 1
         }
+        if codexForkOptionIsVariadicImage(argument) {
+            var end = index + 1
+            while end < arguments.count, !arguments[end].hasPrefix("-") {
+                end += 1
+            }
+            return max(1, end - index)
+        }
         switch argument {
         case "-c", "--config",
             "--enable", "--disable",
             "--remote", "--remote-auth-token-env",
-            "-i", "--image",
             "-m", "--model",
             "--local-provider",
             "-p", "--profile",
@@ -26709,6 +26736,20 @@ struct CMUXCLI {
         default:
             return 1
         }
+    }
+
+    private func codexForkOptionIsVariadicImage(_ argument: String) -> Bool {
+        argument == "-i" || argument == "--image"
+    }
+
+    private func codexLooksLikeSessionIdentifier(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 20 else { return false }
+        if trimmed.hasPrefix("019") {
+            return true
+        }
+        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
     }
 
     private func shouldSkipCodexForkParentLifecycle(
