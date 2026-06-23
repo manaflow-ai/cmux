@@ -1071,10 +1071,13 @@ final class MobileHostService {
         terminalID: String?,
         ttl: TimeInterval,
         routeID: String? = nil,
-        routeKind: String? = nil
+        routeKind: String? = nil,
+        overrideRoutes: [CmxAttachRoute]? = nil
     ) async throws -> [String: Any] {
         let routes: [CmxAttachRoute]
-        if let listenerPort {
+        if let overrideRoutes {
+            routes = overrideRoutes
+        } else if let listenerPort {
             routes = routeResolver.routes(port: listenerPort).routes
         } else {
             routes = []

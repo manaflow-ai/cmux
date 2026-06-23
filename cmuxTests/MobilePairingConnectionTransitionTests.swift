@@ -21,7 +21,11 @@ struct MobilePairingConnectionTransitionTests {
     }
 
     private func makeManualOnly() -> MobilePairingManualOnly {
-        MobilePairingManualOnly(macName: "Test Mac", port: 58465)
+        MobilePairingManualOnly(
+            macName: "Test Mac",
+            port: 58465,
+            trustedNetworkPairingSecret: "test-pairing-secret"
+        )
     }
 
     @Test("A phone attaching above the baseline flips a displayed ticket to connected")

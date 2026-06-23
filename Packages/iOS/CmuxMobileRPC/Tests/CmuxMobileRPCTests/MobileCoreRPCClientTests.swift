@@ -456,6 +456,8 @@ import Testing
                 "ttl_seconds": 3600,
                 "scope": "mac",
                 "trusted_network_pairing_secret": "pairing-secret",
+                "trusted_network_host": "192.168.1.20",
+                "trusted_network_port": 58465,
             ]
         )
         let task = Task { try await client.sendRequest(request) }
@@ -465,6 +467,9 @@ import Testing
 
         let frame = try #require(sent.first)
         #expect(frame.method == "mobile.attach_ticket.create")
+        #expect(frame.trustedNetworkPairingSecret == "pairing-secret")
+        #expect(frame.trustedNetworkHost == "192.168.1.20")
+        #expect(frame.trustedNetworkPort == 58465)
         #expect(frame.hasAuth == false)
         #expect(frame.attachToken == nil)
         #expect(frame.stackAccessToken == nil)

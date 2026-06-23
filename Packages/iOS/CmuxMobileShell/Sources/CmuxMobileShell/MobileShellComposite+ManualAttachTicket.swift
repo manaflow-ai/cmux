@@ -159,6 +159,10 @@ extension MobileShellComposite {
            let secret = trustedNetworkPairingSecret?.trimmingCharacters(in: .whitespacesAndNewlines),
            !secret.isEmpty {
             params["trusted_network_pairing_secret"] = secret
+            if case let .hostPort(host, port) = route.endpoint {
+                params["trusted_network_host"] = host
+                params["trusted_network_port"] = port
+            }
         }
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.attach_ticket.create",

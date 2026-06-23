@@ -13013,6 +13013,22 @@ class TerminalController {
         )
         let ttlMax = consumedTrustedNetworkPairingMint ? 60 * 60 * 24 * 30 : 3600
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, ttlMax)))
+        let trustedNetworkOverrideRoutes: [CmxAttachRoute]?
+        if consumedTrustedNetworkPairingMint,
+           let host = v2OptionalTrimmedRawString(params, "trusted_network_host"),
+           let port = v2Int(params, "trusted_network_port"),
+           (1...65535).contains(port) {
+            trustedNetworkOverrideRoutes = [
+                try? CmxAttachRoute(
+                    id: "trusted-network-manual",
+                    kind: .trustedNetwork,
+                    endpoint: .hostPort(host: host, port: port),
+                    priority: 0
+                ),
+            ].compactMap { $0 }
+        } else {
+            trustedNetworkOverrideRoutes = nil
+        }
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
@@ -13064,7 +13080,8 @@ class TerminalController {
                 terminalID: resolvedTerminalID,
                 ttl: ttl,
                 routeID: routeID,
-                routeKind: routeKind
+                routeKind: routeKind,
+                overrideRoutes: trustedNetworkOverrideRoutes
             )
             return .ok(payload)
         } catch MobileAttachTicketStoreError.noRoutes {

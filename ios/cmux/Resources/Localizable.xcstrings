@@ -545,6 +545,40 @@
         }
       }
     },
+    "mobile.addDevice.pairingKeyPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pairing key from Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に表示されたペアリングキー"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.pairingKeyRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter the pairing key shown on your Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac に表示されたペアリングキーを入力してください。"
+          }
+        }
+      }
+    },
     "mobile.addDevice.manualRouteTrustToggle": {
       "extractionState": "manual",
       "localizations": {
