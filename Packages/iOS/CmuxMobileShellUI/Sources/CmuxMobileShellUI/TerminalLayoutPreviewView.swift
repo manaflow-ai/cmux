@@ -61,22 +61,10 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         return view
     }
 
-    // Feed a sample agent-session transcript once the surface has a real grid
-    // size, so App Store screenshots show a populated terminal instead of a
-    // blank one. Gated on CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1 so the
-    // blank-layout preview used by geometry tests is unchanged.
-    func updateUIView(_ uiView: UIView, context: Context) {
-        guard ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1",
-              !context.coordinator.didFeedContent,
-              let surface = uiView as? GhosttySurfaceView,
-              uiView.bounds.width > 1, uiView.bounds.height > 1
-        else { return }
-        context.coordinator.didFeedContent = true
-        surface.processOutput(Self.sampleTranscript)
-    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
 
     /// A short, realistic coding-agent session (ANSI-colored) for screenshots.
-    private static let sampleTranscript: Data = {
+    static let sampleTranscript: Data = {
         let esc = "\u{1B}"
         let reset = "\(esc)[0m"
         let dim = "\(esc)[2m"
@@ -101,12 +89,22 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         return Data(lines.joined(separator: "\r\n").utf8)
     }()
 
-    /// Retained delegate (the surface holds it weakly). No-op: the preview only
-    /// exercises layout, not input/resize round-trips.
+    /// Retained delegate (the surface holds it weakly). Feeds the sample
+    /// transcript once the grid has real dimensions (the first `didResize`),
+    /// which is the reliable signal that the surface can render output. Gated on
+    /// CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1 so the blank-layout preview used by
+    /// geometry tests is unchanged.
     final class Coordinator: GhosttySurfaceViewDelegate {
-        var didFeedContent = false
+        private var didFeedContent = false
+        private let feedContent =
+            ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1"
+
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
-        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {}
+        func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
+            guard feedContent, !didFeedContent, size.columns > 0, size.rows > 0 else { return }
+            didFeedContent = true
+            surfaceView.processOutput(TerminalLayoutPreviewSurface.sampleTranscript)
+        }
     }
 }
 #endif
