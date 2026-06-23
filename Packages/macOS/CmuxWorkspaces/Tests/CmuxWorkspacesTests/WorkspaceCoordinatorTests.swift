@@ -255,6 +255,34 @@ struct WorkspaceCoordinatorTests {
     }
 
     @Test
+    func explicitGroupDropOfSelectedWorkspaceExpandsCollapsedTargetGroupWhenIndexDoesNotMove() throws {
+        let (model, host, groups, reorder) = makeWorld()
+        _ = host
+        let child = CoordinatorStubTab()
+        let dragged = CoordinatorStubTab()
+        let outside = CoordinatorStubTab()
+        model.tabs = [child, dragged, outside]
+        let groupId = try #require(groups.createWorkspaceGroup(name: "G", childWorkspaceIds: [
+            child.id,
+        ]))
+        groups.setWorkspaceGroupCollapsed(groupId: groupId, isCollapsed: true)
+        model.selectedTabId = dragged.id
+        let draggedIndex = try #require(model.tabs.firstIndex { $0.id == dragged.id })
+
+        let moved = reorder.reorderSidebarWorkspace(
+            tabId: dragged.id,
+            toIndex: draggedIndex,
+            isDragOperation: true,
+            explicitGroupId: groupId
+        )
+
+        #expect(moved)
+        #expect(dragged.groupId == groupId)
+        #expect(model.selectedTabId == dragged.id)
+        #expect(model.workspaceGroups.first { $0.id == groupId }?.isCollapsed == false)
+    }
+
+    @Test
     func staleExplicitGroupDropDoesNotInferMembership() throws {
         let (model, host, groups, reorder) = makeWorld()
         _ = host
