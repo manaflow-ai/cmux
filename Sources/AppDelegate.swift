@@ -1289,6 +1289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
+            SharedSurfaceResumeBindingIndex.shared.scheduleRefreshIfStale()
         }
 
         claimAuthCallbackURLSchemes()
@@ -4118,6 +4119,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             charactersPerTerminal: charactersPerTerminal
         )
     }
+
+    func debugBenchmarkUpdatePrepareRelaunch() -> [String: Any] {
+        let shape = debugUpdateRelaunchShape()
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        var resumeIndexesMs: Double = 0
+        var saveSnapshotMs: Double = 0
+        var closedHistoryFlushMs: Double = 0
+        var terminalStopMs: Double = 0
+        var restorableStateMs: Double = 0
+
+        isTerminatingApp = true
+
+        let resumeIndexesStart = ProcessInfo.processInfo.systemUptime
+        let resumeIndexes = cachedResumeIndexesForTerminatingSessionSave()
+        resumeIndexesMs = Self.debugElapsedMs(since: resumeIndexesStart)
+
+        let saveSnapshotStart = ProcessInfo.processInfo.systemUptime
+        _ = saveSessionSnapshot(
+            includeScrollback: true,
+            removeWhenEmpty: false,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+        saveSnapshotMs = Self.debugElapsedMs(since: saveSnapshotStart)
+
+        let closedHistoryFlushStart = ProcessInfo.processInfo.systemUptime
+        ClosedItemHistoryStore.shared.flushPendingSaves()
+        closedHistoryFlushMs = Self.debugElapsedMs(since: closedHistoryFlushStart)
+
+        let terminalStopStart = ProcessInfo.processInfo.systemUptime
+        TerminalController.shared.stop()
+        terminalStopMs = Self.debugElapsedMs(since: terminalStopStart)
+
+        let restorableStateStart = ProcessInfo.processInfo.systemUptime
+        NSApp.invalidateRestorableState()
+        for window in NSApp.windows {
+            window.invalidateRestorableState()
+        }
+        restorableStateMs = Self.debugElapsedMs(since: restorableStateStart)
+
+        return [
+            "elapsed_ms": Self.debugElapsedMs(since: startedAt),
+            "resume_indexes_ms": resumeIndexesMs,
+            "resume_indexes_source": "cache",
+            "save_session_snapshot_ms": saveSnapshotMs,
+            "closed_history_flush_ms": closedHistoryFlushMs,
+            "terminal_stop_ms": terminalStopMs,
+            "restorable_state_ms": restorableStateMs,
+            "shape": shape
+        ]
+    }
+
+    private static func debugElapsedMs(since start: TimeInterval) -> Double {
+        ((ProcessInfo.processInfo.systemUptime - start) * 1000.0 * 100.0).rounded() / 100.0
+    }
+
+    private func debugUpdateRelaunchShape() -> [String: Any] {
+        let contexts = sortedMainWindowContextsForSessionSnapshot()
+        var workspaceCount = 0
+        var panelCount = 0
+        var terminalCount = 0
+        for context in contexts {
+            let workspaces = context.tabManager.tabs
+            workspaceCount += workspaces.count
+            for workspace in workspaces {
+                panelCount += workspace.panels.count
+                terminalCount += workspace.panels.values.filter { $0 is TerminalPanel }.count
+            }
+        }
+        return [
+            "windows": contexts.count,
+            "workspaces": workspaceCount,
+            "panels": panelCount,
+            "terminals": terminalCount,
+            "ns_windows": NSApp.windows.count
+        ]
+    }
 #endif
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
@@ -4233,6 +4311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return
         }
+        SharedSurfaceResumeBindingIndex.shared.replace(with: resumeIndexes.surfaceResumeBindingIndex)
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
@@ -4280,12 +4359,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        let resumeIndexes: ProcessDetectedResumeIndexes
+        if isTerminatingApp {
+            resumeIndexes = cachedResumeIndexesForTerminatingSessionSave()
+        } else {
+            resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+            SharedSurfaceResumeBindingIndex.shared.replace(with: resumeIndexes.surfaceResumeBindingIndex)
+        }
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
             surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+    }
+
+    private func cachedResumeIndexesForTerminatingSessionSave() -> ProcessDetectedResumeIndexes {
+        ProcessDetectedResumeIndexes(
+            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty,
+            surfaceResumeBindingIndex: SharedSurfaceResumeBindingIndex.shared.currentIndexSchedulingRefresh() ?? .empty
         )
     }
 
