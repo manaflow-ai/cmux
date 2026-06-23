@@ -4113,6 +4113,74 @@ private struct InertPushRegistration: PushRegistering {
     #expect(!coordinator.notificationPreferences.hidesContent)
 }
 
+@Test @MainActor func legacyNotificationOptInPreservesMacModeAndPrivacyOnSync() async throws {
+    let suite = "MobilePushCoordinatorLegacyNotificationSettings.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suite))
+    defer { defaults.removePersistentDomain(forName: suite) }
+    defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
+
+    let route = try hostPortRoute(
+        kind: .debugLoopback,
+        host: "127.0.0.1",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "live-workspace",
+        terminalID: "live-terminal",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date.now.addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcResultFrame(result: [
+            "enabled": true,
+            "mode": MobileNotificationForwardingMode.onlyWhenAway.rawValue,
+            "hide_content": true,
+        ]),
+        try rpcResultFrame(result: [
+            "enabled": true,
+            "mode": MobileNotificationForwardingMode.onlyWhenAway.rawValue,
+            "hide_content": true,
+        ]),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+    store.remoteClient = MobileCoreRPCClient(
+        runtime: runtime,
+        route: route,
+        ticket: ticket,
+        allowsStackAuthFallback: true
+    )
+    let coordinator = MobilePushCoordinator(
+        registration: InertPushRegistration(),
+        defaults: defaults
+    )
+
+    coordinator.bind(store: store)
+
+    for _ in 0..<200 {
+        if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.set" }) {
+            break
+        }
+        try await Task.sleep(nanoseconds: 1_000_000)
+    }
+    let requests = try await responses.sentRequests()
+    let setRequest = try #require(requests.first { $0.method == "notification.settings.set" })
+
+    #expect(requests.contains { $0.method == "notification.settings.get" })
+    #expect(setRequest.notificationEnabled == true)
+    #expect(setRequest.notificationMode == MobileNotificationForwardingMode.onlyWhenAway.rawValue)
+    #expect(setRequest.hideNotificationContent == true)
+    #expect(coordinator.notificationPreferences.isEnabled)
+    #expect(coordinator.notificationPreferences.forwardingMode == .onlyWhenAway)
+    #expect(coordinator.notificationPreferences.hidesContent)
+}
+
 @Test @MainActor func foregroundPresentationOnlySuppressesCurrentTerminal() {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = CMUXMobileShellStore.preview()

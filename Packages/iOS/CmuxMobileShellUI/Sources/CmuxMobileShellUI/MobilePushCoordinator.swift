@@ -221,8 +221,21 @@ public final class MobilePushCoordinator {
     /// Mac's current state so Settings reflects an existing desktop setup.
     @discardableResult
     public func reconcileNotificationPreferencesWithMac() async -> MobileNotificationPreferences {
-        if hasStoredNotificationPreference {
-            return await syncNotificationPreferencesToMac(notificationPreferences) ?? notificationPreferences
+        if hasStoredNotificationOptIn {
+            var localPreferences = notificationPreferences
+            if !hasStoredForwardingModePreference || !hasStoredHideContentPreference {
+                guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
+                    return localPreferences
+                }
+                if !hasStoredForwardingModePreference {
+                    localPreferences.forwardingMode = macPreferences.forwardingMode
+                }
+                if !hasStoredHideContentPreference {
+                    localPreferences.hidesContent = macPreferences.hidesContent
+                }
+                localPreferences.persist(to: defaults)
+            }
+            return await syncNotificationPreferencesToMac(localPreferences) ?? localPreferences
         }
         guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
             return notificationPreferences
@@ -371,8 +384,16 @@ public final class MobilePushCoordinator {
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 
-    private var hasStoredNotificationPreference: Bool {
+    private var hasStoredNotificationOptIn: Bool {
         defaults.object(forKey: MobileNotificationPreferences.enabledKey) != nil
+    }
+
+    private var hasStoredForwardingModePreference: Bool {
+        defaults.object(forKey: MobileNotificationPreferences.forwardingModeKey) != nil
+    }
+
+    private var hasStoredHideContentPreference: Bool {
+        defaults.object(forKey: MobileNotificationPreferences.hideContentKey) != nil
     }
 
     @discardableResult
