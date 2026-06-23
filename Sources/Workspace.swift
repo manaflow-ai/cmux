@@ -2052,6 +2052,7 @@ final class SharedLiveAgentIndex: ObservableObject {
                 // Code daemon. Best-effort and off-main; degrades to no reconciliation.
                 // https://github.com/manaflow-ai/cmux/issues/6622
                 RestorableAgentSessionIndex.load(
+                    maxBackgroundAgentProbes: RestorableAgentSessionIndex.liveBackgroundAgentProbesPerLoad,
                     backgroundAgentsProvider: { configDir in
                         ClaudeBackgroundAgentsQuery.shared.live(configDir: configDir)
                     }

@@ -1649,34 +1649,55 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(calls.value, 1, "cachedOnly never spawns the probe")
     }
 
-    func testClaudeBackgroundAgentsQueryRateLimitsColdProbesButNotWarmHits() {
-        let clock = TestClock(Date(timeIntervalSince1970: 1000))
-        let calls = CallCounter()
-        let query = ClaudeBackgroundAgentsQuery(
-            cacheTTL: 60,
-            coldProbeWindow: 10,
-            maxColdProbesPerWindow: 2,
-            now: { clock.current },
-            probe: { _ in calls.increment(); return [] }
+    // #6622: the live (spawning) provider is invoked at most `maxBackgroundAgentProbes` times
+    // per load across distinct config dirs, so a hook store with transcript-less ghosts spread
+    // over many config dirs cannot chain unbounded `claude agents --json` subprocess waits. This
+    // is a simple per-load counter, not a time window a slow probe could reset.
+    func testBackgroundAgentProbesAreCappedPerLoad() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-probe-cap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let workspaceId = UUID()
+        var sessions: [String: [String: Any]] = [:]
+        for index in 0..<3 {
+            let config = root.appendingPathComponent("config-\(index)", isDirectory: true)
+            try fm.createDirectory(
+                at: config.appendingPathComponent("projects", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            let cwd = root.appendingPathComponent("repo-\(index)", isDirectory: true)
+            try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+            let sessionId = "0000000\(index)-1111-1111-1111-aaaaaaaaaaaa"
+            sessions[sessionId] = hookRecord(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                panelId: UUID(),
+                cwd: cwd.path,
+                configDir: config.path,
+                isRestorable: false,
+                updatedAt: 20
+            )
+        }
+        try writeClaudeHookStore(root: root, sessions: sessions)
+
+        let probeCalls = CallCounter()
+        _ = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            maxBackgroundAgentProbes: 2,
+            backgroundAgentsProvider: { _ in
+                probeCalls.increment()
+                return []
+            }
         )
-
-        // Two distinct cold configs are allowed within the window.
-        _ = query.live(configDir: "/a")
-        _ = query.live(configDir: "/b")
-        XCTAssertEqual(calls.value, 2)
-
-        // A third distinct cold config exceeds the budget and does not spawn.
-        XCTAssertTrue(query.live(configDir: "/c").isEmpty)
-        XCTAssertEqual(calls.value, 2, "cold probes beyond the window budget must not spawn")
-
-        // A warm hit never reaches the cold path, so it neither spawns nor consumes the budget.
-        _ = query.live(configDir: "/a")
-        XCTAssertEqual(calls.value, 2, "a warm cache hit must not spawn")
-
-        // After the window elapses, cold probes resume.
-        clock.current = clock.current.addingTimeInterval(11)
-        _ = query.live(configDir: "/c")
-        XCTAssertEqual(calls.value, 3, "cold probes resume after the window elapses")
+        XCTAssertEqual(
+            probeCalls.value, 2,
+            "the live provider must run at most maxBackgroundAgentProbes times per load across distinct config dirs"
+        )
     }
 
     private final class TestClock: @unchecked Sendable {

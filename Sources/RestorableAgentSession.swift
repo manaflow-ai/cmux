@@ -1032,6 +1032,7 @@ struct RestorableAgentSessionIndex: Sendable {
     static func load(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
+        maxBackgroundAgentProbes: Int = .max,
         backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
@@ -1040,6 +1041,7 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager,
             registry: registry,
             detectedSnapshots: [:],
+            maxBackgroundAgentProbes: maxBackgroundAgentProbes,
             backgroundAgentsProvider: backgroundAgentsProvider
         )
     }
@@ -1049,8 +1051,9 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager = .default,
         // This overload is always off-main (Task.detached), so it reconciles ghost panels by
         // default: every async caller (command-palette forkability, hibernation, …) sees the
-        // same real session id as SharedLiveAgentIndex instead of silently opting out.
-        // https://github.com/manaflow-ai/cmux/issues/6622
+        // same real session id as SharedLiveAgentIndex instead of silently opting out, bounded by
+        // the live per-load probe cap. https://github.com/manaflow-ai/cmux/issues/6622
+        maxBackgroundAgentProbes: Int = liveBackgroundAgentProbesPerLoad,
         backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = {
             ClaudeBackgroundAgentsQuery.shared.live(configDir: $0)
         }
@@ -1059,6 +1062,7 @@ struct RestorableAgentSessionIndex: Sendable {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
+                maxBackgroundAgentProbes: maxBackgroundAgentProbes,
                 backgroundAgentsProvider: backgroundAgentsProvider
             )
         }.value
@@ -1067,6 +1071,7 @@ struct RestorableAgentSessionIndex: Sendable {
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
+        maxBackgroundAgentProbes: Int = .max,
         backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
@@ -1079,9 +1084,18 @@ struct RestorableAgentSessionIndex: Sendable {
             fileManager: fileManager,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            maxBackgroundAgentProbes: maxBackgroundAgentProbes,
             backgroundAgentsProvider: backgroundAgentsProvider
         )
     }
+
+    /// Per-load cap on distinct config dirs the spawning (off-main, live) provider probes, so a
+    /// hook store littered with transcript-less ghosts across many config dirs cannot turn one
+    /// index load into an N×timeout chain of `claude agents --json` waits. A simple per-load
+    /// counter (not a time window a slow probe could reset). The synchronous `cachedOnly` path
+    /// never spawns, so its callers pass `.max` and reconcile every cached config.
+    /// https://github.com/manaflow-ai/cmux/issues/6622
+    static let liveBackgroundAgentProbesPerLoad = 4
 
     static func load(
         homeDirectory: String,
@@ -1091,19 +1105,26 @@ struct RestorableAgentSessionIndex: Sendable {
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
+        maxBackgroundAgentProbes: Int = .max,
         backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
         // Resolve background agents at most once per config dir per load, only when a
-        // transcript-less Claude ghost actually needs reconciliation (the provider fires
-        // lazily from `resolvedClaudeWorkflowRecord`). The provider (`ClaudeBackgroundAgentsQuery`)
-        // owns the cold-probe rate limit and cache eviction, so a hook store littered with
-        // transcript-less ghosts across many config dirs cannot turn one load into an unbounded
-        // chain of subprocess waits. https://github.com/manaflow-ai/cmux/issues/6622
+        // transcript-less Claude ghost actually needs reconciliation (the provider fires lazily
+        // from `resolvedClaudeWorkflowRecord`), and at most `maxBackgroundAgentProbes` distinct
+        // config dirs per load so the spawning path stays bounded. The query itself owns the TTL
+        // cache, eviction, and concurrent-miss coalescing. https://github.com/manaflow-ai/cmux/issues/6622
         var backgroundAgentsByConfigDir: [String: [ClaudeBackgroundAgentSnapshot]] = [:]
+        var probedConfigDirCount = 0
         func backgroundAgents(forConfigDir configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
             let key = configDir ?? ""
             if let cached = backgroundAgentsByConfigDir[key] { return cached }
-            let resolved = backgroundAgentsProvider(configDir)
+            let resolved: [ClaudeBackgroundAgentSnapshot]
+            if probedConfigDirCount >= maxBackgroundAgentProbes {
+                resolved = []
+            } else {
+                probedConfigDirCount += 1
+                resolved = backgroundAgentsProvider(configDir)
+            }
             backgroundAgentsByConfigDir[key] = resolved
             return resolved
         }
@@ -1391,11 +1412,14 @@ struct RestorableAgentSessionIndex: Sendable {
         // and `roots` all derive from the same trusted config (or the default when untrusted).
         // Require a cwd before probing: the reconciler can only match a background agent by cwd,
         // so a record with no launch/recorded cwd can never reconcile and must not spawn or
-        // consume a `claude agents --json` probe.
-        guard let panelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        // consume a `claude agents --json` probe. Standardize it so the same path feeds the
+        // (standardizing) daemon match and `encodeClaudeProjectDir` transcript lookup — a
+        // syntactic variant must not match the agent but miss the project dir.
+        guard let rawPanelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
             ?? normalizedWorkingDirectory(record.cwd) else {
             return record
         }
+        let panelCwd = (rawPanelCwd as NSString).standardizingPath
         let configDir = normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"])
         guard let realSessionId = ClaudeBackgroundAgentReconciler().reconciledSessionId(
             forGhostSessionId: sessionId,
@@ -2073,6 +2097,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
             loadSynchronously(
                 homeDirectory: homeDirectory,
                 fileManager: fileManager,
+                maxBackgroundAgentProbes: RestorableAgentSessionIndex.liveBackgroundAgentProbesPerLoad,
                 backgroundAgentsProvider: { ClaudeBackgroundAgentsQuery.shared.live(configDir: $0) }
             )
         }.value
@@ -2081,6 +2106,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default,
+        maxBackgroundAgentProbes: Int = .max,
         backgroundAgentsProvider: @escaping RestorableAgentSessionIndex.ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
@@ -2097,6 +2123,7 @@ struct ProcessDetectedResumeIndexes: Sendable {
             fileManager: fileManager,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            maxBackgroundAgentProbes: maxBackgroundAgentProbes,
             backgroundAgentsProvider: backgroundAgentsProvider
         )
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(

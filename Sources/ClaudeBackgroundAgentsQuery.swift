@@ -22,34 +22,28 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     private let probe: @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot]
     private let now: @Sendable () -> Date
     private let cacheTTL: TimeInterval
-    private let coldProbeWindow: TimeInterval
-    private let maxColdProbesPerWindow: Int
 
     private let lock = NSLock()
     // Serializes the probe so a cache miss observed by two concurrent off-main loaders does
     // not spawn `claude agents --json` twice; the post-acquire re-check returns the first
-    // fetch's freshly cached result to the second caller. Also guards `coldProbeTimes`, which
-    // is only touched on the cold path while this lock is held.
+    // fetch's freshly cached result to the second caller.
     private let fetchLock = NSLock()
     private var cache: [String: (agents: [ClaudeBackgroundAgentSnapshot], fetchedAt: Date)] = [:]
-    private var coldProbeTimes: [Date] = []
 
     init(
         cacheTTL: TimeInterval = 20,
-        coldProbeWindow: TimeInterval = 10,
-        maxColdProbesPerWindow: Int = 6,
         now: @escaping @Sendable () -> Date = { Date() },
         probe: @escaping @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot] = claudeBackgroundAgentsProbe
     ) {
         self.cacheTTL = cacheTTL
-        self.coldProbeWindow = coldProbeWindow
-        self.maxColdProbesPerWindow = maxColdProbesPerWindow
         self.now = now
         self.probe = probe
     }
 
     /// Off-main: returns cached agents within the TTL, otherwise runs the bounded probe and
-    /// caches the result. Must not be called on the main thread.
+    /// caches the result. Must not be called on the main thread. The number of cold probes one
+    /// index load triggers is bounded by the load's per-load probe cap (which only the spawning
+    /// off-main path uses), not here, so a slow probe cannot reset a time-based budget.
     func live(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
         let key = configDir ?? ""
         if let fresh = freshCachedAgents(forKey: key, maxAge: cacheTTL) {
@@ -63,15 +57,6 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         if let fresh = freshCachedAgents(forKey: key, maxAge: cacheTTL) {
             return fresh
         }
-
-        // Rate-limit COLD probes (cache misses that spawn `claude agents --json`). Warm hits
-        // returned above never reach here, so they never consume the budget. This bounds the
-        // serial subprocess waits one index load can trigger when a hook store holds
-        // transcript-less ghosts across many config dirs.
-        let probeAt = now()
-        coldProbeTimes = coldProbeTimes.filter { probeAt.timeIntervalSince($0) < coldProbeWindow }
-        guard coldProbeTimes.count < maxColdProbesPerWindow else { return [] }
-        coldProbeTimes.append(probeAt)
 
         let agents = probe(configDir)
         storeAndEvictExpired(key: key, agents: agents)
