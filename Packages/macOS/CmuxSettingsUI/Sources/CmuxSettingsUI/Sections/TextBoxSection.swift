@@ -99,12 +99,10 @@ public struct TextBoxSection: View {
             controlWidth: 210
         ) {
             Picker("", selection: Binding(get: { defaultSubmitAction.current }, set: { defaultSubmitAction.set($0) })) {
-                Text(String(localized: "settings.textBox.submitAction.textEntry", defaultValue: "Text Entry"))
-                    .tag("text-entry")
-                Text(String(localized: "settings.textBox.submitAction.codexYolo", defaultValue: "Codex Yolo"))
-                    .tag("codex-yolo")
-                Text(String(localized: "settings.textBox.submitAction.claudeDangerous", defaultValue: "Claude Dangerous"))
-                    .tag("claude-dangerous")
+                Text(String(localized: "settings.textBox.submitAction.claude", defaultValue: "Claude"))
+                    .tag("claude")
+                Text(String(localized: "settings.textBox.submitAction.codex", defaultValue: "Codex"))
+                    .tag("codex")
                 Text(String(localized: "settings.textBox.submitAction.opencode", defaultValue: "OpenCode"))
                     .tag("opencode")
                 Text(String(localized: "settings.textBox.submitAction.pi", defaultValue: "Pi"))

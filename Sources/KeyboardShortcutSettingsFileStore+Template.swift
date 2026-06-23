@@ -245,6 +245,9 @@ extension CmuxSettingsFileStore {
             if let imagePath = action.imagePath {
                 value["imagePath"] = imagePath
             }
+            if let assetName = action.assetName {
+                value["assetName"] = assetName
+            }
             return value
         }
     }

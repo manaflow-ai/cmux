@@ -113,7 +113,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
 
     public let textBoxDefaultSubmitAction = DefaultsKey<String>(
         id: "terminal.textBoxDefaultSubmitAction",
-        defaultValue: "text-entry",
+        defaultValue: "claude",
         userDefaultsKey: "terminal.textBoxDefaultSubmitAction"
     )
 

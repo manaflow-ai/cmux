@@ -120,7 +120,7 @@ enum TerminalTextBoxInputSettings {
     static let maximumMaxLines = 20
     static let submitActionsKey = "terminal.textBoxSubmitActions"
     static let defaultSubmitActionKey = "terminal.textBoxDefaultSubmitAction"
-    static let defaultSubmitActionID = "text-entry"
+    static let defaultSubmitActionID = "claude"
 
     static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showOnNewTerminalsKey) == nil {
@@ -185,6 +185,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     let kind: Kind
     let commandTemplate: String?
     let systemImage: String
+    let assetName: String?
     let imagePath: String?
     let backgroundColorHex: String
 
@@ -194,6 +195,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         kind: Kind,
         commandTemplate: String? = nil,
         systemImage: String,
+        assetName: String? = nil,
         imagePath: String? = nil,
         backgroundColorHex: String
     ) {
@@ -202,33 +204,37 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         self.kind = kind
         self.commandTemplate = commandTemplate
         self.systemImage = systemImage
+        self.assetName = assetName
         self.imagePath = imagePath
         self.backgroundColorHex = backgroundColorHex
     }
 
+    static let textEntryAction = TextBoxSubmitAction(
+        id: "text-entry",
+        title: "Text Entry",
+        kind: .textEntry,
+        systemImage: "arrow.up",
+        backgroundColorHex: "#FFFFFF"
+    )
+
     static let builtInActions: [TextBoxSubmitAction] = [
         TextBoxSubmitAction(
-            id: TerminalTextBoxInputSettings.defaultSubmitActionID,
-            title: "Text Entry",
-            kind: .textEntry,
-            systemImage: "arrow.up",
-            backgroundColorHex: "#FFFFFF"
+            id: "claude",
+            title: "Claude",
+            kind: .commandTemplate,
+            commandTemplate: "claude --dangerously-skip-permissions {{prompt}}",
+            systemImage: "sparkle",
+            assetName: "AgentIcons/Claude",
+            backgroundColorHex: "#F6D5C8"
         ),
         TextBoxSubmitAction(
-            id: "codex-yolo",
-            title: "Codex Yolo",
+            id: "codex",
+            title: "Codex",
             kind: .commandTemplate,
             commandTemplate: "codex --yolo {{prompt}}",
             systemImage: "sparkles",
+            assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
-        ),
-        TextBoxSubmitAction(
-            id: "claude-dangerous",
-            title: "Claude Dangerous",
-            kind: .commandTemplate,
-            commandTemplate: "claude --dangerously-skip-permissions {{prompt}}",
-            systemImage: "bolt.fill",
-            backgroundColorHex: "#FFD166"
         ),
         TextBoxSubmitAction(
             id: "opencode",
@@ -236,6 +242,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             kind: .commandTemplate,
             commandTemplate: "opencode {{prompt}}",
             systemImage: "curlybraces",
+            assetName: "AgentIcons/OpenCode",
             backgroundColorHex: "#B5E48C"
         ),
         TextBoxSubmitAction(
@@ -244,6 +251,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             kind: .commandTemplate,
             commandTemplate: "pi {{prompt}}",
             systemImage: "brain.head.profile",
+            assetName: "AgentIcons/Pi",
             backgroundColorHex: "#D0B3FF"
         ),
     ]

@@ -76,14 +76,15 @@ Press Shift-Tab in the TextBox to cycle the default action. Right-click the subm
 ```json
 {
   "terminal": {
-    "textBoxDefaultSubmitAction": "codex-yolo",
+    "textBoxDefaultSubmitAction": "codex",
     "textBoxSubmitActions": [
       {
-        "id": "codex-yolo",
-        "title": "Codex Yolo",
+        "id": "codex",
+        "title": "Codex",
         "kind": "commandTemplate",
         "commandTemplate": "codex --yolo {{prompt}}",
         "systemImage": "sparkles",
+        "assetName": "AgentIcons/Codex",
         "backgroundColorHex": "#8FDBFF"
       },
       {
@@ -100,7 +101,7 @@ Press Shift-Tab in the TextBox to cycle the default action. Right-click the subm
 }
 ```
 
-Built-in action IDs: `text-entry`, `codex-yolo`, `claude-dangerous`, `opencode`, `pi`.
+Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 
 Action fields:
 
@@ -108,7 +109,8 @@ Action fields:
 - `title`: menu label for custom actions.
 - `kind`: `textEntry` or `commandTemplate`.
 - `commandTemplate`: shell command for `commandTemplate`; include `{{prompt}}` where the shell-quoted prompt should go.
-- `systemImage`: SF Symbol name shown on the submit button.
+- `systemImage`: fallback SF Symbol name shown on the submit button.
+- `assetName`: optional app asset catalog image name, for example `AgentIcons/Codex`.
 - `imagePath`: optional PNG or image path for the submit button.
 - `backgroundColorHex`: submit button fill color.
 

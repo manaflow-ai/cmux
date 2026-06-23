@@ -1238,12 +1238,12 @@ struct TextBoxSubmitActionPresentation: Equatable {
 
     static func localizedTitle(for action: TextBoxSubmitAction) -> String {
         switch action.id {
-        case TerminalTextBoxInputSettings.defaultSubmitActionID:
+        case TextBoxSubmitAction.textEntryAction.id:
             return String(localized: "textbox.submitAction.textEntry", defaultValue: "Text Entry")
-        case "codex-yolo":
-            return String(localized: "textbox.submitAction.codexYolo", defaultValue: "Codex Yolo")
-        case "claude-dangerous":
-            return String(localized: "textbox.submitAction.claudeDangerous", defaultValue: "Claude Dangerous")
+        case "claude":
+            return String(localized: "textbox.submitAction.claude", defaultValue: "Claude")
+        case "codex":
+            return String(localized: "textbox.submitAction.codex", defaultValue: "Codex")
         case "opencode":
             return String(localized: "textbox.submitAction.opencode", defaultValue: "OpenCode")
         case "pi":
@@ -2779,8 +2779,7 @@ struct TextBoxInputContainer: View {
 
     private var effectiveSubmitAction: TextBoxSubmitAction {
         guard !hasActiveAgentSession else {
-            return submitActions.first { $0.id == TerminalTextBoxInputSettings.defaultSubmitActionID }
-                ?? TextBoxSubmitAction.builtInActions[0]
+            return TextBoxSubmitAction.textEntryAction
         }
         return selectedSubmitAction
     }
@@ -2975,10 +2974,7 @@ struct TextBoxInputContainer: View {
                 Button {
                     defaultSubmitActionID = action.id
                 } label: {
-                    Label(
-                        TextBoxSubmitActionPresentation.localizedTitle(for: action),
-                        systemImage: action.id == selectedSubmitAction.id ? "checkmark" : action.systemImage
-                    )
+                    submitActionMenuLabel(action)
                 }
             }
             Divider()
@@ -3000,8 +2996,24 @@ struct TextBoxInputContainer: View {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
+        } else if let assetName = action.assetName {
+            Image(assetName)
+                .resizable()
+                .scaledToFit()
         } else {
             Image(systemName: action.systemImage)
+        }
+    }
+
+    @ViewBuilder
+    private func submitActionMenuLabel(_ action: TextBoxSubmitAction) -> some View {
+        let title = TextBoxSubmitActionPresentation.localizedTitle(for: action)
+        if action.id == selectedSubmitAction.id {
+            Label(title, systemImage: "checkmark")
+        } else if let assetName = action.assetName {
+            Label(title, image: assetName)
+        } else {
+            Label(title, systemImage: action.systemImage)
         }
     }
 
@@ -3204,7 +3216,6 @@ struct TextBoxInputContainer: View {
         let currentIndex = actions.firstIndex(where: { $0.id == defaultSubmitActionID }) ?? 0
         let nextIndex = actions.index(after: currentIndex)
         defaultSubmitActionID = actions[nextIndex == actions.endIndex ? actions.startIndex : nextIndex].id
-        NSSound(named: NSSound.Name("Pop"))?.play()
     }
 
     private func openSubmitActionsDocumentation() {
