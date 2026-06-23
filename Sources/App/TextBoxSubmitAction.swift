@@ -137,9 +137,6 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     }
 
     var pendingTerminalAgentContext: String? {
-        guard id == "claude" else {
-            return nil
-        }
         launchCommand().map { "initialCommand:\($0)" }
     }
 

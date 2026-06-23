@@ -265,17 +265,16 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxPendingNonClaudeLaunchDoesNotForceSubmitContext() throws {
+    func testTextBoxPendingLaunchUsesInitialCommandContext() throws {
         let codex = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "codex" })
-        XCTAssertEqual(codex.pendingTerminalAgentContext, nil)
-        XCTAssertEqual(
-            TextBoxInputContainer.textEntryTerminalAgentContext(
-                allowsCommandTemplateSubmit: true,
-                terminalAgentContext: "",
-                pendingProviderLaunchAction: codex
-            ),
-            ""
+        let context = TextBoxInputContainer.textEntryTerminalAgentContext(
+            allowsCommandTemplateSubmit: true,
+            terminalAgentContext: "",
+            pendingProviderLaunchAction: codex
         )
+
+        XCTAssertEqual(context, "initialCommand:codex")
+        XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: context))
     }
 
 
