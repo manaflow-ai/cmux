@@ -53,7 +53,7 @@
 1810	Sources/SessionIndexStore.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
-1719	cmuxTests/RestorableAgentSessionIndexTests.swift
+1727	cmuxTests/RestorableAgentSessionIndexTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
 1680	cmuxUITests/BrowserPaneNavigationKeybindUITests.swift
 1656	Sources/FileExplorerView.swift

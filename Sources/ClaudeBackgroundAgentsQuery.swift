@@ -22,6 +22,7 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     private let probe: @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot]
     private let now: @Sendable () -> Date
     private let cacheTTL: TimeInterval
+    private let saveTolerance: TimeInterval
 
     private let lock = NSLock()
     // Serializes the probe so a cache miss observed by two concurrent off-main loaders does
@@ -32,10 +33,12 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
 
     init(
         cacheTTL: TimeInterval = 20,
+        saveTolerance: TimeInterval = 300,
         now: @escaping @Sendable () -> Date = { Date() },
         probe: @escaping @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot] = claudeBackgroundAgentsProbe
     ) {
         self.cacheTTL = cacheTTL
+        self.saveTolerance = max(saveTolerance, cacheTTL)
         self.now = now
         self.probe = probe
     }
@@ -67,14 +70,18 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     /// config dir, never spawning `claude`. The synchronous quit/power-off session-save path
     /// uses this so it reconciles from the warm cache without a subprocess on the main thread.
     ///
-    /// Applies the same short TTL as ``live(configDir:)``. Reconciliation matches a ghost to the
-    /// unique background agent in its cwd, which is only sound against fresh daemon data: a stale
-    /// snapshot could heal a ghost to a conversation that has since left or changed in that cwd.
-    /// If a quit drops a not-yet-saved reconciliation, the off-main `SharedLiveAgentIndex`
-    /// reconciliation re-establishes it from a fresh probe shortly after the next launch, so the
-    /// transient persisted ghost never becomes the unrecoverable #6622 ghost.
+    /// Tolerates a longer staleness than ``live(configDir:)``'s probe TTL (`saveTolerance`). The
+    /// quit save runs after the off-main reload reconciled, and `SharedLiveAgentIndex` refreshes
+    /// the daemon cache only periodically; binding this save to the short probe TTL drops the
+    /// reconciliation on any quit a little after the last refresh and re-persists the empty ghost
+    /// id — which is the #6622 regression itself. A reconciled id maps to a durable on-disk
+    /// transcript, so a slightly-stale reconciliation still resumes the panel's real conversation.
+    /// The only residual — a different background agent having replaced the cwd's agent within the
+    /// window — is rare and low-stakes (the panel reopens one of the user's own conversations for
+    /// that repo), and is the deliberate, smaller cost versus losing the reconciliation on every
+    /// timed quit. https://github.com/manaflow-ai/cmux/issues/6622
     func cachedOnly(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
-        freshCachedAgents(forKey: configDir ?? "", maxAge: cacheTTL) ?? []
+        freshCachedAgents(forKey: configDir ?? "", maxAge: saveTolerance) ?? []
     }
 
     private func freshCachedAgents(forKey key: String, maxAge: TimeInterval) -> [ClaudeBackgroundAgentSnapshot]? {
@@ -86,15 +93,16 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         return cached.agents
     }
 
-    /// Writes the freshly probed result and drops every expired entry, so this process-wide
-    /// singleton's cache does not accumulate config-dir keys (which are unbounded user/session
-    /// data) over a long-running app. https://github.com/manaflow-ai/cmux/issues/6622
+    /// Writes the freshly probed result and drops entries past the save tolerance, so this
+    /// process-wide singleton's cache does not accumulate config-dir keys (unbounded user/session
+    /// data) over a long-running app while still retaining a reconciliation long enough for the
+    /// synchronous quit save. https://github.com/manaflow-ai/cmux/issues/6622
     private func storeAndEvictExpired(key: String, agents: [ClaudeBackgroundAgentSnapshot]) {
         lock.lock()
         defer { lock.unlock() }
         let writtenAt = now()
         cache[key] = (agents, writtenAt)
-        cache = cache.filter { writtenAt.timeIntervalSince($0.value.fetchedAt) < cacheTTL }
+        cache = cache.filter { writtenAt.timeIntervalSince($0.value.fetchedAt) < saveTolerance }
     }
 }
 
