@@ -27,11 +27,14 @@ extension Workspace {
         createdAt: Date = Date()
     ) -> WorkspaceTask? {
         let normalizedTitle = WorkspaceTask.normalizedTitle(title)
-        guard !normalizedTitle.isEmpty else { return nil }
+        guard !normalizedTitle.isEmpty,
+              normalizedTitle.count <= WorkspaceTask.maximumTitleCharacters
+        else { return nil }
 
         var tasks = Self.sanitizedWorkspaceTasks(workspaceTasks)
         let task = WorkspaceTask(title: normalizedTitle, createdAt: createdAt)
         let openCount = tasks.prefix { $0.isOpen }.count
+        guard openCount < WorkspaceTask.maximumOpenTaskCount else { return nil }
         let insertionIndex: Int
         if let beforeTaskId {
             guard let beforeIndex = tasks[..<openCount].firstIndex(where: { $0.id == beforeTaskId }) else {
@@ -57,6 +60,11 @@ extension Workspace {
     func archiveWorkspaceTask(id taskId: UUID, archivedAt: Date = Date()) -> WorkspaceTask? {
         var tasks = Self.sanitizedWorkspaceTasks(workspaceTasks)
         guard let index = tasks.firstIndex(where: { $0.id == taskId }) else { return nil }
+        let openCount = tasks.prefix { $0.isOpen }.count
+        let archivedCount = tasks.count - openCount
+        guard !tasks[index].isOpen || archivedCount < WorkspaceTask.maximumArchivedTaskCount else {
+            return nil
+        }
         var task = tasks.remove(at: index)
         if task.archivedAt == nil {
             task.archivedAt = archivedAt
@@ -103,7 +111,7 @@ extension Workspace {
             let relativeIndex = min(max(requestedIndex, 0), bucketRange.count)
             insertionIndex = bucketRange.lowerBound + relativeIndex
         } else {
-            insertionIndex = min(currentIndex, bucketRange.upperBound)
+            return nil
         }
 
         tasks.insert(task, at: insertionIndex)
@@ -115,18 +123,26 @@ extension Workspace {
         var seenIds = Set<UUID>()
         var openTasks: [WorkspaceTask] = []
         var archivedTasks: [WorkspaceTask] = []
-        openTasks.reserveCapacity(tasks.count)
-        archivedTasks.reserveCapacity(tasks.count)
+        openTasks.reserveCapacity(min(tasks.count, WorkspaceTask.maximumOpenTaskCount))
+        archivedTasks.reserveCapacity(min(tasks.count, WorkspaceTask.maximumArchivedTaskCount))
 
         for task in tasks {
+            guard openTasks.count < WorkspaceTask.maximumOpenTaskCount
+                    || archivedTasks.count < WorkspaceTask.maximumArchivedTaskCount else {
+                break
+            }
             guard seenIds.insert(task.id).inserted else { continue }
             var sanitizedTask = task
-            sanitizedTask.title = WorkspaceTask.normalizedTitle(task.title)
+            sanitizedTask.title = WorkspaceTask.boundedTitle(task.title)
             guard !sanitizedTask.title.isEmpty else { continue }
             if sanitizedTask.isArchived {
-                archivedTasks.append(sanitizedTask)
+                if archivedTasks.count < WorkspaceTask.maximumArchivedTaskCount {
+                    archivedTasks.append(sanitizedTask)
+                }
             } else {
-                openTasks.append(sanitizedTask)
+                if openTasks.count < WorkspaceTask.maximumOpenTaskCount {
+                    openTasks.append(sanitizedTask)
+                }
             }
         }
         return openTasks + archivedTasks

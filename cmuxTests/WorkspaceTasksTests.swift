@@ -30,6 +30,37 @@ import Testing
         #expect(sanitized.map(\.isArchived) == [false, true])
     }
 
+    @Test func sanitizerBoundsTitlesAndTaskBuckets() {
+        var longTitleTask = WorkspaceTask(
+            id: UUID(),
+            title: "Temporary",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        longTitleTask.title = String(repeating: "x", count: WorkspaceTask.maximumTitleCharacters + 20)
+        let openOverflow = (0..<(WorkspaceTask.maximumOpenTaskCount + 5)).map { index in
+            WorkspaceTask(
+                id: UUID(),
+                title: "Open \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index + 2))
+            )
+        }
+        let archivedOverflow = (0..<(WorkspaceTask.maximumArchivedTaskCount + 5)).map { index in
+            WorkspaceTask(
+                id: UUID(),
+                title: "Archived \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index + 1_000)),
+                archivedAt: Date(timeIntervalSince1970: TimeInterval(index + 2_000))
+            )
+        }
+
+        let sanitized = Workspace.sanitizedWorkspaceTasks([longTitleTask] + archivedOverflow + openOverflow)
+
+        #expect(sanitized.count == WorkspaceTask.maximumStoredTaskCount)
+        #expect(sanitized.allSatisfy { $0.title.count <= WorkspaceTask.maximumTitleCharacters })
+        #expect(sanitized.filter(\.isOpen).count == WorkspaceTask.maximumOpenTaskCount)
+        #expect(sanitized.filter(\.isArchived).count == WorkspaceTask.maximumArchivedTaskCount)
+    }
+
     @Test func addArchiveRemoveAndReorderUseOneWorkspaceOwnedList() throws {
         let workspace = Workspace(title: "Tasks")
         let first = try #require(workspace.addWorkspaceTask(
@@ -48,6 +79,7 @@ import Testing
 
         #expect(workspace.openWorkspaceTasks.map(\.title) == ["First", "Second", "Third"])
         #expect(workspace.addWorkspaceTask(title: "   ") == nil)
+        #expect(workspace.addWorkspaceTask(title: String(repeating: "x", count: WorkspaceTask.maximumTitleCharacters + 1)) == nil)
 
         _ = workspace.moveWorkspaceTask(id: third.id, index: 0)
         #expect(workspace.openWorkspaceTasks.map(\.id) == [third.id, first.id, second.id])
@@ -63,6 +95,8 @@ import Testing
         let beforeInvalidMove = workspace.workspaceTasks
         #expect(workspace.moveWorkspaceTask(id: first.id, before: second.id) == nil)
         #expect(workspace.workspaceTasks == beforeInvalidMove)
+        #expect(workspace.moveWorkspaceTask(id: first.id) == nil)
+        #expect(workspace.workspaceTasks == beforeInvalidMove)
 
         let missingAnchor = UUID()
         let beforeInvalidAdd = workspace.workspaceTasks
@@ -75,6 +109,29 @@ import Testing
         #expect(removed.id == third.id)
         #expect(workspace.openWorkspaceTasks.map(\.id) == [second.id])
         #expect(workspace.archivedWorkspaceTasks.map(\.id) == [first.id])
+    }
+
+    @Test func addAndArchiveRespectTaskCountCaps() throws {
+        let workspace = Workspace(title: "Tasks")
+        workspace.workspaceTasks = (0..<WorkspaceTask.maximumOpenTaskCount).map { index in
+            WorkspaceTask(
+                id: UUID(),
+                title: "Open \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index))
+            )
+        }
+        #expect(workspace.addWorkspaceTask(title: "Overflow") == nil)
+
+        let openTask = try #require(workspace.workspaceTasks.first)
+        workspace.workspaceTasks = [openTask] + (0..<WorkspaceTask.maximumArchivedTaskCount).map { index in
+            WorkspaceTask(
+                id: UUID(),
+                title: "Archived \(index)",
+                createdAt: Date(timeIntervalSince1970: TimeInterval(index + 1_000)),
+                archivedAt: Date(timeIntervalSince1970: TimeInterval(index + 2_000))
+            )
+        }
+        #expect(workspace.archiveWorkspaceTask(id: openTask.id) == nil)
     }
 
     @Test func sessionSnapshotRoundTripsWorkspaceTasks() throws {

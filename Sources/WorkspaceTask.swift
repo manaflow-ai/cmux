@@ -1,6 +1,11 @@
 import Foundation
 
 nonisolated struct WorkspaceTask: Identifiable, Codable, Equatable, Hashable, Sendable {
+    static let maximumTitleCharacters = 280
+    static let maximumOpenTaskCount = 200
+    static let maximumArchivedTaskCount = 200
+    static let maximumStoredTaskCount = maximumOpenTaskCount + maximumArchivedTaskCount
+
     let id: UUID
     var title: String
     let createdAt: Date
@@ -13,7 +18,7 @@ nonisolated struct WorkspaceTask: Identifiable, Codable, Equatable, Hashable, Se
         archivedAt: Date? = nil
     ) {
         self.id = id
-        self.title = Self.normalizedTitle(title)
+        self.title = Self.boundedTitle(title)
         self.createdAt = createdAt
         self.archivedAt = archivedAt
     }
@@ -28,5 +33,14 @@ nonisolated struct WorkspaceTask: Identifiable, Codable, Equatable, Hashable, Se
 
     static func normalizedTitle(_ title: String) -> String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func boundedTitle(_ title: String) -> String {
+        String(normalizedTitle(title).prefix(maximumTitleCharacters))
+    }
+
+    static func isValidTitle(_ title: String) -> Bool {
+        let normalized = normalizedTitle(title)
+        return !normalized.isEmpty && normalized.count <= maximumTitleCharacters
     }
 }

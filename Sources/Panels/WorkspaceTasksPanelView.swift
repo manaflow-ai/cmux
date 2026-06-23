@@ -278,7 +278,7 @@ private struct WorkspaceTaskAddComposer: View {
                     .frame(width: 26, height: 24)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(WorkspaceTask.normalizedTitle(draft).isEmpty)
+            .disabled(!WorkspaceTask.isValidTitle(draft))
             .help(submitLabel)
             .accessibilityLabel(submitLabel)
         }
@@ -454,7 +454,7 @@ private struct WorkspaceTaskInsertionDividerView: View {
                             .frame(width: 24, height: 22)
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(WorkspaceTask.normalizedTitle(draft).isEmpty)
+                    .disabled(!WorkspaceTask.isValidTitle(draft))
                     .help(String(localized: "workspaceTasks.insert.submit", defaultValue: "Insert task"))
                     .accessibilityLabel(String(localized: "workspaceTasks.insert.submit", defaultValue: "Insert task"))
                     Button(action: cancel) {

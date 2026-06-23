@@ -2757,6 +2757,7 @@ struct CMUXCLI {
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
+    private static let workspaceTaskTitleCharacterLimit = 280
     private static let claudeCodeStatusKey = "claude_code"
 
     private static var allowedAgentLifecycleStatusKeys: Set<String> {
@@ -7719,6 +7720,16 @@ struct CMUXCLI {
         guard !title.isEmpty else {
             throw CLIError(message: String(localized: "cli.workspaceTasks.add.error.titleRequired", defaultValue: "workspace tasks add requires --title <text> or a title argument"))
         }
+        guard title.count <= Self.workspaceTaskTitleCharacterLimit else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspaceTasks.add.error.titleTooLong",
+                    defaultValue: "workspace tasks add title must be %d characters or fewer"
+                ),
+                locale: .current,
+                Self.workspaceTaskTitleCharacterLimit
+            ))
+        }
 
         var params = try workspaceTasksTargetParams(
             commandArgs: commandArgs,
@@ -7843,7 +7854,8 @@ struct CMUXCLI {
             after: afterOpt,
             index: indexOpt,
             to: &params,
-            commandName: "workspace tasks move"
+            commandName: "workspace tasks move",
+            requiresPlacement: true
         )
         let payload = try client.sendV2(method: "workspace.tasks.move", params: params)
         printV2Payload(
@@ -7917,9 +7929,20 @@ struct CMUXCLI {
         after: String?,
         index: String?,
         to params: inout [String: Any],
-        commandName: String
+        commandName: String,
+        requiresPlacement: Bool = false
     ) throws {
         let placementCount = [before, after, index].filter { $0 != nil }.count
+        if requiresPlacement, placementCount == 0 {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspaceTasks.error.placementRequired",
+                    defaultValue: "%@ requires --before, --after, or --index"
+                ),
+                locale: .current,
+                commandName
+            ))
+        }
         guard placementCount <= 1 else {
             throw CLIError(message: String(
                 format: String(

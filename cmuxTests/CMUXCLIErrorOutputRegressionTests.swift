@@ -1265,6 +1265,27 @@ import Testing
         XCTAssertFalse(openArguments.contains(workingDirectory.standardizedFileURL.path), openArguments.joined(separator: " "))
     }
 
+    @Test func testWorkspaceTasksMoveRequiresDestinationBeforeSocket() throws {
+        let cliPath = try bundledCLIPath()
+        let taskId = UUID().uuidString
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace", "tasks", "move", taskId],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("workspace tasks move requires --before, --after, or --index"), result.stdout)
+    }
+
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
