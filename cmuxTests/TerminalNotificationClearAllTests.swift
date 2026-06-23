@@ -116,6 +116,30 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(suppressedFeedbackCount, 0)
     }
 
+    func testWorkspaceMuteUntilUnmutedStaysActivePastTimedDurations() {
+        let store = TerminalNotificationStore.shared
+        let workspaceId = UUID()
+        let now = Date()
+        store.clearNotificationMutesForTesting()
+        defer { store.clearNotificationMutesForTesting() }
+
+        store.muteNotifications(
+            forTabIds: [workspaceId],
+            until: NotificationMuteMenuOption.untilUnmuted.expiration(from: now)
+        )
+
+        XCTAssertNotNil(
+            store.activeWorkspaceNotificationMuteExpiration(
+                forTabId: workspaceId,
+                now: now.addingTimeInterval(365 * 24 * 60 * 60)
+            )
+        )
+
+        store.unmuteNotifications(forTabIds: [workspaceId])
+
+        XCTAssertNil(store.activeWorkspaceNotificationMuteExpiration(forTabId: workspaceId, now: now))
+    }
+
     func testMutedSurfaceDoesNotMuteSiblingSurface() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

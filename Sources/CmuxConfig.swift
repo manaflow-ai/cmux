@@ -200,10 +200,78 @@ enum CmuxNotificationHooksMode: String, Codable, Sendable, Hashable {
 struct CmuxNotificationConfigDefinition: Codable, Sendable, Hashable {
     var hooks: [CmuxNotificationHookDefinition]?
     var hooksMode: CmuxNotificationHooksMode?
+    var muteDurations: [CmuxNotificationMuteDurationDefinition]?
 
     private enum CodingKeys: String, CodingKey {
         case hooks
         case hooksMode
+        case muteDurations
+    }
+}
+
+struct CmuxNotificationMuteDurationDefinition: Codable, Sendable, Hashable {
+    var label: String
+    var interval: TimeInterval
+
+    private enum CodingKeys: String, CodingKey {
+        case label
+        case seconds
+        case minutes
+        case hours
+    }
+
+    init(label: String, interval: TimeInterval) {
+        self.label = label
+        self.interval = interval
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedLabel = try Self.requiredTrimmedString(forKey: .label, in: container)
+        let seconds = try container.decodeIfPresent(TimeInterval.self, forKey: .seconds)
+        let minutes = try container.decodeIfPresent(TimeInterval.self, forKey: .minutes)
+        let hours = try container.decodeIfPresent(TimeInterval.self, forKey: .hours)
+        for (key, value) in [(CodingKeys.seconds, seconds), (.minutes, minutes), (.hours, hours)] {
+            if let value, (!value.isFinite || value <= 0) {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key,
+                    in: container,
+                    debugDescription: "\(key.stringValue) must be greater than 0"
+                )
+            }
+        }
+        let decodedInterval = (seconds ?? 0) + ((minutes ?? 0) * 60) + ((hours ?? 0) * 60 * 60)
+        if decodedInterval <= 0 {
+            throw DecodingError.dataCorruptedError(
+                forKey: .seconds,
+                in: container,
+                debugDescription: "mute duration must be greater than 0 seconds"
+            )
+        }
+
+        label = decodedLabel
+        interval = decodedInterval
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(label, forKey: .label)
+        try container.encode(interval, forKey: .seconds)
+    }
+
+    private static func requiredTrimmedString<Key: CodingKey>(
+        forKey key: Key,
+        in container: KeyedDecodingContainer<Key>
+    ) throws -> String {
+        let value = try container.decode(String.self, forKey: key).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "\(key.stringValue) must not be blank"
+            )
+        }
+        return value
     }
 }
 
@@ -1896,6 +1964,7 @@ final class CmuxConfigStore: ObservableObject {
     @Published private(set) var workspaceGroupConfigs: [CmuxResolvedWorkspaceGroupConfig] = []
     @Published private(set) var surfaceTabBarButtons: [CmuxSurfaceTabBarButton] = CmuxSurfaceTabBarButton.defaults
     @Published private(set) var notificationHooks: [CmuxResolvedNotificationHook] = []
+    @Published private(set) var notificationMuteMenuOptions: [NotificationMuteMenuOption] = NotificationMuteMenuOption.defaultOptions
     @Published private(set) var configurationIssues: [CmuxConfigIssue] = []
     @Published private(set) var configRevision: UInt64 = 0
 
@@ -2293,6 +2362,10 @@ final class CmuxConfigStore: ObservableObject {
                 entry.result.config.map { (path: entry.path, config: $0) }
             }
         )
+        let resolvedNotificationMuteMenuOptions = resolveNotificationMuteMenuOptions(
+            localConfig: localConfig,
+            globalConfig: globalConfig
+        )
 
         loadedCommands = commands
         loadedActions = resolvedActions
@@ -2318,6 +2391,7 @@ final class CmuxConfigStore: ObservableObject {
         surfaceTabBarWorkspaceCommands = resolvedWorkspaceButtons.workspaceCommands
         surfaceTabBarButtons = resolvedWorkspaceButtons.buttons
         notificationHooks = resolvedNotificationHooks
+        notificationMuteMenuOptions = resolvedNotificationMuteMenuOptions
         resolvedNewWorkspaceActionCache = resolvedNewWorkspaceAction.action
         resolvedNewWorkspaceCommandCache = resolvedNewWorkspaceAction.command
         if let issue = resolvedNewWorkspaceAction.issue {
@@ -2344,6 +2418,16 @@ final class CmuxConfigStore: ObservableObject {
             return paths
         }
         return fallbackLocalPath.map { [$0] } ?? []
+    }
+
+    private func resolveNotificationMuteMenuOptions(
+        localConfig: CmuxConfigFile?,
+        globalConfig: CmuxConfigFile?
+    ) -> [NotificationMuteMenuOption] {
+        NotificationMuteMenuOption.options(
+            configuredDurations: localConfig?.notifications?.muteDurations ??
+                globalConfig?.notifications?.muteDurations
+        )
     }
 
     private func resolveNotificationHooks(

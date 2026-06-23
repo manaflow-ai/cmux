@@ -1,5 +1,13 @@
 import AppKit
 
+private final class NotificationMuteMenuOptionBox: NSObject {
+    let option: NotificationMuteMenuOption
+
+    init(option: NotificationMuteMenuOption) {
+        self.option = option
+    }
+}
+
 extension GhosttyNSView {
     func appendCurrentSurfaceNotificationMuteMenuItems(to menu: NSMenu) {
         guard tabId != nil, terminalSurface?.id != nil else { return }
@@ -11,14 +19,14 @@ extension GhosttyNSView {
         )
         muteItem.image = NSImage(systemSymbolName: "bell.slash", accessibilityDescription: nil)
         let submenu = NSMenu()
-        for duration in NotificationMuteDuration.allCases {
+        for option in currentNotificationMuteMenuOptions() {
             let item = NSMenuItem(
-                title: duration.title,
+                title: option.title,
                 action: #selector(muteCurrentSurfaceNotifications(_:)),
                 keyEquivalent: ""
             )
             item.target = self
-            item.representedObject = duration.interval
+            item.representedObject = NotificationMuteMenuOptionBox(option: option)
             submenu.addItem(item)
         }
         muteItem.submenu = submenu
@@ -39,6 +47,16 @@ extension GhosttyNSView {
             unmuteItem.image = NSImage(systemSymbolName: "bell", accessibilityDescription: nil)
             menu.addItem(unmuteItem)
         }
+    }
+
+    private func currentNotificationMuteMenuOptions() -> [NotificationMuteMenuOption] {
+        guard let tabId else {
+            return NotificationMuteMenuOption.defaultOptions
+        }
+        return AppDelegate.shared?
+            .contextContainingTabId(tabId)?
+            .cmuxConfigStore?
+            .notificationMuteMenuOptions ?? NotificationMuteMenuOption.defaultOptions
     }
 
     func appendMoveCurrentSurfaceMoveMenuItems(to menu: NSMenu) {
@@ -142,16 +160,14 @@ extension GhosttyNSView {
         guard let tabId,
               let surfaceId = terminalSurface?.id,
               let item = sender as? NSMenuItem,
-              let interval = item.representedObject as? TimeInterval,
-              interval.isFinite,
-              interval > 0 else {
+              let box = item.representedObject as? NotificationMuteMenuOptionBox else {
             NSSound.beep()
             return
         }
         TerminalNotificationStore.shared.muteNotifications(
             forTabId: tabId,
             surfaceId: surfaceId,
-            until: Date().addingTimeInterval(interval)
+            until: box.option.expiration()
         )
     }
 

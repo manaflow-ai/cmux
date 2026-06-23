@@ -630,6 +630,67 @@
           "default": "",
           "description": "Optional shell command to run alongside notification delivery."
         },
+        "muteDurations": {
+          "type": "array",
+          "default": [
+            {
+              "label": "15 Minutes",
+              "minutes": 15
+            },
+            {
+              "label": "1 Hour",
+              "hours": 1
+            },
+            {
+              "label": "4 Hours",
+              "hours": 4
+            },
+            {
+              "label": "8 Hours",
+              "hours": 8
+            }
+          ],
+          "description": "Timed choices shown in right-click notification mute menus. The Until Unmuted option is always shown.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label"],
+            "anyOf": [
+              {
+                "required": ["seconds"]
+              },
+              {
+                "required": ["minutes"]
+              },
+              {
+                "required": ["hours"]
+              }
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": ".*\\S.*",
+                "description": "Menu label for this timed mute choice."
+              },
+              "seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Seconds to mute notifications."
+              },
+              "minutes": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Minutes to mute notifications."
+              },
+              "hours": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Hours to mute notifications."
+              }
+            }
+          }
+        },
         "hooksMode": {
           "type": "string",
           "enum": ["append", "replace"],

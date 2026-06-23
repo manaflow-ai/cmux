@@ -366,6 +366,7 @@ extension CmuxSettingsFileStore {
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",
+        "notifications.muteDurations",
         "sidebar.hideAllDetails",
         "sidebar.wrapWorkspaceTitles",
         "sidebar.showWorkspaceDescription",

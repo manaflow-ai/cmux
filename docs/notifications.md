@@ -109,6 +109,26 @@ Hook input and output use this shape:
 
 Global hooks from `~/.config/cmux/cmux.json` run first. Project hooks from parent directories to the current workspace append after that. Project hooks use the same trust prompt as other project `cmux.json` commands before they run. Feed approval banners also pass through these hooks; disabling `desktop` suppresses the native banner while keeping the Feed item available in cmux. Set `"hooksMode": "replace"` in a project `notifications` section to ignore inherited hooks. If any hook fails, times out, or returns invalid JSON, cmux uses the default notification behavior and posts a hook failure alert.
 
+## Notification Mute Durations
+
+Right-click a workspace or terminal tab to mute notification side effects. Muted notifications still appear as unread in cmux, but do not play sounds, run commands, forward to mobile, show native banners, flash panes, or reorder workspaces. The permanent `Until Unmuted` option is always shown.
+
+Customize the timed choices in `cmux.json`:
+
+```json
+{
+  "notifications": {
+    "muteDurations": [
+      { "label": "30 Minutes", "minutes": 30 },
+      { "label": "2 Hours", "hours": 2 },
+      { "label": "Workday", "hours": 8 }
+    ]
+  }
+}
+```
+
+Each item needs a non-empty `label` and at least one positive `seconds`, `minutes`, or `hours` value. Project `cmux.json` values replace the global timed choices for that project.
+
 ## Integration Examples
 
 ### Claude Code

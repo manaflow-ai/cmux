@@ -10388,6 +10388,7 @@ struct VerticalTabsSidebar: View {
         let workspaceGroups: [WorkspaceGroup]
         let workspaceGroupById: [UUID: WorkspaceGroup]
         let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
+        let notificationMuteMenuOptions: [NotificationMuteMenuOption]
         let workspaceRenderItems: [SidebarWorkspaceRenderItem]
         let visibleWorkspaceRowIds: [UUID]
 
@@ -10450,6 +10451,7 @@ struct VerticalTabsSidebar: View {
             workspaceGroups: workspaceGroups,
             workspaceGroupById: workspaceGroupById,
             workspaceGroupMenuSnapshot: workspaceGroupMenuSnapshot,
+            notificationMuteMenuOptions: cmuxConfigStore.notificationMuteMenuOptions,
             workspaceRenderItems: workspaceRenderItems,
             visibleWorkspaceRowIds: visibleWorkspaceRowIds
         )
@@ -12173,6 +12175,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: contextMenuPinState,
             contextMenuWorkspaceMuteActive: contextMenuWorkspaceMuteActive,
+            notificationMuteMenuOptions: renderContext.notificationMuteMenuOptions,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
             settings: renderContext.tabItemSettings,
             onContextMenuAppear: onContextMenuAppear,
@@ -12964,6 +12967,7 @@ struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
         lhs.contextMenuWorkspaceMuteActive == rhs.contextMenuWorkspaceMuteActive &&
+        lhs.notificationMuteMenuOptions == rhs.notificationMuteMenuOptions &&
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
@@ -13009,6 +13013,7 @@ struct TabItemView: View, Equatable {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let contextMenuWorkspaceMuteActive: Bool
+    let notificationMuteMenuOptions: [NotificationMuteMenuOption]
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
     let settings: SidebarTabItemSettingsSnapshot
     /// Called from this row's contextMenu.onAppear so the parent can freeze
@@ -14147,11 +14152,11 @@ struct TabItemView: View, Equatable {
             single: String(localized: "contextMenu.muteWorkspaceNotifications", defaultValue: "Mute Workspace Notifications"),
             isMulti: isMulti
         )) {
-            ForEach(NotificationMuteDuration.allCases, id: \.self) { duration in
-                Button(duration.title) {
+            ForEach(notificationMuteMenuOptions) { option in
+                Button(option.title) {
                     notificationStore.muteNotifications(
                         forTabIds: targetIds,
-                        until: duration.expiration()
+                        until: option.expiration()
                     )
                 }
             }
