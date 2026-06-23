@@ -9310,6 +9310,8 @@ final class Workspace: Identifiable, ObservableObject {
             rightSidebarToolPanel.reattach(to: self)
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
             customSidebarPanel.reattach(to: self)
+        } else if let workspaceTasksPanel = detached.panel as? WorkspaceTasksPanel {
+            workspaceTasksPanel.reattach(to: self)
         }
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,

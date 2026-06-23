@@ -134,6 +134,36 @@ import Testing
         #expect(workspace.archiveWorkspaceTask(id: openTask.id) == nil)
     }
 
+    @Test func detachedWorkspaceTasksSurfaceRebindsToDestinationWorkspace() throws {
+        let key = SettingCatalog().betaFeatures.workspaceTasks.userDefaultsKey
+        let previousValue = UserDefaults.standard.object(forKey: key)
+        UserDefaults.standard.set(true, forKey: key)
+        defer {
+            if let previousValue {
+                UserDefaults.standard.set(previousValue, forKey: key)
+            } else {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+        }
+
+        let source = Workspace(title: "Source")
+        let destination = Workspace(title: "Destination")
+        let sourcePane = try #require(source.bonsplitController.focusedPaneId)
+        let destinationPane = try #require(destination.bonsplitController.focusedPaneId)
+        let tasksPanel = try #require(source.newWorkspaceTasksSurface(inPane: sourcePane, focus: false))
+        #expect(tasksPanel.workspace?.id == source.id)
+
+        let detached = try #require(source.detachSurface(panelId: tasksPanel.id))
+        let attachedPanelId = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPane,
+            focus: false
+        )
+
+        #expect(attachedPanelId == tasksPanel.id)
+        #expect(tasksPanel.workspace?.id == destination.id)
+    }
+
     @Test func sessionSnapshotRoundTripsWorkspaceTasks() throws {
         let open = WorkspaceTask(
             id: UUID(),

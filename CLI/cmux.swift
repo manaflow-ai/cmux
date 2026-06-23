@@ -3852,15 +3852,29 @@ struct CMUXCLI {
             )
             switch sub {
             case "set-font":
-                guard let sizeArg = rest.first(where: { !$0.hasPrefix("--") }),
+                try validateWorkspaceTasksRequiredOptionValues(
+                    rest,
+                    commandName: "mobile set-font",
+                    valueFlags: ["--surface", "--workspace"]
+                )
+                let (surfaceOpt, rem0) = parseOption(rest, name: "--surface")
+                let (workspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
+                try rejectUnknownWorkspaceTasksFlags(
+                    rem1,
+                    commandName: "mobile set-font",
+                    knownFlags: ["--surface", "--workspace"]
+                )
+                let positionals = positionalArguments(rem1)
+                guard positionals.count == 1,
+                      let sizeArg = positionals.first,
                       let size = Double(sizeArg), size.isFinite, size > 0 else {
                     throw CLIError(message: mobileUsage)
                 }
                 var params: [String: Any] = ["font_size": size]
-                if let surface = optionValue(rest, name: "--surface") {
+                if let surface = surfaceOpt {
                     params["surface_id"] = surface
                 }
-                if let workspace = optionValue(rest, name: "--workspace") {
+                if let workspace = workspaceOpt {
                     params["workspace_id"] = workspace
                 }
                 let response = try client.sendV2(method: "mobile.terminal.set_font", params: params)

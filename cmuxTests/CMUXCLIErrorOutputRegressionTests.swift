@@ -1384,6 +1384,87 @@ import Testing
         XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
     }
 
+    @Test func testMobileSetFontMissingScopeFlagValueFailsBeforeSocket() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let missingSurface = runProcess(
+            executablePath: cliPath,
+            arguments: ["mobile", "set-font", "14", "--surface"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(missingSurface.timedOut, missingSurface.stdout)
+        XCTAssertEqual(missingSurface.status, 1, missingSurface.stdout)
+        XCTAssertTrue(
+            missingSurface.stdout.contains("mobile set-font: --surface requires a value"),
+            missingSurface.stdout
+        )
+
+        let emptyWorkspace = runProcess(
+            executablePath: cliPath,
+            arguments: ["mobile", "set-font", "14", "--workspace="],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(emptyWorkspace.timedOut, emptyWorkspace.stdout)
+        XCTAssertEqual(emptyWorkspace.status, 1, emptyWorkspace.stdout)
+        XCTAssertTrue(
+            emptyWorkspace.stdout.contains("mobile set-font: --workspace requires a value"),
+            emptyWorkspace.stdout
+        )
+    }
+
+    @Test func testMobileSetFontAcceptsScopeFlagsBeforePointSize() throws {
+        let cliPath = try bundledCLIPath()
+        let surfaceId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+        let socketPath = "/tmp/cmux-mobile-set-font-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: #"{"ok":true,"result":{"delivered":true}}"#
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "--socket", socketPath,
+                "mobile", "set-font",
+                "--surface", surfaceId,
+                "--workspace", workspaceId,
+                "14",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        let request = try XCTUnwrap(responder.receivedRequests.first)
+        let requestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(request.utf8), options: []) as? [String: Any]
+        )
+        XCTAssertEqual(requestObject["method"] as? String, "mobile.terminal.set_font")
+        let params = try XCTUnwrap(requestObject["params"] as? [String: Any])
+        XCTAssertEqual((params["font_size"] as? NSNumber)?.doubleValue, 14)
+        XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+    }
+
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
