@@ -7266,7 +7266,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         return relatedSubviews
     }
 
-    private static func moveWebKitRelatedSubviewsIntoHostIfNeeded(
+    static func moveWebKitRelatedSubviewsIntoHostIfNeeded(
         from sourceSuperview: NSView,
         to container: WindowBrowserSlotView,
         primaryWebView: WKWebView,
@@ -7320,19 +7320,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             container.needsLayout = true
             container.layoutSubtreeIfNeeded()
         }
-    }
-
-    static func browserPanelTestMoveWebKitRelatedSubviewsIntoLocalHost(
-        from sourceSuperview: NSView,
-        to container: WindowBrowserSlotView,
-        primaryWebView: WKWebView
-    ) {
-        moveWebKitRelatedSubviewsIntoHostIfNeeded(
-            from: sourceSuperview,
-            to: container,
-            primaryWebView: primaryWebView,
-            reason: "test"
-        )
     }
 
     private static func installPortalAnchorView(_ anchorView: NSView, in host: NSView) {

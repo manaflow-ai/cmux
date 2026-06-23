@@ -3999,7 +3999,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
     }
 
-    func testDeferredRevealResetsRetryBudgetWhenHostReattaches() {
+    func testDeferredRevealResetsRetryBudgetWhenHostReattaches() throws {
         let (panel, inspector) = makePanelWithInspector(showFailuresAfterEligibility: 2)
         defer { closeBrowserPanel(panel) }
         panel.navigate(to: URL(string: "https://example.com")!)
@@ -4025,7 +4025,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        try waitUntil("deferred DevTools reveal after host reattach", timeout: 1.0) {
+            panel.isDeveloperToolsVisible()
+        }
 
         XCTAssertTrue(
             panel.isDeveloperToolsVisible(),
@@ -4667,10 +4669,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
 
-        WebViewRepresentable.browserPanelTestMoveWebKitRelatedSubviewsIntoLocalHost(
+        WebViewRepresentable.moveWebKitRelatedSubviewsIntoHostIfNeeded(
             from: sourceSlot,
             to: localSlot,
-            primaryWebView: panel.webView
+            primaryWebView: panel.webView,
+            reason: "test"
         )
 
         XCTAssertTrue(
@@ -4726,10 +4729,11 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertNil(frontendWebView.window)
         XCTAssertNil(panel.webView.window)
 
-        WebViewRepresentable.browserPanelTestMoveWebKitRelatedSubviewsIntoLocalHost(
+        WebViewRepresentable.moveWebKitRelatedSubviewsIntoHostIfNeeded(
             from: sourceSlot,
             to: localSlot,
-            primaryWebView: panel.webView
+            primaryWebView: panel.webView,
+            reason: "test"
         )
 
         XCTAssertTrue(
