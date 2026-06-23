@@ -445,6 +445,11 @@ final class BrowserProfileStore: ObservableObject {
     }
 }
 
+// `BrowserProfileStore` already vends the profile list, id lookup, and create
+// operations that plan realization needs, so it supplies the destination-profile
+// seam to `RealizedBrowserImportExecutionPlan.realized(from:profileResolver:)`.
+extension BrowserProfileStore: BrowserImportProfileResolving {}
+
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
@@ -8741,193 +8746,6 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
 // MARK: - Browser Data Import
 
-struct RealizedBrowserImportExecutionEntry: Sendable {
-    let sourceProfiles: [InstalledBrowserProfile]
-    let destinationProfileID: UUID
-    let destinationProfileName: String
-}
-
-struct RealizedBrowserImportExecutionPlan: Sendable {
-    let mode: BrowserImportDestinationMode
-    let entries: [RealizedBrowserImportExecutionEntry]
-    let createdProfiles: [BrowserProfileDefinition]
-}
-
-enum BrowserImportPlanRealizationError: LocalizedError {
-    case missingDestinationProfile(UUID)
-    case profileCreationFailed(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .missingDestinationProfile:
-            return String(
-                localized: "browser.import.error.destinationMissing",
-                defaultValue: "The selected cmux browser profile no longer exists. Pick a destination profile again."
-            )
-        case .profileCreationFailed(let name):
-            return String(
-                format: String(
-                    localized: "browser.import.error.destinationCreateFailed",
-                    defaultValue: "cmux could not create the destination profile \"%@\"."
-                ),
-                name
-            )
-        }
-    }
-}
-
-enum BrowserImportPlanResolver {
-    @MainActor
-    static func defaultPlan(
-        selectedSourceProfiles: [InstalledBrowserProfile],
-        destinationProfiles: [BrowserProfileDefinition],
-        preferredSingleDestinationProfileID: UUID
-    ) -> BrowserImportExecutionPlan {
-        let resolvedSourceProfiles = selectedSourceProfiles.isEmpty ? [] : selectedSourceProfiles
-
-        guard resolvedSourceProfiles.count > 1 else {
-            let destinationRequest: BrowserImportDestinationRequest
-            if let sourceProfile = resolvedSourceProfiles.first,
-               let matchingProfile = matchingDestinationProfile(
-                for: sourceProfile.displayName,
-                destinationProfiles: destinationProfiles
-               ) {
-                destinationRequest = .existing(matchingProfile.id)
-            } else {
-                destinationRequest = .existing(preferredSingleDestinationProfileID)
-            }
-
-            return BrowserImportExecutionPlan(
-                mode: .singleDestination,
-                entries: resolvedSourceProfiles.map {
-                    BrowserImportExecutionEntry(
-                        sourceProfiles: [$0],
-                        destination: destinationRequest
-                    )
-                }
-            )
-        }
-
-        return separateProfilesPlan(
-            selectedSourceProfiles: resolvedSourceProfiles,
-            destinationProfiles: destinationProfiles
-        )
-    }
-
-    static func separateProfilesPlan(
-        selectedSourceProfiles: [InstalledBrowserProfile],
-        destinationProfiles: [BrowserProfileDefinition]
-    ) -> BrowserImportExecutionPlan {
-        var reservedNames = Set(destinationProfiles.map { normalizedProfileName($0.displayName) })
-
-        return BrowserImportExecutionPlan(
-            mode: .separateProfiles,
-            entries: selectedSourceProfiles.map { profile in
-                if let matchingProfile = matchingDestinationProfile(
-                    for: profile.displayName,
-                    destinationProfiles: destinationProfiles
-                ) {
-                    return BrowserImportExecutionEntry(
-                        sourceProfiles: [profile],
-                        destination: .existing(matchingProfile.id)
-                    )
-                }
-
-                let createName = nextCreateName(
-                    baseName: profile.displayName,
-                    takenNames: reservedNames
-                )
-                reservedNames.insert(normalizedProfileName(createName))
-                return BrowserImportExecutionEntry(
-                    sourceProfiles: [profile],
-                    destination: .createNamed(createName)
-                )
-            }
-        )
-    }
-
-    private static func matchingDestinationProfile(
-        for sourceProfileName: String,
-        destinationProfiles: [BrowserProfileDefinition]
-    ) -> BrowserProfileDefinition? {
-        let normalizedSourceName = normalizedProfileName(sourceProfileName)
-        guard !normalizedSourceName.isEmpty else { return nil }
-        return destinationProfiles.first {
-            normalizedProfileName($0.displayName) == normalizedSourceName
-        }
-    }
-
-    private static func nextCreateName(
-        baseName: String,
-        takenNames: Set<String>
-    ) -> String {
-        let trimmedBaseName = baseName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedBaseName = trimmedBaseName.isEmpty ? "Profile" : trimmedBaseName
-        if !takenNames.contains(normalizedProfileName(resolvedBaseName)) {
-            return resolvedBaseName
-        }
-
-        var suffix = 2
-        while true {
-            let candidate = "\(resolvedBaseName) (\(suffix))"
-            if !takenNames.contains(normalizedProfileName(candidate)) {
-                return candidate
-            }
-            suffix += 1
-        }
-    }
-
-    private static func normalizedProfileName(_ rawName: String) -> String {
-        rawName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    @MainActor
-    static func realize(
-        plan: BrowserImportExecutionPlan,
-        profileStore: BrowserProfileStore = .shared
-    ) throws -> RealizedBrowserImportExecutionPlan {
-        var realizedEntries: [RealizedBrowserImportExecutionEntry] = []
-        var createdProfiles: [BrowserProfileDefinition] = []
-
-        for entry in plan.entries {
-            let destinationProfile: BrowserProfileDefinition
-            switch entry.destination {
-            case .existing(let id):
-                guard let existingProfile = profileStore.profileDefinition(id: id) else {
-                    throw BrowserImportPlanRealizationError.missingDestinationProfile(id)
-                }
-                destinationProfile = existingProfile
-            case .createNamed(let name):
-                if let existingProfile = matchingDestinationProfile(
-                    for: name,
-                    destinationProfiles: profileStore.profiles
-                ) {
-                    destinationProfile = existingProfile
-                } else if let createdProfile = profileStore.createProfile(named: name) {
-                    createdProfiles.append(createdProfile)
-                    destinationProfile = createdProfile
-                } else {
-                    throw BrowserImportPlanRealizationError.profileCreationFailed(name)
-                }
-            }
-
-            realizedEntries.append(
-                RealizedBrowserImportExecutionEntry(
-                    sourceProfiles: entry.sourceProfiles,
-                    destinationProfileID: destinationProfile.id,
-                    destinationProfileName: destinationProfile.displayName
-                )
-            )
-        }
-
-        return RealizedBrowserImportExecutionPlan(
-            mode: plan.mode,
-            entries: realizedEntries,
-            createdProfiles: createdProfiles
-        )
-    }
-}
-
 #if canImport(CommonCrypto) && canImport(Security)
 private struct ChromiumCookieKeychainItem: Hashable {
     let service: String
@@ -10164,7 +9982,10 @@ final class BrowserDataImportCoordinator {
 #endif
         let realizedPlan: RealizedBrowserImportExecutionPlan
         do {
-            realizedPlan = try BrowserImportPlanResolver.realize(plan: selection.executionPlan)
+            realizedPlan = try RealizedBrowserImportExecutionPlan.realized(
+                from: selection.executionPlan,
+                profileResolver: BrowserProfileStore.shared
+            )
         } catch {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -10995,13 +10816,13 @@ final class BrowserDataImportCoordinator {
 
         private func resetStep3State() {
             let selectedProfiles = selectedSourceProfiles()
-            let defaultPlan = BrowserImportPlanResolver.defaultPlan(
+            let defaultPlan = BrowserImportExecutionPlan.defaultPlan(
                 selectedSourceProfiles: selectedProfiles,
                 destinationProfiles: destinationProfiles,
                 preferredSingleDestinationProfileID: initialDestinationProfileID
             )
             destinationMode = defaultPlan.mode
-            separateExecutionEntries = BrowserImportPlanResolver.separateProfilesPlan(
+            separateExecutionEntries = BrowserImportExecutionPlan.separateProfilesPlan(
                 selectedSourceProfiles: selectedProfiles,
                 destinationProfiles: destinationProfiles
             ).entries
@@ -11225,7 +11046,7 @@ final class BrowserDataImportCoordinator {
         private func defaultSeparateDestinationRequest(
             for profile: InstalledBrowserProfile
         ) -> BrowserImportDestinationRequest {
-            BrowserImportPlanResolver.separateProfilesPlan(
+            BrowserImportExecutionPlan.separateProfilesPlan(
                 selectedSourceProfiles: [profile],
                 destinationProfiles: destinationProfiles
             ).entries.first?.destination ?? .createNamed(profile.displayName)

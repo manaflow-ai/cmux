@@ -506,6 +506,16 @@ class TabManager {
         groupCoordinator: sessionSnapshotGroups,
         remapPlanner: closedPanelHistoryRemapPlanner
     )
+    // Owns the per-window recently-closed reopen/restore ordering (CmuxWorkspaces):
+    // the reopen-most-recent → legacy-browser-stack fallthrough, the legacy-stack
+    // pop loop's per-snapshot select/reopen/enforce sequence, the headless
+    // store-restore routing, and the reopen-by-id remove → restore → re-insert
+    // bookkeeping. The app-coupled effects (the closed-item-history store, the
+    // legacy browser stack, the AppDelegate cross-window routing, the focus-history
+    // suppressed restore bodies, and AppKit focus re-assertion) invert through
+    // TabManagerClosedItemReopenHosting (this file's class body); this TabManager
+    // is its witness.
+    let closedItemReopen = TabManagerClosedItemReopenCoordinator<TabManager>()
     // Reorder/pin flows over the workspaces model (CmuxWorkspaces); owns
     // the pure batch-reorder planner.
     let workspaceReordering: WorkspaceReorderCoordinator<Workspace>
@@ -688,6 +698,7 @@ class TabManager {
         // in-class timing.
         workspaceCreating.attach(host: self)
         sessionSnapshotRestore.attach(host: self)
+        closedItemReopen.attach(host: self)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -3605,47 +3616,18 @@ class TabManager {
 
     /// Reopen the most recently closed browser panel (Cmd+Shift+T).
     /// No-op when no browser panel restore snapshot is available.
+    ///
+    /// The reopen/restore ordering lives in the
+    /// `TabManagerClosedItemReopenCoordinator` (CmuxWorkspaces); this forwards
+    /// to it.
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanel() -> Bool {
-        if reopenMostRecentlyClosedItem() {
-            return true
-        }
-
-        return reopenMostRecentlyClosedBrowserPanelFromLegacyStack()
+        closedItemReopen.reopenMostRecentlyClosedBrowserPanel()
     }
 
     @discardableResult
     func reopenMostRecentlyClosedBrowserPanelFromLegacyStack() -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled() else { return false }
-
-        while let snapshot = browserModel.popMostRecentlyClosedBrowserPanel() {
-            // The legacy stack must restore into the workspace that originally owned the
-            // browser. If that workspace is gone, the snapshot is stale and we drop it
-            // instead of barging into whatever workspace happens to be selected now
-            // (which surfaced yesterday's browser inside today's unrelated workspaces).
-            guard let targetWorkspace = tabs.first(where: { $0.id == snapshot.workspaceId }) else {
-                continue
-            }
-            let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
-
-            if selectedTabId != targetWorkspace.id {
-                selectWorkspaceId(
-                    targetWorkspace.id,
-                    notificationDismissalContext: .explicitWorkspaceResume
-                )
-            }
-
-            if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
-                enforceReopenedBrowserFocus(
-                    tabId: targetWorkspace.id,
-                    reopenedPanelId: reopenedPanelId,
-                    preReopenFocusedPanelId: preReopenFocusedPanelId
-                )
-                return true
-            }
-        }
-
-        return false
+        closedItemReopen.reopenMostRecentlyClosedBrowserPanelFromLegacyStack()
     }
 
     func clearRecentlyClosedBrowserPanelHistory() {
@@ -3658,50 +3640,12 @@ class TabManager {
 
     @discardableResult
     func reopenMostRecentlyClosedItem() -> Bool {
-        if let appDelegate = AppDelegate.shared {
-            return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
-        }
-
-        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
-            switch entry {
-            case .panel(let panelEntry):
-                return restoreClosedPanel(panelEntry)
-            case .workspace(let workspaceEntry):
-                return restoreClosedWorkspace(workspaceEntry)
-            case .window:
-                return false
-            }
-        }) {
-            return true
-        }
-
-        return false
+        closedItemReopen.reopenMostRecentlyClosedItem()
     }
 
     @discardableResult
     func reopenClosedHistoryItem(id: UUID) -> Bool {
-        if let appDelegate = AppDelegate.shared {
-            return appDelegate.reopenClosedHistoryItem(id: id, preferredTabManager: self)
-        }
-
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
-            return false
-        }
-
-        let didRestore: Bool
-        switch removed.record.entry {
-        case .panel(let panelEntry):
-            didRestore = restoreClosedPanel(panelEntry)
-        case .workspace(let workspaceEntry):
-            didRestore = restoreClosedWorkspace(workspaceEntry)
-        case .window:
-            didRestore = false
-        }
-
-        if !didRestore {
-            ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
-        }
-        return didRestore
+        closedItemReopen.reopenClosedHistoryItem(id: id)
     }
 
     @discardableResult
@@ -5208,6 +5152,116 @@ extension TabManager {
             )
         }
         ClosedItemHistoryStore.shared.flushPendingSaves()
+    }
+}
+
+// MARK: - TabManagerClosedItemReopenHosting
+// The irreducibly-app steps of the per-window recently-closed reopen/restore
+// flows: the TabManagerClosedItemReopenCoordinator (CmuxWorkspaces) owns the
+// ordering (fallthrough, legacy-stack pop loop, headless store routing, reopen-
+// by-id bookkeeping); these witnesses perform every step touching the Workspace
+// god type, the ClosedItemHistoryStore singleton, the focusHistoryNavigation
+// suppression/recording API, the legacy browserModel stack, AppDelegate cross-
+// window routing, and AppKit focus re-assertion. Bodies are lifted one-for-one
+// from the former inline reopen* bodies. The store entry-type and the browser
+// snapshot are threaded as opaque associated types.
+extension TabManager: TabManagerClosedItemReopenHosting {
+    typealias HistoryEntry = ClosedItemHistoryEntry
+    typealias RemovedRecord = (record: ClosedItemHistoryRecord, index: Int)
+    typealias BrowserPanelSnapshot = ClosedBrowserPanelRestoreSnapshot
+
+    // MARK: AppDelegate cross-window routing
+
+    func reopenMostRecentlyClosedItemViaAppDelegate() -> Bool? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        return appDelegate.reopenMostRecentlyClosedItem(preferredTabManager: self)
+    }
+
+    func reopenClosedHistoryItemViaAppDelegate(id: UUID) -> Bool? {
+        guard let appDelegate = AppDelegate.shared else { return nil }
+        return appDelegate.reopenClosedHistoryItem(id: id, preferredTabManager: self)
+    }
+
+    // MARK: Headless closed-item-history store routing
+
+    func restoreFirstRestorableStoreItem() -> Bool {
+        ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
+            restoreClosedHistoryEntry(entry)
+        })
+    }
+
+    func removeStoreRecord(id: UUID) -> (record: ClosedItemHistoryRecord, index: Int)? {
+        ClosedItemHistoryStore.shared.removeRecord(id: id)
+    }
+
+    func historyEntry(
+        of removed: (record: ClosedItemHistoryRecord, index: Int)
+    ) -> ClosedItemHistoryEntry {
+        removed.record.entry
+    }
+
+    func restoreClosedHistoryEntry(_ entry: ClosedItemHistoryEntry) -> Bool {
+        switch entry {
+        case .panel(let panelEntry):
+            return restoreClosedPanel(panelEntry)
+        case .workspace(let workspaceEntry):
+            return restoreClosedWorkspace(workspaceEntry)
+        case .window:
+            return false
+        }
+    }
+
+    func reinsertRemovedRecord(_ removed: (record: ClosedItemHistoryRecord, index: Int)) {
+        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
+    }
+
+    // MARK: Legacy recently-closed browser-panel stack
+    // `isBrowserEnabled` is supplied by the `BrowserOpenHosting` conformance
+    // (TabManager+BrowserOpenHosting.swift) and satisfies this protocol too.
+
+    func popMostRecentlyClosedBrowserPanel() -> ClosedBrowserPanelRestoreSnapshot? {
+        browserModel.popMostRecentlyClosedBrowserPanel()
+    }
+
+    func targetWorkspaceId(for snapshot: ClosedBrowserPanelRestoreSnapshot) -> UUID? {
+        tabs.first(where: { $0.id == snapshot.workspaceId })?.id
+    }
+
+    func focusedPanelId(forWorkspaceId workspaceId: UUID) -> UUID? {
+        focusedPanelId(for: workspaceId)
+    }
+
+    func isSelectedWorkspace(_ workspaceId: UUID) -> Bool {
+        selectedTabId == workspaceId
+    }
+
+    func selectWorkspaceForResume(_ workspaceId: UUID) {
+        selectWorkspaceId(
+            workspaceId,
+            notificationDismissalContext: .explicitWorkspaceResume
+        )
+    }
+
+    func reopenClosedBrowserPanel(
+        _ snapshot: ClosedBrowserPanelRestoreSnapshot,
+        inWorkspaceId workspaceId: UUID
+    ) -> UUID? {
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else {
+            return nil
+        }
+        return reopenClosedBrowserPanel(snapshot, in: workspace)
+    }
+
+    func enforceReopenedBrowserFocus(
+        workspaceId: UUID,
+        reopenedPanelId: UUID,
+        preReopenFocusedPanelId: UUID?
+    ) {
+        enforceReopenedBrowserFocus(
+            tabId: workspaceId,
+            reopenedPanelId: reopenedPanelId,
+            preReopenFocusedPanelId: preReopenFocusedPanelId
+        )
     }
 }
 
