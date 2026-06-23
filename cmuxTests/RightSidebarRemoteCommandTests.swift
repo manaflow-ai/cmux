@@ -85,6 +85,8 @@ extension TerminalControllerSocketSecurityTests {
             let windowId = UUID()
             let tabManager = TabManager()
             let fileExplorerState = FileExplorerState()
+            fileExplorerState.setVisible(false)
+            fileExplorerState.mode = .files
 
             appDelegate.fileExplorerState = fileExplorerState
             appDelegate.registerMainWindowContextForTesting(

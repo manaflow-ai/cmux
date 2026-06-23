@@ -1098,6 +1098,8 @@ class TerminalController {
             return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
                 await self.v2MobileAttachTicketCreate(params: request.params)
             }
+        case "mobile.terminal.set_font":
+            return v2Result(id: request.id, v2MobileTerminalSetFont(params: request.params))
         case "system.ping":
             return v2Ok(id: request.id, result: ["pong": true])
         case "system.capabilities":
@@ -1965,7 +1967,9 @@ class TerminalController {
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
-            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
+            "mobile.terminal.viewport",
+            "mobile.terminal.set_font",
+            "mobile.events.subscribe", "mobile.events.unsubscribe",
             "terminal.create",
             "terminal.input",
             "terminal.paste",
@@ -12919,6 +12923,41 @@ class TerminalController {
                 data: nil
             )
         }
+    }
+
+    /// Publish a `terminal.set_font` event to connected iOS device(s) so the
+    /// mirrored terminal live-zooms its font. This drives the same iOS apply path
+    /// as a pinch/zoom step, but originates from Mac automation
+    /// (`cmux mobile set-font <size>`).
+    nonisolated func v2MobileTerminalSetFont(params: [String: Any]) -> V2CallResult {
+        guard let fontSize = v2Double(params, "font_size") else {
+            return .err(
+                code: "invalid_params",
+                message: "Missing or invalid font_size",
+                data: nil
+            )
+        }
+        guard fontSize.isFinite, fontSize > 0 else {
+            return .err(
+                code: "invalid_params",
+                message: "font_size must be a positive number of points",
+                data: ["font_size": fontSize]
+            )
+        }
+        var payload: [String: Any] = ["font_size": fontSize]
+        if let surfaceID = v2RawString(params, "surface_id") {
+            payload["surface_id"] = surfaceID
+        }
+        if let workspaceID = v2RawString(params, "workspace_id") {
+            payload["workspace_id"] = workspaceID
+        }
+        let hasSubscribers = MobileHostService.hasEventSubscribers(topic: "terminal.set_font")
+        MobileHostService.emitEvent(topic: "terminal.set_font", payload: payload)
+        return .ok([
+            "ok": true,
+            "font_size": fontSize,
+            "delivered": hasSubscribers,
+        ])
     }
 
     /// Mobile-gated wrapper over ``v2WorkspaceAction(params:)``.

@@ -40,9 +40,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "terminal.set_font", "notification.dismissed", "notification.badge"]
             }
         }
     }
@@ -675,6 +675,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    private var terminalLiveFontContinuationsBySurfaceID: [String: AsyncStream<Float32>.Continuation]
+    private var terminalLiveFontTokensBySurfaceID: [String: UUID]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -842,6 +844,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        self.terminalLiveFontContinuationsBySurfaceID = [:]
+        self.terminalLiveFontTokensBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
@@ -4773,6 +4777,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        terminalLiveFontContinuationsBySurfaceID = [:]
+        terminalLiveFontTokensBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
@@ -5720,6 +5726,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     self.scheduleWorkspaceListRefreshFromEvent()
                 } else if event.topic == "terminal.render_grid" {
                     self.handleTerminalRenderGridEvent(event)
+                } else if event.topic == "terminal.set_font" {
+                    self.handleTerminalSetFontEvent(event)
                 } else if event.topic == "terminal.bytes" {
                     // Raw PTY bytes coming from the Mac surface's libghostty
                     // pty-tee. This is the compatibility fallback when the Mac
@@ -6193,6 +6201,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// The Mac-pushed live font-size stream for a terminal surface.
+    ///
+    /// Ending iteration detaches the font continuation. Mirrors the output-stream
+    /// lifecycle so the font signal never outlives the surface mount.
+    public func terminalLiveFontStream(surfaceID: String) -> AsyncStream<Float32> {
+        AsyncStream { continuation in
+            let token = UUID()
+            terminalLiveFontContinuationsBySurfaceID[surfaceID] = continuation
+            terminalLiveFontTokensBySurfaceID[surfaceID] = token
+            continuation.onTermination = { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    guard self.terminalLiveFontTokensBySurfaceID[surfaceID] == token else { return }
+                    self.terminalLiveFontContinuationsBySurfaceID.removeValue(forKey: surfaceID)
+                    self.terminalLiveFontTokensBySurfaceID.removeValue(forKey: surfaceID)
+                }
+            }
+        }
+    }
+
     /// Report this device's natural terminal grid to the Mac and return the
     /// effective grid the Mac computed (the smallest across all attached
     /// devices, capped to the Mac pane). The caller pins its libghostty surface
@@ -6363,6 +6391,28 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mobileShellLog.info("CMUX_REPLAY live render_grid surface=\(renderGrid.surfaceID, privacy: .public) full=\(renderGrid.full, privacy: .public) spans=\(renderGrid.rowSpans.count, privacy: .public) cleared=\(renderGrid.clearedRows.count, privacy: .public) seq=\(renderGrid.stateSeq, privacy: .public) hasSink=true")
         #endif
         deliverAuthoritativeTerminalRenderGrid(renderGrid, source: "event")
+    }
+
+    private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {
+        guard
+            let json = event.payloadJSON,
+            let payload = try? MobileTerminalSetFontEvent.decode(json)
+        else {
+            return
+        }
+        let points = Float32(payload.fontSize)
+        if let surfaceID = payload.surfaceID {
+            terminalLiveFontContinuationsBySurfaceID[surfaceID]?.yield(points)
+        } else if let targetWorkspaceID = payload.workspaceID {
+            for (surfaceID, continuation) in terminalLiveFontContinuationsBySurfaceID
+            where workspaceID(forTerminalID: surfaceID)?.rawValue == targetWorkspaceID {
+                continuation.yield(points)
+            }
+        } else {
+            for continuation in terminalLiveFontContinuationsBySurfaceID.values {
+                continuation.yield(points)
+            }
+        }
     }
 
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
