@@ -17,6 +17,7 @@ public final class WorkspacesModel<Tab: WorkspaceTabRepresenting> {
     /// The window's workspaces in sidebar order.
     public var tabs: [Tab] = [] {
         willSet { host?.workspaceTabsWillChange(to: newValue) }
+        didSet { host?.workspaceTabsDidChange(to: tabs) }
     }
 
     /// Named groupings of workspaces shown as collapsible sections in the

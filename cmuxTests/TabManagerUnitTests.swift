@@ -3940,6 +3940,9 @@ final class TabManagerShellActivityReplayTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
         _ = try XCTUnwrap(workspace.terminalPanel(for: panelId), "Expected a terminal panel")
+        // Keep the shared AppDelegate buffer clean even if an assertion fails
+        // before the replay drains it.
+        defer { appDelegate.discardPendingShellActivity(forWorkspaceId: workspace.id) }
 
         // A standalone manager is not wired into AppDelegate's window routes, so
         // the report cannot resolve the workspace and must take the buffered path
