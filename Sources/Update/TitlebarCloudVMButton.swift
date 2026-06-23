@@ -4,7 +4,7 @@ import CmuxSettings
 
 enum TitlebarNewWorkspaceCloudSplitButtonMetrics {
     static func dropdownWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        max(12, floor(config.buttonSize * 0.62))
+        max(14, floor(config.buttonSize * 0.70))
     }
 
     static func totalWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
@@ -73,7 +73,7 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
                 }
             ) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: max(6, config.iconSize - 5), weight: .semibold))
+                    .font(.system(size: max(8, config.iconSize - 3), weight: .semibold))
                     .frame(width: dropdownWidth, height: config.buttonSize)
             }
             .buttonStyle(.plain)
