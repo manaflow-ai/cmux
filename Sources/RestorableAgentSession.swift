@@ -1314,25 +1314,102 @@ struct RestorableAgentSessionIndex: Sendable {
 
         let roots = lookup.configRoots(for: record)
         guard !roots.isEmpty else { return record }
-        let candidateProjectDirs = claudeWorkflowProjectDirs(
+
+        // (1) Workflow container session: `<sessionId>/` is a directory holding the real
+        // sub-session `.jsonl` files; `claude --resume` needs one of those sibling
+        // transcripts, not the container id.
+        let workflowProjectDirs = claudeWorkflowProjectDirs(
             for: record,
             sessionId: sessionId,
             roots: roots,
             fileManager: fileManager,
             lookup: lookup
         )
-        guard let resolved = newestClaudeSiblingTranscript(
-            in: candidateProjectDirs,
+        if let resolved = newestClaudeSiblingTranscript(
+            in: workflowProjectDirs,
             excludingSessionId: sessionId,
             fileManager: fileManager
-        ) else {
-            return record
+        ) {
+            return claudeRecord(record, healedTo: resolved.sessionId, transcriptPath: resolved.path)
         }
 
-        var resolvedRecord = record
-        resolvedRecord.sessionId = resolved.sessionId
-        resolvedRecord.transcriptPath = resolved.path
-        return resolvedRecord
+        // (2) Ghost session (https://github.com/manaflow-ai/cmux/issues/6622): cmux's
+        // `claude` wrapper mints a fresh `--session-id <uuid>` for every create-new launch.
+        // When such a launch was meant to resume a backgrounded agent, the empty session
+        // never receives a message, so `<sessionId>.jsonl` is never written and
+        // `claude --resume <ghost>` fails with "No conversation found". The user's real
+        // conversation stays alive as a separate background-agent session in the Claude Code
+        // daemon under a different id. Ask the daemon (`claude agents --json`) for the live
+        // background agent in this cwd and reconcile the panel to its real session id, so
+        // resume targets the real conversation instead of the empty ghost id. Reconciliation
+        // only proceeds when this id owns no transcript (a real session is never reattached)
+        // and a real transcript exists for the reconciled id (so a still-pending agent is not
+        // surfaced as a broken resume). With no daemon match this degrades to today's
+        // behaviour: a transcript-less Claude record stays non-restorable.
+        guard !claudeTranscriptExists(for: record, fileManager: fileManager, lookup: lookup) else {
+            return record
+        }
+        let panelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+            ?? normalizedWorkingDirectory(record.cwd)
+        let configDir = normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"])
+        guard let realSessionId = ClaudeBackgroundAgentReconciler().reconciledSessionId(
+            forGhostSessionId: sessionId,
+            panelCwd: panelCwd,
+            backgroundAgents: backgroundAgents(configDir)
+        ),
+            realSessionId != sessionId,
+            claudeSessionIdIsSafeFilename(realSessionId),
+            let transcriptPath = backgroundAgentTranscriptPath(
+                forSessionId: realSessionId,
+                record: record,
+                roots: roots,
+                fileManager: fileManager,
+                lookup: lookup
+            )
+        else {
+            return record
+        }
+        return claudeRecord(record, healedTo: realSessionId, transcriptPath: transcriptPath)
+    }
+
+    private static func claudeRecord(
+        _ record: RestorableAgentHookSessionRecord,
+        healedTo sessionId: String,
+        transcriptPath: String
+    ) -> RestorableAgentHookSessionRecord {
+        var resolved = record
+        resolved.sessionId = sessionId
+        resolved.transcriptPath = transcriptPath
+        return resolved
+    }
+
+    /// The on-disk transcript path for a daemon-reported background agent `sessionId`, filed
+    /// under the record's working directory (or any project under its config roots), or `nil`
+    /// when none exists. Confirms the reconciled agent has a resumable conversation before a
+    /// ghost panel adopts it. https://github.com/manaflow-ai/cmux/issues/6622
+    private static func backgroundAgentTranscriptPath(
+        forSessionId sessionId: String,
+        record: RestorableAgentHookSessionRecord,
+        roots: [String],
+        fileManager: FileManager,
+        lookup: ClaudeTranscriptLookupCache
+    ) -> String? {
+        let cwd = normalizedWorkingDirectory(record.cwd)
+            ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        for root in roots {
+            if let cwd,
+               let path = lookup.transcriptPath(
+                   configRoot: root,
+                   projectDirName: encodeClaudeProjectDir(cwd),
+                   sessionId: sessionId
+               ) {
+                return path
+            }
+            if let path = lookup.transcriptPathInAnyProject(configRoot: root, sessionId: sessionId) {
+                return path
+            }
+        }
+        return nil
     }
 
     private static func claudeWorkflowProjectDirs(
@@ -1968,5 +2045,90 @@ private extension CmuxTopProcessArguments {
             return nil
         }
         return UUID(uuidString: rawValue)
+    }
+}
+
+/// Queries the Claude Code daemon (`claude agents --json`) for live background agents so a
+/// transcript-less ghost panel can be reconciled to its real session id.
+/// https://github.com/manaflow-ai/cmux/issues/6622
+///
+/// Best-effort and self-contained: any failure (claude not found, non-zero exit, malformed
+/// JSON, or the bounded probe timing out) yields no agents, so the restorable index degrades
+/// to its prior behaviour rather than blocking or surfacing a wrong session. Results are
+/// cached per `CLAUDE_CONFIG_DIR` for a short TTL so the event-driven, off-main index reload
+/// does not respawn `claude` on every refresh. `@unchecked Sendable`: the cache is guarded by
+/// a lock and `live(configDir:)` is invoked only from the off-main loaders.
+final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
+    static let shared = ClaudeBackgroundAgentsQuery()
+
+    private let lock = NSLock()
+    private var cache: [String: (agents: [ClaudeBackgroundAgentSnapshot], fetchedAt: Date)] = [:]
+    private static let cacheTTL: TimeInterval = 20
+    private static let probeTimeout: TimeInterval = 5
+
+    func live(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
+        let key = configDir ?? ""
+        lock.lock()
+        if let cached = cache[key], Date().timeIntervalSince(cached.fetchedAt) < Self.cacheTTL {
+            lock.unlock()
+            return cached.agents
+        }
+        lock.unlock()
+
+        let agents = Self.fetch(configDir: configDir)
+        lock.lock()
+        cache[key] = (agents, Date())
+        lock.unlock()
+        return agents
+    }
+
+    private final class ProcessBox: @unchecked Sendable {
+        let process: Process
+        init(_ process: Process) { self.process = process }
+    }
+
+    private static func fetch(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
+        guard let executableURL = resolvedClaudeExecutableURL() else { return [] }
+
+        let process = Process()
+        process.executableURL = executableURL
+        process.arguments = ["agents", "--json"]
+        var environment = ProcessInfo.processInfo.environment
+        if let configDir, !configDir.isEmpty {
+            environment["CLAUDE_CONFIG_DIR"] = (configDir as NSString).expandingTildeInPath
+        }
+        process.environment = environment
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return []
+        }
+
+        // Bound the probe so a hung daemon never stalls the index reload: terminate the
+        // process after the timeout, which closes the pipe and unblocks the read below.
+        let box = ProcessBox(process)
+        let watchdog = DispatchWorkItem {
+            if box.process.isRunning { box.process.terminate() }
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.probeTimeout, execute: watchdog)
+
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        watchdog.cancel()
+
+        guard process.terminationStatus == 0 else { return [] }
+        return ClaudeBackgroundAgentReconciler.parse(agentsJSON: data)
+    }
+
+    private static func resolvedClaudeExecutableURL() -> URL? {
+        try? AgentExecutableResolver(
+            configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
+        ).resolve(.claude).executableURL
     }
 }

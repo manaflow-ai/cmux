@@ -764,6 +764,158 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    // Graceful degradation for #6622: with no live background agent reported for the cwd, a
+    // transcript-less ghost stays non-restorable exactly as before — reconciliation never
+    // guesses from the filesystem.
+    func testClaudeGhostSessionWithoutBackgroundAgentStaysNonRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ghost-nomatch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        // A real sibling transcript exists, but no daemon agent is reported for this cwd, so
+        // the ghost must NOT be healed off the filesystem alone.
+        try writeClaudeTranscript(
+            sessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb",
+            transcriptURL: projectDir.appendingPathComponent("bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb.jsonl", isDirectory: false),
+            cwd: cwd
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa": hookRecord(
+                    sessionId: "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa",
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: false,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "without a daemon match a transcript-less ghost must stay non-restorable"
+        )
+    }
+
+    // Safety gate for #6622: a Claude session that already owns its transcript is a real
+    // conversation and keeps its id, even when the daemon reports a background agent for the
+    // same cwd. Reconciliation must never reattach a real session.
+    func testClaudeSessionWithOwnTranscriptIsNotReconciled() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-own-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let ownSessionId = "cccccccc-3333-3333-3333-cccccccccccc"
+        try writeClaudeTranscript(sessionId: ownSessionId, cwd: cwd, projectsDir: projectsDir)
+        let otherSessionId = "dddddddd-4444-4444-4444-dddddddddddd"
+        try writeClaudeTranscript(sessionId: otherSessionId, cwd: cwd, projectsDir: projectsDir)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                ownSessionId: hookRecord(
+                    sessionId: ownSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: true,
+                    updatedAt: 30
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(sessionId: otherSessionId, cwd: cwd.path, kind: "background")]
+            }
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(
+            snapshot.sessionId, ownSessionId,
+            "a real session with its own transcript must keep its id, not adopt a background agent"
+        )
+    }
+
+    // Safety gate for #6622: a reconciled background agent whose transcript is not on disk is
+    // not surfaced — that would only swap one broken resume for another.
+    func testClaudeGhostReconcilesOnlyWhenBackgroundAgentTranscriptExists() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ghost-no-real-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(expectedClaudeProjectDirName(cwd.path), isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa": hookRecord(
+                    sessionId: "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa",
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: false,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        // The daemon reports a background agent, but no transcript exists for it on disk.
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(
+                    sessionId: "99999999-9999-9999-9999-999999999999",
+                    cwd: cwd.path,
+                    kind: "background"
+                )]
+            }
+        )
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "a reconciled id without an on-disk transcript must not be surfaced as restorable"
+        )
+    }
+
     /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.
