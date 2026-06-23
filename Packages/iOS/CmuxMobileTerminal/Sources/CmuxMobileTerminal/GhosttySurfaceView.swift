@@ -2393,8 +2393,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             activeScreen: envelope.frame.activeScreen,
             scrollbackRows: envelope.scrollbackRowsForLocalMirror
         )
-        applyRenderGridEnvelope(envelope)
-        await waitForSemanticRenderDisplayTransaction()
+        await applyRenderGridEnvelope(envelope)
     }
 
     /// Keep render-grid delivery backpressure aligned with the actual display
@@ -2409,15 +2408,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         await Task.yield()
     }
 
-    private func applyRenderGridEnvelope(_ envelope: MobileTerminalRenderGridEnvelope) {
+    private func applyRenderGridEnvelope(_ envelope: MobileTerminalRenderGridEnvelope) async {
         if var snapshot = renderGridSnapshot {
             snapshot.apply(envelope)
             renderGridSnapshot = snapshot
         } else {
             renderGridSnapshot = MobileTerminalRenderGridSnapshot(frame: envelope.frame)
         }
-        setGhosttyRendererLayersHidden(true)
-        surfaceHasReceivedOutput = true
         if let snapshot = renderGridSnapshot {
             updateLocalScrollbackBounds(
                 total: UInt64(max(0, snapshot.totalRows)),
@@ -2425,12 +2422,83 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 len: UInt64(max(0, snapshot.visibleRowCount))
             )
         }
-        renderSemanticRenderGridSnapshot()
-        needsDraw = false
-        #if DEBUG
-        lastOutputAppliedTime = CACurrentMediaTime()
-        onOutputProcessedForTesting?()
-        #endif
+        semanticRenderCacheKey = nil
+        await processRenderGridReplayOutput(
+            envelope.frame.vtPatchBytes(),
+            rowOffsetAfterReplay: localScrollbackModel.rowOffset
+        )
+    }
+
+    private func processRenderGridReplayOutput(
+        _ data: Data,
+        rowOffsetAfterReplay: Double
+    ) async {
+        await withCheckedContinuation { continuation in
+            processRenderGridReplayOutput(data, rowOffsetAfterReplay: rowOffsetAfterReplay) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func processRenderGridReplayOutput(
+        _ data: Data,
+        rowOffsetAfterReplay: Double,
+        completion: (@MainActor @Sendable () -> Void)?
+    ) {
+        guard let surface, !isDismantled else {
+            completion?()
+            return
+        }
+
+        setGhosttyRendererLayersHidden(false)
+        snapshotFallbackView.isHidden = true
+        snapshotFallbackView.attributedText = nil
+        let cursorVisibilityDelta = Self.lastCursorVisibility(in: data)
+
+        Self.outputQueue.async { [weak self] in
+            data.withUnsafeBytes { buffer in
+                guard let baseAddress = buffer.baseAddress else { return }
+                let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
+                ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            ghostty_surface_scroll_to_offset(surface, rowOffsetAfterReplay)
+            #if DEBUG
+            var accessibilityText: String?
+            let a11yNow = CACurrentMediaTime()
+            if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
+                Self.lastAccessibilityTextTime = a11yNow
+                accessibilityText = Self.accessibilitySurfaceText(surface)
+            }
+            #endif
+            DispatchQueue.main.async {
+                guard let self, !self.isDismantled else {
+                    completion?()
+                    return
+                }
+                self.needsDraw = true
+                self.surfaceHasReceivedOutput = true
+                if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
+                    self.hostCursorVisible = cursorVisibilityDelta
+                    self.updateCursorOverlay()
+                }
+                self.updateCursorOverlay()
+                let now = CACurrentMediaTime()
+                if now - self.lastProcessOutputLogTime > 1.0 {
+                    self.lastProcessOutputLogTime = now
+                    if self.window != nil {
+                        self.logLayerTree(reason: "renderGridReplay")
+                    }
+                }
+                #if DEBUG
+                self.lastOutputAppliedTime = CACurrentMediaTime()
+                if let accessibilityText, !accessibilityText.isEmpty {
+                    self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
+                }
+                self.onOutputProcessedForTesting?()
+                #endif
+                completion?()
+            }
+        }
     }
 
     private func processOutput(

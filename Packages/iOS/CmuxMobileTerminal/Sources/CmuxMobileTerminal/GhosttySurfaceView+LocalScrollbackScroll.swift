@@ -56,7 +56,17 @@ extension GhosttySurfaceView {
             + "max=\(String(format: "%.2f", result.maxRowOffset)) "
             + "cellPx=\(String(format: "%.1f", cellHeightPx))"
         )
-        if renderGridSnapshot != nil {
+        if let surface {
+            Self.outputQueue.async { [weak self] in
+                ghostty_surface_scroll_to_offset(surface, result.rowOffset)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.updateCursorOverlay()
+                    self.drawForWakeup()
+                }
+            }
+            debugLogLocalScrollViewport(surface: surface, requestedOffset: result.rowOffset)
+        } else if renderGridSnapshot != nil {
             renderSemanticRenderGridSnapshot()
             debugLogLocalScrollViewport(requestedOffset: result.rowOffset)
         } else {
