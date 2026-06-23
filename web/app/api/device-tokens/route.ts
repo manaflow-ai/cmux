@@ -49,7 +49,15 @@ async function registerDeviceToken(request: Request): Promise<Response> {
   const db = cloudDb();
 
   const registered = await db.transaction(async (tx) => {
+    // Two advisory locks: one keyed on the user (serializes that user's
+    // registration-cap accounting across concurrent registrations) and one
+    // keyed on the token (serializes cross-user claims on the same device
+    // token). The global unique index on `deviceToken` makes a conflict
+    // reachable from a different user, so without the token-scoped lock two
+    // users racing to claim the same token would not serialize against each
+    // other. Different seeds (2 vs 3) keep the two lock namespaces disjoint.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${user.id}, 2))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${deviceToken}, 3))`);
 
     const [existingToken] = await tx
       .select({ userId: deviceTokens.userId })
@@ -57,13 +65,27 @@ async function registerDeviceToken(request: Request): Promise<Response> {
       .where(eq(deviceTokens.deviceToken, deviceToken))
       .limit(1);
 
-    if (existingToken?.userId !== user.id) {
+    // A device token pins its owning user. The unique index on `deviceToken`
+    // is global (by design, so a re-pairing device can move to a new account),
+    // which means an `onConflictDoUpdate` is reachable from a *different* user.
+    // Without this guard, anyone who learns another user's APNs token could
+    // reassign it to their own account and then either receive that user's
+    // pushes or silently drop them. Mirrors /api/devices: a token owned by
+    // someone else cannot be taken over. A genuine re-pair is initiated by the
+    // old owner deleting the row first.
+    if (existingToken && existingToken.userId !== user.id) {
+      return { error: "device_not_owned" as const };
+    }
+
+    // Only a brand-new token consumes a per-user registration slot; a
+    // same-user re-register updates the existing row in place.
+    if (!existingToken) {
       const [registrationCount] = await tx
         .select({ total: count() })
         .from(deviceTokens)
         .where(and(eq(deviceTokens.userId, user.id), ne(deviceTokens.deviceToken, deviceToken)));
       if (Number(registrationCount?.total ?? 0) >= MAX_DEVICE_TOKENS_PER_USER) {
-        return false;
+        return { error: "too_many_devices" as const };
       }
     }
 
@@ -87,10 +109,13 @@ async function registerDeviceToken(request: Request): Promise<Response> {
         },
       });
 
-    return true;
+    return { error: null };
   });
 
-  if (!registered) {
+  if (registered.error === "device_not_owned") {
+    return jsonResponse({ error: "device_not_owned" }, 403);
+  }
+  if (registered.error === "too_many_devices") {
     return jsonResponse({ error: "too_many_devices" }, 429);
   }
 
