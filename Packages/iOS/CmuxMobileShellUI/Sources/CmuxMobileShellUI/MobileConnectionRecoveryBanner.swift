@@ -7,6 +7,13 @@ import SwiftUI
 /// automatic recovery runs, and a manual Retry control if it could not restore
 /// the connection. Renders nothing while the connection is healthy.
 struct MobileConnectionRecoveryBanner: View {
+    enum Presentation: Equatable {
+        case none
+        case reauth(String?)
+        case lost
+        case reconnecting
+    }
+
     @Bindable var store: CMUXMobileShellStore
     /// Sign the user out so they can re-authenticate into the account that owns
     /// the Mac. Shown only for the account-mismatch / authorization-failure
@@ -15,14 +22,17 @@ struct MobileConnectionRecoveryBanner: View {
 
     var body: some View {
         Group {
-            if store.connectionRequiresReauth {
+            switch presentation {
+            case .none:
+                EmptyView()
+            case .reauth(let message):
                 authBanner(
-                    text: store.connectionError ?? L10n.string(
+                    text: message ?? L10n.string(
                         "mobile.recovery.accountMismatch",
                         defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with that account."
                     )
                 )
-            } else if store.connectionRecoveryFailed {
+            case .lost:
                 banner(
                     text: L10n.string(
                         "mobile.recovery.lost",
@@ -31,7 +41,7 @@ struct MobileConnectionRecoveryBanner: View {
                     showsRetry: true,
                     showsSpinner: false
                 )
-            } else if store.isRecoveringConnection || store.shouldPreserveWorkspaceShellDuringReconnect {
+            case .reconnecting:
                 banner(
                     text: L10n.string(
                         "mobile.recovery.reconnecting",
@@ -45,6 +55,35 @@ struct MobileConnectionRecoveryBanner: View {
         .animation(.default, value: store.isRecoveringConnection)
         .animation(.default, value: store.connectionRecoveryFailed)
         .animation(.default, value: store.connectionRequiresReauth)
+    }
+
+    var presentation: Presentation {
+        Self.presentation(
+            requiresReauth: store.connectionRequiresReauth,
+            connectionError: store.connectionError,
+            recoveryFailed: store.connectionRecoveryFailed,
+            isRecoveringConnection: store.isRecoveringConnection,
+            preservesWorkspaceShellDuringReconnect: store.shouldPreserveWorkspaceShellDuringReconnect
+        )
+    }
+
+    static func presentation(
+        requiresReauth: Bool,
+        connectionError: String?,
+        recoveryFailed: Bool,
+        isRecoveringConnection: Bool,
+        preservesWorkspaceShellDuringReconnect: Bool
+    ) -> Presentation {
+        if requiresReauth {
+            return .reauth(connectionError)
+        }
+        if recoveryFailed {
+            return .lost
+        }
+        if isRecoveringConnection || preservesWorkspaceShellDuringReconnect {
+            return .reconnecting
+        }
+        return .none
     }
 
     /// An authorization failure (wrong account / unverifiable token). Retrying

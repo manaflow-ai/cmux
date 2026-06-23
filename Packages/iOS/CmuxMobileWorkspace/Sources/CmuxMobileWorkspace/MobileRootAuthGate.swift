@@ -11,6 +11,18 @@ public import Foundation
 public struct MobileRootAuthGate {
     private init() {}
 
+    public enum RootContentDestination: Equatable, Sendable {
+        case terminalLayoutPreview
+        case workspaceListLayoutPreview
+        case restoringSession
+        case signIn
+        case workspaceShell
+        case restoringStoredMac
+        case pairedMacDetermining
+        case onboarding
+        case disconnectedWorkspaceShell
+    }
+
     /// Whether the user is authenticated by either Stack auth or an attach ticket.
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
@@ -124,5 +136,50 @@ public struct MobileRootAuthGate {
         if isReconnectingStoredMac { return true }
         guard !didFinishStoredMacReconnectAttempt else { return false }
         return hasKnownPairedMac || pairedMacHintUndetermined
+    }
+
+    /// Pure root-view branch selection. Keeping this order executable in tests is
+    /// what protects the terminal reconnect path: once a real remote terminal
+    /// snapshot is cached, transient reconnects must keep the workspace shell
+    /// mounted so the Ghostty surface and PTY mirror retain their last frame.
+    public static func rootContentDestination(
+        showsTerminalLayoutPreview: Bool,
+        showsWorkspaceListLayoutPreview: Bool,
+        showsRestoringSession: Bool,
+        authenticated: Bool,
+        preservesWorkspaceShellDuringReconnect: Bool,
+        connectionState: MobileConnectionState,
+        showsRestoringStoredMac: Bool,
+        hasKnownPairedMac: Bool,
+        isReconnectingStoredMac: Bool,
+        showsOnboarding: Bool
+    ) -> RootContentDestination {
+        if showsTerminalLayoutPreview {
+            return .terminalLayoutPreview
+        }
+        if showsWorkspaceListLayoutPreview {
+            return .workspaceListLayoutPreview
+        }
+        if showsRestoringSession {
+            return .restoringSession
+        }
+        if !authenticated {
+            return .signIn
+        }
+        if preservesWorkspaceShellDuringReconnect {
+            return .workspaceShell
+        }
+        if connectionState != .connected, showsRestoringStoredMac {
+            return hasKnownPairedMac || isReconnectingStoredMac
+                ? .restoringStoredMac
+                : .pairedMacDetermining
+        }
+        if showsOnboarding {
+            return .onboarding
+        }
+        if connectionState != .connected {
+            return .disconnectedWorkspaceShell
+        }
+        return .workspaceShell
     }
 }

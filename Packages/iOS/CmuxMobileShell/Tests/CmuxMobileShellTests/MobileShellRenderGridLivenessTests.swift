@@ -176,6 +176,70 @@ import Testing
     collector.unmount()
 }
 
+/// Background/foreground network recovery must not dismantle the mounted
+/// Ghostty surface. The local Ghostty mirror should keep showing the last
+/// replayed render-grid frame while the event stream restarts; the visible UI
+/// fallback is only the reconnecting banner over that cached frame.
+@MainActor
+@Test func foregroundReconnectKeepsMountedRenderGridFrameUntilReplayOrLiveEvent() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    try await router.setReplayFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "PIXELCACHE"
+    )
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let initialReplayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("PIXELCACHE") }
+    }
+    #expect(initialReplayDelivered)
+    #expect(store.debugHasTerminalOutputSinkForTesting(surfaceID: "live-terminal"))
+    let initialFrameBytes = try #require(collector.lines.last { $0.contains("PIXELCACHE") })
+    let initialLineCount = collector.lines.count
+
+    store.debugRecoverMobileConnectionForTesting()
+
+    #expect(store.connectionState == .connected)
+    #expect(store.debugHasTerminalOutputSinkForTesting(surfaceID: "live-terminal"))
+    let replayRequestedAgain = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(
+        replayRequestedAgain,
+        "foreground recovery should repaint from the Mac without unregistering the local Ghostty sink"
+    )
+    #expect(store.debugHasTerminalOutputSinkForTesting(surfaceID: "live-terminal"))
+
+    let cachedFrameStillPresent = try await pollUntil {
+        collector.lines.count > initialLineCount
+            && collector.lines.last { $0.contains("PIXELCACHE") } != nil
+    }
+    #expect(
+        cachedFrameStillPresent,
+        "the mounted sink must keep the last known render-grid frame available throughout reconnect"
+    )
+    let recoveredFrameBytes = try #require(collector.lines.last { $0.contains("PIXELCACHE") })
+    #expect(
+        recoveredFrameBytes == initialFrameBytes,
+        "the reconnect replay should be byte-for-byte identical for an unchanged render-grid frame"
+    )
+
+    let event = try renderGridEventFrame(surfaceID: "live-terminal", seq: 2, text: "LIVEAFTER")
+    let transport = try #require(box.get())
+    await transport.deliver(event)
+    let liveEventDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("LIVEAFTER") }
+    }
+    #expect(liveEventDelivered)
+    #expect(store.debugHasTerminalOutputSinkForTesting(surfaceID: "live-terminal"))
+    collector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.

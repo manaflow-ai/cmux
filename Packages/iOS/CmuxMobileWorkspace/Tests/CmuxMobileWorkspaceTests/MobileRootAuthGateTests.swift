@@ -173,4 +173,77 @@ import Testing
             didFinishStoredMacReconnectAttempt: false
         ))
     }
+
+    @Test func cachedWorkspaceShellWinsOverRestoringAndDisconnectedReconnectScreens() {
+        let destination = MobileRootAuthGate.rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: true,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: true,
+            hasKnownPairedMac: true,
+            isReconnectingStoredMac: true,
+            showsOnboarding: true
+        )
+
+        #expect(destination == .workspaceShell)
+    }
+
+    @Test func reconnectWithoutCachedWorkspaceUsesExistingRestoringFallbacks() {
+        #expect(MobileRootAuthGate.rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: true,
+            hasKnownPairedMac: true,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .restoringStoredMac)
+
+        #expect(MobileRootAuthGate.rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: true,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .pairedMacDetermining)
+    }
+
+    @Test func connectedAndCachedReconnectBothResolveToWorkspaceShell() {
+        #expect(MobileRootAuthGate.rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .connected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .workspaceShell)
+
+        #expect(MobileRootAuthGate.rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: true,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: true,
+            showsOnboarding: false
+        ) == .workspaceShell)
+    }
 }

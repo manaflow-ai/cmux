@@ -66,6 +66,7 @@ actor LivenessHostRouter {
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var replayFramesBySurfaceID: [String: MobileTerminalRenderGridFrame] = [:]
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -77,6 +78,16 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setReplayFrame(surfaceID: String, seq: UInt64, text: String) throws {
+        replayFramesBySurfaceID[surfaceID] = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: surfaceID,
+            stateSeq: seq,
+            columns: 16,
+            rows: 4,
+            text: text
+        )
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -116,7 +127,7 @@ actor LivenessHostRouter {
         }
     }
 
-    func response(method: String?, id: String?) async -> Data? {
+    func response(method: String?, id: String?, surfaceID: String?) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
@@ -161,7 +172,17 @@ actor LivenessHostRouter {
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "mobile.terminal.replay":
+            if let surfaceID, let frame = replayFramesBySurfaceID[surfaceID] {
+                return try? Self.resultFrame(id: id, result: [
+                    "render_grid": try frame.jsonObject(),
+                    "seq": frame.stateSeq,
+                    "columns": frame.columns,
+                    "rows": frame.rows,
+                ])
+            }
+            return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
@@ -250,13 +271,15 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let surfaceID = params?["surface_id"] as? String
             await router.record(method: method, topics: topics)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
-            Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id) else {
+            Task { [router, weak self, surfaceID] in
+                guard let response = await router.response(method: method, id: id, surfaceID: surfaceID) else {
                     return
                 }
                 await self?.deliver(response)

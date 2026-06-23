@@ -4636,6 +4636,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard let listenerID = renderGridLivenessListenerID else { return }
         checkRenderGridLiveness(listenerID: listenerID)
     }
+
+    /// Test-only: drive the same recovery entry used by network foreground/path
+    /// changes without depending on NWPathMonitor timing.
+    func debugRecoverMobileConnectionForTesting() {
+        recoverMobileConnection(trigger: .networkChange)
+    }
+
+    /// Test-only: expose whether the SwiftUI-mounted Ghostty surface still has
+    /// an output consumer. This is the proxy for "the surface was not
+    /// dismantled", because `dismantleUIView` cancels the consuming task.
+    func debugHasTerminalOutputSinkForTesting(surfaceID: String) -> Bool {
+        hasTerminalOutputSink(surfaceID: surfaceID)
+    }
     #endif
 
     /// One watchdog tick on the main actor: if the subscription generation still

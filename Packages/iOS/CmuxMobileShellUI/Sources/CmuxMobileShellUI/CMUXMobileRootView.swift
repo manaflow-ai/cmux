@@ -176,34 +176,33 @@ struct CMUXMobileRootView: View {
 
     @ViewBuilder
     private var rootContent: some View {
-        if shouldShowTerminalLayoutPreview {
+        switch rootContentDestination {
+        case .terminalLayoutPreview:
             terminalLayoutPreview
-        } else if shouldShowWorkspaceListLayoutPreview {
+        case .workspaceListLayoutPreview:
             workspaceListLayoutPreview
-        } else if shouldShowRestoringSession {
+        case .restoringSession:
             RestoringSessionView()
-        } else if !isAuthenticated {
+        case .signIn:
             SignInView()
-        } else if store.shouldPreserveWorkspaceShellDuringReconnect {
+        case .workspaceShell:
             WorkspaceShellView(store: store, signOut: signOut)
-        } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
-                // We know a Mac is being reconnected: it is honest to say so.
-                RestoringSessionView()
-            } else {
-                // Still determining whether a paired Mac exists (install predating
-                // the hint, or a fresh sign-in): a neutral spinner, since we do not
-                // yet know if there is a session to restore.
-                MobilePairedMacDeterminingView()
-            }
-        } else if shouldShowOnboarding {
+        case .restoringStoredMac:
+            // We know a Mac is being reconnected: it is honest to say so.
+            RestoringSessionView()
+        case .pairedMacDetermining:
+            // Still determining whether a paired Mac exists (install predating
+            // the hint, or a fresh sign-in): a neutral spinner, since we do not
+            // yet know if there is a session to restore.
+            MobilePairedMacDeterminingView()
+        case .onboarding:
             // Placed after the reconnect-determining branch so `hasKnownPairedMac`
             // has resolved: a genuine first run (never onboarded, never paired)
             // sees the one-time explainer before the add-device flow; a returning
             // paired-but-offline user (who can reach here after a failed
             // reconnect) is excluded by the gate and falls through to pairing.
             onboardingFlow
-        } else if store.connectionState != .connected {
+        case .disconnectedWorkspaceShell:
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
@@ -214,9 +213,22 @@ struct CMUXMobileRootView: View {
             .onAppear {
                 showAddDevice()
             }
-        } else {
-            WorkspaceShellView(store: store, signOut: signOut)
         }
+    }
+
+    private var rootContentDestination: MobileRootAuthGate.RootContentDestination {
+        MobileRootAuthGate.rootContentDestination(
+            showsTerminalLayoutPreview: shouldShowTerminalLayoutPreview,
+            showsWorkspaceListLayoutPreview: shouldShowWorkspaceListLayoutPreview,
+            showsRestoringSession: shouldShowRestoringSession,
+            authenticated: isAuthenticated,
+            preservesWorkspaceShellDuringReconnect: store.shouldPreserveWorkspaceShellDuringReconnect,
+            connectionState: store.connectionState,
+            showsRestoringStoredMac: shouldShowRestoringStoredMac,
+            hasKnownPairedMac: store.hasKnownPairedMac,
+            isReconnectingStoredMac: store.isReconnectingStoredMac,
+            showsOnboarding: shouldShowOnboarding
+        )
     }
 
     private var addDeviceSheetBinding: Binding<Bool> {
