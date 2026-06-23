@@ -95,11 +95,15 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
             self = Self(frame: frame)
             return
         }
+        if envelope.role == .viewportReplacement {
+            applyViewportReplacement(frame)
+            return
+        }
 
         var targetStylesByID = stylesByID(for: frame.activeScreen)
         mergeStyles(frame.styles, into: &targetStylesByID)
         let nextViewportRows = snapshotViewportRows(from: frame, stylesByID: targetStylesByID)
-        let fullViewportReplacement = envelope.role == .viewportReplacement || isFullViewportReplacement(frame)
+        let fullViewportReplacement = isFullViewportReplacement(frame)
         let previousTargetVisibleRowCount = visibleRowCount(for: frame.activeScreen)
         let trailingVisibleRowCount = previousTargetVisibleRowCount
         let previousActiveScreen = activeScreen
@@ -229,6 +233,46 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         }
     }
 
+    private mutating func applyViewportReplacement(_ frame: MobileTerminalRenderGridFrame) {
+        let replacementStylesByID = styleTable(from: frame.styles)
+        let replacementRows = snapshotViewportRows(from: frame, stylesByID: replacementStylesByID)
+        if frame.activeScreen == .primary {
+            replaceTrailingViewport(
+                in: &primaryRows,
+                previousVisibleRowCount: primaryVisibleRowCount,
+                with: replacementRows
+            )
+            primaryVisibleRowCount = frame.rows
+            primaryStylesByID = replacementStylesByID
+        } else {
+            replaceTrailingViewport(
+                in: &alternateRows,
+                previousVisibleRowCount: alternateVisibleRowCount,
+                with: replacementRows
+            )
+            alternateVisibleRowCount = frame.rows
+            alternateStylesByID = replacementStylesByID
+        }
+
+        surfaceID = frame.surfaceID
+        stateSeq = frame.stateSeq
+        columns = frame.columns
+        visibleRowCount = frame.rows
+        activeScreen = frame.activeScreen
+        cursor = frame.cursor
+        if frame.terminalForegroundIsPresent {
+            terminalForeground = frame.terminalForeground
+        }
+        if frame.terminalBackgroundIsPresent {
+            terminalBackground = frame.terminalBackground
+        }
+        if frame.terminalCursorColorIsPresent {
+            terminalCursorColor = frame.terminalCursorColor
+        }
+
+        trimRowsToBudget()
+    }
+
     private mutating func trimRowsToBudget() {
         let maxRows = MobileTerminalScrollbackBudget.fullReplayRows + max(primaryVisibleRowCount, visibleRowCount, 0)
         if primaryRows.count > maxRows + Self.liveTrimSlackRows {
@@ -240,6 +284,17 @@ public struct MobileTerminalRenderGridSnapshot: Equatable, Sendable {
         }
     }
 
+}
+
+private func replaceTrailingViewport(
+    in rows: inout [MobileTerminalRenderGridSnapshotRow],
+    previousVisibleRowCount: Int,
+    with viewportRows: [MobileTerminalRenderGridSnapshotRow]
+) {
+    if previousVisibleRowCount > 0 {
+        rows.removeLast(min(previousVisibleRowCount, rows.count))
+    }
+    rows.append(contentsOf: viewportRows)
 }
 
 private func patchTrailingViewport(

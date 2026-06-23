@@ -111,6 +111,15 @@ public struct MobileTerminalRenderGridEnvelope: Codable, Equatable, Sendable {
         return true
     }
 
+    /// True when a newer live frame can supersede this one without losing history.
+    ///
+    /// Snapshots own scrollback and viewport deltas are ordered history updates, so
+    /// they are barriers. Full live viewport replacements are visual state only and
+    /// may be coalesced behind delivery backpressure.
+    public var isReplaceableVisualUpdate: Bool {
+        role == .viewportReplacement
+    }
+
     /// Converts this envelope to a JSON object for RPC/event payloads.
     ///
     /// - Returns: A JSON object containing `role` and `render_grid`.

@@ -44,11 +44,11 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// Backpressure queue for one mounted mobile terminal output stream.
 ///
 /// Raw byte chunks are nonreplaceable barriers by default, though callers may
-/// mark display-only raw frames as replaceable. Render-grid chunks stay
-/// nonreplaceable because the iOS semantic mirror uses every delta to build
-/// scrollback history. If ordered render-grid delivery falls too far behind, the
-/// queue drops its pending backlog and asks the owner to repair with a fresh
-/// render-grid snapshot instead of growing without bound.
+/// mark display-only raw frames as replaceable. Render-grid snapshots and partial
+/// deltas are barriers because they own history or patch existing rows. Full live
+/// viewport replacements are visual state only and may be coalesced. If ordered
+/// render-grid delivery falls too far behind, the queue drops its pending backlog
+/// and asks the owner to repair with a fresh render-grid snapshot.
 struct TerminalOutputDeliveryQueue: Sendable {
     private static let maxPendingRenderGridDeliveries = 128
 

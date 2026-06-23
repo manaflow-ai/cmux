@@ -626,6 +626,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var isUsingSemanticRenderGrid: Bool {
         renderGridSnapshot != nil
     }
+    private struct SemanticRenderCacheKey: Equatable {
+        let stateSeq: UInt64
+        let totalRows: Int
+        let visibleRowCount: Int
+        let columns: Int
+        let integerRowOffset: Int
+        let extraRows: Int
+        let activeScreen: MobileTerminalRenderGridFrame.Screen
+        let terminalForeground: String?
+        let terminalBackground: String?
+        let terminalCursorColor: String?
+        let visibleRectX: Int
+        let visibleRectY: Int
+        let visibleRectWidth: Int
+        let visibleRectHeight: Int
+        let lineHeightPixels: Int
+        let fontSizeTenths: Int
+    }
+    private var semanticRenderCacheKey: SemanticRenderCacheKey?
     private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
     public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
@@ -2423,6 +2442,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             return
         }
         renderGridSnapshot = nil
+        semanticRenderCacheKey = nil
         setGhosttyRendererLayersHidden(false)
         snapshotFallbackView.isHidden = true
         snapshotFallbackView.attributedText = nil
@@ -3813,10 +3833,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         setGhosttyRendererLayersHidden(true)
 
         let fractionalOffset = snapshot.fractionalRowOffset(rowOffset: localScrollbackModel.rowOffset)
-        let visibleRows = snapshot.visibleRows(
-            rowOffset: localScrollbackModel.rowOffset,
-            extraRows: fractionalOffset > 0 ? 1 : 0
-        )
         let visibleRect = lastVisibleRenderRect.isEmpty ? bounds : lastVisibleRenderRect
         let background = color(from: snapshot.terminalBackground)
             ?? configBackgroundColor
@@ -3825,6 +3841,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let foreground = color(from: snapshot.terminalForeground)
             ?? snapshotFallbackView.textColor
             ?? .white
+        let lineHeight = semanticRenderGridLineHeight()
 
         snapshotFallbackView.frame = visibleRect
         snapshotFallbackView.textContainerInset = .zero
@@ -3833,8 +3850,38 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         snapshotFallbackView.backgroundColor = background
         bottomOverscanCoverView.backgroundColor = background
 
+        let integerRowOffset = Int(min(max(localScrollbackModel.rowOffset, 0), snapshot.maxRowOffset).rounded(.down))
+        let extraRows = fractionalOffset > 0 ? 1 : 0
+        let cacheKey = SemanticRenderCacheKey(
+            stateSeq: snapshot.stateSeq,
+            totalRows: snapshot.totalRows,
+            visibleRowCount: snapshot.visibleRowCount,
+            columns: snapshot.columns,
+            integerRowOffset: integerRowOffset,
+            extraRows: extraRows,
+            activeScreen: snapshot.activeScreen,
+            terminalForeground: snapshot.terminalForeground,
+            terminalBackground: snapshot.terminalBackground,
+            terminalCursorColor: snapshot.terminalCursorColor,
+            visibleRectX: Int((visibleRect.minX * preferredScreenScale).rounded()),
+            visibleRectY: Int((visibleRect.minY * preferredScreenScale).rounded()),
+            visibleRectWidth: Int((visibleRect.width * preferredScreenScale).rounded()),
+            visibleRectHeight: Int((visibleRect.height * preferredScreenScale).rounded()),
+            lineHeightPixels: Int((lineHeight * preferredScreenScale).rounded()),
+            fontSizeTenths: Int((liveFontSize * 10).rounded())
+        )
+        if semanticRenderCacheKey == cacheKey, snapshotFallbackView.attributedText != nil {
+            snapshotFallbackView.isHidden = false
+            applySemanticRenderGridFractionalOffset(fractionalOffset, lineHeight: lineHeight)
+            updateCursorOverlay()
+            return
+        }
+
+        let visibleRows = snapshot.visibleRows(
+            rowOffset: localScrollbackModel.rowOffset,
+            extraRows: extraRows
+        )
         let attributed = NSMutableAttributedString()
-        let lineHeight = semanticRenderGridLineHeight()
         let paragraph = NSMutableParagraphStyle()
         paragraph.minimumLineHeight = lineHeight
         paragraph.maximumLineHeight = lineHeight
@@ -3855,13 +3902,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
 
         snapshotFallbackView.attributedText = attributed
+        semanticRenderCacheKey = cacheKey
         snapshotFallbackView.isHidden = false
         flushSnapshotFallbackPresentation()
-        snapshotFallbackView.setContentOffset(CGPoint(x: 0, y: fractionalOffset * lineHeight), animated: false)
+        applySemanticRenderGridFractionalOffset(fractionalOffset, lineHeight: lineHeight)
         updateCursorOverlay()
         #if DEBUG
         debugAccessibilityProxy.accessibilityLabel = attributed.string
         #endif
+    }
+
+    private func applySemanticRenderGridFractionalOffset(_ fractionalOffset: Double, lineHeight: CGFloat) {
+        let offsetY = CGFloat(fractionalOffset) * lineHeight
+        if abs(snapshotFallbackView.contentOffset.y - offsetY) > 0.25 || snapshotFallbackView.contentOffset.x != 0 {
+            snapshotFallbackView.setContentOffset(CGPoint(x: 0, y: offsetY), animated: false)
+        }
     }
 
     private func appendSemanticRenderGridRow(

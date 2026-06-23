@@ -14,6 +14,9 @@ public actor MobileDebugLogSink {
     private let startedAt: Date
     private let now: @Sendable () -> Date
     private let mirrorURL: URL?
+    private let mirrorMaxBytes: Int
+    private let fileManager: FileManager
+    private var mirrorData = Data()
     private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
     /// Create a sink.
@@ -23,21 +26,30 @@ public actor MobileDebugLogSink {
     ///     once the buffer grows past this. Defaults to `4000`.
     ///   - now: Clock used to timestamp lines and anchor the elapsed offset.
     ///     Injected so tests can pin time; defaults to `Date.init`.
-    public init(capacity: Int = 4000, now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(
+        capacity: Int = 4000,
+        now: @escaping @Sendable () -> Date = { Date() },
+        mirrorURL explicitMirrorURL: URL? = nil,
+        mirrorMaxBytes: Int = 512 * 1024,
+        fileManager: FileManager = .default
+    ) {
         self.capacity = capacity
         self.now = now
         self.startedAt = now()
+        self.mirrorMaxBytes = max(mirrorMaxBytes, 0)
+        self.fileManager = fileManager
         #if DEBUG && canImport(UIKit)
-        self.mirrorURL = FileManager.default
-            .urls(for: .cachesDirectory, in: .userDomainMask)
-            .first?
-            .appendingPathComponent("cmux-mobile-debug.log", isDirectory: false)
-        if let mirrorURL {
-            try? FileManager.default.removeItem(at: mirrorURL)
-        }
+        self.mirrorURL = explicitMirrorURL
+            ?? fileManager
+                .urls(for: .cachesDirectory, in: .userDomainMask)
+                .first?
+                .appendingPathComponent("cmux-mobile-debug.log", isDirectory: false)
         #else
-        self.mirrorURL = nil
+        self.mirrorURL = explicitMirrorURL
         #endif
+        if let mirrorURL {
+            try? fileManager.removeItem(at: mirrorURL)
+        }
     }
 
     /// Append one timestamped line (seconds elapsed since the sink was created).
@@ -73,6 +85,8 @@ public actor MobileDebugLogSink {
     /// Remove every buffered line, keeping the allocated capacity.
     public func clear() {
         buffer.removeAll(keepingCapacity: true)
+        mirrorData.removeAll(keepingCapacity: true)
+        rewriteMirror()
     }
 
     /// A live stream of every line appended after subscription.
@@ -95,18 +109,58 @@ public actor MobileDebugLogSink {
     }
 
     private func appendToMirror(_ line: String) {
-        #if DEBUG && canImport(UIKit)
         guard let mirrorURL else { return }
+        guard mirrorMaxBytes > 0 else {
+            mirrorData.removeAll(keepingCapacity: true)
+            try? fileManager.removeItem(at: mirrorURL)
+            return
+        }
+
         let data = Data((line + "\n").utf8)
+        let shouldRewrite: Bool
+        if data.count >= mirrorMaxBytes {
+            mirrorData = Data(data.suffix(mirrorMaxBytes))
+            trimMirrorDataToLineBoundary()
+            shouldRewrite = true
+        } else {
+            mirrorData.append(data)
+            shouldRewrite = mirrorData.count > mirrorMaxBytes
+            if shouldRewrite {
+                mirrorData = Data(mirrorData.suffix(mirrorMaxBytes))
+                trimMirrorDataToLineBoundary()
+            }
+        }
+
+        if shouldRewrite {
+            rewriteMirror()
+            return
+        }
+
+        ensureMirrorDirectoryExists(for: mirrorURL)
         if let handle = try? FileHandle(forWritingTo: mirrorURL) {
             defer { try? handle.close() }
-            try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
+            _ = try? handle.seekToEnd()
+            _ = try? handle.write(contentsOf: data)
         } else {
             try? data.write(to: mirrorURL, options: .atomic)
         }
-        #else
-        _ = line
-        #endif
+    }
+
+    private func trimMirrorDataToLineBoundary() {
+        guard let firstNewline = mirrorData.firstIndex(of: UInt8(ascii: "\n")) else { return }
+        mirrorData.removeSubrange(mirrorData.startIndex...firstNewline)
+    }
+
+    private func rewriteMirror() {
+        guard let mirrorURL else { return }
+        ensureMirrorDirectoryExists(for: mirrorURL)
+        try? mirrorData.write(to: mirrorURL, options: .atomic)
+    }
+
+    private func ensureMirrorDirectoryExists(for mirrorURL: URL) {
+        try? fileManager.createDirectory(
+            at: mirrorURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
     }
 }

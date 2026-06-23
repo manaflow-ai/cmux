@@ -5191,6 +5191,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 replaySeq: envelope.frame.stateSeq
             )
         }
+        if envelopes.contains(where: { $0.role == .viewportReplacement }) {
+            MobileDebugLog.anchormux(
+                "CMUX_REPLAY viewport_replacement surface=\(surfaceID) seq=\(envelope.frame.stateSeq) action=refresh_snapshot"
+            )
+            scheduleTerminalReplayRetry(
+                surfaceID: surfaceID,
+                deliveredSeq: envelope.frame.stateSeq,
+                replaySeq: envelope.frame.stateSeq
+            )
+        }
         #if DEBUG
         if envelopes.isEmpty {
             mobileShellLog.info(

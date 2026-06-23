@@ -636,7 +636,7 @@ import Testing
     }
 }
 
-@Test func viewportReplacementDoesNotDiscardOwnedScrollbackRows() throws {
+@Test func viewportReplacementReplacesViewportWhilePreservingRetainedScrollbackRows() throws {
     let snapshotFrame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: 20,
@@ -665,11 +665,12 @@ import Testing
 
     #expect(snapshot.totalRows == 4)
     #expect(snapshot.plainText.contains("old-1"))
-    #expect(snapshot.plainText.contains("new-2"))
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == ["new-1", "new-2"])
     #expect(snapshot.columns == 10)
+    #expect(snapshot.maxRowOffset == 2)
 }
 
-@Test func viewportReplacementClearsBlankRowsEvenWhenFullFrameHasNoClearedRows() throws {
+@Test func viewportReplacementClearsBlankRowsWithoutDiscardingRetainedScrollback() throws {
     let snapshotFrame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: 20,
@@ -704,6 +705,63 @@ import Testing
     ])
     #expect(snapshot.plainText.contains("history"))
     #expect(!snapshot.plainText.contains("stale"))
+}
+
+@Test func viewportReplacementCarriesFreshStyleAndTerminalColors() throws {
+    let initialFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        columns: 12,
+        rows: 1,
+        styles: [
+            .default,
+            .init(id: 1, foreground: "#111111", background: "#222222"),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "old"),
+        ],
+        terminalForeground: "#eeeeee",
+        terminalBackground: "#000000",
+        terminalCursorColor: "#ff0000",
+        scrollbackRows: 1,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "past"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: initialFrame)
+    let replacementFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 21,
+        columns: 8,
+        rows: 1,
+        styles: [
+            .default,
+            .init(id: 1, foreground: "#00ff00", background: "#003300"),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "new"),
+        ],
+        terminalForeground: "#f8f8f2",
+        terminalBackground: "#101010",
+        terminalCursorColor: "#f1fa8c"
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportReplacement(replacementFrame))
+
+    let retainedRow = try #require(snapshot.visibleRows(rowOffset: 0).first)
+    let retainedSpan = try #require(retainedRow.spans.first)
+    #expect(retainedSpan.text == "past")
+    #expect(retainedSpan.style.foreground == "#111111")
+    #expect(retainedSpan.style.background == "#222222")
+
+    let row = try #require(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).first)
+    let span = try #require(row.spans.first)
+    #expect(span.text == "new")
+    #expect(span.style.foreground == "#00ff00")
+    #expect(span.style.background == "#003300")
+    #expect(snapshot.terminalForeground == "#f8f8f2")
+    #expect(snapshot.terminalBackground == "#101010")
+    #expect(snapshot.terminalCursorColor == "#f1fa8c")
 }
 
 @Test func renderGridEnvelopeJSONRoundTripsRoleAndFrame() throws {

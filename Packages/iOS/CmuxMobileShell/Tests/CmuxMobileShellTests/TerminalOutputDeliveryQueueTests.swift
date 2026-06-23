@@ -557,6 +557,47 @@ import Testing
     #expect(queue.completeInFlight() == nil)
 }
 
+@Test func terminalOutputQueueCoalescesRenderGridViewportReplacementsBehindBackpressure() throws {
+    var queue = TerminalOutputDeliveryQueue()
+    let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)
+    let oldFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "old\nviewport"
+    )
+    let latestFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal",
+        stateSeq: 2,
+        columns: 16,
+        rows: 2,
+        text: "latest\nviewport"
+    )
+    let oldEnvelope = try MobileTerminalRenderGridEnvelope.viewportReplacement(oldFrame)
+    let latestEnvelope = try MobileTerminalRenderGridEnvelope.viewportReplacement(latestFrame)
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(
+        TerminalOutputDelivery(renderGrid: oldEnvelope, replaceable: oldEnvelope.isReplaceableVisualUpdate)
+    ) == nil)
+    #expect(queue.enqueue(
+        TerminalOutputDelivery(renderGrid: latestEnvelope, replaceable: latestEnvelope.isReplaceableVisualUpdate)
+    ) == nil)
+
+    #expect(queue.pendingCount == 1)
+    let pendingOptional = queue.completeInFlight()
+    let pending = try #require(pendingOptional)
+    let pendingChunk = pending.chunk(streamToken: UUID())
+    switch pendingChunk.payload {
+    case .bytes:
+        Issue.record("viewport replacement was downgraded to bytes")
+    case .renderGrid(let envelope):
+        #expect(envelope == latestEnvelope)
+    }
+    #expect(queue.completeInFlight() == nil)
+}
+
 @Test func terminalOutputDeliveryCarriesRenderGridMetadata() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal",
@@ -713,6 +754,9 @@ private func testRenderGridEnvelope(
     #expect(!snapshot.isReplaceableViewportDelta)
     #expect(fullDelta.isReplaceableViewportDelta)
     #expect(!partial.isReplaceableViewportDelta)
+    #expect(!snapshot.isReplaceableVisualUpdate)
+    #expect(!fullDelta.isReplaceableVisualUpdate)
+    #expect(!partial.isReplaceableVisualUpdate)
 }
 
 @Test func viewportDeltaEnvelopeRejectsFullFramesInsteadOfRewritingThem() throws {

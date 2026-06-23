@@ -19,7 +19,7 @@ extension MobileShellComposite {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: envelope,
-                replaceable: false
+                replaceable: envelope.isReplaceableVisualUpdate
             ),
             surfaceID: surfaceID
         )
