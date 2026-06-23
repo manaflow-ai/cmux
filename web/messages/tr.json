@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — Çoklu görev için tasarlanmış terminal",
-    "description": "Ghostty üzerine kurulu yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",
-    "ogDescription": "AI kodlama ajanları için yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır."
+    "description": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır. Dikey sekmeler, bildirim halkaları, bölünmüş paneller ve bir soket API.",
+    "ogDescription": "AI kodlama ajanları için ücretsiz ve açık kaynaklı macOS terminali. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider ve herhangi bir CLI aracıyla çalışır."
   },
   "common": {
     "downloadForMac": "Mac için İndir",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Dil",
-    "assets": "Varlıklar"
+    "assets": "Varlıklar",
+    "openSource": "Açık kaynak"
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
-    "subtitle": "Ghostty üzerine kurulu yerel macOS uygulaması. Dikey sekmeler, ajanlar dikkat istediğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için <cliLink>CLI</cliLink>.",
+    "subtitle": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Dikey sekmeler, ajanlar ilgi gerektirdiğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için bir <cliLink>CLI</cliLink>.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": ": terminalinizin yanına betiklenebilir bir API ile tarayıcı bölün",
       "splitPanes": "Bölünmüş paneller",
       "splitPanesDesc": ": her sekme içinde yatay ve dikey bölmeler",
-      "scriptable": "Betiklenebilir",
+      "scriptable": "Programlanabilir",
       "scriptableDesc": ": otomasyon ve betikleme için CLI ve socket API",
       "gpuAccelerated": "GPU hızlandırmalı",
       "gpuAcceleratedDesc": ": akıcı işleme için libghostty tarafından desteklenir",
       "lightweight": "Hafif",
       "lightweightDesc": ": yerel Swift + AppKit, Electron yok",
       "keyboardShortcuts": "Klavye kısayolları",
-      "keyboardShortcutsDesc": ": çalışma alanları, bölmeler, tarayıcı ve daha fazlası için <link>kapsamlı kısayollar</link>"
+      "keyboardShortcutsDesc": ": çalışma alanları, bölmeler, tarayıcı ve daha fazlası için <link>kapsamlı kısayollar</link>",
+      "openSource": "Açık kaynak",
+      "openSourceDesc": ": ücretsiz ve GPL lisanslı"
     },
     "faqGhosttyQ": "cmux'un Ghostty ile ilişkisi nedir?",
     "faqGhosttyA": "cmux, Ghostty'nin bir forku değildir. Uygulamaların web görünümleri için WebKit kullanması gibi, terminal işleme için bir kütüphane olarak <link>libghostty</link>'yi kullanır. Ghostty bağımsız bir terminaldir; cmux, onun işleme motoru üzerine kurulmuş farklı bir uygulamadır.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "cmux hangi kodlama ajanlarıyla çalışır?",
     "faqAgentsA": "Hepsiyle. cmux bir terminaldir, bu nedenle terminalde çalışan her ajan kutudan çıktığı gibi çalışır: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent ve komut satırından başlatabileceğiniz her şey.",
     "faqNotificationsQ": "Bildirimler nasıl çalışır?",
-    "faqNotificationsA": "Bir işlem dikkat istediğinde cmux, panellerin etrafında bildirim halkaları, kenar çubuğunda okunmamış rozetleri, bir bildirim açılır penceresi ve bir macOS masaüstü bildirimi gösterir. Bunlar standart terminal kaçış dizileri (OSC 9/99/777) aracılığıyla otomatik olarak tetiklenir veya <cliLink>cmux CLI</cliLink> ve <hooksLink>Claude Code hooks</hooksLink> ile tetikleyebilirsiniz.",
+    "faqNotificationsA": "Bir süreç ilgi gerektirdiğinde, cmux panellerin etrafında bildirim halkaları, kenar çubuğunda okunmamış rozetler, bir bildirim açılır penceresi ve bir macOS masaüstü bildirimi gösterir. Bunlar standart terminal kaçış dizileri (OSC 9/99/777) aracılığıyla otomatik olarak tetiklenir veya bunları <cliLink>cmux CLI</cliLink> ve <hooksLink>ajan kancaları</hooksLink> ile tetikleyebilirsiniz. Claude Code, Codex, OpenCode ve pi dahil olmak üzere kancaları veya OSC'yi destekleyen herhangi bir ajan çalışır.",
     "faqShortcutsQ": "Klavye kısayollarını özelleştirebilir miyim?",
     "faqShortcutsA": "Terminal tuş atamaları Ghostty yapılandırma dosyanızdan (<configPath>~/.config/ghostty/config</configPath>) okunur. cmux'a özgü kısayollar (çalışma alanları, bölmeler, tarayıcı, bildirimler) Ayarlar'dan özelleştirilebilir. Tam liste için <link>varsayılan kısayollara</link> bakın.",
     "faqTmuxQ": "tmux ile nasıl karşılaştırılır?",
-    "faqTmuxA": "tmux, herhangi bir terminal içinde çalışan bir terminal çoklayıcısıdır. cmux, GUI'ye sahip yerel bir macOS uygulamasıdır: dikey sekmeler, bölünmüş paneller, gömülü tarayıcı ve socket API hepsi yerleşiktir. Yapılandırma dosyaları veya ön ek tuşları gerekmez.",
+    "faqTmuxA": "tmux, herhangi bir terminalin içinde çalışan bir terminal çoklayıcısıdır. cmux ise grafik arayüze sahip yerel bir macOS uygulamasıdır: dikey sekmeler, bölünmüş paneller, gömülü bir tarayıcı ve bir soket API, hepsi yerleşik olarak gelir, yapılandırma dosyalarına veya önek tuşlarına gerek yoktur. Yine de pek çok kişi cmux'u SSH ve tmux ile birlikte memnuniyetle kullanır ve cmux uzak tmux oturumlarınıza yerel olarak bağlanabilir (<link>beta</link>).",
     "faqFreeQ": "cmux ücretsiz mi?",
-    "faqFreeA": "Evet, cmux kullanımı ücretsizdir. Kaynak kodu <link>GitHub</link>'da mevcuttur."
+    "faqFreeA": "Evet, cmux kullanımı ücretsizdir. Kaynak kodu <link>GitHub</link>'da mevcuttur.",
+    "faqSessionsQ": "Oturumlarım kaydediliyor mu?",
+    "faqSessionsA": "Evet. cmux yeniden başlattığınızda pencerelerinizi, çalışma alanlarınızı, panellerinizi, çalışma dizinlerinizi ve geçmiş kaydırmanızı geri yükler ve bu durum yalnızca uygulamayı kapattığınızda değil, bilgisayarın tamamen yeniden başlatılmasından sonra da korunur. Claude Code, Codex ve OpenCode gibi ajan oturumları da geri gelir. <link>oturum geri yükleme</link> bölümüne bakın.",
+    "faqScriptableQ": "cmux programlanabilir mi?",
+    "faqScriptableA": "Evet. Her eylem cmux CLI ve bir Unix soketi aracılığıyla kullanılabilir: çalışma alanları oluşturma, bölünmüş paneller açma, girdi gönderme, ekran içeriğini okuma, ekran görüntüsü alma ve uygulama içi tarayıcıyı yönetme. <cliLink>CLI referansı</cliLink> ve <browserLink>tarayıcı otomasyonu</browserLink> belgelerine bakın.",
+    "faqRemoteQ": "cmux'u uzak makinelerle kullanabilir miyim?",
+    "faqRemoteA": "Evet. Çalışma alanlarını SSH üzerinden açın ve uzak tmux oturumlarına bağlanın, böylece ajanlar uzak bir ana bilgisayarda çalışırken siz onları cmux'tan yönetirsiniz. <link>SSH ve uzaktan erişim</link> bölümüne bakın.",
+    "faqOrchestrationQ": "cmux birden fazla ajanı ve alt ajanı yönetebilir mi?",
+    "faqOrchestrationA": "Evet. Bir ajan alt ajanlar veya ekip arkadaşları oluşturduğunda, cmux bunları gizli arka plan süreçleri yerine yerel panellere ve bölmelere dönüştürür. <teamsLink>Claude Code ekiplerini</teamsLink> ve <omoLink>oh-my-opencode</omoLink> çok modelli orkestrasyonu destekler, böylece bir çalıştırmadaki her ajan görünür ve kontrol edilebilir olur.",
+    "faqCustomizeQ": "cmux'u özelleştirebilir miyim?",
+    "faqCustomizeA": "Evet. Terminal işleme sizin Ghostty yapılandırmanızı kullanır, bu yüzden temalar, yazı tipleri, renkler ve imleç doğrudan aktarılır. cmux'un kendi ayarları <path>~/.config/cmux/cmux.json</path> içinde kenar çubuğunu, sekme çubuğunu, bölünmüş panelleri ve davranışı kontrol eder ve her <shortcutsLink>klavye kısayolu</shortcutsLink> düzenlenebilir. <link>yapılandırma</link> bölümüne bakın.",
+    "faqIosQ": "Bir iOS uygulaması var mı?",
+    "faqIosA": "Evet, beta aşamasında. iPhone'unuzu Mobile Connect penceresinden Mac'inizle eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini de iletebilirsiniz. TestFlight üzerinde cmux BETA olarak sunulur.",
+    "faqSkillsQ": "cmux'un becerileri var mı?",
+    "faqSkillsA": "Evet. Beceriler, CLI kontrolü, çalışma alanı otomasyonu, ayarlar ve tarayıcı panelleri gibi şeyler için cmux'ta çalışan herhangi bir ajana verebileceğiniz yeniden kullanılabilir iş akışlarıdır. Açık koleksiyona <skillsLink>cmux-skills</skillsLink> üzerinden göz atın ya da <link>beceriler belgelerini</link> okuyun.",
+    "faqBrowserQ": "Yerleşik tarayıcı neler yapabilir?",
+    "faqBrowserA": "cmux, terminalinizin yanına gerçek bir tarayıcı paneli bölebilir ve bu tamamen programlanabilir: gezinin, DOM'un anlık görüntüsünü alın, tıklayın, yazın, JavaScript çalıştırın ve aynı socket API üzerinden konsol ve ağ etkinliğini okuyun. Ajanlar bunu cmux'tan ayrılmadan kendi web değişikliklerini doğrulamak için kullanır. <link>Tarayıcı otomasyonuna</link> bakın.",
+    "faqSupportQ": "cmux'u nasıl destekleyebilirim?",
+    "faqSupportA": "cmux ücretsiz ve açık kaynaktır ve her zaman öyle kalacaktır. Geliştirmeyi desteklemek ve cmux AI, iOS uygulaması ve Cloud VMs dahil olmak üzere sıradakine erken erişim elde etmek isterseniz, <foundersLink>cmux Founders Edition</foundersLink>'a göz atın.",
+    "faqFeatureQ": "Bir özellik isteğim var ya da bir hata buldum",
+    "faqFeatureA": "Bunu duymak isteriz. GitHub'da bir <issuesLink>issue</issuesLink> ya da <prLink>pull request</prLink> açın veya <mailLink>bize e-posta gönderin</mailLink>."
   },
   "community": {
     "title": "Topluluk",
@@ -770,10 +793,11 @@
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",
           "warnBeforeClosingTabXButton": "Sekme kapatma düğmesiyle bir sekme kapatılmadan önce onay göster.",
           "hideTabCloseButton": "Bölme sekme çubuğundaki sekme kapatma düğmelerini gizle.",
-          "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder."
+          "forkConversationDefaultDestination": "Sekme bağlam menüsündeki birincil Fork Conversation eylemi için varsayılan hedef. Alt menü tüm hedefleri göstermeye devam eder.",
+          "globalFontMagnification": "cmux'a ait terminalleri, sekme başlıklarını, kenar çubuklarını, ayarları, katmanları ve uygulama chrome'unu bu yüzdeyle ölçekler. Render edilen tarayıcı sayfası içeriği hariçtir."
         },
         "terminal": {
-          "copyOnSelect": "Seçim kesinleştiğinde seçilen terminal metnini sistem panosuna kopyalar; çift ve üçlü tıklamayla yapılan sözcük ve satır seçimleri dahil.",
+          "copyOnSelect": "true olduğunda, seçim kesinleştiğinde seçilen terminal metni sistem panosuna kopyalanır. false olduğunda cmux bir Ghostty copy-on-select geçersiz kılması yaymaz; seçim panosu davranışını Ghostty yapılandırması ve varsayılanları kontrol eder.",
           "scrollSpeed": "Terminalde fare tekerleği ve dokunmatik yüzey kaydırma değerlerine uygulanan çarpan. Yüksek değerler daha hızlı, düşük değerler daha yavaş kaydırır.",
           "showTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak gösterir.",
           "focusTextBoxOnNewTerminals": "Yeni oluşturulan çalışma alanları, terminal sekmeleri ve terminal bölmeleri için beta TextBox girişini varsayılan olarak odaklar. Odaklamak TextBox'ı da gösterir."
@@ -1237,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "iOS Uygulaması"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1386,6 +1411,46 @@
       "configTitle": "cmux.json",
       "configDesc": "Aynı varsayılanları ~/.config/cmux/cmux.json içinde terminal altında ayarlayın:",
       "focusNote": "Geri yüklenen oturumlar kayıtlı TextBox görünürlüğünü ve odak durumunu korur. Bu varsayılanlar yalnızca yeni oluşturulan terminal yüzeylerine uygulanır."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: cmux içinde OpenCode çoklu ajan",
+      "metaDescription": "oh-my-opencode (cmux omo), OpenCode CLI'yi oh-my-openagent eklentisiyle cmux içinde çalıştırır. Claude, GPT, Gemini ve Grok'u paralel ajanlar olarak, her biri yerel bir cmux bölmesinde olacak şekilde orkestre edin."
+    },
+    "ios": {
+      "metaTitle": "iOS Uygulaması",
+      "metaDescription": "cmux iOS yardımcı uygulamasını kurun: TestFlight erişimi, Tailscale veya WireGuard ile kendi ağınızı kullanma, eşleştirme, bildirimler ve cmux'un hangi verileri sakladığı.",
+      "title": "iOS Uygulaması",
+      "intro": "cmux iOS uygulaması, Mac'iniz için bir yardımcıdır. iPhone veya iPad'inizi cmux çalıştıran bir Mac ile eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini iletebilirsiniz.",
+      "betaNote": "iOS uygulaması beta aşamasındadır. TestFlight'ta cmux BETA olarak yayınlanır.",
+      "accessTitle": "Erişim sağlama",
+      "accessDesc": "Uygulama TestFlight üzerinden dağıtılır. Erken erişim, diğer erken özelliklerle birlikte <foundersLink>cmux Founders Edition</foundersLink> ile birlikte gelir.",
+      "prereqTitle": "Ön koşullar",
+      "prereqIntro": "Başlamadan önce şunlara ihtiyacınız var:",
+      "prereq1": "cmux çalıştıran ve oturum açılmış bir Mac.",
+      "prereq2": "TestFlight'tan kurulmuş cmux BETA uygulamasına sahip bir iPhone veya iPad.",
+      "prereq3": "Telefonunuzdan Mac'inize uzanan bir ağ yolu (aşağıdaki Kendi ağınızı kullanma bölümüne bakın).",
+      "networkingTitle": "Kendi ağınızı kullanma",
+      "networkingDesc": "cmux, kutudan çıkar çıkmaz ağ sağlamaz. Terminal akışı doğrudan telefonunuz ile Mac'iniz arasında gerçekleşir, bu yüzden telefonunuzun Mac'inize ağ üzerinden ulaşabilmesi gerekir. En basit yolu özel bir kaplama ağıdır.",
+      "tailscaleTitle": "Tailscale (önerilen)",
+      "tailscaleDesc": "Hem Mac'inize hem de telefonunuza <link>Tailscale</link> kurun ve aynı tailnet'e oturum açın. Telefonunuz böylece, port yönlendirmesi olmadan her yerden Mac'inize tailnet adresiyle ulaşabilir.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Zaten <link>WireGuard</link> kullanıyorsanız, Mac'inizi ve telefonunuzu aynı ağa koyun ve Mac'in WireGuard adresini kullanın.",
+      "networkingNote": "Hangisini seçerseniz seçin, bağlantı sizindir. cmux, cihazlarınız arasındaki terminal trafiğine proxy yapmaz veya onu aktarmaz.",
+      "pairTitle": "Eşleştir ve bağlan",
+      "pairStep1": "Mac'te, cmux içinde Mobile Connect penceresini açın.",
+      "pairStep2": "Telefonunuzda cmux BETA uygulamasını açın ve Mobile Connect'te gösterilen eşleştirmeyi onaylayın.",
+      "pairStep3": "Eşleştirme tamamlandığında, çalışma alanlarınız ve terminalleriniz ağınız üzerinden telefonda görünür.",
+      "pairNote": "Eşleştirme her cihaz için ayrıdır. Yeni bir cihaz veya yeniden kurulmuş bir uygulama tekrar eşleşir.",
+      "notificationsTitle": "Bildirimler",
+      "notificationsDesc": "Terminal bildirimlerini telefonunuza iletmeyi tercih edebilirsiniz; böylece dikkat gerektiren bir bölme cihazınıza bildirim gönderir. İletme açıkken, bildirim metni (terminal çıktısından alınan başlık ve gövde) iletilmek üzere cmux sunucuları aracılığıyla Apple'ın push hizmetine gönderilir. Bunun yerine genel bir mesaj göndermek ve terminal metnini cihazlarınızda tutmak için bildirim ayarlarındaki Hide content seçeneğini açın. cmux'un bunları nasıl oluşturduğunu öğrenmek için <link>bildirimler</link> bölümüne bakın.",
+      "dataTitle": "Hangi veriler saklanır",
+      "dataIntro": "cmux, terminalinizin cihazlarınız arasında kalması için tasarlanmıştır. cmux sunucularında yalnızca sizi oturum açtırmak ve cihazlarınızı bağlamak için gereken verileri saklarız:",
+      "data1": "Sizi cihazlar arasında tanımlamak için oturum açmadan gelen hesabınız (e-posta).",
+      "data2": "İletilen terminal bildirimlerini ulaştırmak için cihazınıza ait bir push belirteci.",
+      "data3": "Telefonunuzu Mac'inize bağlamak için eşleştirme ve cihaz meta verileri.",
+      "dataNot": "Etkileşimli terminal oturumunuz, içeriği ve tuş vuruşları doğrudan telefonunuz ile Mac'iniz arasında kendi ağınız üzerinden akar; cmux sunucuları aracılığıyla aktarılmaz ya da bunlarda saklanmaz. Tek istisna, telefonunuza ulaşmak için cmux ve Apple'ın push hizmeti üzerinden geçen iletilmiş bildirim metnidir; ancak Hide content seçeneğini etkinleştirirseniz bu da geçerli olmaz (yukarıdaki Bildirimler bölümüne bakın).",
+      "enterpriseTitle": "Kurumsal ve kendi sunucunuzda barındırma",
+      "enterpriseDesc": "Kendi sunucunuzda barındırılan veya ağdan yalıtılmış bir dağıtım için <link>founders@manaflow.com</link> ile iletişime geçin."
     }
   },
   "legal": {

@@ -1,4 +1,14 @@
-import XCTest
+import class XCTest.XCTestCase
+import func XCTest.XCTAssertEqual
+import func XCTest.XCTAssertFalse
+import func XCTest.XCTAssertGreaterThan
+import func XCTest.XCTAssertGreaterThanOrEqual
+import func XCTest.XCTAssertNil
+import func XCTest.XCTAssertNotEqual
+import func XCTest.XCTAssertNotNil
+import func XCTest.XCTAssertTrue
+import func XCTest.XCTFail
+import func XCTest.XCTUnwrap
 import Combine
 import AppKit
 import Testing
@@ -3029,6 +3039,30 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         return (panel, inspector)
     }
 
+    private func withTemporaryShortcut(
+        action: KeyboardShortcutSettings.Action,
+        shortcut: StoredShortcut,
+        _ body: () -> Void
+    ) {
+        let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            if hadPersistedShortcut {
+                KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+            } else {
+                KeyboardShortcutSettings.resetShortcut(for: action)
+            }
+#if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        }
+        KeyboardShortcutSettings.setShortcut(shortcut, for: action)
+#if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        body()
+    }
+
     private func spinRunLoopOneTick() {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
     }
@@ -3052,6 +3086,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     private func waitForDeveloperToolsTransitions() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+    }
+
+    private func waitForDetachedDeveloperToolsCloseResolutionDeadline(
+        until condition: () -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let productionMaxDuration: TimeInterval = 2.0
+        let productionPollInterval: TimeInterval = 0.35
+        let ciSchedulingMargin: TimeInterval = 0.5
+        let deadline = Date().addingTimeInterval(
+            productionMaxDuration + productionPollInterval + ciSchedulingMargin
+        )
+        while Date() < deadline {
+            if condition() { return }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        XCTFail("Timed out waiting for detached DevTools close resolution", file: file, line: line)
     }
 
     private func closeBrowserPanel(_ panel: BrowserPanel) {
@@ -3160,7 +3212,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
-    func testDetachedInspectorWindowWillCloseDoesNotReenterOwningInspectorClose() {
+    func testDetachedInspectorWindowWillCloseWaitsForManualCloseState() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let window = NSWindow(
@@ -3169,6 +3221,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.title = "Web Inspector — example.com"
         let frontendWebView = WKWebView(frame: window.contentView?.bounds ?? .zero)
         window.contentView?.addSubview(frontendWebView)
@@ -3181,17 +3234,28 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
 
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: window)
+        window.close()
 
         XCTAssertEqual(
             inspector.closeCount,
             0,
-            "User-closing a detached Web Inspector window must not call _inspector.close during WebKit's own close cascade"
+            "A raw detached Web Inspector willClose can be WebKit's redock path, so cmux must not synchronously close _inspector before WebKit reports the final state"
         )
-        XCTAssertTrue(panel.debugDeveloperToolsStateSummary().contains("pref=0"))
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        inspector.close()
+        waitForDetachedDeveloperToolsCloseResolutionDeadline {
+            inspector.closeCount == 1 &&
+                !panel.isDeveloperToolsVisible() &&
+                !panel.preferredDeveloperToolsVisible
+        }
+
+        XCTAssertEqual(inspector.closeCount, 1)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertFalse(panel.preferredDeveloperToolsVisible)
     }
 
-    func testDetachedInspectorWillCloseDuringDockBackDoesNotReenterInspectorClose() {
+    func testDetachedInspectorWillCloseDuringDockBackPreservesInspectorForWebKitAttach() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let mainWindow = NSWindow(
@@ -3206,6 +3270,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        inspectorWindow.isReleasedWhenClosed = false
         defer {
             closeWindow(inspectorWindow)
             closeWindow(mainWindow)
@@ -3242,14 +3307,20 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
 
-        NotificationCenter.default.post(name: NSWindow.willCloseNotification, object: inspectorWindow)
+        inspectorWindow.close()
 
         XCTAssertEqual(
             inspector.closeCount,
             0,
-            "Detached inspector willClose must not call the owning inspector's private close selector while WebKit is already closing the inspector window"
+            "Detached inspector willClose during redock must not close _inspector while WebKit is attaching the frontend back into the pane"
         )
-        XCTAssertTrue(panel.debugDeveloperToolsStateSummary().contains("pref=0"))
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+
+        waitForDeveloperToolsTransitions()
+
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
     }
 
     func testDetachedInspectorCloseButtonActionClosesWindowWithoutReenteringInspectorClose() {
@@ -3327,6 +3398,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             1,
             "The intercepted close-button action should close the WebKit-owned inspector window exactly once"
         )
+        XCTAssertFalse(inspectorWindow.isVisible)
+        waitForDeveloperToolsTransitions()
         XCTAssertFalse(inspectorWindow.isVisible)
         XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
@@ -3518,6 +3591,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         NSApp.sendEvent(event)
         spinRunLoopOneTick()
+        waitForDeveloperToolsTransitions()
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3528,6 +3602,121 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertNotNil(
             workspace.browserPanel(for: browserPanelId),
             "Cmd-W in a detached Web Inspector must not fall through to cmux close-tab routing"
+        )
+        XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
+    }
+
+    func testDetachedInspectorChordedCloseTabClosesInspectorWithoutClosingBrowserPanel() throws {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let chordedCloseTab = StoredShortcut(
+            key: "b",
+            command: false,
+            shift: false,
+            option: false,
+            control: true,
+            keyCode: 11,
+            chordKey: "n",
+            chordCommand: false,
+            chordShift: false,
+            chordOption: false,
+            chordControl: false,
+            chordKeyCode: 45
+        )
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(inspectorWindow.isKeyWindow)
+
+        let prefixEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: inspectorWindow.windowNumber,
+            context: nil,
+            characters: "b",
+            charactersIgnoringModifiers: "b",
+            isARepeat: false,
+            keyCode: 11
+        ))
+        let suffixEvent = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: inspectorWindow.windowNumber,
+            context: nil,
+            characters: "n",
+            charactersIgnoringModifiers: "n",
+            isARepeat: false,
+            keyCode: 45
+        ))
+
+        withTemporaryShortcut(action: .closeTab, shortcut: chordedCloseTab) {
+            NSApp.sendEvent(prefixEvent)
+            spinRunLoopOneTick()
+
+            XCTAssertTrue(inspectorWindow.isVisible)
+            XCTAssertNotNil(
+                workspace.browserPanel(for: browserPanelId),
+                "Close Tab chord prefix must not close the browser panel"
+            )
+
+            NSApp.sendEvent(suffixEvent)
+            spinRunLoopOneTick()
+        }
+        waitForDeveloperToolsTransitions()
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Chorded Close Tab in a detached Web Inspector must not call _inspector.close on the inspected page"
+        )
+        XCTAssertFalse(inspectorWindow.isVisible)
+        XCTAssertNotNil(
+            workspace.browserPanel(for: browserPanelId),
+            "Chorded Close Tab in a detached Web Inspector must not fall through to cmux close-tab routing"
         )
         XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }

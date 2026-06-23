@@ -488,7 +488,7 @@ struct BrowserPanelView: View {
     // browser toolbar share one consistent scale. Seeded from the cached config
     // and refreshed live on `.ghosttyConfigDidReload` (same path the tab strip
     // and terminal panels use). See `BrowserChromeMetrics`.
-    @State private var tabBarFontSize: CGFloat = GhosttyConfig.load().surfaceTabBarFontSize
+    @State private var tabBarFontSize: CGFloat = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
     // `.onAppear` is not a reliable once-signal for a portal-hosted pane: it can
     // re-fire on every CoreAnimation commit (issue #5303). This guards the first-
     // appearance view-state seed (the empty-state import list) so a spurious appear
@@ -1193,7 +1193,7 @@ struct BrowserPanelView: View {
             handleBrowserWebViewClickIntent(notification)
         }
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            tabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+            tabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         }
         .onAppear {
             handleBrowserPanelAppear()
@@ -1377,7 +1377,7 @@ struct BrowserPanelView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(String(localized: "browser.downloading", defaultValue: "Downloading..."))
-                        .font(.system(size: 11))
+                        .cmuxFont(size: 11)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.leading, 6)
@@ -1408,7 +1408,7 @@ struct BrowserPanelView: View {
         .overlay(alignment: .top) {
             if screenshotPageCopied {
                 Label(String(localized: "browser.screenshotPage.copied", defaultValue: "Copied"), systemImage: "checkmark")
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 8)
@@ -1454,7 +1454,7 @@ struct BrowserPanelView: View {
                             ? String(localized: "browser.focusMode.armed", defaultValue: "Esc again to exit")
                             : String(localized: "browser.focusMode.active", defaultValue: "Focus Mode")
                     )
-                    .font(.system(size: 11, weight: .semibold))
+                    .cmuxFont(size: 11, weight: .semibold)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
@@ -1588,7 +1588,7 @@ struct BrowserPanelView: View {
             Image(systemName: "ellipsis")
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
-                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
                 .foregroundStyle(devToolsColorOption.color)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
@@ -1635,7 +1635,7 @@ struct BrowserPanelView: View {
                 Image(systemName: "square.and.arrow.down.on.square")
                     .cmuxSymbolRasterSize(10, weight: .medium)
                 Text(String(localized: "browser.import.hint.toolbar", defaultValue: "Import"))
-                    .font(.system(size: 11, weight: .medium))
+                    .cmuxFont(size: 11, weight: .medium)
                     .lineLimit(1)
             }
             .foregroundStyle(devToolsColorOption.color)
@@ -1653,7 +1653,7 @@ struct BrowserPanelView: View {
     private var browserProfilePopover: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "browser.profile.menu.title", defaultValue: "Profiles"))
-                .font(.system(size: 12, weight: .semibold))
+                .cmuxFont(size: 12, weight: .semibold)
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -1667,7 +1667,7 @@ struct BrowserPanelView: View {
                                 .opacity(profile.id == panel.profileID ? 1.0 : 0.0)
                                 .frame(width: 12, alignment: .center)
                             Text(profile.displayName)
-                                .font(.system(size: 12))
+                                .cmuxFont(size: 12)
                             Spacer(minLength: 0)
                         }
                         .padding(.horizontal, 8)
@@ -1689,7 +1689,7 @@ struct BrowserPanelView: View {
                 presentCreateBrowserProfilePrompt()
             } label: {
                 Text(String(localized: "browser.profile.new", defaultValue: "New Profile..."))
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
             }
             .buttonStyle(.plain)
 
@@ -1697,7 +1697,7 @@ struct BrowserPanelView: View {
                 presentImportDialogFromProfileMenu()
             } label: {
                 Text(String(localized: "menu.view.importFromBrowser", defaultValue: "Import Browser Data…"))
-                    .font(.system(size: 12))
+                    .cmuxFont(size: 12)
             }
             .buttonStyle(.plain)
 
@@ -1707,7 +1707,7 @@ struct BrowserPanelView: View {
                     presentRenameBrowserProfilePrompt()
                 } label: {
                     Text(String(localized: "browser.profile.rename", defaultValue: "Rename Current Profile..."))
-                        .font(.system(size: 12))
+                        .cmuxFont(size: 12)
                 }
                 .buttonStyle(.plain)
             }
@@ -1730,7 +1730,7 @@ struct BrowserPanelView: View {
                             .opacity(mode == browserThemeMode ? 1.0 : 0.0)
                             .frame(width: 12, alignment: .center)
                         Text(mode.displayName)
-                            .font(.system(size: 12))
+                            .cmuxFont(size: 12)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 8)
@@ -1947,7 +1947,7 @@ struct BrowserPanelView: View {
                     String(localized: "browser.error.reload", defaultValue: "Reload"),
                     systemImage: "arrow.clockwise"
                 )
-                .font(.system(size: 13, weight: .medium))
+                .cmuxFont(size: 13, weight: .medium)
                 .padding(.horizontal, 6)
             }
             .buttonStyle(.borderedProminent)
@@ -2320,15 +2320,15 @@ struct BrowserPanelView: View {
     private var browserImportHintBody: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(String(localized: "browser.import.hint.title", defaultValue: "Import browser data"))
-                .font(.system(size: 12.5, weight: .semibold))
+                .cmuxFont(size: 12.5, weight: .semibold)
 
             Text(browserImportHintSummary)
-                .font(.system(size: 11.5))
+                .cmuxFont(size: 11.5)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
-                .font(.system(size: 10.5))
+                .cmuxFont(size: 10.5)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -5344,13 +5344,13 @@ struct OmnibarSuggestionsView: View {
             } label: {
                 HStack(spacing: 6) {
                         Text(item.listText)
-                            .font(.system(size: 11))
+                            .cmuxFont(size: 11)
                             .foregroundStyle(listTextColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
                         if let badge = item.trailingBadgeText {
                             Text(badge)
-                                .font(.system(size: 9.5, weight: .medium))
+                                .cmuxFont(size: 9.5, weight: .medium)
                                 .foregroundStyle(badgeTextColor)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -6158,11 +6158,9 @@ struct WebViewRepresentable: NSViewRepresentable {
 
             // The inspector frontend sometimes reports its dock configuration a tick
             // late after local-inline reattach. Promote the visible left/right split
-            // immediately so drag routing stays symmetric on both dock sides.
-            if shouldForceHostedInspectorBottomDock(using: hit) {
-                _ = requestAdaptiveHostedInspectorBottomDock(reason: "sideDock.promote")
-                return false
-            }
+            // immediately so drag routing stays symmetric on both dock sides. Adaptive
+            // bottom-dock enforcement runs from layout after the managed container owns
+            // the split, so synchronous promotion cannot lose the divider path.
             activateHostedInspectorSideDockIfNeeded(using: hit)
             return isHostedInspectorSideDockActive()
         }

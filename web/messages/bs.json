@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — Terminal napravljen za multitasking",
-    "description": "Nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
-    "ogDescription": "Nativni macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
+    "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
+    "ogDescription": "Besplatan i otvorenog koda macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
   },
   "common": {
     "downloadForMac": "Preuzmi za Mac",
@@ -40,13 +40,14 @@
     "nightly": "Nightly",
     "copyright": "© {year} Manaflow",
     "language": "Jezik",
-    "assets": "Materijali"
+    "assets": "Materijali",
+    "openSource": "Otvoreni kod"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
     "typingCodingAgents": "agente za kodiranje",
     "typingMultitasking": "multitasking",
-    "subtitle": "Nativna macOS aplikacija izgrađena na Ghostty-ju. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
+    "subtitle": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Vertikalni tabovi, notifikacijski prstenovi kada agenti trebaju pažnju, podijeljeni paneli i <cliLink>CLI</cliLink> za programabilnost.",
     "features": "Funkcionalnosti",
     "faq": "Česta pitanja",
     "communitySection": "Zajednica",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": ": podijelite preglednik pored terminala sa skriptabilnim API-jem",
       "splitPanes": "Podijeljeni paneli",
       "splitPanesDesc": ": horizontalni i vertikalni razdjelnici unutar svakog taba",
-      "scriptable": "Skriptabilan",
+      "scriptable": "Programabilan",
       "scriptableDesc": ": CLI i socket API za automatizaciju i skriptovanje",
       "gpuAccelerated": "GPU-ubrzano",
       "gpuAcceleratedDesc": ": pokreće libghostty za glatko renderiranje",
       "lightweight": "Lagano",
       "lightweightDesc": ": nativni Swift + AppKit, bez Electron-a",
       "keyboardShortcuts": "Prečice na tastaturi",
-      "keyboardShortcutsDesc": ": <link>opsežne prečice</link> za radne prostore, razdjelnice, preglednik i više"
+      "keyboardShortcutsDesc": ": <link>opsežne prečice</link> za radne prostore, razdjelnice, preglednik i više",
+      "openSource": "Otvoreni kod",
+      "openSourceDesc": ": besplatan i licenciran pod GPL"
     },
     "faqGhosttyQ": "Kakav je odnos cmux-a i Ghostty-ja?",
     "faqGhosttyA": "cmux nije fork Ghostty-ja. Koristi <link>libghostty</link> kao biblioteku za renderiranje terminala, na isti način kao što aplikacije koriste WebKit za web prikaze. Ghostty je samostalni terminal; cmux je drugačija aplikacija izgrađena na njegovom rendering engine-u.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "Sa kojim coding agentima cmux radi?",
     "faqAgentsA": "Sa svima. cmux je terminal, tako da svaki agent koji radi u terminalu funkcioniše odmah: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent i sve ostalo što možete pokrenuti iz komandne linije.",
     "faqNotificationsQ": "Kako funkcionišu notifikacije?",
-    "faqNotificationsA": "Kada proces treba pažnju, cmux prikazuje notifikacijske prstenove oko panela, bedževe nepročitanih u bočnoj traci, notifikacijski popover i macOS desktop notifikaciju. Ovi se aktiviraju automatski putem standardnih terminalskih escape sekvenci (OSC 9/99/777), ili ih možete pokrenuti pomoću <cliLink>cmux CLI</cliLink> i <hooksLink>Claude Code hooks</hooksLink>.",
+    "faqNotificationsA": "Kada proces treba pažnju, cmux prikazuje notifikacijske prstenove oko panela, oznake nepročitanog u bočnoj traci, skočni prozor s notifikacijama i macOS desktop notifikaciju. One se automatski okidaju putem standardnih terminalskih escape sekvenci (OSC 9/99/777), ili ih možete pokrenuti pomoću <cliLink>cmux CLI</cliLink> i <hooksLink>agentskih kuka</hooksLink>. Radi svaki agent koji podržava kuke ili OSC, uključujući Claude Code, Codex, OpenCode i pi.",
     "faqShortcutsQ": "Mogu li prilagoditi prečice na tastaturi?",
     "faqShortcutsA": "Terminalne prečice se čitaju iz vaše Ghostty konfiguracijske datoteke (<configPath>~/.config/ghostty/config</configPath>). cmux-specifične prečice (radni prostori, razdjelnice, preglednik, notifikacije) se mogu prilagoditi u Postavkama. Pogledajte <link>podrazumijevane prečice</link> za kompletnu listu.",
     "faqTmuxQ": "Kako se poredi sa tmux-om?",
-    "faqTmuxA": "tmux je multiplekser terminala koji radi unutar bilo kojeg terminala. cmux je nativna macOS aplikacija sa GUI-jem: vertikalni tabovi, podijeljeni paneli, ugrađeni preglednik i socket API su svi ugrađeni. Nisu potrebne konfiguracijske datoteke niti prefix tasteri.",
+    "faqTmuxA": "tmux je terminalski multiplekser koji radi unutar bilo kojeg terminala. cmux je nativna macOS aplikacija s grafičkim sučeljem: vertikalni tabovi, podijeljeni paneli, ugrađeni preglednik i socket API, sve ugrađeno, bez potrebe za konfiguracijskim datotekama ili prefiksnim tipkama. Ipak, mnogi ljudi rado koriste cmux zajedno sa SSH-om i tmux-om, a cmux se može nativno povezati na vaše udaljene tmux sesije (<link>beta</link>).",
     "faqFreeQ": "Da li je cmux besplatan?",
-    "faqFreeA": "Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na <link>GitHub-u</link>."
+    "faqFreeA": "Da, cmux je besplatan za korištenje. Izvorni kod je dostupan na <link>GitHub-u</link>.",
+    "faqSessionsQ": "Da li se moje sesije čuvaju?",
+    "faqSessionsA": "Da. cmux vraća vaše prozore, radne prostore, panele, radne direktorije i historiju pomicanja kada ga ponovo pokrenete, a stanje preživljava potpuno ponovno pokretanje računara, ne samo zatvaranje aplikacije. Vraćaju se i sesije agenata poput Claude Code, Codex i OpenCode. Pogledajte <link>vraćanje sesije</link>.",
+    "faqScriptableQ": "Da li je cmux programabilan?",
+    "faqScriptableA": "Da. Svaka radnja je dostupna kroz cmux CLI i Unix socket: kreiranje radnih prostora, otvaranje podijeljenih panela, slanje unosa, čitanje sadržaja ekrana, snimanje ekrana i upravljanje preglednikom unutar aplikacije. Pogledajte <cliLink>CLI referencu</cliLink> i dokumentaciju za <browserLink>automatizaciju preglednika</browserLink>.",
+    "faqRemoteQ": "Mogu li koristiti cmux s udaljenim mašinama?",
+    "faqRemoteA": "Da. Otvarajte radne prostore preko SSH-a i povezujte se na udaljene tmux sesije, tako da agenti mogu raditi na udaljenom hostu dok ih vi vodite iz cmux-a. Pogledajte <link>SSH i udaljeni rad</link>.",
+    "faqOrchestrationQ": "Može li cmux orkestrirati više agenata i podagenata?",
+    "faqOrchestrationA": "Da. Kada agent pokrene podagente ili saradnike, cmux ih pretvara u nativne panele i podjele umjesto skrivenih pozadinskih procesa. Podržava <teamsLink>Claude Code timove</teamsLink> i <omoLink>oh-my-opencode</omoLink> višemodelno orkestriranje, tako da je svaki agent u izvođenju vidljiv i upravljiv.",
+    "faqCustomizeQ": "Mogu li prilagoditi cmux?",
+    "faqCustomizeA": "Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, pa se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u <path>~/.config/cmux/cmux.json</path> kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka <shortcutsLink>tipkovnička prečica</shortcutsLink> je izmjenjiva. Pogledajte <link>konfiguraciju</link>.",
+    "faqIosQ": "Postoji li iOS aplikacija?",
+    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA.",
+    "faqSkillsQ": "Ima li cmux skills-e?",
+    "faqSkillsA": "Da. Skills su ponovo iskoristivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i panela preglednika. Pregledajte otvorenu kolekciju na <skillsLink>cmux-skills</skillsLink> ili pročitajte <link>dokumentaciju za skills</link>.",
+    "faqBrowserQ": "Šta može ugrađeni preglednik?",
+    "faqBrowserA": "cmux može podijeliti pravi panel preglednika pored vašeg terminala i potpuno je programabilan: navigirajte, snimite DOM, kliknite, kucajte, izvršite JavaScript i čitajte aktivnost konzole i mreže preko istog socket API-ja. Agenti ga koriste da provjere vlastite web izmjene bez napuštanja cmux-a. Pogledajte <link>automatizaciju preglednika</link>.",
+    "faqSupportQ": "Kako mogu podržati cmux?",
+    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqFeatureQ": "Imam prijedlog za funkciju ili sam pronašao grešku",
+    "faqFeatureA": "Želimo to čuti. Otvorite <issuesLink>issue</issuesLink> ili <prLink>pull request</prLink> na GitHub-u, ili nam <mailLink>pošaljite e-mail</mailLink>."
   },
   "community": {
     "title": "Zajednica",
@@ -770,10 +793,11 @@
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",
           "warnBeforeClosingTabXButton": "Prikaži potvrdu prije zatvaranja taba dugmetom za zatvaranje taba.",
           "hideTabCloseButton": "Sakrij dugmad za zatvaranje tabova na traci tabova okna.",
-          "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta."
+          "forkConversationDefaultDestination": "Zadano odredište za primarnu radnju Fork Conversation u kontekstnom meniju kartice. Podmeni i dalje prikazuje sva odredišta.",
+          "globalFontMagnification": "Skalira cmux terminale, naslove kartica, bočne trake, postavke, preklapanja i app chrome za ovaj procenat. Renderovani sadržaj stranica u pregledniku nije uključen."
         },
         "terminal": {
-          "copyOnSelect": "Kopira odabrani tekst iz terminala u sistemski međuspremnik kada se odabir potvrdi, uključujući riječi i redove odabrane dvoklikom ili troklikom.",
+          "copyOnSelect": "Kada je true, odabrani tekst terminala kopira se u sistemski međuspremnik kada se odabir potvrdi. Kada je false, cmux ne emitira Ghostty copy-on-select nadjačavanje; Ghostty konfiguracija i zadane vrijednosti kontrolišu ponašanje međuspremnika odabira.",
           "scrollSpeed": "Množitelj koji se primjenjuje na pomak točkića miša i dodirne plohe u terminalu. Veće vrijednosti pomiču brže, a manje sporije.",
           "showTextBoxOnNewTerminals": "Podrazumijevano prikazuje beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele.",
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
@@ -1237,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox (Beta)"
+      "textBox": "TextBox (Beta)",
+      "ios": "iOS aplikacija"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1386,6 +1411,46 @@
       "configTitle": "cmux.json",
       "configDesc": "Iste zadane vrijednosti postavite u ~/.config/cmux/cmux.json pod terminal:",
       "focusNote": "Obnovljene sesije zadržavaju spremljenu vidljivost TextBoxa i stanje fokusa. Ove zadane vrijednosti važe samo za novokreirane terminalske površine."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: OpenCode više agenata u cmux-u",
+      "metaDescription": "oh-my-opencode (cmux omo) pokreće OpenCode CLI s dodatkom oh-my-openagent unutar cmux-a. Orkestrirajte Claude, GPT, Gemini i Grok kao paralelne agente, svaki u nativnoj cmux podjeli."
+    },
+    "ios": {
+      "metaTitle": "iOS aplikacija",
+      "metaDescription": "Postavite cmux iOS prateću aplikaciju: TestFlight pristup, vlastito umrežavanje s Tailscale ili WireGuard, uparivanje, notifikacije i koje podatke cmux pohranjuje.",
+      "title": "iOS aplikacija",
+      "intro": "cmux iOS aplikacija je pratilac vašeg Mac-a. Uparite svoj iPhone ili iPad s Mac-om koji koristi cmux i povežite se sa svojim terminalima s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija.",
+      "betaNote": "iOS aplikacija je u beta verziji. Distribuira se putem TestFlight-a kao cmux BETA.",
+      "accessTitle": "Dobivanje pristupa",
+      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>, zajedno s drugim ranim funkcijama.",
+      "prereqTitle": "Preduvjeti",
+      "prereqIntro": "Prije nego što počnete, potrebno vam je:",
+      "prereq1": "Mac koji koristi cmux i na kojem ste prijavljeni.",
+      "prereq2": "iPhone ili iPad s instaliranom cmux BETA aplikacijom putem TestFlight-a.",
+      "prereq3": "Mrežni put od vašeg telefona do vašeg Mac-a (pogledajte Vlastito umrežavanje ispod).",
+      "networkingTitle": "Vlastito umrežavanje",
+      "networkingDesc": "cmux ne pruža umrežavanje odmah po instalaciji. Terminalski tok teče direktno između vašeg telefona i vašeg Mac-a, pa vaš telefon mora moći doseći vaš Mac na mreži. Najjednostavniji način je privatna overlay mreža.",
+      "tailscaleTitle": "Tailscale (preporučeno)",
+      "tailscaleDesc": "Instalirajte <link>Tailscale</link> i na svoj Mac i na svoj telefon i prijavite se na isti tailnet. Vaš telefon tada može doseći vaš Mac putem njegove tailnet adrese s bilo kojeg mjesta, bez prosljeđivanja portova.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "Ako već koristite <link>WireGuard</link>, stavite svoj Mac i telefon na istu mrežu i koristite WireGuard adresu Mac-a.",
+      "networkingNote": "Šta god odaberete, veza je vaša. cmux ne posreduje niti prenosi terminalski promet između vaših uređaja.",
+      "pairTitle": "Uparite i povežite se",
+      "pairStep1": "Na Mac-u otvorite prozor Mobile Connect u cmux-u.",
+      "pairStep2": "Na telefonu otvorite cmux BETA aplikaciju i potvrdite uparivanje prikazano u Mobile Connect.",
+      "pairStep3": "Nakon uparivanja, vaši radni prostori i terminali pojavljuju se na telefonu putem vaše mreže.",
+      "pairNote": "Uparivanje je po uređaju. Novi uređaj ili ponovno instalirana aplikacija ponovo se uparuje.",
+      "notificationsTitle": "Notifikacije",
+      "notificationsDesc": "Možete se odlučiti za prosljeđivanje terminalskih notifikacija na svoj telefon, tako da panel kojem je potrebna pažnja šalje obavještenje na vaš uređaj. Kada je prosljeđivanje uključeno, tekst notifikacije (naslov i tijelo, izvučeni iz terminalskog izlaza) šalje se putem cmux servera Appleovom push servisu radi isporuke. Uključite Hide content u postavkama notifikacija da biste umjesto toga slali generičku poruku i zadržali terminalski tekst na svojim uređajima. Pogledajte <link>notifikacije</link> za to kako ih cmux pokreće.",
+      "dataTitle": "Koji podaci se pohranjuju",
+      "dataIntro": "cmux je napravljen tako da vaš terminal ostaje između vaših uređaja. Na cmux serverima pohranjujemo samo ono što je potrebno da vas prijavimo i povežemo vaše uređaje:",
+      "data1": "Vaš nalog iz prijave (e-pošta), da vas identifikujemo na svim uređajima.",
+      "data2": "Push token za vaš uređaj, za isporuku proslijeđenih terminalskih notifikacija.",
+      "data3": "Metapodaci o uparivanju i uređaju, za povezivanje vašeg telefona s vašim Mac-om.",
+      "dataNot": "Vaša interaktivna terminalska sesija, njen sadržaj i pritisci tipki teku direktno između vašeg telefona i vašeg Mac-a putem vaše vlastite mreže i ne prenose se kroz cmux servere niti se na njima pohranjuju. Jedini izuzetak je proslijeđeni tekst notifikacije, koji prolazi kroz cmux i Appleov push servis da bi stigao do vašeg telefona, osim ako ne omogućite Hide content (pogledajte Notifikacije iznad).",
+      "enterpriseTitle": "Enterprise i samostalno hostovanje",
+      "enterpriseDesc": "Za samostalno hostovanu ili air-gapped implementaciju, kontaktirajte <link>founders@manaflow.com</link>."
     }
   },
   "legal": {

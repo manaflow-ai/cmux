@@ -1,8 +1,8 @@
 {
   "meta": {
     "title": "cmux — 멀티태스킹을 위해 만든 터미널",
-    "description": "Ghostty 기반 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환. 세로 탭, 알림 링, 분할 패널, 소켓 API 지원.",
-    "ogDescription": "AI 코딩 에이전트를 위한 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환."
+    "description": "Ghostty 기반 무료 오픈 소스 네이티브 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환. 세로 탭, 알림 링, 분할 패널, socket API 지원.",
+    "ogDescription": "AI 코딩 에이전트를 위한 무료 오픈 소스 macOS 터미널. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider 등 모든 CLI 도구와 호환."
   },
   "common": {
     "downloadForMac": "Mac용 다운로드",
@@ -40,13 +40,14 @@
     "nightly": "나이틀리",
     "copyright": "© {year} Manaflow",
     "language": "언어",
-    "assets": "애셋"
+    "assets": "애셋",
+    "openSource": "오픈 소스"
   },
   "home": {
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
     "typingCodingAgents": "코딩 에이전트",
     "typingMultitasking": "멀티태스킹",
-    "subtitle": "Ghostty 기반 네이티브 macOS 앱. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 프로그래밍을 위한 <cliLink>CLI</cliLink>를 제공합니다.",
+    "subtitle": "Ghostty 기반 무료 오픈 소스 네이티브 macOS 터미널. 세로 탭, 에이전트가 주의를 필요로 할 때 알림 링, 분할 패널, 프로그래밍을 위한 <cliLink>CLI</cliLink>를 제공합니다.",
     "features": "기능",
     "faq": "FAQ",
     "communitySection": "커뮤니티",
@@ -59,14 +60,16 @@
       "inAppBrowserDesc": ": 스크립팅 가능한 API로 터미널 옆에 브라우저를 분할 배치",
       "splitPanes": "분할 패널",
       "splitPanesDesc": ": 각 탭 내에서 가로 및 세로 분할",
-      "scriptable": "스크립팅 가능",
+      "scriptable": "프로그래밍 가능",
       "scriptableDesc": ": 자동화 및 스크립팅을 위한 CLI와 소켓 API",
       "gpuAccelerated": "GPU 가속",
       "gpuAcceleratedDesc": ": libghostty로 부드러운 렌더링",
       "lightweight": "경량",
       "lightweightDesc": ": 네이티브 Swift + AppKit, Electron 없음",
       "keyboardShortcuts": "키보드 단축키",
-      "keyboardShortcutsDesc": ": 워크스페이스, 분할, 브라우저 등을 위한 <link>다양한 단축키</link>"
+      "keyboardShortcutsDesc": ": 워크스페이스, 분할, 브라우저 등을 위한 <link>다양한 단축키</link>",
+      "openSource": "오픈 소스",
+      "openSourceDesc": ": 무료이며 GPL 라이선스"
     },
     "faqGhosttyQ": "cmux와 Ghostty는 어떤 관계인가요?",
     "faqGhosttyA": "cmux는 Ghostty의 포크가 아닙니다. 앱이 웹 뷰에 WebKit을 사용하는 것처럼, 터미널 렌더링을 위한 라이브러리로 <link>libghostty</link>를 사용합니다. Ghostty는 독립형 터미널이고, cmux는 그 렌더링 엔진 위에 구축된 별도의 앱입니다.",
@@ -75,13 +78,33 @@
     "faqAgentsQ": "cmux는 어떤 코딩 에이전트와 호환되나요?",
     "faqAgentsA": "모든 에이전트와 호환됩니다. cmux는 터미널이므로 터미널에서 실행되는 모든 에이전트가 바로 작동합니다. Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent 등 커맨드라인에서 실행할 수 있는 모든 것이 지원됩니다.",
     "faqNotificationsQ": "알림은 어떻게 작동하나요?",
-    "faqNotificationsA": "프로세스가 주의를 필요로 하면, cmux는 패널 주위에 알림 링, 사이드바에 읽지 않은 배지, 알림 팝오버, macOS 데스크톱 알림을 표시합니다. 표준 터미널 이스케이프 시퀀스(OSC 9/99/777)를 통해 자동으로 작동하며, <cliLink>cmux CLI</cliLink>와 <hooksLink>Claude Code hooks</hooksLink>로 직접 트리거할 수도 있습니다.",
+    "faqNotificationsA": "프로세스가 주의를 필요로 하면, cmux는 패널 주위에 알림 링, 사이드바에 읽지 않은 배지, 알림 팝오버, macOS 데스크톱 알림을 표시합니다. 표준 터미널 이스케이프 시퀀스(OSC 9/99/777)를 통해 자동으로 작동하며, <cliLink>cmux CLI</cliLink>와 <hooksLink>agent hooks</hooksLink>로 직접 트리거할 수도 있습니다. hooks나 OSC를 지원하는 모든 에이전트가 작동하며, Claude Code, Codex, OpenCode, pi가 포함됩니다.",
     "faqShortcutsQ": "키보드 단축키를 커스터마이징할 수 있나요?",
     "faqShortcutsA": "터미널 키 바인딩은 Ghostty 설정 파일(<configPath>~/.config/ghostty/config</configPath>)에서 읽어옵니다. cmux 고유 단축키(워크스페이스, 분할, 브라우저, 알림)는 설정에서 커스터마이징할 수 있습니다. 전체 목록은 <link>기본 단축키</link>를 참고하세요.",
     "faqTmuxQ": "tmux와 비교하면 어떤가요?",
-    "faqTmuxA": "tmux는 모든 터미널 안에서 실행되는 터미널 멀티플렉서입니다. cmux는 GUI를 갖춘 네이티브 macOS 앱으로, 세로 탭, 분할 패널, 내장 브라우저, 소켓 API가 모두 내장되어 있습니다. 설정 파일이나 프리픽스 키가 필요 없습니다.",
+    "faqTmuxA": "tmux는 모든 터미널 안에서 실행되는 터미널 멀티플렉서입니다. cmux는 GUI를 갖춘 네이티브 macOS 앱으로, 세로 탭, 분할 패널, 내장 브라우저, socket API가 모두 내장되어 있으며 설정 파일이나 프리픽스 키가 필요 없습니다. 그렇긴 하지만, 많은 사람이 cmux를 SSH 및 tmux와 함께 즐겨 사용하며, cmux는 원격 tmux 세션에 네이티브로 연결할 수 있습니다(<link>beta</link>).",
     "faqFreeQ": "cmux는 무료인가요?",
-    "faqFreeA": "네, cmux는 무료입니다. 소스 코드는 <link>GitHub</link>에서 확인할 수 있습니다."
+    "faqFreeA": "네, cmux는 무료입니다. 소스 코드는 <link>GitHub</link>에서 확인할 수 있습니다.",
+    "faqSessionsQ": "내 세션이 저장되나요?",
+    "faqSessionsA": "네. cmux는 다시 실행할 때 창, 워크스페이스, 패널, 작업 디렉터리, 스크롤백을 복원하며, 이 상태는 앱을 종료할 때뿐 아니라 컴퓨터를 완전히 재시작한 뒤에도 유지됩니다. Claude Code, Codex, OpenCode 같은 에이전트 세션도 함께 돌아옵니다. <link>세션 복원</link>을 참고하세요.",
+    "faqScriptableQ": "cmux는 프로그래밍할 수 있나요?",
+    "faqScriptableA": "네. 모든 동작을 cmux CLI와 Unix socket을 통해 사용할 수 있습니다. 워크스페이스 생성, 분할 패널 열기, 입력 전송, 화면 내용 읽기, 스크린샷 촬영, 내장 브라우저 제어가 가능합니다. <cliLink>CLI 레퍼런스</cliLink>와 <browserLink>브라우저 자동화</browserLink> 문서를 참고하세요.",
+    "faqRemoteQ": "cmux를 원격 머신에서 사용할 수 있나요?",
+    "faqRemoteA": "네. SSH로 워크스페이스를 열고 원격 tmux 세션에 연결하면, 에이전트는 원격 호스트에서 실행되고 당신은 cmux에서 그것들을 제어할 수 있습니다. <link>SSH 및 원격</link>을 참고하세요.",
+    "faqOrchestrationQ": "cmux로 여러 에이전트와 서브에이전트를 오케스트레이션할 수 있나요?",
+    "faqOrchestrationA": "네. 에이전트가 서브에이전트나 팀원을 생성하면, cmux는 그것들을 숨겨진 백그라운드 프로세스 대신 네이티브 패널과 분할로 바꿉니다. <teamsLink>Claude Code teams</teamsLink>와 <omoLink>oh-my-opencode</omoLink> 멀티 모델 오케스트레이션을 지원하므로, 한 번의 실행에 참여하는 모든 에이전트를 보고 제어할 수 있습니다.",
+    "faqCustomizeQ": "cmux를 커스터마이징할 수 있나요?",
+    "faqCustomizeA": "네. 터미널 렌더링은 당신의 Ghostty 설정을 사용하므로 테마, 글꼴, 색상, 커서가 그대로 이어집니다. cmux 고유의 설정은 <path>~/.config/cmux/cmux.json</path>에 있으며 사이드바, 탭 바, 분할 패널, 동작을 제어하고, 모든 <shortcutsLink>키보드 단축키</shortcutsLink>를 편집할 수 있습니다. <link>구성</link>을 참고하세요.",
+    "faqIosQ": "iOS 앱이 있나요?",
+    "faqIosA": "네, 베타로 제공됩니다. Mobile Connect 창에서 iPhone을 Mac과 페어링하면 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림 전달도 선택할 수 있습니다. TestFlight에 cmux BETA로 배포됩니다.",
+    "faqSkillsQ": "cmux에 스킬이 있나요?",
+    "faqSkillsA": "네. 스킬은 cmux에서 실행되는 모든 agent에 줄 수 있는 재사용 가능한 워크플로로, CLI 제어, 워크스페이스 자동화, 설정, 브라우저 서피스 같은 작업에 사용합니다. <skillsLink>cmux-skills</skillsLink>에서 공개 컬렉션을 둘러보거나 <link>스킬 문서</link>를 읽어보세요.",
+    "faqBrowserQ": "내장 브라우저로 무엇을 할 수 있나요?",
+    "faqBrowserA": "cmux는 터미널 옆에 실제 브라우저 패널을 분할 배치할 수 있으며, 완전히 프로그래밍 가능합니다. 같은 socket API를 통해 탐색, DOM 스냅샷, 클릭, 입력, JavaScript 실행, 콘솔 및 네트워크 활동 읽기가 가능합니다. agent는 이를 사용해 cmux를 벗어나지 않고 자신의 web 변경 사항을 검증합니다. <link>브라우저 자동화</link>를 참고하세요.",
+    "faqSupportQ": "cmux를 어떻게 후원할 수 있나요?",
+    "faqSupportA": "cmux는 무료이며 오픈 소스이고, 앞으로도 항상 그럴 것입니다. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 비롯한 다음 기능에 먼저 접근하고 싶다면 <foundersLink>cmux Founders Edition</foundersLink>을 확인해 보세요.",
+    "faqFeatureQ": "기능 요청이 있거나 버그를 발견했어요",
+    "faqFeatureA": "여러분의 의견을 듣고 싶습니다. GitHub에서 <issuesLink>issue</issuesLink>나 <prLink>pull request</prLink>를 열거나 <mailLink>이메일을 보내주세요</mailLink>."
   },
   "community": {
     "title": "커뮤니티",
@@ -770,10 +793,11 @@
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요.",
           "warnBeforeClosingTabXButton": "탭 닫기 버튼으로 탭을 닫기 전에 확인을 표시합니다.",
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
-          "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다."
+          "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다.",
+          "globalFontMagnification": "cmux가 소유한 터미널, 탭 제목, 사이드바, 설정, 오버레이, 앱 chrome을 이 비율로 확대/축소합니다. 렌더링된 브라우저 페이지 콘텐츠는 제외됩니다."
         },
         "terminal": {
-          "copyOnSelect": "선택이 확정되면 더블 클릭 및 트리플 클릭으로 선택한 단어와 줄을 포함해 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다.",
+          "copyOnSelect": "true이면 선택이 확정될 때 선택한 터미널 텍스트를 시스템 클립보드에 복사합니다. false이면 cmux는 Ghostty copy-on-select 재정의를 내보내지 않으며, 선택 클립보드 동작은 Ghostty 설정과 기본값이 제어합니다.",
           "scrollSpeed": "터미널 스크롤 휠과 트랙패드 이동량에 적용되는 배율입니다. 값이 클수록 빠르게 스크롤되고, 작을수록 느리게 스크롤됩니다.",
           "showTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력을 기본으로 표시합니다.",
           "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
@@ -1237,7 +1261,8 @@
       "ohMyCodex": "oh-my-codex",
       "ohMyClaudeCode": "oh-my-claudecode",
       "dock": "Dock",
-      "textBox": "TextBox(베타)"
+      "textBox": "TextBox(베타)",
+      "ios": "iOS 앱"
     },
     "dock": {
       "metaTitle": "Dock",
@@ -1386,6 +1411,46 @@
       "configTitle": "cmux.json",
       "configDesc": "동일한 기본값을 ~/.config/cmux/cmux.json의 terminal 아래에 설정할 수 있습니다.",
       "focusNote": "복원된 세션은 저장된 TextBox 표시 및 포커스 상태를 유지합니다. 이 기본값은 새로 생성된 터미널 화면에만 적용됩니다."
+    },
+    "ohMyOpenCode": {
+      "metaTitle": "oh-my-opencode: cmux에서의 OpenCode 멀티 에이전트",
+      "metaDescription": "oh-my-opencode(cmux omo)는 cmux 안에서 oh-my-openagent 플러그인과 함께 OpenCode CLI를 실행합니다. Claude, GPT, Gemini, Grok을 병렬 에이전트로 오케스트레이션하며, 각각 네이티브 cmux 분할에서 실행됩니다."
+    },
+    "ios": {
+      "metaTitle": "iOS 앱",
+      "metaDescription": "cmux iOS 동반 앱 설정: TestFlight 액세스, Tailscale 또는 WireGuard로 직접 구성하는 네트워크, 페어링, 알림, 그리고 cmux가 저장하는 데이터.",
+      "title": "iOS 앱",
+      "intro": "cmux iOS 앱은 Mac을 위한 동반 앱입니다. iPhone 또는 iPad를 cmux가 실행 중인 Mac과 페어링하면 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림을 선택적으로 전달할 수 있습니다.",
+      "betaNote": "iOS 앱은 베타 버전입니다. TestFlight에서 cmux BETA로 배포됩니다.",
+      "accessTitle": "액세스 받기",
+      "accessDesc": "앱은 TestFlight를 통해 배포됩니다. 앞서 사용해 볼 수 있는 권한은 다른 초기 기능과 함께 <foundersLink>cmux Founders Edition</foundersLink>에 포함됩니다.",
+      "prereqTitle": "사전 요구 사항",
+      "prereqIntro": "시작하기 전에 다음이 필요합니다:",
+      "prereq1": "cmux가 실행 중이고 로그인된 Mac.",
+      "prereq2": "TestFlight에서 cmux BETA 앱이 설치된 iPhone 또는 iPad.",
+      "prereq3": "휴대폰에서 Mac으로의 네트워크 경로(아래 직접 구성하는 네트워크 참조).",
+      "networkingTitle": "직접 구성하는 네트워크",
+      "networkingDesc": "cmux는 기본적으로 네트워크를 제공하지 않습니다. 터미널 스트림은 휴대폰과 Mac 사이에서 직접 흐르므로, 휴대폰이 네트워크에서 Mac에 연결할 수 있어야 합니다. 가장 간단한 방법은 사설 오버레이 네트워크입니다.",
+      "tailscaleTitle": "Tailscale (권장)",
+      "tailscaleDesc": "Mac과 휴대폰 모두에 <link>Tailscale</link>을 설치하고 동일한 tailnet에 로그인하세요. 그러면 휴대폰이 어디에서나 포트 포워딩 없이 Mac의 tailnet 주소로 연결할 수 있습니다.",
+      "wireguardTitle": "WireGuard",
+      "wireguardDesc": "이미 <link>WireGuard</link>를 사용 중이라면, Mac과 휴대폰을 동일한 네트워크에 두고 Mac의 WireGuard 주소를 사용하세요.",
+      "networkingNote": "어느 것을 선택하든 연결은 사용자의 것입니다. cmux는 사용자 기기 사이의 터미널 트래픽을 프록시하거나 중계하지 않습니다.",
+      "pairTitle": "페어링 및 연결",
+      "pairStep1": "Mac에서 cmux의 Mobile Connect 창을 엽니다.",
+      "pairStep2": "휴대폰에서 cmux BETA 앱을 열고 Mobile Connect에 표시된 페어링을 확인합니다.",
+      "pairStep3": "페어링되면 작업 공간과 터미널이 네트워크를 통해 휴대폰에 나타납니다.",
+      "pairNote": "페어링은 기기별로 이루어집니다. 새 기기나 다시 설치한 앱은 다시 페어링합니다.",
+      "notificationsTitle": "알림",
+      "notificationsDesc": "터미널 알림을 휴대폰으로 전달하도록 선택할 수 있으며, 그러면 주의가 필요한 패널이 기기로 푸시됩니다. 전달이 켜져 있으면 알림 텍스트(제목과 본문, 터미널 출력에서 가져옴)가 cmux 서버를 거쳐 Apple의 푸시 서비스로 전송되어 전달됩니다. 알림 설정에서 Hide content를 켜면 대신 일반 메시지를 보내고 터미널 텍스트를 사용자 기기에 보관합니다. cmux가 알림을 어떻게 생성하는지는 <link>알림</link>을 참조하세요.",
+      "dataTitle": "저장되는 데이터",
+      "dataIntro": "cmux는 터미널이 사용자 기기 사이에만 머물도록 설계되었습니다. cmux 서버에는 로그인과 기기 연결에 필요한 것만 저장합니다:",
+      "data1": "로그인 시 사용한 계정(이메일), 여러 기기에서 사용자를 식별하기 위함.",
+      "data2": "기기의 푸시 토큰, 전달된 터미널 알림을 전달하기 위함.",
+      "data3": "페어링 및 기기 메타데이터, 휴대폰을 Mac에 연결하기 위함.",
+      "dataNot": "사용자의 대화형 터미널 세션과 그 내용 및 키 입력은 사용자 자신의 네트워크를 통해 휴대폰과 Mac 사이에서 직접 흐르며, cmux 서버를 거쳐 중계되거나 거기에 저장되지 않습니다. 유일한 예외는 전달된 알림 텍스트로, Hide content를 켜지 않는 한 휴대폰에 도달하기 위해 cmux와 Apple의 푸시 서비스를 거칩니다(위의 알림 참조).",
+      "enterpriseTitle": "기업 및 자체 호스팅",
+      "enterpriseDesc": "자체 호스팅 또는 에어갭 배포는 <link>founders@manaflow.com</link>으로 문의하세요."
     }
   },
   "legal": {
