@@ -107,7 +107,7 @@ jobs:
   activation-session-benchmark:
     needs: activation_changes
     if: ${{ needs.activation_changes.outputs.macos == 'true' }}
-    runs-on: ${{ ((!inputs.runner || inputs.runner == 'auto') && (vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') || inputs.runner) }}
+    runs-on: depot-macos-14
     timeout-minutes: 45
     env:
       PERF_TAG: perf-${{ github.run_id }}-${{ github.run_attempt }}
@@ -273,17 +273,25 @@ jobs:
           # those, run in the current bootstrap and let the benchmark fail if it
           # cannot produce a real CG-visible app window.
           CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
+          status=0
           if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
+            set +e
             sudo -n launchctl asuser "$CONSOLE_UID" sudo -n -u "$CONSOLE_USER" -E \
               env PATH="$PATH" DEVELOPER_DIR="$DEVELOPER_DIR" APP_PATH="$APP_PATH" BUNDLE_ID="$BUNDLE_ID" GITHUB_WORKSPACE="$PWD" \
               bash -c 'cd "$GITHUB_WORKSPACE" && swift scripts/bench-window-visibility.swift "$APP_PATH" "$BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility' \
               > perf-results/cmd-tab-activation.txt
+            status=$?
+            set -e
           else
             echo "::warning::Passwordless sudo unavailable; running Cmd-Tab benchmark in current bootstrap" >&2
+            set +e
             swift scripts/bench-window-visibility.swift "$APP_PATH" "$BUNDLE_ID" 30 --cmd-tab-activation --cg-visibility \
               > perf-results/cmd-tab-activation.txt
+            status=$?
+            set -e
           fi
           cat perf-results/cmd-tab-activation.txt
+          exit "$status"
 
       - name: Write benchmark summary
         if: always()

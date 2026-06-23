@@ -436,7 +436,7 @@ private func runCmdTabActivationBenchmark(
         failuresByReason[reason, default: 0] += 1
     }
 
-    for _ in 0..<sampleCount {
+    for sampleIndex in 0..<sampleCount {
         if !hasVisibleBenchmarkWindow(app) {
             _ = openApplication(appURL: appURL, bundleIdentifier: bundleIdentifier)
         }
@@ -465,6 +465,16 @@ private func runCmdTabActivationBenchmark(
         let activated = running.activate(options: options)
         let requestEnd = monotonicMs()
         guard activated else {
+            if failuresByReason["activate_returned_false", default: 0] < 3 {
+                let frontmost = NSWorkspace.shared.frontmostApplication
+                print(
+                    "cmdtab_failure_detail sample=\(sampleIndex) reason=activate_returned_false " +
+                        "frontmost=\(frontmost?.bundleIdentifier ?? "<nil>") " +
+                        "frontmost_pid=\(frontmost?.processIdentifier ?? -1) " +
+                        "app_active=\(running.isActive ? 1 : 0) app_hidden=\(running.isHidden ? 1 : 0) " +
+                        "app_policy=\(running.activationPolicy.rawValue) visible_cg=\(visibleCGWindows(processIdentifier: running.processIdentifier).count)"
+                )
+            }
             recordFailure("activate_returned_false")
             continue
         }
@@ -525,6 +535,9 @@ private func runCmdTabActivationBenchmark(
         .map { "\($0.key)=\($0.value)" }
         .joined(separator: ",")
     print("failures=\(failuresByReason.values.reduce(0, +)) \(failureSummary)")
+    if samples.isEmpty && failuresByReason.values.reduce(0, +) >= sampleCount {
+        exit(1)
+    }
 }
 
 private func requireTrustedAccessibility() {
