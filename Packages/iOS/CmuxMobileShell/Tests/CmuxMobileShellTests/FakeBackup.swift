@@ -5,6 +5,8 @@
 actor FakeBackup: PairedMacBackingUp {
     private(set) var uploaded: [PairedMacBackupOp] = []
     private(set) var uploadedTeamIDs: [String?] = []
+    private(set) var uploadedExpectedUserIDs: [String?] = []
+    private(set) var fetchedExpectedUserIDs: [String?] = []
     private(set) var fetchCount = 0
     private let records: [PairedMacBackupRecord]
     private let deletedMacDeviceIDs: [String]
@@ -26,6 +28,7 @@ actor FakeBackup: PairedMacBackingUp {
     func upload(ops: [PairedMacBackupOp]) async -> Bool {
         uploaded.append(contentsOf: ops)
         uploadedTeamIDs.append(nil)
+        uploadedExpectedUserIDs.append(nil)
         if failNextUploads > 0 {
             failNextUploads -= 1
             return false
@@ -34,8 +37,13 @@ actor FakeBackup: PairedMacBackingUp {
     }
 
     func upload(ops: [PairedMacBackupOp], teamID: String?) async -> Bool {
+        await upload(ops: ops, teamID: teamID, expectedUserID: nil)
+    }
+
+    func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool {
         uploaded.append(contentsOf: ops)
         uploadedTeamIDs.append(teamID)
+        uploadedExpectedUserIDs.append(expectedUserID)
         if failNextUploads > 0 {
             failNextUploads -= 1
             return false
@@ -48,6 +56,11 @@ actor FakeBackup: PairedMacBackingUp {
     }
 
     func fetchSnapshot() async -> PairedMacBackupSnapshot? {
+        await fetchSnapshot(teamID: nil, expectedUserID: nil)
+    }
+
+    func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot? {
+        fetchedExpectedUserIDs.append(expectedUserID)
         fetchCount += 1
         if failNextFetches > 0 {
             failNextFetches -= 1
@@ -58,5 +71,7 @@ actor FakeBackup: PairedMacBackingUp {
 
     func uploadedOps() -> [PairedMacBackupOp] { uploaded }
     func uploadTeams() -> [String?] { uploadedTeamIDs }
+    func uploadExpectedUsers() -> [String?] { uploadedExpectedUserIDs }
+    func fetchExpectedUsers() -> [String?] { fetchedExpectedUserIDs }
     func fetches() -> Int { fetchCount }
 }

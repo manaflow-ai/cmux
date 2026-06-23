@@ -74,8 +74,7 @@ struct MacComputerDetailView: View {
             }
         }
         .confirmationDialog(
-            String(format: L10n.string("mobile.computers.removeTitleFormat", defaultValue: "Remove %@?"),
-                   pairedMac?.displayName ?? macDeviceID),
+            "\(L10n.string("mobile.computers.removeTitlePrefix", defaultValue: "Remove")) \(pairedMac?.displayName ?? macDeviceID)?",
             isPresented: $pendingRemoval,
             titleVisibility: .visible
         ) {

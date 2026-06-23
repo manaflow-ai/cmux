@@ -1,9 +1,5 @@
 public import Foundation
 
-private func loadPairedMacPendingDeletes(defaults: UserDefaults, key: String) -> [String: [String]] {
-    defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
-}
-
 /// UserDefaults-backed pending-delete store for production. The values are only
 /// Mac device IDs keyed by Stack account/team scope; no routes or hostnames are
 /// stored in this outbox.
@@ -31,12 +27,13 @@ public actor UserDefaultsPairedMacPendingDeleteStore: PairedMacPendingDeleteStor
 
     /// Load pending tombstones for one account/team scope.
     public func load(scope: String) async -> Set<String> {
-        Set(loadPairedMacPendingDeletes(defaults: defaults, key: key)[scope] ?? [])
+        let all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
+        return Set(all[scope] ?? [])
     }
 
     /// Replace pending tombstones for one account/team scope.
     public func save(_ ids: Set<String>, scope: String) async {
-        var all = loadPairedMacPendingDeletes(defaults: defaults, key: key)
+        var all = defaults.dictionary(forKey: key) as? [String: [String]] ?? [:]
         if ids.isEmpty {
             all.removeValue(forKey: scope)
         } else {

@@ -98,10 +98,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             now: now
         )
         // Mirror to the DO only for a signed-in (account-scoped) host; anonymous
-        // local pairings have no per-user collection to back up to. Upload the
-        // COMPLETE current record (read back from local) rather than one built from
-        // just these params, so an existing customization (name/color/icon) is
-        // preserved instead of clobbered with nil.
+        // local pairings have no per-user collection to back up to. Routine route
+        // and active-state uploads are intentionally non-authoritative for the
+        // customization fields: a stale device must not erase a newer rename/color
+        // selected on another device. Only `setCustomization` sends custom keys.
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
         let allowsTombstoneRevive = await clearPendingDelete(macDeviceID: macDeviceID, account: account, teamID: team)
@@ -110,6 +110,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             macDeviceID: macDeviceID,
             account: account,
             teamID: team,
+            includesCustomizations: false,
             allowTombstoneRevive: allowsTombstoneRevive
         )
         // `markActive` clears the active flag of the account's previously-active
@@ -118,7 +119,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // would copy other-team hosts into the selected team's DO (the local rows
         // carry no team id to filter by). See `setActive`.
         if markActive, let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
-            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account, teamID: team)
+            await uploadCurrentRecord(
+                macDeviceID: previouslyActive.macDeviceID,
+                account: account,
+                teamID: team,
+                includesCustomizations: false
+            )
         }
     }
 
@@ -183,9 +189,19 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // DO (local rows carry no team id to filter by).
         guard let account else { return }
         lastSignedInAccount = account
-        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account, teamID: team)
+        await uploadCurrentRecord(
+            macDeviceID: macDeviceID,
+            account: account,
+            teamID: team,
+            includesCustomizations: false
+        )
         if let previouslyActive, previouslyActive.macDeviceID != macDeviceID {
-            await uploadCurrentRecord(macDeviceID: previouslyActive.macDeviceID, account: account, teamID: team)
+            await uploadCurrentRecord(
+                macDeviceID: previouslyActive.macDeviceID,
+                account: account,
+                teamID: team,
+                includesCustomizations: false
+            )
         }
     }
 
@@ -197,7 +213,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         try await inner.clearActive(stackUserID: stackUserID, teamID: team)
         guard let stackUserID, let previous else { return }
         lastSignedInAccount = stackUserID
-        await uploadCurrentRecord(macDeviceID: previous.macDeviceID, account: stackUserID, teamID: team)
+        await uploadCurrentRecord(
+            macDeviceID: previous.macDeviceID,
+            account: stackUserID,
+            teamID: team,
+            includesCustomizations: false
+        )
     }
 
     /// Persist local customizations in one explicit owner scope, then mirror the
@@ -229,7 +250,12 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         }
         guard let account else { return }
         lastSignedInAccount = account
-        await uploadCurrentRecord(macDeviceID: macDeviceID, account: account, teamID: team)
+        await uploadCurrentRecord(
+            macDeviceID: macDeviceID,
+            account: account,
+            teamID: team,
+            includesCustomizations: true
+        )
     }
 
     /// Remove one paired Mac locally and tombstone it in backup when signed in.
@@ -244,7 +270,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // Only mirror the delete while signed in; an anonymous removal has no
         // per-user backup to delete and would just fail auth and log noise.
         let backupAccount = account ?? lastSignedInAccount
-        let scope = backupAccount.map { pairedMacBackupScopeKey(account: $0, teamID: team) }
+        let scope = backupAccount.map { "\($0)\u{0}\(team ?? "")" }
         if let scope {
             // Persist the delete intent before removing the only local row. If the
             // app dies or the network upload fails after the local delete, the next
@@ -259,8 +285,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         for task in draining { _ = await task.value }
         do {
             try await inner.remove(macDeviceID: macDeviceID, stackUserID: account, teamID: team)
-            if let scope {
-                await flushPendingDeletes(scope: scope, teamID: team)
+            if let scope, let backupAccount {
+                await flushPendingDeletes(scope: scope, account: backupAccount, teamID: team)
             }
         } catch {
             if let scope {
@@ -321,10 +347,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         // Coalesce with any in-flight restore for this scope so we never run two
         // merges concurrently against the same store.
         let team = (await teamIDProvider()) ?? ""
-        let scope = pairedMacBackupScopeKey(account: account, teamID: team.isEmpty ? nil : team)
+        let scope = "\(account)\u{0}\(team.isEmpty ? "" : team)"
         let restoreTeam = team.isEmpty ? nil : team
         await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
-        _ = await flushPendingDeletes(scope: scope, teamID: restoreTeam)
+        _ = await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
         let task: Task<RestoreOutcome, Never>
         if let existing = inFlight[scope] {
             task = existing
@@ -353,7 +379,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         inFlight[scope] = nil
         if outcome.completed {
             restoredScopes.insert(scope)
-            await flushPendingDeletes(scope: scope, teamID: restoreTeam)
+            await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
         }
     }
 
@@ -375,10 +401,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         return all.first { $0.macDeviceID == macDeviceID }?.stackUserID
     }
 
-    /// Build the COMPLETE backup record for a Mac from the local row, so every
-    /// upload carries displayName, routes, active AND the user customizations —
-    /// otherwise a route-refresh upload would clobber the synced customizations
-    /// with `nil`. Timestamps are ms since epoch (the backup wire format).
+    /// Build a backup record for a Mac from the local row. Callers choose whether
+    /// that record is encoded with authoritative customization keys; routine
+    /// route/active refreshes omit them so the worker preserves newer server state.
+    /// Timestamps are ms since epoch (the backup wire format).
     static func backupRecord(from mac: MobilePairedMac) -> PairedMacBackupRecord {
         PairedMacBackupRecord(
             macDeviceID: mac.macDeviceID,
@@ -393,21 +419,32 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         )
     }
 
-    /// Upload the current complete record for one Mac (read back from the local
-    /// store so customizations are preserved). Best-effort.
+    /// Upload the current record for one Mac. `includesCustomizations` is true
+    /// only for explicit rename/color/icon writes; other mirrors preserve the
+    /// server's current customizations. Best-effort.
     @discardableResult
     private func uploadCurrentRecord(
         macDeviceID: String,
         account: String,
         teamID: String? = nil,
+        includesCustomizations: Bool = false,
         allowTombstoneRevive: Bool = false
     ) async -> Bool {
         let team = await resolvedTeam(teamID)
         guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
             .first(where: { $0.macDeviceID == macDeviceID }) else { return false }
         let record = Self.backupRecord(from: mac)
-        let op: PairedMacBackupOp = allowTombstoneRevive ? .revive(record) : .upsert(record)
-        return await backup.upload(ops: [op], teamID: team)
+        let op: PairedMacBackupOp
+        if allowTombstoneRevive {
+            op = includesCustomizations
+                ? .revive(record)
+                : .revivePreservingCustomizations(record)
+        } else if includesCustomizations {
+            op = .upsert(record)
+        } else {
+            op = .upsertPreservingCustomizations(record)
+        }
+        return await backup.upload(ops: [op], teamID: team, expectedUserID: account)
     }
 
     /// Run the backup restore once per signed-in (account, team) scope this
@@ -417,10 +454,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         guard let account = stackUserID, !account.isEmpty else { return }
         lastSignedInAccount = account
         let team = (await teamIDProvider()) ?? ""
-        let scope = pairedMacBackupScopeKey(account: account, teamID: team.isEmpty ? nil : team)
+        let scope = "\(account)\u{0}\(team.isEmpty ? "" : team)"
         let restoreTeam = team.isEmpty ? nil : team
         await applyPendingLocalDeletes(scope: scope, account: account, teamID: restoreTeam)
-        _ = await flushPendingDeletes(scope: scope, teamID: restoreTeam)
+        _ = await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
         if restoredScopes.contains(scope) { return }
 
         let task: Task<RestoreOutcome, Never>
@@ -451,7 +488,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         inFlight[scope] = nil
         if outcome.completed {
             restoredScopes.insert(scope)
-            await flushPendingDeletes(scope: scope, teamID: restoreTeam)
+            await flushPendingDeletes(scope: scope, account: account, teamID: restoreTeam)
         }
     }
 
@@ -477,7 +514,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     @discardableResult
     private func clearPendingDelete(macDeviceID: String, account: String, teamID: String?) async -> Bool {
-        let scope = pairedMacBackupScopeKey(account: account, teamID: teamID)
+        let scope = "\(account)\u{0}\(teamID ?? "")"
         return await clearPendingDelete(macDeviceID: macDeviceID, scope: scope)
     }
 
@@ -498,16 +535,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     }
 
     @discardableResult
-    private func flushPendingDeletes(scope: String, teamID: String?) async -> Set<String> {
+    private func flushPendingDeletes(scope: String, account: String, teamID: String?) async -> Set<String> {
         let ids = await pendingDeleteIDs(scope: scope)
         guard !ids.isEmpty else { return ids }
         let ops = ids.sorted().map { PairedMacBackupOp.delete(macDeviceID: $0) }
-        guard await backup.upload(ops: ops, teamID: teamID) else { return ids }
+        guard await backup.upload(ops: ops, teamID: teamID, expectedUserID: account) else { return ids }
         await savePendingDeleteIDs([], scope: scope)
         return []
     }
-}
 
-private func pairedMacBackupScopeKey(account: String, teamID: String?) -> String {
-    "\(account)\u{0}\(teamID ?? "")"
 }

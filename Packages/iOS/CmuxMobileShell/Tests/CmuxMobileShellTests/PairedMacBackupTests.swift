@@ -32,11 +32,20 @@ import Testing
 
     private func uploadedRecord(from op: PairedMacBackupOp) -> PairedMacBackupRecord? {
         switch op {
-        case .upsert(let record), .revive(let record):
+        case .upsert(let record), .upsertPreservingCustomizations(let record),
+             .revive(let record), .revivePreservingCustomizations(let record):
             return record
         case .delete:
             return nil
         }
+    }
+
+    private func encodedRecordObject(from op: PairedMacBackupOp) throws -> [String: Any] {
+        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(op: op)])
+        let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(body)) as? [String: Any]
+        let ops = try #require(json?["ops"] as? [[String: Any]])
+        let first = try #require(ops.first)
+        return try #require(first["record"] as? [String: Any])
     }
 
     @Test func backupClientEndpointURLJoinsBasePath() {
@@ -53,6 +62,28 @@ import Testing
     }
 
     // MARK: - Decorator backup mirroring
+
+    @Test func tokenSourceRejectsExpectedUserMismatchBeforeTokenRead() async {
+        let probe = TokenProbe(userIDs: ["user-2"])
+        let source = PresenceTokenSource(
+            accessToken: { await probe.token() },
+            currentUserID: { await probe.currentUserID() }
+        )
+
+        #expect(await source.accessToken(expectedUserID: "user-1") == nil)
+        #expect(await probe.tokenReads == 0)
+    }
+
+    @Test func tokenSourceRejectsUserSwitchDuringTokenRead() async {
+        let probe = TokenProbe(userIDs: ["user-1", "user-2"])
+        let source = PresenceTokenSource(
+            accessToken: { await probe.token() },
+            currentUserID: { await probe.currentUserID() }
+        )
+
+        #expect(await source.accessToken(expectedUserID: "user-1") == nil)
+        #expect(await probe.tokenReads == 1)
+    }
 
     @Test func upsertForwardsAndUploads() async throws {
         let (inner, dir) = try makeInnerStore()
@@ -75,6 +106,7 @@ import Testing
         // Mirrored to the backup.
         let ops = await backup.uploadedOps()
         #expect(ops.count == 1)
+        #expect(await backup.uploadExpectedUsers() == ["user-1"])
         if let rec = ops.first.flatMap(uploadedRecord(from:)) {
             #expect(rec.macDeviceID == "manual-10.0.0.1:22")
             #expect(rec.isActive == true)
@@ -127,10 +159,10 @@ import Testing
         try await store.remove(macDeviceID: "mac-a", stackUserID: "user-1", teamID: nil)
         try await store.upsert(macDeviceID: "mac-a", displayName: nil, routes: [try route("10.0.0.1", 22)], markActive: true, stackUserID: "user-1", now: Date())
 
-        if case .revive(let record)? = await backup.uploadedOps().last {
+        if case .revivePreservingCustomizations(let record)? = await backup.uploadedOps().last {
             #expect(record.macDeviceID == "mac-a")
         } else {
-            Issue.record("expected re-pair to upload a revive op")
+            Issue.record("expected re-pair to upload a customization-preserving revive op")
         }
     }
 
@@ -538,6 +570,187 @@ import Testing
         #expect(decodedCleared == cleared)
     }
 
+    @Test func routineMirrorUploadsOmitCustomKeysOnWire() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let first = try #require(await backup.uploadedOps().first)
+        guard case .upsertPreservingCustomizations = first else {
+            guard case .revivePreservingCustomizations = first else {
+                Issue.record("routine mirror should preserve server customizations")
+                return
+            }
+            let keys = try encodedRecordObject(from: first)
+            #expect(keys.keys.contains("macDeviceID"))
+            #expect(!keys.keys.contains("customName"))
+            #expect(!keys.keys.contains("customColor"))
+            #expect(!keys.keys.contains("customIcon"))
+            return
+        }
+        let keys = try encodedRecordObject(from: first)
+        #expect(keys.keys.contains("macDeviceID"))
+        #expect(!keys.keys.contains("customName"))
+        #expect(!keys.keys.contains("customColor"))
+        #expect(!keys.keys.contains("customIcon"))
+    }
+
+    @Test func routeRefreshReviveOmitsCustomKeysOnWire() throws {
+        let record = PairedMacBackupRecord(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [],
+            createdAt: 1,
+            lastSeenAt: 2,
+            isActive: true,
+            customName: nil,
+            customColor: nil,
+            customIcon: nil
+        )
+        let keys = try encodedRecordObject(from: .revivePreservingCustomizations(record))
+        #expect(!keys.keys.contains("customName"))
+        #expect(!keys.keys.contains("customColor"))
+        #expect(!keys.keys.contains("customIcon"))
+    }
+
+    @Test func authoritativeReviveCarriesCustomKeysOnWire() throws {
+        let record = PairedMacBackupRecord(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [],
+            createdAt: 1,
+            lastSeenAt: 2,
+            isActive: true,
+            customName: nil,
+            customColor: nil,
+            customIcon: nil
+        )
+        let keys = try encodedRecordObject(from: .revive(record))
+        #expect(keys["customName"] is NSNull)
+        #expect(keys["customColor"] is NSNull)
+        #expect(keys["customIcon"] is NSNull)
+    }
+
+    @Test func upsertPreserveOmitsCustomKeysOnWire() throws {
+        let record = PairedMacBackupRecord(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [],
+            createdAt: 1,
+            lastSeenAt: 2,
+            isActive: true,
+            customName: nil,
+            customColor: nil,
+            customIcon: nil
+        )
+        let keys = try encodedRecordObject(from: .upsertPreservingCustomizations(record))
+        #expect(!keys.keys.contains("customName"))
+        #expect(!keys.keys.contains("customColor"))
+        #expect(!keys.keys.contains("customIcon"))
+    }
+
+    @Test func authoritativeUpsertCarriesCustomKeysOnWire() throws {
+        let record = PairedMacBackupRecord(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [],
+            createdAt: 1,
+            lastSeenAt: 2,
+            isActive: true,
+            customName: nil,
+            customColor: nil,
+            customIcon: nil
+        )
+        let keys = try encodedRecordObject(from: .upsert(record))
+        #expect(keys["customName"] is NSNull)
+        #expect(keys["customColor"] is NSNull)
+        #expect(keys["customIcon"] is NSNull)
+    }
+
+    @Test func deleteUploadHasNoRecordBody() throws {
+        let body = PairedMacBackupRequestBody(ops: [PairedMacBackupOpWire(op: .delete(macDeviceID: "mac-a"))])
+        let json = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(body)) as? [String: Any]
+        let ops = try #require(json?["ops"] as? [[String: Any]])
+        let first = try #require(ops.first)
+        #expect(first["record"] == nil)
+        #expect(first["deleted"] as? Bool == true)
+    }
+
+    @Test func routineMirrorUploadsUsePreserveModeEvenForTombstoneRevive() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+
+        let first = try #require(await backup.uploadedOps().first)
+        guard case .revivePreservingCustomizations = first else {
+            Issue.record("routine mirror should preserve server customizations")
+            return
+        }
+        let keys = try encodedRecordObject(from: first)
+        #expect(keys.keys.contains("macDeviceID"))
+        #expect(!keys.keys.contains("customName"))
+        #expect(!keys.keys.contains("customColor"))
+        #expect(!keys.keys.contains("customIcon"))
+    }
+
+    @Test func explicitCustomizationUploadCarriesNullCustomKeysOnWire() async throws {
+        let (inner, dir) = try makeInnerStore()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let backup = FakeBackup()
+        let store = BackingUpPairedMacStore(inner: inner, backup: backup)
+
+        try await store.upsert(
+            macDeviceID: "mac-a",
+            displayName: "Mini",
+            routes: [try route("10.0.0.1", 22)],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date(timeIntervalSince1970: 1_000)
+        )
+        try await store.setCustomization(
+            macDeviceID: "mac-a",
+            customName: nil,
+            customColor: nil,
+            customIcon: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2_000)
+        )
+
+        let last = try #require(await backup.uploadedOps().last)
+        guard case .upsert = last else {
+            Issue.record("explicit customization writes should be authoritative")
+            return
+        }
+        let keys = try encodedRecordObject(from: last)
+        #expect(keys.keys.contains("customName"))
+        #expect(keys.keys.contains("customColor"))
+        #expect(keys.keys.contains("customIcon"))
+        #expect(keys["customName"] is NSNull)
+        #expect(keys["customColor"] is NSNull)
+        #expect(keys["customIcon"] is NSNull)
+    }
+
     @Test func backupDecodeDropsUnsupportedRoutesAndMalformedRecords() throws {
         let data = Data("""
         {
@@ -653,6 +866,7 @@ import Testing
         let store = BackingUpPairedMacStore(inner: inner, backup: backup)
 
         #expect(try await store.loadAll(stackUserID: "user-1").map(\.macDeviceID) == ["mac-a"])
+        #expect(await backup.fetchExpectedUsers().contains("user-1"))
         // Sign-out wipe.
         try await store.removeAll()
         #expect(try await inner.loadAll(stackUserID: "user-1").isEmpty)

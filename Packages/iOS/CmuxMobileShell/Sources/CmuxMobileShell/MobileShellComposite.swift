@@ -14,33 +14,6 @@ private let mobileShellLog = Logger(
     category: "mobile-shell"
 )
 
-private func normalizedPairingURL(_ rawValue: String) -> String {
-    let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard CmxPairingURLScheme.hasPairingScheme(trimmed) else {
-        return trimmed
-    }
-    let scalars = trimmed.unicodeScalars.filter {
-        !CharacterSet.whitespacesAndNewlines.contains($0)
-    }
-    return String(String.UnicodeScalarView(scalars))
-}
-
-private func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
-    var hash: UInt32 = 2_166_136_261
-    for byte in surfaceID.utf8 {
-        hash = (hash ^ UInt32(byte)) &* 16_777_619
-    }
-    return hash
-}
-
-private func workspaceActionCapabilities(from supportedHostCapabilities: Set<String>) -> MobileWorkspaceActionCapabilities {
-    MobileWorkspaceActionCapabilities(
-        supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
-        supportsReadStateActions: supportedHostCapabilities.contains("workspace.read_state.v1"),
-        supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1")
-    )
-}
-
 /// Transitional alias for the decomposed shell facade.
 ///
 /// The iOS views and push coordinator still bind to `CMUXMobileShellStore`;
@@ -667,7 +640,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// workspaces can be aggregated. `foregroundMacDeviceID` is the Mac whose
     /// connection drives terminal I/O and the connected UI.
     private var connections: [String: MacConnection] = [:]
-    private var foregroundMacDeviceID: String? {
+    var foregroundMacDeviceID: String? {
         didSet { recomputeDerivedWorkspaceState() }
     }
     /// Persistent read-only connections to the NON-foreground Macs, each holding a
@@ -677,7 +650,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// remains as the fallback. Keyed by `macDeviceID`. Today these are N direct
     /// phone->Mac connections; the same per-Mac entries would be fed by one
     /// phone->Durable Object stream in the planned end-state.
-    private var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
+    var secondaryMacSubscriptions: [String: SecondaryMacSubscription] = [:]
     /// The in-flight multi-Mac aggregation pass, tracked so sign-out / account
     /// switch can cancel it; its scope guards then bail before any cross-account
     /// write. Replaced (cancelling the prior) on each scheduled pass.
@@ -2430,7 +2403,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         preferNonLoopback: Bool = false
     ) -> (String, Int)? {
         let supportedKinds = Set(supportedKinds)
-        let ordered = routes.sorted(by: routeSortsBefore)
+        let ordered = routes.sorted(by: Self.routeSortsBefore)
         func firstHostPort(where predicate: (CmxAttachRoute) -> Bool) -> (String, Int)? {
             for route in ordered {
                 if !supportedKinds.isEmpty, !supportedKinds.contains(route.kind) {
@@ -2731,7 +2704,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         _ rawValue: String? = nil,
         acceptedVersionWarning: Bool
     ) async -> MobilePairingURLConnectionResult {
-        let rawURL = normalizedPairingURL(rawValue ?? pairingCode)
+        let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         _ = beginPairingValidationAttempt()
         connectionAttemptGeneration = UUID()
         if connectionState != .connected {
@@ -2989,7 +2962,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             route: route,
             ticket: ticket,
             supportedHostCapabilities: capabilities,
-            actionCapabilities: workspaceActionCapabilities(from: capabilities)
+            actionCapabilities: Self.workspaceActionCapabilities(from: capabilities)
         )
     }
 
@@ -3340,7 +3313,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private func updateForegroundWorkspaceActionCapabilities() {
         guard var state = workspacesByMac[foregroundMacKey] else { return }
-        state.actionCapabilities = workspaceActionCapabilities(from: supportedHostCapabilities)
+        state.actionCapabilities = Self.workspaceActionCapabilities(from: supportedHostCapabilities)
         workspacesByMac[foregroundMacKey] = state
     }
 
@@ -3474,7 +3447,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         if let groups { state.groups = groups }
         state.status = .connected
-        state.actionCapabilities = workspaceActionCapabilities(from: supportedHostCapabilities)
+        state.actionCapabilities = Self.workspaceActionCapabilities(from: supportedHostCapabilities)
         workspacesByMac[key] = state
     }
 
@@ -4507,8 +4480,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // snapshot. Anonymous (empty-id) tickets keep the anonymous key. A
                     // manual fallback ticket carries a synthetic `manual-…` id, so
                     // prefer the caller's real paired-Mac id when it is known.
-                    let resolvedForegroundMacID = resolveForegroundMacID(
-                        ticket: ticket, hint: pairedMacDeviceID)
+                    let resolvedForegroundMacID = ticket.foregroundMacID(hint: pairedMacDeviceID)
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID
@@ -4574,7 +4546,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for ticket: CmxAttachTicket,
         supportedKinds: [CmxAttachTransportKind]
     ) -> [CmxAttachRoute] {
-        let orderedRoutes = ticket.routes.sorted(by: routeSortsBefore)
+        let orderedRoutes = ticket.routes.sorted(by: Self.routeSortsBefore)
         guard !supportedKinds.isEmpty else {
             return orderedRoutes
         }
@@ -6066,7 +6038,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileDebugLog.anchormux("sync.input_seq_still_behind surface=\(surfaceID) local=\(localSeq) pending=\(pendingSeq) remote=\(remoteSeq)")
                 diagnosticLog?.record(DiagnosticEvent(
                     .inputSeqBehind,
-                    surface: diagnosticSurfaceHandle(surfaceID),
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
                     a: Int(clamping: localSeq),
                     b: Int(clamping: remoteSeq),
                     c: Int(clamping: pendingSeq)
@@ -6086,7 +6058,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         MobileDebugLog.anchormux("sync.input_seq_behind surface=\(surfaceID) local=\(localSeq) remote=\(remoteSeq)")
         diagnosticLog?.record(DiagnosticEvent(
             .inputSeqBehind,
-            surface: diagnosticSurfaceHandle(surfaceID),
+            surface: Self.diagnosticSurfaceHandle(surfaceID),
             a: Int(clamping: localSeq),
             b: Int(clamping: remoteSeq)
         ))
@@ -6407,7 +6379,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
                 diagnosticLog?.record(DiagnosticEvent(
                     .byteGap,
-                    surface: diagnosticSurfaceHandle(surfaceID),
+                    surface: Self.diagnosticSurfaceHandle(surfaceID),
                     a: Int(clamping: deliveredSeq),
                     b: Int(clamping: seq)
                 ))
@@ -6707,11 +6679,42 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 }
 
-private func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
-    if left.priority == right.priority {
-        return left.id < right.id
+private extension MobileShellComposite {
+    static func normalizedPairingURL(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard CmxPairingURLScheme.hasPairingScheme(trimmed) else {
+            return trimmed
+        }
+        let scalars = trimmed.unicodeScalars.filter {
+            !CharacterSet.whitespacesAndNewlines.contains($0)
+        }
+        return String(String.UnicodeScalarView(scalars))
     }
-    return left.priority < right.priority
+
+    static func diagnosticSurfaceHandle(_ surfaceID: String) -> UInt32 {
+        var hash: UInt32 = 2_166_136_261
+        for byte in surfaceID.utf8 {
+            hash = (hash ^ UInt32(byte)) &* 16_777_619
+        }
+        return hash
+    }
+
+    static func workspaceActionCapabilities(
+        from supportedHostCapabilities: Set<String>
+    ) -> MobileWorkspaceActionCapabilities {
+        MobileWorkspaceActionCapabilities(
+            supportsWorkspaceActions: supportedHostCapabilities.contains("workspace.actions.v1"),
+            supportsReadStateActions: supportedHostCapabilities.contains("workspace.read_state.v1"),
+            supportsCloseActions: supportedHostCapabilities.contains("workspace.close.v1")
+        )
+    }
+
+    static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
+        if left.priority == right.priority {
+            return left.id < right.id
+        }
+        return left.priority < right.priority
+    }
 }
 
 private struct MobileTerminalViewportKey: Hashable, Sendable {

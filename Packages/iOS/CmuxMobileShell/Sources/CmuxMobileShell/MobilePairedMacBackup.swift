@@ -31,8 +31,15 @@ public struct MobilePairedMacBackup: Sendable, Equatable {
         defaults: UserDefaults = .standard,
         isDebugBuild: Bool = MobilePairedMacBackup.isDebugBuild
     ) -> MobilePairedMacBackup {
+        func parseBool(_ raw: String) -> Bool {
+            switch raw.lowercased() {
+            case "1", "true", "yes", "on": return true
+            default: return false
+            }
+        }
+
         if let raw = environment[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-            return MobilePairedMacBackup(isEnabled: mobilePairedMacBackupParseBool(raw))
+            return MobilePairedMacBackup(isEnabled: parseBool(raw))
         }
         if defaults.object(forKey: defaultsKey) != nil {
             return MobilePairedMacBackup(isEnabled: defaults.bool(forKey: defaultsKey))
@@ -47,13 +54,5 @@ public struct MobilePairedMacBackup: Sendable, Equatable {
         #else
         return false
         #endif
-    }
-
-}
-
-private func mobilePairedMacBackupParseBool(_ raw: String) -> Bool {
-    switch raw.lowercased() {
-    case "1", "true", "yes", "on": return true
-    default: return false
     }
 }

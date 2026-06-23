@@ -58,7 +58,7 @@ struct DeviceTreeView: View {
                 connectionStatus: connectionStatuses[mac.macDeviceID],
                 presence: presence,
                 buildLabel: summary?.buildLabel,
-                routeDescription: deviceTreeRouteDescription(for: mac.routes),
+                routeDescription: CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 lastSeenAt: mac.lastSeenAt,
                 workspaceCount: workspaces.filter { $0.macDeviceID == mac.macDeviceID }.count
             )

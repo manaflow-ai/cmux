@@ -195,7 +195,8 @@ public struct CMUXMobileRootScene: View {
         let client = PairedMacBackupClient(
             serviceBaseURL: baseURL,
             tokenSource: PresenceTokenSource(
-                accessToken: { try? await coordinator.accessToken() }
+                accessToken: { try? await coordinator.accessToken() },
+                currentUserID: { await coordinator.currentUser?.id }
             ),
             teamIDProvider: { await coordinator.resolvedTeamID }
         )

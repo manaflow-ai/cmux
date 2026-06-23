@@ -8,6 +8,10 @@ public protocol PairedMacBackingUp: Sendable {
     @discardableResult
     func upload(ops: [PairedMacBackupOp], teamID: String?) async -> Bool
 
+    /// Push backup mutations only if auth still belongs to the captured account.
+    @discardableResult
+    func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool
+
     /// Fetch the caller's full backed-up list, or `nil` on transport/auth failure.
     func fetchAll() async -> [PairedMacBackupRecord]?
 
@@ -21,6 +25,9 @@ public protocol PairedMacBackingUp: Sendable {
     /// Fetch live records plus retained delete tombstones for an
     /// already-captured team scope.
     func fetchSnapshot(teamID: String?) async -> PairedMacBackupSnapshot?
+
+    /// Fetch live records and tombstones only if auth still belongs to the captured account.
+    func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot?
 }
 
 /// Convenience defaults for backup test doubles and simple implementations.
@@ -29,6 +36,12 @@ public extension PairedMacBackingUp {
     @discardableResult
     func upload(ops: [PairedMacBackupOp], teamID: String?) async -> Bool {
         await upload(ops: ops)
+    }
+
+    /// Default expected-account upload for test doubles that do not model auth.
+    @discardableResult
+    func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool {
+        await upload(ops: ops, teamID: teamID)
     }
 
     /// Default explicit-scope fetch for test doubles that do not care about team routing.
@@ -46,5 +59,10 @@ public extension PairedMacBackingUp {
     /// Default explicit-scope snapshot fetch.
     func fetchSnapshot(teamID: String?) async -> PairedMacBackupSnapshot? {
         await fetchSnapshot()
+    }
+
+    /// Default expected-account snapshot fetch for test doubles that do not model auth.
+    func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot? {
+        await fetchSnapshot(teamID: teamID)
     }
 }

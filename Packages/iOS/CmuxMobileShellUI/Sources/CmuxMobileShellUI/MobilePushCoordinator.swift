@@ -301,18 +301,22 @@ public final class MobilePushCoordinator {
     /// is parked in ``PendingNotificationDismissQueue`` and the store flushes it
     /// on its next successful (re)subscribe. With a store, the store's own
     /// enqueue-first send provides the same guarantee for a down channel.
-    /// - Parameter notificationId: The stable id of the dismissed notification.
-    ///   For a remote push this is `request.identifier` (the `apns-collapse-id`),
-    ///   with `cmux.notificationId` as a fallback.
-    public func handleDismiss(notificationId: String?) async {
+    /// - Parameters:
+    ///   - notificationId: The stable id of the dismissed notification. For a
+    ///     remote push this is `request.identifier` (the `apns-collapse-id`),
+    ///     with `cmux.notificationId` as a fallback.
+    ///   - macDeviceId: The Mac that owns the notification, from the `cmux`
+    ///     payload. Missing older payloads route through the foreground Mac.
+    public func handleDismiss(notificationId: String?, macDeviceId: String?) async {
         guard let notificationId else { return }
         let trimmed = notificationId.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
+        let mac = macDeviceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let store else {
-            pendingDismissQueue.enqueue([trimmed])
+            pendingDismissQueue.enqueue([trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
             return
         }
-        await store.dismissNotification(ids: [trimmed])
+        await store.dismissNotification(ids: [trimmed], macDeviceID: mac?.isEmpty == false ? mac : nil)
     }
 
     /// Handle a silent Mac→iOS dismiss push (the cold lane, fanned out to every

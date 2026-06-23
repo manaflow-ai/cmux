@@ -102,9 +102,15 @@ extension Color {
         let ui = UIColor(self)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard ui.getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
-        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        func hexByte(_ component: CGFloat) -> String {
+            let byte = min(255, max(0, Int((component * 255).rounded())))
+            return "\(Self.hexDigits[byte >> 4])\(Self.hexDigits[byte & 0x0F])"
+        }
+        return "#\(hexByte(r))\(hexByte(g))\(hexByte(b))"
         #else
         return nil
         #endif
     }
+
+    private static let hexDigits = Array("0123456789ABCDEF")
 }

@@ -41,8 +41,15 @@ final class MacPairedMacBackupPublisher {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) -> Bool {
+        func parseBool(_ raw: String) -> Bool {
+            switch raw.lowercased() {
+            case "1", "true", "yes", "on": return true
+            default: return false
+            }
+        }
+
         if let raw = environment[envKey]?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
-            return macPairedMacBackupParseBool(raw)
+            return parseBool(raw)
         }
         if defaults.object(forKey: defaultsKey) != nil {
             return defaults.bool(forKey: defaultsKey)
@@ -131,12 +138,5 @@ final class MacPairedMacBackupPublisher {
         } catch {
             macPairedMacPublishLog.warning("self-publish error: \(String(describing: error), privacy: .public)")
         }
-    }
-}
-
-private func macPairedMacBackupParseBool(_ raw: String) -> Bool {
-    switch raw.lowercased() {
-    case "1", "true", "yes", "on": return true
-    default: return false
     }
 }

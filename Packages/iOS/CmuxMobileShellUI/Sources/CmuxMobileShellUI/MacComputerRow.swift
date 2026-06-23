@@ -79,7 +79,7 @@ struct MacComputerRow: View {
             .background(buildBadgeTint(label).opacity(0.18), in: Capsule())
             .foregroundStyle(buildBadgeTint(label))
             .accessibilityLabel(
-                String(format: L10n.string("mobile.computers.buildLabel", defaultValue: "Build: %@"), label))
+                "\(L10n.string("mobile.computers.buildLabelPrefix", defaultValue: "Build:")) \(label)")
     }
 
     private func buildBadgeTint(_ label: String) -> Color {

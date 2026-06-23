@@ -61,10 +61,21 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
     /// Upload backup mutations to the presence worker for an already-captured team.
     @discardableResult
     public func upload(ops: [PairedMacBackupOp], teamID: String?) async -> Bool {
+        await upload(ops: ops, teamID: teamID, expectedUserID: nil)
+    }
+
+    /// Upload backup mutations only if auth still belongs to the captured account.
+    @discardableResult
+    public func upload(ops: [PairedMacBackupOp], teamID: String?, expectedUserID: String?) async -> Bool {
         guard !ops.isEmpty else { return true }
         let body = PairedMacBackupRequestBody(ops: ops.map(PairedMacBackupOpWire.init(op:)))
         guard let data = try? JSONEncoder().encode(body),
-              let request = await makeRequest(method: "POST", body: data, teamID: teamID) else {
+              let request = await makeRequest(
+                method: "POST",
+                body: data,
+                teamID: teamID,
+                expectedUserID: expectedUserID
+              ) else {
             return false
         }
         do {
@@ -98,7 +109,17 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
 
     /// Fetch live records and delete tombstones for an already-captured user/team scope.
     public func fetchSnapshot(teamID: String?) async -> PairedMacBackupSnapshot? {
-        guard let request = await makeRequest(method: "GET", body: nil, teamID: teamID) else { return nil }
+        await fetchSnapshot(teamID: teamID, expectedUserID: nil)
+    }
+
+    /// Fetch live records and tombstones only if auth still belongs to the captured account.
+    public func fetchSnapshot(teamID: String?, expectedUserID: String?) async -> PairedMacBackupSnapshot? {
+        guard let request = await makeRequest(
+            method: "GET",
+            body: nil,
+            teamID: teamID,
+            expectedUserID: expectedUserID
+        ) else { return nil }
         do {
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
@@ -113,8 +134,13 @@ public actor PairedMacBackupClient: PairedMacBackingUp {
         }
     }
 
-    private func makeRequest(method: String, body: Data?, teamID: String?) async -> URLRequest? {
-        guard let accessToken = await tokenSource.accessToken(),
+    private func makeRequest(
+        method: String,
+        body: Data?,
+        teamID: String?,
+        expectedUserID: String?
+    ) async -> URLRequest? {
+        guard let accessToken = await tokenSource.accessToken(expectedUserID: expectedUserID),
               let url = Self.endpointURL(serviceBaseURL: serviceBaseURL) else {
             return nil
         }

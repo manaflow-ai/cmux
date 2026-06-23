@@ -50,7 +50,7 @@ public struct PairedMacRestore: Sendable {
             return boundary.isCurrent(boundaryGeneration)
         }
 
-        guard let snapshot = await backup.fetchSnapshot(teamID: teamID) else {
+        guard let snapshot = await backup.fetchSnapshot(teamID: teamID, expectedUserID: accountID) else {
             return RestoreOutcome(completed: false, restored: 0)
         }
         // Sign-out (or any wipe) can race this restore: if the owning task was

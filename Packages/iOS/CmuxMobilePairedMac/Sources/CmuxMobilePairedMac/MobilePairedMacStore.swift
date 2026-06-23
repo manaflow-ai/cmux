@@ -5,10 +5,6 @@ import os
 
 private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
-private func pairedMacOwnerKey(stackUserID: String?, teamID: String?) -> String {
-    "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
-}
-
 /// SQLite-backed store of paired Macs. Schema migrations gated on
 /// `PRAGMA user_version`.
 ///
@@ -330,14 +326,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             if markActive {
                 try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
             }
-            let ownerKey = pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)
+            let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
             let existing = try fetchMacRow(macDeviceID: macDeviceID, ownerKey: ownerKey)
             var claimedLegacy: MacRow?
             if existing == nil,
                teamID != nil,
                let legacy = try fetchMacRow(
                     macDeviceID: macDeviceID,
-                    ownerKey: pairedMacOwnerKey(stackUserID: stackUserID, teamID: nil)
+                    ownerKey: "\(stackUserID ?? "")\u{1F}"
                ) {
                 try moveMacRowScope(
                     macDeviceID: macDeviceID,
@@ -394,7 +390,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// Mark one paired Mac active within its explicit account/team owner scope.
     public func setActive(macDeviceID: String, stackUserID: String? = nil, teamID: String? = nil) throws {
         try ensureReady()
-        let ownerKey = pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)
+        let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
         try transaction {
             try clearActiveMacs(stackUserID: stackUserID, teamID: teamID)
             try exec("UPDATE paired_macs SET is_active = 1 WHERE mac_device_id = ? AND owner_key = ?;",
@@ -432,7 +428,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             customIcon.map(BindValue.text) ?? .null,
             .real(now.timeIntervalSince1970),
             .text(macDeviceID),
-            .text(pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID)),
+            .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")"),
         ])
     }
 
@@ -445,7 +441,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
         } else {
             try exec(
                 "DELETE FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;",
-                binding: [.text(macDeviceID), .text(pairedMacOwnerKey(stackUserID: stackUserID, teamID: teamID))]
+                binding: [.text(macDeviceID), .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")")]
             )
         }
     }

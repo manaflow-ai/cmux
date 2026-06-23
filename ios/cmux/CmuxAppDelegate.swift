@@ -71,9 +71,11 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         // A swipe/clear of a cmux banner delivers the custom dismiss action
         // (enabled via the `cmux.terminal` category's `.customDismissAction`).
         // Forward it to the Mac so the desktop banner + store entry clear too.
+        let ids = Self.cmuxIDs(from: request.content.userInfo)
         if response.actionIdentifier == UNNotificationDismissActionIdentifier {
             await pushCoordinator?.handleDismiss(
-                notificationId: Self.notificationID(from: request)
+                notificationId: Self.notificationID(from: request),
+                macDeviceId: ids.macDeviceId
             )
             return
         }
@@ -81,7 +83,6 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         // the notification read on the Mac, mirroring the Mac's own tap path
         // (which opens + marks read). The two compose: deep-link locally, clear
         // on the Mac.
-        let ids = Self.cmuxIDs(from: request.content.userInfo)
         let appState = await UIApplication.shared.applicationState
         await analytics?.capture("ios_push_tapped", [
             "has_workspace_id": .bool(ids.workspaceId != nil),
@@ -94,7 +95,8 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
             macDeviceId: ids.macDeviceId
         )
         await pushCoordinator?.handleDismiss(
-            notificationId: Self.notificationID(from: request)
+            notificationId: Self.notificationID(from: request),
+            macDeviceId: ids.macDeviceId
         )
     }
 
