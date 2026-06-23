@@ -4806,18 +4806,9 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
         if usesTransparentBackground {
-            // Transparent-background internal surface (the diff viewer, and future
-            // app-bundled cmux panels) on an OPAQUE theme. The page keeps its body
-            // transparent, and the pane behind it is a plain gray window backdrop,
-            // not the terminal color. With WebKit drawing its own background the
-            // webview flashes white during navigation (blank document) and any
-            // transparent page region (loading skeleton, empty/error state) shows
-            // gray. So instead of letting WebKit draw, paint the webview and its
-            // portal anchor with the theme color directly (clear-draw + themed
-            // layer, exactly like the markdown and agent-session renderers). That
-            // makes the blank webview, the brief pane-reveal frame, and every
-            // transparent page region render the terminal color from the first
-            // frame. Tracks live theme changes via this same call.
+            // Transparent internal pages keep their page CSS clear. On opaque
+            // themes, the native webview layer owns the terminal-color backing
+            // fill so loading/empty/code regions never fall through to window gray.
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = color

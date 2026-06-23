@@ -2,6 +2,7 @@ import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { Link } from "../../../../i18n/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Callout } from "../../components/callout";
 import { DocsHeading } from "../../components/docs-heading";
 
@@ -23,6 +24,7 @@ export default function IosPage() {
 
   return (
     <>
+      <DocsSchema namespace="docs.ios" path="/docs/ios" />
       <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 

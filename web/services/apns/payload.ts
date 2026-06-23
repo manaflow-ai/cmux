@@ -25,6 +25,7 @@ export interface ApnsNotificationInput {
   readonly body: string;
   readonly workspaceId?: string | null;
   readonly surfaceId?: string | null;
+  readonly macDeviceId?: string | null;
   /**
    * Stable Mac-side notification id. Surfaced in the payload as
    * `cmux.notificationId` so an iOS swipe-dismiss can tell the Mac which
@@ -57,9 +58,10 @@ export const CMUX_APNS_CATEGORY = "cmux.terminal";
 
 /**
  * Build the APNs JSON payload. Adds `cmux.workspaceId`/`cmux.surfaceId`/
- * `cmux.notificationId` custom keys so a tapped notification can deep-link to
- * the right terminal and a swipe can be dismiss-synced, sets the dismiss-action
- * `category`, and marks the alert time-sensitive (the app holds that
+ * `cmux.macDeviceId`/`cmux.notificationId` custom keys so a tapped notification
+ * can deep-link to the right terminal on the right Mac and a swipe can be
+ * dismiss-synced, sets the dismiss-action `category`, and marks the alert
+ * time-sensitive (the app holds that
  * entitlement).
  */
 export function buildApnsPayload(input: ApnsNotificationInput): Record<string, unknown> {
@@ -84,6 +86,7 @@ export function buildApnsPayload(input: ApnsNotificationInput): Record<string, u
   const cmux: Record<string, string> = {};
   if (input.workspaceId) cmux.workspaceId = input.workspaceId;
   if (input.surfaceId) cmux.surfaceId = input.surfaceId;
+  if (input.macDeviceId) cmux.macDeviceId = input.macDeviceId;
   if (input.notificationId) cmux.notificationId = input.notificationId;
 
   return Object.keys(cmux).length > 0 ? { aps, cmux } : { aps };
