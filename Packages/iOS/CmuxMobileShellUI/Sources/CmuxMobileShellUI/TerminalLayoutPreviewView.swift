@@ -61,11 +61,50 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    // Feed a sample agent-session transcript once the surface has a real grid
+    // size, so App Store screenshots show a populated terminal instead of a
+    // blank one. Gated on CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1 so the
+    // blank-layout preview used by geometry tests is unchanged.
+    func updateUIView(_ uiView: UIView, context: Context) {
+        guard ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1",
+              !context.coordinator.didFeedContent,
+              let surface = uiView as? GhosttySurfaceView,
+              uiView.bounds.width > 1, uiView.bounds.height > 1
+        else { return }
+        context.coordinator.didFeedContent = true
+        surface.processOutput(Self.sampleTranscript)
+    }
+
+    /// A short, realistic coding-agent session (ANSI-colored) for screenshots.
+    private static let sampleTranscript: Data = {
+        let esc = "\u{1B}"
+        let reset = "\(esc)[0m"
+        let dim = "\(esc)[2m"
+        let green = "\(esc)[1;32m"
+        let magenta = "\(esc)[1;35m"
+        let cyan = "\(esc)[36m"
+        let prompt = "\(green)❯\(reset)"
+        let lines = [
+            "\(dim)~/projects/app\(reset)  \(cyan)main\(reset)",
+            "\(prompt) claude \(dim)\"add a dark mode toggle\"\(reset)",
+            "",
+            "\(magenta)●\(reset) I'll add a dark mode toggle to Settings.",
+            "  \(dim)Reading\(reset) SettingsView.swift",
+            "  \(green)✓\(reset) Added \(cyan)@AppStorage(\"isDarkMode\")\(reset)",
+            "  \(green)✓\(reset) Wired \(cyan)Toggle\(reset) into the General section",
+            "  \(green)✓\(reset) Applied \(cyan).preferredColorScheme\(reset)",
+            "",
+            "  \(green)Build succeeded.\(reset) 2 files changed.",
+            "",
+            "\(prompt) ",
+        ]
+        return Data(lines.joined(separator: "\r\n").utf8)
+    }()
 
     /// Retained delegate (the surface holds it weakly). No-op: the preview only
     /// exercises layout, not input/resize round-trips.
     final class Coordinator: GhosttySurfaceViewDelegate {
+        var didFeedContent = false
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {}
     }

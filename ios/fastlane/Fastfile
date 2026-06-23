@@ -18,7 +18,13 @@ platform :ios do
               .split(",").map(&:strip).reject(&:empty?)
     languages = (ENV["SNAPSHOT_LANGUAGES"] || "en-US,ja")
                 .split(",").map(&:strip).reject(&:empty?)
-    capture_screenshots(scheme: "cmux-ios", devices: devices, languages: languages)
+    capture_screenshots(
+      scheme: "cmux-ios",
+      devices: devices,
+      languages: languages,
+      # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
+      override_status_bar: true
+    )
     UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
   end
 

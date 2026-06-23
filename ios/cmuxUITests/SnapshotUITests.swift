@@ -26,10 +26,19 @@ final class SnapshotUITests: XCTestCase {
         // The preview screens are the root view for their env flag, so they
         // render on launch; wait for the first window + a brief settle rather
         // than a specific identifier (the preview views don't expose one).
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         func settle() {
             _ = app.wait(for: .runningForeground, timeout: 15)
             _ = app.windows.firstMatch.waitForExistence(timeout: 15)
             _ = app.staticTexts.firstMatch.waitForExistence(timeout: 8)
+            // Fresh simulators show a one-time "Ready for Apple Intelligence"
+            // banner that overlays the top of the first screen; swipe any
+            // notification banner up off-screen, then let layout settle.
+            let banner = springboard.otherElements["NotificationShortLookView"]
+            if banner.waitForExistence(timeout: 3) {
+                banner.swipeUp()
+            }
+            Thread.sleep(forTimeInterval: 2.0)
         }
 
         // 1) Workspace list.
@@ -40,10 +49,10 @@ final class SnapshotUITests: XCTestCase {
         snapshot("01-Workspaces")
         app.terminate()
 
-        // 2) Terminal surface (keyboard down).
+        // 2) Terminal surface with a sample agent session (keyboard down).
         app.launchEnvironment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] = nil
         app.launchEnvironment["CMUX_UITEST_TERMINAL_PREVIEW"] = "1"
-        app.launchEnvironment["CMUX_UITEST_SHOW_ZOOM"] = "1"
+        app.launchEnvironment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] = "1"
         app.launch()
         settle()
         snapshot("02-Terminal")
