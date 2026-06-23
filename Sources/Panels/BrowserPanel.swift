@@ -3154,6 +3154,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
     private var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
     private var detachedDeveloperToolsExplicitUserCloseWindowIds = Set<ObjectIdentifier>()
+    private var developerToolsPreservedVisibleIntentForNextAttach: Bool = false
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
     private var browserThemeMode: BrowserThemeMode
@@ -5946,6 +5947,7 @@ extension BrowserPanel {
         setPreferredDeveloperToolsVisible(false)
         preferredDeveloperToolsPresentation = .detached
         forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsPreservedVisibleIntentForNextAttach = false
         developerToolsDetachedOpenGraceDeadline = nil
         detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
         detachedDeveloperToolsWindowCloseResolutionTimer = nil
@@ -6436,6 +6438,7 @@ extension BrowserPanel {
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsPreservedVisibleIntentForNextAttach = false
         cancelDeveloperToolsRestoreRetry()
         setPreferredDeveloperToolsVisible(false)
         reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
@@ -6515,6 +6518,7 @@ extension BrowserPanel {
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsPreservedVisibleIntentForNextAttach = false
         setPreferredDeveloperToolsVisible(false)
         reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
@@ -6663,6 +6667,7 @@ extension BrowserPanel {
             if !targetVisible {
                 developerToolsDetachedOpenGraceDeadline = nil
                 forceDeveloperToolsRefreshOnNextAttach = false
+                developerToolsPreservedVisibleIntentForNextAttach = false
                 cancelDeveloperToolsRestoreRetry()
             }
 #if DEBUG
@@ -6722,6 +6727,7 @@ extension BrowserPanel {
         } else {
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
+            developerToolsPreservedVisibleIntentForNextAttach = false
             reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         }
 
@@ -6798,6 +6804,7 @@ extension BrowserPanel {
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsPreservedVisibleIntentForNextAttach = false
         cancelDeveloperToolsRestoreRetry()
 
         let closed = WebViewInspectorTeardown.closeInspector(for: webView)
@@ -6814,17 +6821,20 @@ extension BrowserPanel {
             setPreferredDeveloperToolsVisible(targetVisible)
             if targetVisible, visible {
                 developerToolsDetachedOpenGraceDeadline = nil
+                developerToolsPreservedVisibleIntentForNextAttach = false
                 syncDeveloperToolsPresentationPreferenceFromUI()
                 cancelDeveloperToolsRestoreRetry()
             } else if !targetVisible {
                 developerToolsDetachedOpenGraceDeadline = nil
                 forceDeveloperToolsRefreshOnNextAttach = false
+                developerToolsPreservedVisibleIntentForNextAttach = false
                 cancelDeveloperToolsRestoreRetry()
             }
             return
         }
         if visible {
             developerToolsDetachedOpenGraceDeadline = nil
+            developerToolsPreservedVisibleIntentForNextAttach = false
             syncDeveloperToolsPresentationPreferenceFromUI()
             setPreferredDeveloperToolsVisible(true)
             developerToolsLastKnownVisibleAt = Date()
@@ -6835,8 +6845,10 @@ extension BrowserPanel {
             return
         }
         if preserveVisibleIntent && preferredDeveloperToolsVisible {
+            developerToolsPreservedVisibleIntentForNextAttach = true
             return
         }
+        developerToolsPreservedVisibleIntentForNextAttach = false
         setPreferredDeveloperToolsVisible(false)
         developerToolsLastKnownVisibleAt = nil
         reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
@@ -6868,6 +6880,7 @@ extension BrowserPanel {
     private var hasActiveDeveloperToolsReattachReason: Bool {
         isDeveloperToolsVisible()
             || forceDeveloperToolsRefreshOnNextAttach
+            || developerToolsPreservedVisibleIntentForNextAttach
             || developerToolsRestoreRetryWorkItem != nil
     }
 
@@ -6917,6 +6930,7 @@ extension BrowserPanel {
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsPreservedVisibleIntentForNextAttach = false
         reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
         cancelDeveloperToolsRestoreRetry()
 #if DEBUG
@@ -6933,6 +6947,7 @@ extension BrowserPanel {
         guard preferredDeveloperToolsVisible else {
             cancelDeveloperToolsRestoreRetry()
             forceDeveloperToolsRefreshOnNextAttach = false
+            developerToolsPreservedVisibleIntentForNextAttach = false
             return
         }
         guard !isDeveloperToolsTransitionInFlight else { return }
@@ -6945,6 +6960,7 @@ extension BrowserPanel {
         if visible {
             let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
             forceDeveloperToolsRefreshOnNextAttach = false
+            developerToolsPreservedVisibleIntentForNextAttach = false
             developerToolsDetachedOpenGraceDeadline = nil
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
@@ -6962,10 +6978,13 @@ extension BrowserPanel {
             return
         }
         let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        let shouldPreserveVisibleIntent = developerToolsPreservedVisibleIntentForNextAttach
         forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsPreservedVisibleIntentForNextAttach = false
         if preferredDeveloperToolsPresentation == .detached &&
             !detachedOpenStillSettling &&
-            !shouldForceRefresh {
+            !shouldForceRefresh &&
+            !shouldPreserveVisibleIntent {
             setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
             cancelDeveloperToolsRestoreRetry()
