@@ -107,18 +107,22 @@ export function DownloadButton({
     </svg>
   );
 
-  // A small filled caret reads crisper than a thin stroked chevron at this
-  // size (no sub-pixel stroke fuzz), which keeps the split affordance clean.
+  // A thin, evenly-weighted chevron (Lucide geometry) — the standard clean
+  // dropdown caret. Stays faint, brightening only on hover/open.
   const caretIcon = (
     <svg
-      width={isSmall ? 9 : 10}
-      height={isSmall ? 9 : 10}
-      viewBox="0 0 10 10"
-      fill="currentColor"
+      width={isSmall ? 12 : 14}
+      height={isSmall ? 12 : 14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       className="opacity-40 transition-opacity group-hover:opacity-70 group-data-[popup-open]:opacity-70"
       aria-hidden="true"
     >
-      <path d="M2 3.5h6L5 7z" />
+      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 

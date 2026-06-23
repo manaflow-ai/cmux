@@ -68,16 +68,22 @@ function WaitlistBody({
       return;
     }
     const platforms = isAny ? [...WAITLIST_PLATFORMS] : [target];
+    // Identify the visitor by the email they gave so the signup becomes a real
+    // PostHog person (queryable in People, not just a raw event). `$set_once`
+    // keeps `waitlist_email` as the original waitlist address even if the
+    // person is later merged. This is the *waitlist* email and may differ from
+    // the account email the user eventually signs in with; reconcile at app
+    // sign-in by identifying the canonical user id (PostHog aliases the email
+    // person into it) rather than treating this as their permanent identity.
+    posthog.identify(trimmed, { email: trimmed }, { waitlist_email: trimmed });
     posthog.capture("cmuxterm_waitlist_signup", {
       platforms,
       email: trimmed,
       location,
     });
-    // Attach the email to the person so the signup is queryable per visitor.
-    posthog.setPersonProperties({
-      email: trimmed,
-      ...Object.fromEntries(platforms.map((p) => [`waitlist_${p}`, true])),
-    });
+    posthog.setPersonProperties(
+      Object.fromEntries(platforms.map((p) => [`waitlist_${p}`, true])),
+    );
     setStatus("done");
   };
 
