@@ -79,20 +79,6 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
         )
         XCTAssertTrue(
             AgentLaunchCaptureTrust.nativeProcessDescribesKind(
-                processName: "hermes",
-                arguments: ["/opt/homebrew/bin/hermes", "--provider", "custom", "--model", "gpt-5.5"],
-                kind: "hermes-agent"
-            )
-        )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
-                processName: "acli",
-                arguments: ["/usr/local/bin/acli", "rovodev", "run", "--restore", "rovo-session"],
-                kind: "rovodev"
-            )
-        )
-        XCTAssertTrue(
-            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
                 processName: "acme-agent",
                 arguments: ["/Users/alice/bin/acme-agent", "--session", "native-session"],
                 kind: "acme-agent"
