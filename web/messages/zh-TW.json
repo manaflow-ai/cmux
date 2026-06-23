@@ -1609,7 +1609,17 @@
       "otherTitle": "Alacritty、kitty 和 WezTerm",
       "otherBody": "面向喜歡在檔案裡設定一切的人的快速 GPU 終端。Alacritty 刻意極簡，kitty 功能豐富且可指令稿化，WezTerm 自帶多工器。它們都跨平台，如果你想要一個高度調校的單一終端，它們很合適。",
       "tmuxTitle": "tmux",
-      "tmuxBody": "它不是終端，而是你在終端內執行的多工器。在遠端伺服器上透過 SSH 維持持久工作階段方面無可匹敵。需要時，cmux 可以連接到遠端 tmux 工作階段。"
+      "tmuxBody": "它不是終端，而是你在終端內執行的多工器。在遠端伺服器上透過 SSH 維持持久工作階段方面無可匹敵。需要時，cmux 可以連接到遠端 tmux 工作階段。",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "無",
+      "pMac": "macOS",
+      "pMacLinux": "macOS、Linux",
+      "pMacLinuxWin": "macOS、Linux、Windows",
+      "pCross": "跨平台",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux 基於 Ghostty（libghostty）構建 — cmux",

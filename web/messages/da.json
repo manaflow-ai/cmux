@@ -1609,7 +1609,17 @@
       "otherTitle": "Alacritty, kitty og WezTerm",
       "otherBody": "Hurtige GPU-terminaler til folk, der kan lide at konfigurere alt i en fil. Alacritty er bevidst minimalistisk, kitty er funktionsrig og skriptbar, og WezTerm har sin egen multiplexer indbygget. Alle er på tværs af platforme og et godt valg, hvis en enkelt, finjusteret terminal er det, du vil have.",
       "tmuxTitle": "tmux",
-      "tmuxBody": "Ikke en terminal, men en multiplexer, du kører inde i en. Uovertruffen til vedvarende sessioner over SSH på fjernservere. cmux kan tilkoble sig fjern-tmux-sessioner, når du har brug for det."
+      "tmuxBody": "Ikke en terminal, men en multiplexer, du kører inde i en. Uovertruffen til vedvarende sessioner over SSH på fjernservere. cmux kan tilkoble sig fjern-tmux-sessioner, når du har brug for det.",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "ikke relevant",
+      "pMac": "macOS",
+      "pMacLinux": "macOS, Linux",
+      "pMacLinuxWin": "macOS, Linux, Windows",
+      "pCross": "på tværs af platforme",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux er bygget på Ghostty (libghostty) — cmux",

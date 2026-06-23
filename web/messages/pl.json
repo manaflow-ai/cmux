@@ -1609,7 +1609,17 @@
       "otherTitle": "Alacritty, kitty i WezTerm",
       "otherBody": "Szybkie terminale GPU dla osób, które lubią konfigurować wszystko w pliku. Alacritty jest celowo minimalistyczny, kitty jest bogaty w funkcje i skryptowalny, a WezTerm dołącza własny multiplekser. Wszystkie są wieloplatformowe i dobrze sprawdzą się, jeśli chcesz pojedynczy, mocno dopracowany terminal.",
       "tmuxTitle": "tmux",
-      "tmuxBody": "Nie terminal, lecz multiplekser, który uruchamiasz wewnątrz jednego. Niezrównany do trwałych sesji przez SSH na zdalnych serwerach. cmux może podłączać się do zdalnych sesji tmux, gdy tego potrzebujesz."
+      "tmuxBody": "Nie terminal, lecz multiplekser, który uruchamiasz wewnątrz jednego. Niezrównany do trwałych sesji przez SSH na zdalnych serwerach. cmux może podłączać się do zdalnych sesji tmux, gdy tego potrzebujesz.",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "nd.",
+      "pMac": "macOS",
+      "pMacLinux": "macOS, Linux",
+      "pMacLinuxWin": "macOS, Linux, Windows",
+      "pCross": "wieloplatformowy",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux jest zbudowany na Ghostty (libghostty) — cmux",

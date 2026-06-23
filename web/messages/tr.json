@@ -1609,7 +1609,17 @@
       "otherTitle": "Alacritty, kitty ve WezTerm",
       "otherBody": "Her şeyi bir dosyada yapılandırmayı sevenler için hızlı GPU terminalleri. Alacritty bilinçli olarak minimaldir, kitty özellik açısından zengin ve betiklenebilir, WezTerm ise kendi çoklayıcısını içerir. Hepsi çapraz platformdur ve istediğiniz şey tek, ince ayarlı bir terminalse iyi bir seçimdir.",
       "tmuxTitle": "tmux",
-      "tmuxBody": "Bir terminal değil, bir terminalin içinde çalıştırdığınız bir çoklayıcıdır. Uzak sunucularda SSH üzerinden kalıcı oturumlar için rakipsizdir. cmux, ihtiyaç duyduğunuzda uzaktaki tmux oturumlarına bağlanabilir."
+      "tmuxBody": "Bir terminal değil, bir terminalin içinde çalıştırdığınız bir çoklayıcıdır. Uzak sunucularda SSH üzerinden kalıcı oturumlar için rakipsizdir. cmux, ihtiyaç duyduğunuzda uzaktaki tmux oturumlarına bağlanabilir.",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "yok",
+      "pMac": "macOS",
+      "pMacLinux": "macOS, Linux",
+      "pMacLinuxWin": "macOS, Linux, Windows",
+      "pCross": "çoklu platform",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux, Ghostty (libghostty) üzerine kuruludur — cmux",

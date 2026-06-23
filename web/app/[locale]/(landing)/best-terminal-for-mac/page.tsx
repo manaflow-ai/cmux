@@ -25,15 +25,15 @@ export default function BestTerminalForMacPage() {
       <CompareTable
         headers={[t("thTerminal"), t("thBuiltFor"), t("thRenderer"), t("thPlatform")]}
         rows={[
-          ["cmux", t("cmuxBuiltFor"), "GPU (libghostty)", "macOS"],
-          ["Ghostty", t("ghosttyBuiltFor"), "GPU", "macOS, Linux"],
-          ["iTerm2", t("iterm2BuiltFor"), "GPU / CPU", "macOS"],
-          ["Warp", t("warpBuiltFor"), "GPU", "macOS, Linux, Windows"],
-          ["Terminal.app", t("terminalAppBuiltFor"), "CPU", "macOS"],
-          ["Alacritty", t("alacrittyBuiltFor"), "GPU", "cross-platform"],
-          ["kitty", t("kittyBuiltFor"), "GPU", "macOS, Linux"],
-          ["WezTerm", t("weztermBuiltFor"), "GPU", "cross-platform"],
-          ["tmux", t("tmuxBuiltFor"), "n/a", "Unix"],
+          ["cmux", t("cmuxBuiltFor"), t("rGpuLib"), t("pMac")],
+          ["Ghostty", t("ghosttyBuiltFor"), t("rGpu"), t("pMacLinux")],
+          ["iTerm2", t("iterm2BuiltFor"), t("rGpuCpu"), t("pMac")],
+          ["Warp", t("warpBuiltFor"), t("rGpu"), t("pMacLinuxWin")],
+          ["Terminal.app", t("terminalAppBuiltFor"), t("rCpu"), t("pMac")],
+          ["Alacritty", t("alacrittyBuiltFor"), t("rGpu"), t("pCross")],
+          ["kitty", t("kittyBuiltFor"), t("rGpu"), t("pMacLinux")],
+          ["WezTerm", t("weztermBuiltFor"), t("rGpu"), t("pCross")],
+          ["tmux", t("tmuxBuiltFor"), t("rNa"), t("pUnix")],
         ]}
       />
 

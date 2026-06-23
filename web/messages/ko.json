@@ -1609,7 +1609,17 @@
       "otherTitle": "Alacritty, kitty, WezTerm",
       "otherBody": "모든 것을 파일에서 설정하기를 좋아하는 사람들을 위한 빠른 GPU 터미널입니다. Alacritty는 의도적으로 미니멀하고, kitty는 기능이 풍부하며 스크립트 가능하고, WezTerm은 자체 멀티플렉서를 번들로 제공합니다. 모두 크로스 플랫폼이며, 하나의 세심하게 튜닝된 터미널을 원한다면 잘 맞습니다.",
       "tmuxTitle": "tmux",
-      "tmuxBody": "터미널이 아니라 터미널 안에서 실행하는 멀티플렉서입니다. 원격 서버에서 SSH로 지속되는 세션을 유지하는 데 있어 타의 추종을 불허합니다. 필요할 때 cmux는 원격 tmux 세션에 연결할 수 있습니다."
+      "tmuxBody": "터미널이 아니라 터미널 안에서 실행하는 멀티플렉서입니다. 원격 서버에서 SSH로 지속되는 세션을 유지하는 데 있어 타의 추종을 불허합니다. 필요할 때 cmux는 원격 tmux 세션에 연결할 수 있습니다.",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "해당 없음",
+      "pMac": "macOS",
+      "pMacLinux": "macOS, Linux",
+      "pMacLinuxWin": "macOS, Linux, Windows",
+      "pCross": "크로스 플랫폼",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux는 Ghostty(libghostty) 위에 만들어졌습니다 — cmux",

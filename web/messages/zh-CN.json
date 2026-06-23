@@ -1609,7 +1609,17 @@
       "otherTitle": "Alacritty、kitty 和 WezTerm",
       "otherBody": "面向喜欢在文件里配置一切的人的快速 GPU 终端。Alacritty 刻意极简，kitty 功能丰富且可脚本化，WezTerm 自带多路复用器。它们都跨平台，如果你想要一个高度调校的单一终端，它们很合适。",
       "tmuxTitle": "tmux",
-      "tmuxBody": "它不是终端，而是你在终端内运行的多路复用器。在远程服务器上通过 SSH 维持持久会话方面无可匹敌。需要时，cmux 可以连接到远程 tmux 会话。"
+      "tmuxBody": "它不是终端，而是你在终端内运行的多路复用器。在远程服务器上通过 SSH 维持持久会话方面无可匹敌。需要时，cmux 可以连接到远程 tmux 会话。",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "无",
+      "pMac": "macOS",
+      "pMacLinux": "macOS、Linux",
+      "pMacLinuxWin": "macOS、Linux、Windows",
+      "pCross": "跨平台",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux 基于 Ghostty（libghostty）构建 — cmux",

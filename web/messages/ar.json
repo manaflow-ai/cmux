@@ -1609,7 +1609,17 @@
       "otherTitle": "Alacritty وkitty وWezTerm",
       "otherBody": "محطات طرفية سريعة تعمل بـ GPU لمن يحبون تهيئة كل شيء في ملف. Alacritty بسيطة عن قصد، وkitty غنية بالميزات وقابلة للبرمجة، وWezTerm تأتي مع مُعدِّدها الخاص. كلها متعددة المنصات وخيار جيد إذا كان ما تريده محطة طرفية واحدة مضبوطة بدقة عالية.",
       "tmuxTitle": "tmux",
-      "tmuxBody": "ليست محطة طرفية بل مُعدِّدًا تشغّله داخل واحدة. لا يُضاهى في الجلسات الدائمة عبر SSH على الخوادم البعيدة. ويمكن لـ cmux الاتصال بجلسات tmux البعيدة عندما تحتاج إلى ذلك."
+      "tmuxBody": "ليست محطة طرفية بل مُعدِّدًا تشغّله داخل واحدة. لا يُضاهى في الجلسات الدائمة عبر SSH على الخوادم البعيدة. ويمكن لـ cmux الاتصال بجلسات tmux البعيدة عندما تحتاج إلى ذلك.",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "غير متاح",
+      "pMac": "macOS",
+      "pMacLinux": "macOS, Linux",
+      "pMacLinuxWin": "macOS, Linux, Windows",
+      "pCross": "متعدد المنصات",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux مبنية على Ghostty (libghostty) — cmux",

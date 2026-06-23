@@ -1903,7 +1903,17 @@
       "otherTitle": "Alacritty、kitty、WezTerm",
       "otherBody": "すべてをファイルで設定するのが好きな人向けの高速 GPU ターミナル。Alacritty はあえてミニマル、kitty は多機能でスクリプト可能、WezTerm は独自のマルチプレクサを同梱しています。いずれもクロスプラットフォームで、高度にチューニングした単一のターミナルが欲しいなら好適です。",
       "tmuxTitle": "tmux",
-      "tmuxBody": "ターミナルではなく、ターミナル内で動かすマルチプレクサです。リモートサーバーへの SSH 越しの永続セッションには無類の強さ。必要なときは cmux からリモートの tmux セッションにアタッチできます。"
+      "tmuxBody": "ターミナルではなく、ターミナル内で動かすマルチプレクサです。リモートサーバーへの SSH 越しの永続セッションには無類の強さ。必要なときは cmux からリモートの tmux セッションにアタッチできます。",
+      "rGpuLib": "GPU (libghostty)",
+      "rGpu": "GPU",
+      "rGpuCpu": "GPU / CPU",
+      "rCpu": "CPU",
+      "rNa": "なし",
+      "pMac": "macOS",
+      "pMacLinux": "macOS, Linux",
+      "pMacLinuxWin": "macOS, Linux, Windows",
+      "pCross": "クロスプラットフォーム",
+      "pUnix": "Unix"
     },
     "ghostty": {
       "metaTitle": "cmux は Ghostty（libghostty）で作られています — cmux",
