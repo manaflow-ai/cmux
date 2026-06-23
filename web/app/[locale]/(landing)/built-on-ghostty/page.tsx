@@ -1,59 +1,44 @@
-import type { Metadata } from "next";
+import { useTranslations } from "next-intl";
+import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../../i18n/seo";
 import { LandingCTA } from "../landing-ui";
 
-export const metadata: Metadata = {
-  title: "cmux is built on Ghostty (libghostty) — cmux",
-  description:
-    "cmux uses libghostty, the engine behind Ghostty, for GPU-accelerated terminal rendering, then adds workspaces, vertical tabs, notifications, and a socket API for multitasking and AI coding agents.",
-  alternates: { canonical: "https://cmux.com/built-on-ghostty" },
-};
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale } = await params;
+  const t = await getTranslations({ locale, namespace: "landing.ghostty" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/built-on-ghostty"),
+  };
+}
 
 export default function BuiltOnGhosttyPage() {
+  const t = useTranslations("landing.ghostty");
   return (
     <>
-      <h1>cmux is built on Ghostty</h1>
+      <h1>{t("title")}</h1>
       <p>
-        cmux is not a fork of Ghostty. It embeds{" "}
-        <a
-          href="https://github.com/ghostty-org/ghostty"
-          className="underline underline-offset-2"
-        >
-          libghostty
-        </a>
-        , the library at the core of the Ghostty terminal, for GPU-accelerated
-        rendering, the same way an app uses WebKit for web views. Ghostty is a
-        standalone terminal; cmux is a different application built on top of its
-        rendering engine.
+        {t.rich("intro", {
+          link: (chunks) => (
+            <a href="https://github.com/ghostty-org/ghostty" className="underline underline-offset-2">
+              {chunks}
+            </a>
+          ),
+        })}
       </p>
 
-      <h2>What cmux adds on top</h2>
-      <p>
-        libghostty gives cmux a fast, accurate terminal. cmux builds an
-        application around it for multitasking, organization, and
-        programmability:
-      </p>
+      <h2>{t("addsTitle")}</h2>
+      <p>{t("addsIntro")}</p>
       <ul>
-        <li>
-          Workspaces in a vertical sidebar, each showing its git branch, working
-          directory, ports, and the latest line of agent output.
-        </li>
-        <li>Notification rings when a pane needs your attention.</li>
-        <li>Vertical tabs and split panes that scale to dozens of sessions.</li>
-        <li>
-          A CLI and Unix socket API to script workspaces, panes, input, and an
-          in-app browser.
-        </li>
+        <li>{t("add1")}</li>
+        <li>{t("add2")}</li>
+        <li>{t("add3")}</li>
+        <li>{t("add4")}</li>
       </ul>
 
-      <h2>Why libghostty</h2>
-      <p>
-        Reusing libghostty means cmux inherits Ghostty&apos;s rendering quality
-        and performance instead of reimplementing a terminal, and stays focused
-        on the workspace, organization, and automation layer that sits above the
-        terminal grid. Your existing{" "}
-        <code>~/.config/ghostty/config</code> for themes, fonts, and colors is
-        read directly.
-      </p>
+      <h2>{t("whyTitle")}</h2>
+      <p>{t.rich("whyBody", { code: (chunks) => <code>{chunks}</code> })}</p>
 
       <LandingCTA
         related={[

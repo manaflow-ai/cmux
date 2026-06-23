@@ -27,11 +27,6 @@ const englishOnlyPages = [
   "/privacy-policy",
   "/terms-of-service",
   "/eula",
-  "/best-terminal-for-mac",
-  "/built-on-ghostty",
-  "/claude-code-terminal",
-  "/codex-cli",
-  "/opencode",
 ] as const;
 
 export const agentReadablePages = [

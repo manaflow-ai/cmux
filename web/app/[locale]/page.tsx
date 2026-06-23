@@ -132,6 +132,7 @@ function HomeContent() {
                 ["scriptable", "scriptableDesc"],
                 ["gpuAccelerated", "gpuAcceleratedDesc"],
                 ["lightweight", "lightweightDesc"],
+                ["ios", "iosDesc"],
                 ["openSource", "openSourceDesc"],
               ] as const
             ).map(([title, desc]) => (

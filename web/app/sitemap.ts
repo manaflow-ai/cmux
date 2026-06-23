@@ -57,18 +57,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 
-  // English-only pages (not translated) get a single sitemap entry: the legal
-  // pages and the SEO landing pages.
-  const englishOnly = new Set([
-    "/privacy-policy",
-    "/terms-of-service",
-    "/eula",
-    "/best-terminal-for-mac",
-    "/built-on-ghostty",
-    "/claude-code-terminal",
-    "/codex-cli",
-    "/opencode",
-  ]);
+  // Legal pages are English-only (not translated), so they only get one entry.
+  // The SEO landing pages are localized, so they go through the per-locale loop.
+  const englishOnly = new Set(["/privacy-policy", "/terms-of-service", "/eula"]);
 
   const entries: MetadataRoute.Sitemap = [];
 
