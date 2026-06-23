@@ -20,8 +20,12 @@
 #
 #   --attach   also pair to the running Mac. Uses CMUX_DOGFOOD_ATTACH_URL when it
 #              is already set (as dev-setup.sh passes it), else mints a fresh
-#              ticket from the mobile-attach QR server (default :17321). Requires
-#              that server + the tagged Mac app to be running.
+#              ticket: the mobile-attach QR server (default :17321) if up, else
+#              directly against the tagged Mac debug socket. Needs the tagged Mac
+#              app running with the pairing host enabled (see --ensure-mac).
+#   --ensure-mac  imply --attach and, before minting, enable the tagged Mac app's
+#              pairing host + launch it if its debug socket is down. Lets a device
+#              reload auto-pair with no separately-running Mac app or QR server.
 #   --agent    sign in with the shared agent account instead of the dogfood one.
 #   --detach   simulator only: launch without attaching stdio, so the app keeps
 #              running after this script exits.
@@ -33,9 +37,11 @@ TARGET="simulator"          # simulator | device
 SIMULATOR_NAME="iPhone 17"
 DEVICE_ID=""
 ATTACH=0
+ENSURE_MAC=0
 AGENT=0
 DETACH=0
 QR_PORT="${CMUX_QR_PORT:-17321}"
+ATTACH_TTL_SECONDS="${CMUX_ATTACH_TTL_SECONDS:-600}"
 
 usage() { sed -n '2,30p' "$0"; }
 
@@ -46,6 +52,10 @@ while [[ $# -gt 0 ]]; do
     --device) TARGET="device"; shift ;;
     --device-id) DEVICE_ID="${2:-}"; shift 2 ;;
     --attach) ATTACH=1; shift ;;
+    # --ensure-mac: before minting, enable the tagged Mac app's pairing host and
+    # launch it if its debug socket is down, so --attach can mint without a
+    # separately-running Mac app or QR server. Implies --attach.
+    --ensure-mac) ENSURE_MAC=1; ATTACH=1; shift ;;
     --agent) AGENT=1; shift ;;
     --detach) DETACH=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -64,8 +74,11 @@ fi
 # Dogfood account wins over the agent account so iOS dev builds sign in as the
 # human dogfooder by default. Pass --agent for agent-driven flows.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/mobile-attach.sh
+source "$SCRIPT_DIR/lib/mobile-attach.sh"
 if [[ "$AGENT" -eq 1 ]]; then
   cmux_dev_secrets_load --agent || exit $?
 else
@@ -73,21 +86,36 @@ else
 fi
 
 # --- bundle id (matches ios/scripts/reload.sh sanitize_tag) ------------------
-slug="$(echo "$TAG" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-[[ -n "$slug" ]] || slug="dev"
+slug="$(cmux_attach__slug "$TAG")"
 BUNDLE_ID="dev.cmux.ios.$slug"
 
 # --- attach ticket ----------------------------------------------------------
-# Prefer a pre-minted CMUX_DOGFOOD_ATTACH_URL (dev-setup.sh sets it directly,
-# so no QR server is needed). With --attach and no pre-set URL, mint a fresh one
-# from the mobile-attach QR server. Inject it as CMUX_DOGFOOD_ATTACH_URL, the
-# NOT-mock-gated env var the app reads with the real backend (CMUX_UITEST_MOCK_DATA=0).
+# Prefer a pre-minted CMUX_DOGFOOD_ATTACH_URL (dev-setup.sh sets it directly).
+# Otherwise, with --attach, mint one ourselves: first try the mobile-attach QR
+# server, then fall back to minting directly against the tagged Mac socket (no QR
+# server needed). With --ensure-mac we first enable the pairing host + launch the
+# tagged Mac app if its socket is down. The URL is injected as
+# CMUX_DOGFOOD_ATTACH_URL, the NOT-mock-gated var the app reads with the real
+# backend (CMUX_UITEST_MOCK_DATA=0).
 ATTACH_URL="${CMUX_DOGFOOD_ATTACH_URL:-}"
 if [[ -z "$ATTACH_URL" && "$ATTACH" -eq 1 ]]; then
+  if [[ "$ENSURE_MAC" -eq 1 ]]; then
+    cmux_attach_ensure_mac "$TAG" || true
+  fi
   ATTACH_URL="$(curl -fsS -m 8 "http://127.0.0.1:${QR_PORT}/ticket.json" 2>/dev/null \
     | python3 -c 'import sys,json; print(json.load(sys.stdin).get("attach_url",""))' 2>/dev/null || true)"
   if [[ -z "$ATTACH_URL" ]]; then
-    echo "warning: --attach requested but no ticket from :${QR_PORT} (is the QR server + tagged Mac app running?); launching signed-in only" >&2
+    # No QR server (or it had no ticket): mint straight from the tagged socket.
+    if cmux_attach_mac_socket_ready "$TAG"; then
+      ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
+    fi
+  fi
+  if [[ -z "$ATTACH_URL" ]]; then
+    if [[ "$ENSURE_MAC" -eq 1 ]]; then
+      echo "warning: could not mint an attach ticket (the tagged Mac app's pairing listener may still be binding, or the macOS Local Network prompt is unanswered — click Allow, then re-run); launching signed-in only" >&2
+    else
+      echo "warning: --attach requested but no attach ticket could be minted (is the tagged Mac app for '$TAG' running with the pairing host enabled? try --ensure-mac); launching signed-in only" >&2
+    fi
   fi
 fi
 
