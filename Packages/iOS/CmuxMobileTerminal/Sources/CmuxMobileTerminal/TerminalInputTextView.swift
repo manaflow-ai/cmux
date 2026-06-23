@@ -974,7 +974,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     ) {
         let usesStableScrollableAppearance = (button as? AccessoryActionButton)?
             .usesStableScrollableAppearance ?? false
-        var config = Self.accessoryButtonConfiguration(
+        var config = accessoryButtonConfiguration(
             armed: armed,
             sticky: sticky,
             useLiquidGlass: !usesStableScrollableAppearance
@@ -1028,7 +1028,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
-    private static func accessoryButtonConfiguration(
+    private func accessoryButtonConfiguration(
         armed: Bool,
         sticky: Bool,
         useLiquidGlass: Bool
@@ -1050,9 +1050,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         } else if armed {
             background.backgroundColor = .systemBlue
         } else {
-            background.backgroundColor = accessoryButtonNormalBackground
+            background.backgroundColor = Self.accessoryButtonNormalBackground
         }
-        background.cornerRadius = accessoryButtonCornerRadius
+        background.cornerRadius = Self.accessoryButtonCornerRadius
         config.background = background
         config.baseForegroundColor = .white
         return config
