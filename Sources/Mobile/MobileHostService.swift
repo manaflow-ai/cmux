@@ -6,6 +6,7 @@ import CryptoKit
 import Foundation
 @preconcurrency import Network
 import OSLog
+import Security
 import StackAuth
 import os
 
@@ -1189,16 +1190,24 @@ final class MobileHostService {
     /// an iroh endpoint and advertises a dial-by-EndpointId route only when this
     /// is explicitly turned on, so existing TCP/Tailscale behavior is untouched.
     nonisolated static func isIrohHostEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.bool(forKey: "cmux.mobileHost.iroh.enabled")
+        let key = SettingCatalog().mobile.iOSIrohHost
+        if let override = defaults.object(forKey: key.userDefaultsKey) as? Bool {
+            return override
+        }
+        return key.defaultValue
     }
 
     /// Binds the iroh endpoint and starts accepting, merging its route into the
     /// published set. Idempotent; a no-op when disabled or already bound.
     private func startIrohListener() {
         guard Self.isIrohHostEnabled(), irohListener == nil else { return }
-        // Ephemeral key for now; a persisted Keychain key (a stable EndpointId
-        // for client pinning) is a follow-up. enableRelay so off-LAN phones dial.
-        let listener = CmxIrohByteListener(secretKey: nil, enableRelay: true)
+        // A persisted Keychain key gives the Mac a stable EndpointId across
+        // launches (the per-device identity client pinning relies on).
+        // enableRelay so off-LAN phones can dial.
+        let listener = CmxIrohByteListener(
+            secretKey: Self.loadOrCreateIrohSecretKey(),
+            enableRelay: true
+        )
         irohListener = listener
         irohAcceptTask = Task { @MainActor [weak self] in
             do {
@@ -1270,6 +1279,43 @@ final class MobileHostService {
             routes.append(irohRoute)
         }
         return routes
+    }
+
+    private static let irohSecretKeyKeychainService = "dev.cmux.iroh.host-secret-key"
+    private static let irohSecretKeyByteCount = 32
+
+    /// The Mac's persisted iroh secret key. Stored in the Keychain as a generic
+    /// password with `AfterFirstUnlockThisDeviceOnly` and no iCloud sync (a synced
+    /// key would let two Macs claim one EndpointId), so the Mac keeps one stable
+    /// EndpointId across launches. Generated once via CryptoKit's Ed25519 (the
+    /// curve iroh uses); a fresh ephemeral key is returned if the Keychain write
+    /// fails so the host still binds.
+    private nonisolated static func loadOrCreateIrohSecretKey() -> [UInt8] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: irohSecretKeyKeychainService,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+           let data = result as? Data,
+           data.count == irohSecretKeyByteCount {
+            return [UInt8](data)
+        }
+        let key = Data(Curve25519.Signing.PrivateKey().rawRepresentation)
+        var insert: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: irohSecretKeyKeychainService,
+            kSecValueData as String: key,
+        ]
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemDelete(query as CFDictionary)
+        let status = SecItemAdd(insert as CFDictionary, nil)
+        if status != errSecSuccess {
+            mobileHostLog.error("failed to persist iroh secret key (status \(status, privacy: .public)); using ephemeral")
+        }
+        return [UInt8](key)
     }
 
     /// Whether an incoming connection's remote peer is on the loopback interface.

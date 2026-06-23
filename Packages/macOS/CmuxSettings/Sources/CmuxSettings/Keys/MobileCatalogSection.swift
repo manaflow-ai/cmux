@@ -10,6 +10,17 @@ public struct MobileCatalogSection: SettingCatalogSection {
         userDefaultsKey: "mobile.iOSPairingHost.enabled"
     )
 
+    /// Mac-side iroh accept lane (plans/feat-ios-iroh/DESIGN.md). When on, the
+    /// Mac binds an iroh endpoint and advertises a dial-by-EndpointId route, so
+    /// signed-in phones attach without Tailscale or a LAN. Defaults off until the
+    /// on-device cellular attach is validated; the design flips this on by
+    /// default as the post-dogfood step.
+    public let iOSIrohHost = DefaultsKey<Bool>(
+        id: "mobile.iOSIrohHost.enabled",
+        defaultValue: false,
+        userDefaultsKey: "mobile.iOSIrohHost.enabled"
+    )
+
     /// TCP port the Mac-side iOS pairing listener prefers to bind.
     ///
     /// This is a *preference*: if the port is already in use the listener

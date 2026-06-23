@@ -9,6 +9,7 @@ import SwiftUI
 @MainActor
 public struct MobileSection: View {
     @State private var iOSPairingHost: DefaultsValueModel<Bool>
+    @State private var iOSIrohHost: DefaultsValueModel<Bool>
     @State private var port: DefaultsValueModel<Int>
     @State private var displayName: DefaultsValueModel<String>
     @State private var status: MobilePairingStatusModel
@@ -43,6 +44,7 @@ public struct MobileSection: View {
         hostActions: SettingsHostActions
     ) {
         _iOSPairingHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingHost))
+        _iOSIrohHost = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSIrohHost))
         _port = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingPort))
         _displayName = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.mobile.iOSPairingDisplayName))
         _status = State(initialValue: MobilePairingStatusModel(hostActions: hostActions))
@@ -73,6 +75,8 @@ public struct MobileSection: View {
                 pairDeviceRow
                 SettingsCardDivider()
                 iOSPairingHostRow
+                SettingsCardDivider()
+                iOSIrohHostRow
                 SettingsCardDivider()
                 portRow
                 boundPortStatusRow
@@ -132,6 +136,22 @@ public struct MobileSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsMobileIOSPairingHostToggle")
+        }
+    }
+
+    private var iOSIrohHostRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:mobile:iOSIrohHost",
+            String(localized: "settings.mobile.iOSIrohHost", defaultValue: "iroh Direct Connect"),
+            subtitle: iOSIrohHost.current
+                ? String(localized: "settings.mobile.iOSIrohHost.subtitleOn", defaultValue: "Lets signed-in iPhones and iPads attach to this Mac over an encrypted iroh connection, without Tailscale or a shared network.")
+                : String(localized: "settings.mobile.iOSIrohHost.subtitleOff", defaultValue: "Keeps the Mac-side iroh accept lane off until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { iOSIrohHost.current }, set: { iOSIrohHost.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsMobileIOSIrohHostToggle")
         }
     }
 
