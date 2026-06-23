@@ -4,7 +4,7 @@ import CmuxSettings
 
 enum TitlebarNewWorkspaceCloudSplitButtonMetrics {
     static func dropdownWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        max(8, floor(config.buttonSize * 0.42))
+        max(12, floor(config.buttonSize * 0.62))
     }
 
     static func totalWidth(config: TitlebarControlsStyleConfig) -> CGFloat {

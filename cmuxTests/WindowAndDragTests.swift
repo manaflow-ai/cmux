@@ -906,6 +906,26 @@ final class WindowDragHandleHitTests: XCTestCase {
             ),
             "Icon button columns should stay interactive"
         )
+        XCTAssertEqual(
+            ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound
+                - ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound,
+            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config),
+            accuracy: 0.001,
+            "The hidden Cloud menu lane should match the visible split-button dropdown width."
+        )
+        XCTAssertTrue(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                NSPoint(
+                    x: (
+                        ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound
+                            + ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound
+                    ) / 2,
+                    y: 14
+                ),
+                config: config
+            ),
+            "The padded Cloud dropdown lane should receive left clicks."
+        )
 
         let firstGapX = (ranges[0].upperBound + ranges[1].lowerBound) / 2
         let secondGapX = (ranges[1].upperBound + ranges[2].lowerBound) / 2

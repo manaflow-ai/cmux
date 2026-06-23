@@ -352,10 +352,8 @@ final class WindowDecorationsController {
                     debugSource: "titlebar.minimalSidebarControl"
                 )
             case .cloudVM:
-                _ = AppDelegate.shared?.performCloudVMAction(
-                    preferredWindow: window,
-                    debugSource: "titlebar.minimalSidebarControl.cloudVM"
-                )
+                guard let anchorView else { return }
+                TitlebarCloudVMButton.showCloudVMMenu(anchorView: anchorView)
             case .focusHistoryBack:
                 guard focusHistoryNavigationAvailability(preferredWindow: window).canNavigateBack else { return }
                 AppDelegate.shared?.activeTabManagerForCommands(preferredWindow: window)?.navigateBack()

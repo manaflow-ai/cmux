@@ -242,7 +242,7 @@ final class MinimalModeSidebarControlActionView: NSView {
             button.frame = NSRect(
                 x: range.lowerBound,
                 y: max(0, (bounds.height - config.buttonSize) / 2),
-                width: config.buttonSize,
+                width: range.upperBound - range.lowerBound,
                 height: config.buttonSize
             )
         }
