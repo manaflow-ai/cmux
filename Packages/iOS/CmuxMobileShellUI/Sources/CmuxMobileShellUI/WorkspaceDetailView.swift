@@ -65,6 +65,11 @@ struct WorkspaceDetailView: View {
     @State private var chatSessions: [ChatSessionDescriptor] = []
     /// Per-session composer drafts, surviving toggles back to the terminal.
     @State private var chatDrafts: [String: String] = [:]
+    /// App lifecycle phase. Returning from `.background` re-pulls the session
+    /// list: pushes are best-effort and can be dropped while suspended, so on
+    /// foreground we re-read the host's authoritative list rather than trust
+    /// that every push arrived.
+    @Environment(\.scenePhase) private var scenePhase
     #endif
 
     private var selectedTerminal: MobileTerminalPreview? {
@@ -211,9 +216,19 @@ struct WorkspaceDetailView: View {
         pinnedChatSessionID = isChatMode ? chosenChatSession?.id : nil
     }
 
-    /// Identity for the session refetch: workspace plus connection epoch.
+    /// Identity for the session refetch: workspace, connection epoch, and a
+    /// foreground epoch. A change re-runs `.task(id:)`, which re-subscribes to
+    /// the push stream and re-pulls the authoritative session list.
+    ///
+    /// The foreground epoch flips only on `.background` (not transient
+    /// `.inactive` like control center or a banner), so a real
+    /// background-then-foreground re-pulls while momentary inactivity does not
+    /// churn the subscription. `.background` tears the stream down to save
+    /// battery; returning to the foreground re-establishes and reconciles.
     private var chatRefreshKey: String {
-        "\(workspace.id.rawValue)#\(store.connectionState == .connected ? 1 : 0)"
+        let connected = store.connectionState == .connected ? 1 : 0
+        let foreground = scenePhase == .background ? 0 : 1
+        return "\(workspace.id.rawValue)#\(connected)#\(foreground)"
     }
 
     /// Keeps the chat-capable session list current while this workspace is
