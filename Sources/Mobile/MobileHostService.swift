@@ -113,9 +113,9 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         }
         connections[id] = connection
         lock.unlock()
-        // Notify after the authoritative count actually changes (this registry
-        // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
-        // settings diagnostics reflect the real count rather than a stale one.
+        // Notify after raw socket membership changes so diagnostics refresh.
+        // `MobileHostServiceStatus.activeConnectionCount` is intentionally
+        // derived from authorized sessions, not from accepted sockets.
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
         return true
     }
@@ -385,6 +385,7 @@ final class MobileHostService {
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
+    private var authorizedConnectionIDs: Set<UUID> = []
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
@@ -466,6 +467,16 @@ final class MobileHostService {
     @MainActor
     func revokeManualPairingTicketMint() {
         clearManualPairingTicketMint()
+    }
+
+    private func revokeManualPairingTicketMintAfterVerifiedConnection() async {
+        await MainActor.run {
+            guard manualPairingTicketMintSecret != nil,
+                  !manualPairingTicketMintReserved else {
+                return
+            }
+            clearManualPairingTicketMint()
+        }
     }
 
     private func revokeManualPairingTicketMintAfterAttachTokenUse(_ authToken: String?) async {
@@ -742,6 +753,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
+        authorizedConnectionIDs.removeAll()
         clientIDsByConnectionID.removeAll()
 
         listener = candidate
@@ -875,6 +887,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
+        authorizedConnectionIDs.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
@@ -979,7 +992,7 @@ final class MobileHostService {
             // editing the preferred port before a restart must not flip this.
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
-            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            activeConnectionCount: authorizedConnectionIDs.count,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -1063,10 +1076,11 @@ final class MobileHostService {
                     return await MobileHostService.shared.authorizationError(for: request)
                 },
                 onAuthorizedRequest: { request in
-                    guard let clientID = Self.clientID(from: request.params) else {
-                        return
-                    }
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                    guard Self.countsAsAuthorizedConnection(method: request.method) else { return }
+                    await MobileHostService.shared.recordAuthorizedConnection(
+                        id: id,
+                        clientID: Self.clientID(from: request.params)
+                    )
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
@@ -1203,9 +1217,11 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
-                }
+                guard Self.countsAsAuthorizedConnection(method: request.method) else { return }
+                await MobileHostService.shared.recordAuthorizedConnection(
+                    id: id,
+                    clientID: Self.clientID(from: request.params)
+                )
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1260,6 +1276,7 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
+        let removedAuthorizedConnection = authorizedConnectionIDs.remove(id) != nil
         // Drop this connection's sticky viewport reports so a disconnected
         // device stops pinning the shared grid (and its macOS viewport border
         // clears) even though it never sent an explicit clear.
@@ -1271,7 +1288,18 @@ final class MobileHostService {
                 reason: "mobile.connection.closed"
             )
         }
+        if removedAuthorizedConnection {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
         MobileHostRequestActivity.endConnection()
+    }
+
+    private func recordAuthorizedConnection(id: UUID, clientID: String?) {
+        if let clientID {
+            recordClientID(clientID, for: id)
+        }
+        guard authorizedConnectionIDs.insert(id).inserted else { return }
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
@@ -1387,10 +1415,12 @@ final class MobileHostService {
             return nil
         }
         if devStackTokenAuthorized(request) {
+            await revokeManualPairingTicketMintAfterVerifiedConnection()
             return nil
         }
         do {
             try await Self.verifyStackAuthOffMainActor(auth: request.auth)
+            await revokeManualPairingTicketMintAfterVerifiedConnection()
             return nil
         } catch MobileHostAuthorizationError.accountMismatch {
             // The presented Stack token is valid but belongs to a different
@@ -1732,18 +1762,23 @@ final class MobileHostService {
     nonisolated private static func requiresAuthorization(method: String) -> Bool {
         switch method {
         // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
-        // mints a bearer credential, so it MUST be authorized: a network caller has no
-        // attach token yet, so it is routed through the same-account Stack Auth token
-        // (the iOS client always sends it for this method). Leaving it exempt would let
-        // any process that can speak the wire protocol self-issue a working ticket and
-        // take over the terminal. The on-Mac QR pairing mints tickets through the local
-        // automation socket (`TerminalController`), not this network path, so it is
-        // unaffected.
+        // mints a bearer credential, so it MUST be authorized: either by the
+        // same-account Stack token on protected routes, or by the short-lived manual
+        // pairing key on trusted-network routes. Leaving it exempt would let any
+        // process that can speak the wire protocol self-issue a working ticket.
         case "mobile.host.status":
             return false
         default:
             return true
         }
+    }
+
+    nonisolated private static func countsAsAuthorizedConnection(method: String) -> Bool {
+        guard requiresAuthorization(method: method) else { return false }
+        // Manual trusted-network pairing authorizes this mint request with the
+        // displayed key, then consumes that key only after the ticket is created.
+        // The paired session becomes active when the minted attach token is used.
+        return method != "mobile.attach_ticket.create"
     }
 
     private func handleListenerState(_ state: NWListener.State, generation: UUID) {
@@ -1892,6 +1927,7 @@ extension MobileHostService {
         listenerUsesEphemeralFallback = false
         listenerPort = nil
         activeConnections.removeAll()
+        authorizedConnectionIDs.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
@@ -1899,6 +1935,13 @@ extension MobileHostService {
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
         recordClientID(clientID, for: connectionID)
+    }
+
+    func debugRecordAuthorizedConnectionForTesting(
+        connectionID: UUID,
+        clientID: String? = nil
+    ) {
+        recordAuthorizedConnection(id: connectionID, clientID: clientID)
     }
 
     func debugRemoveConnectionForTesting(id: UUID) {

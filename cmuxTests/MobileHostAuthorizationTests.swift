@@ -996,6 +996,32 @@ struct MobileHostAuthorizationTests {
 
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
+
+    @Test func testActiveConnectionCountTracksAuthorizedSessionsOnly() {
+        let service = MobileHostService.shared
+        let connectionID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+
+        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        #expect(service.statusSnapshot().activeConnectionCount == 0)
+
+        service.debugRecordAuthorizedConnectionForTesting(
+            connectionID: connectionID,
+            clientID: "ios-client"
+        )
+        #expect(service.statusSnapshot().activeConnectionCount == 1)
+
+        service.debugRecordAuthorizedConnectionForTesting(
+            connectionID: connectionID,
+            clientID: "ios-client"
+        )
+        #expect(service.statusSnapshot().activeConnectionCount == 1)
+
+        service.debugRemoveConnectionForTesting(id: connectionID)
+        #expect(service.statusSnapshot().activeConnectionCount == 0)
+    }
+
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
         MobileHostRequestActivity.resetForTesting()
         MobileHostRequestActivity.beginConnection()
