@@ -528,6 +528,40 @@
         }
       }
     },
+    "mobile.addDevice.manualRouteTrustRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirm that you trust this VPN/LAN route before pairing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリングする前に、この VPN/LAN 経路を信頼することを確認してください。"
+          }
+        }
+      }
+    },
+    "mobile.addDevice.manualRouteTrustToggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I trust this VPN/LAN route and device"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この VPN/LAN 経路とデバイスを信頼します"
+          }
+        }
+      }
+    },
     "mobile.addDevice.nameLabel": {
       "extractionState": "manual",
       "localizations": {

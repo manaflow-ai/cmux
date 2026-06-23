@@ -43,7 +43,7 @@ import Testing
         #expect(!MobileShellRouteAuthPolicy.routeIsLoopback(irohPeer))
     }
 
-    @Test func allowsStackAuthForEncryptedLoopbackOrUserTrustedRoutes() throws {
+    @Test func allowsStackAuthForEncryptedLoopbackOrConfirmedUserTrustedRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
         let mislabeledLANIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
@@ -68,13 +68,18 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP))
-        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
+        // User-entered VPN/LAN routes need an explicit confirmation in addition
+        // to the `.trustedNetwork` route kind.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP, trustedNetworkConfirmed: true))
+        #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS, trustedNetworkConfirmed: true))
+
         // Auto-discovered Tailscale routes must still prove they are actually
-        // Tailscale. Plain LAN/VPN addresses only become trusted after the user
-        // types them, which maps them to `.trustedNetwork`.
+        // Tailscale. Plain LAN/VPN addresses are not trusted just because a
+        // payload labels them as `.tailscale`.
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(mislabeledLANIP))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(mislabeledLocalDNS))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))

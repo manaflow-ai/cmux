@@ -13,6 +13,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     private let route: CmxAttachRoute
     private let ticket: CmxAttachTicket
     private let allowsStackAuthFallback: Bool
+    private let trustedNetworkAuthConfirmed: Bool
     // `internal` (not `private`) so `@testable import` can observe session
     // queue state from tests, instead of exposing a debug hook in production.
     let session: MobileCoreRPCSession
@@ -26,11 +27,14 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     ///   - ticket: The attach ticket authorizing requests.
     ///   - allowsStackAuthFallback: When `true`, falls back to a Stack Auth token
     ///     on routes that allow it once the attach ticket no longer covers a request.
+    ///   - trustedNetworkAuthConfirmed: When `true`, permits Stack auth on an
+    ///     explicitly user-confirmed `.trustedNetwork` route.
     public init(
         runtime: any MobileSyncRuntime,
         route: CmxAttachRoute,
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool = false,
+        trustedNetworkAuthConfirmed: Bool = false,
         connectAttemptRegistry: MobileRPCConnectAttemptRegistry = MobileRPCConnectAttemptRegistry(),
         stackTokenGate: RPCStackTokenGate? = nil,
         stackTokenForceRefreshGate: RPCStackTokenGate? = nil,
@@ -42,6 +46,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         self.route = route
         self.ticket = ticket
         self.allowsStackAuthFallback = allowsStackAuthFallback
+        self.trustedNetworkAuthConfirmed = trustedNetworkAuthConfirmed
         self.stackTokenGate = stackTokenGate
             ?? RPCStackTokenGate(timedOutResetNanoseconds: stackTokenGateResetNanoseconds)
         self.stackTokenForceRefreshGate = stackTokenForceRefreshGate
@@ -215,7 +220,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             // expiry), so they never reach this branch.
             if !ticket.isExpired(at: runtime.now()) {
                 auth["attach_token"] = attachToken
-            } else if !allowsStackAuthFallback || !MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) {
+            } else if !allowsStackAuthFallback || !routeAllowsStackAuth {
                 throw MobileShellConnectionError.attachTicketExpired
             }
         }
@@ -230,7 +235,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         let shouldSendStackAuth = requestNeedsAuth
         if shouldSendStackAuth {
             guard allowsStackAuthFallback,
-                  MobileShellRouteAuthPolicy.routeAllowsStackAuth(route) else {
+                  routeAllowsStackAuth else {
                 throw MobileShellConnectionError.insecureManualRoute
             }
             do {
@@ -259,7 +264,7 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
         if !requestNeedsAuth,
            isHostStatusRequest(request),
            allowsStackAuthFallback,
-           MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+           routeAllowsStackAuth,
            let stackAccessToken = try await stackAccessTokenForStatus(deadline: deadline) {
             auth["stack_access_token"] = stackAccessToken
         }
@@ -267,6 +272,13 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             request["auth"] = auth
         }
         return try JSONSerialization.data(withJSONObject: request)
+    }
+
+    private var routeAllowsStackAuth: Bool {
+        MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            route,
+            trustedNetworkConfirmed: trustedNetworkAuthConfirmed
+        )
     }
 
     private func stackAccessTokenForStatus(deadline: RPCRequestDeadline) async throws -> String? {

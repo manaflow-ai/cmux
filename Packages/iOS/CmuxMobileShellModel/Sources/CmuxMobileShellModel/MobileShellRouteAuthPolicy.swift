@@ -9,9 +9,9 @@ import Foundation
 /// connection.
 ///
 /// Automatically discovered routes must be encrypted or loopback before they may
-/// carry Stack auth. A host typed by the user is different: that is an explicit
-/// trust decision for their own VPN, LAN, or private hostname, so it uses the
-/// `.trustedNetwork` transport kind and may carry Stack auth.
+/// carry Stack auth. A host typed by the user is different: it uses the
+/// `.trustedNetwork` transport kind, but Stack auth is allowed only when the
+/// caller also carries an explicit user confirmation for that route.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -70,30 +70,41 @@ public struct MobileShellRouteAuthPolicy {
     ///
     /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
     ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
-    /// - `.trustedNetwork` to a user-entered host/port. The user decides that this
-    ///   address is reachable through a trusted VPN, LAN, or device they control.
     /// - `.iroh` to a peer, which is an encrypted QUIC connection.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
     ///
     /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
-    /// `.local`/Bonjour hosts are still excluded when they are mislabeled as
-    /// automatically discovered `.tailscale` routes; they must come through the
-    /// manual `.trustedNetwork` path before carrying Stack auth.
+    /// `.local`/Bonjour hosts are excluded here. Manual `.trustedNetwork` routes
+    /// require the overload with `trustedNetworkConfirmed: true`.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` for trusted routes that may carry Stack auth.
+    /// - Returns: `true` for encrypted or loopback routes that may carry Stack auth.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
             return isTailscaleHost(host)
-        case (.trustedNetwork, .hostPort):
-            return true
         case (.iroh, .peer):
             return true
         default:
             return false
         }
+    }
+
+    /// Whether the given route may carry Stack auth when the caller has an
+    /// explicit user confirmation for a manually-entered trusted network route.
+    ///
+    /// The plain ``routeAllowsStackAuth(_:)`` entry point deliberately returns
+    /// `false` for `.trustedNetwork`; callers must opt in here after the user has
+    /// confirmed they control the destination VPN/LAN/device.
+    public static func routeAllowsStackAuth(
+        _ route: CmxAttachRoute,
+        trustedNetworkConfirmed: Bool
+    ) -> Bool {
+        if case (.trustedNetwork, .hostPort) = (route.kind, route.endpoint) {
+            return trustedNetworkConfirmed
+        }
+        return routeAllowsStackAuth(route)
     }
 
     /// Whether a decoded pairing/attach ticket must be rejected because its

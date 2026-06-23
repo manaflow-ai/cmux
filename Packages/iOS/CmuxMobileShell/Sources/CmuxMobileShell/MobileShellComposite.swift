@@ -1356,13 +1356,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Connect to a manually-entered Mac host and optionally associate the
     /// resulting session with an existing paired-Mac device id.
     public func connectManualHost(
-        name: String, host: String, port: Int, pairedMacDeviceID: String? = nil
+        name: String,
+        host: String,
+        port: Int,
+        pairedMacDeviceID: String? = nil,
+        trustedNetworkAuthConfirmed: Bool = false
     ) async {
         await connectManualHost(
             name: name,
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
             recordsPairingAttempt: true
         )
     }
@@ -1378,6 +1383,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
+            trustedNetworkAuthConfirmed: true,
             recordsPairingAttempt: false
         )
     }
@@ -1392,6 +1398,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         host: String,
         port: Int,
         pairedMacDeviceID: String? = nil,
+        trustedNetworkAuthConfirmed: Bool,
         recordsPairingAttempt: Bool
     ) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1436,11 +1443,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 name: trimmedName,
                 host: normalizedHost,
                 port: port,
-                attemptStartedAt: pairingAttemptStartedAt
+                attemptStartedAt: pairingAttemptStartedAt,
+                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
+            let allowsStackAuthFallback = directRoute.map {
+                MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+                    $0,
+                    trustedNetworkConfirmed: trustedNetworkAuthConfirmed
+                )
+            } ?? false
             let noThrowFailure = try await connect(
-                ticket: ticket, allowsStackAuthFallback: true, pairedMacDeviceID: pairedMacDeviceID)
+                ticket: ticket,
+                allowsStackAuthFallback: allowsStackAuthFallback,
+                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+                pairedMacDeviceID: pairedMacDeviceID
+            )
             guard isCurrentPairingAttempt(attemptID) else { return }
             if connectionState == .connected {
                 recordPairingSucceeded()
@@ -2952,7 +2970,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 name: mac.displayName ?? host,
                 host: host,
                 port: port,
-                attemptStartedAt: nil
+                attemptStartedAt: nil,
+                trustedNetworkAuthConfirmed: true
             )
         } catch {
             mobileShellLog.warning(
@@ -2979,7 +2998,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trustedNetworkConfirmed: true),
+            trustedNetworkAuthConfirmed: true,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -4407,6 +4427,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func connect(
         ticket: CmxAttachTicket,
         allowsStackAuthFallback: Bool? = nil,
+        trustedNetworkAuthConfirmed: Bool = false,
         pairedMacDeviceID: String? = nil
     ) async throws -> MobilePairingFailureCategory? {
         let generation = UUID()
@@ -4461,6 +4482,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 ticket: ticket,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
                     ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate

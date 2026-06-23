@@ -267,7 +267,8 @@ import Testing
     private func sentHostStatusProbe(
         route: CmxAttachRoute,
         stackAccessToken: String?,
-        stackAccessTokenForStatus: String? = nil
+        stackAccessTokenForStatus: String? = nil,
+        trustedNetworkAuthConfirmed: Bool = false
     ) async throws -> RecordedRPCRequest? {
         let transport = QueuedCancellationProbeTransport()
         let runtime = TestMobileSyncRuntime(
@@ -279,7 +280,8 @@ import Testing
             runtime: runtime,
             route: route,
             ticket: try qrPairingTicket(route: route),
-            allowsStackAuthFallback: true
+            allowsStackAuthFallback: true,
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
         )
         let request = try MobileCoreRPCClient.requestData(method: "mobile.host.status")
         let task = Task { try await client.sendRequest(request) }
@@ -306,10 +308,18 @@ import Testing
 
     @Test func hostStatusProbeCarriesStackTokenOnUserTrustedNetworkRoute() async throws {
         let route = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.20", port: 58465)
-        let probe = try await sentHostStatusProbe(
+        let unconfirmedProbe = try await sentHostStatusProbe(
             route: route,
             stackAccessToken: "test-stack-token",
             stackAccessTokenForStatus: "test-stack-token"
+        )
+        #expect(unconfirmedProbe?.hasAuth == false)
+
+        let probe = try await sentHostStatusProbe(
+            route: route,
+            stackAccessToken: "test-stack-token",
+            stackAccessTokenForStatus: "test-stack-token",
+            trustedNetworkAuthConfirmed: true
         )
         #expect(probe?.stackAccessToken == "test-stack-token")
         #expect(probe?.attachToken == nil)

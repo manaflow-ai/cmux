@@ -21,7 +21,7 @@ struct PairingView: View {
     let versionWarning: String?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
-    let connectManualHost: (String, String, Int) async -> Void
+    let connectManualHost: (String, String, Int, Bool) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
 
@@ -36,6 +36,7 @@ struct PairingView: View {
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?
     @State private var pairingTask: Task<Void, Never>?
+    @State private var trustsManualRoute = false
     @FocusState private var focusedField: AddDeviceField?
 
     var body: some View {
@@ -125,10 +126,15 @@ struct PairingView: View {
 
                 if let manualRouteWarningText {
                     Section {
-                        Label {
-                            Text(manualRouteWarningText)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label {
+                                Text(manualRouteWarningText)
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle")
+                            }
+                            Toggle(isOn: $trustsManualRoute) {
+                                Text(L10n.string("mobile.addDevice.manualRouteTrustToggle", defaultValue: "I trust this VPN/LAN route and device"))
+                            }
                         }
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("MobileManualRouteWarning")
@@ -226,6 +232,12 @@ struct PairingView: View {
                 #endif
             }
         }
+        .onChange(of: host) { _, _ in
+            trustsManualRoute = false
+        }
+        .onChange(of: port) { _, _ in
+            trustsManualRoute = false
+        }
         #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {
             MobilePairingScannerSheet { scannedCode in
@@ -268,16 +280,22 @@ struct PairingView: View {
     }
 
     private var manualRouteWarningText: String? {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedHost.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
-              MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
+        guard manualRouteNeedsTrustConfirmation else {
             return nil
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
             defaultValue: "This will connect directly to that address and send your cmux account token. Use it only with a trusted VPN, LAN, or device you control."
         )
+    }
+
+    private var manualRouteNeedsTrustConfirmation: Bool {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty,
+              !CmxPairingURLScheme.hasPairingScheme(trimmedHost) else {
+            return false
+        }
+        return MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost)
     }
 
     private var signedInAccountText: String {
@@ -324,9 +342,14 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             return
         }
+        let trustedNetworkAuthConfirmed = manualRouteNeedsTrustConfirmation ? trustsManualRoute : false
+        guard !manualRouteNeedsTrustConfirmation || trustedNetworkAuthConfirmed else {
+            validationError = L10n.string("mobile.addDevice.manualRouteTrustRequired", defaultValue: "Confirm that you trust this VPN/LAN route before pairing.")
+            return
+        }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort)
+            await connectManualHost(deviceName, trimmedHost, parsedPort, trustedNetworkAuthConfirmed)
         }
     }
 

@@ -44,16 +44,21 @@ extension MobileShellComposite {
         name: String,
         host: String,
         port: Int,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        trustedNetworkAuthConfirmed: Bool
     ) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
-        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
+        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+            directRoute,
+            trustedNetworkConfirmed: trustedNetworkAuthConfirmed
+        ) {
             do {
                 let ticket = try await requestManualAttachTicket(
                     route: directRoute,
                     displayName: displayName,
-                    attemptStartedAt: attemptStartedAt
+                    attemptStartedAt: attemptStartedAt,
+                    trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
                 )
                 return ticket
             } catch {
@@ -94,7 +99,8 @@ extension MobileShellComposite {
     func requestManualAttachTicket(
         route: CmxAttachRoute,
         displayName: String,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        trustedNetworkAuthConfirmed: Bool
     ) async throws -> CmxAttachTicket {
         guard let runtime else {
             throw MobileShellConnectionError.insecureManualRoute
@@ -109,6 +115,7 @@ extension MobileShellComposite {
             route: route,
             ticket: probeTicket,
             allowsStackAuthFallback: true,
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate
