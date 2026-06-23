@@ -356,14 +356,11 @@ public struct KeyboardShortcutsSection: View {
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
-            if shortcutConflictIsResolvedByCanvasActualSizeRouting(action, other) {
-                continue
-            }
+            let conflictPair = Set([action, other])
+            if conflictPair == Set([.canvasZoomReset, .browserZoomReset]) || conflictPair == Set([.canvasZoomReset, .markdownZoomReset]) { continue }
             // Two bindings on the same keystroke only collide when some focus
             // state activates both effective `when` clauses AND router priority
-            // cannot decide the overlap. Context-disjoint clauses (e.g.
-            // `!sidebarFocus` workspace digits vs the sidebar's own digits)
-            // coexist, and a pre-routed action (sidebar modes) wins its context
+            // cannot decide the overlap. Context-disjoint clauses coexist.
             // outright so the factory Select Surface ⌃1…9 coexists with the
             // sidebar's ⌃1…5 — matching the app target's authoritative check.
             guard ShortcutWhenClause.bindingsCollide(
@@ -385,15 +382,6 @@ public struct KeyboardShortcutsSection: View {
             }
         }
         return nil
-    }
-
-    private func shortcutConflictIsResolvedByCanvasActualSizeRouting(
-        _ lhs: ShortcutAction,
-        _ rhs: ShortcutAction
-    ) -> Bool {
-        let pair = Set([lhs, rhs])
-        return pair == Set([.canvasZoomReset, .browserZoomReset]) ||
-            pair == Set([.canvasZoomReset, .markdownZoomReset])
     }
 
     /// Formats a binding for display, delegating to

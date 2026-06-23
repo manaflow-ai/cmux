@@ -1,3 +1,5 @@
+import AppKit
+import CmuxCanvasUI
 import CmuxSettings
 import Testing
 
@@ -6,6 +8,21 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class CanvasRoutingViewportSpy: CanvasViewportControlling {
+    var revealedPanelIds: [UUID] = []
+    var resetZoomCount = 0
+    var currentMagnification: CGFloat = 1
+    var currentCenterInCanvas: CGPoint = .zero
+
+    func revealPane(_ panelId: UUID, animated: Bool) { revealedPanelIds.append(panelId) }
+    func resetZoom() { resetZoomCount += 1 }
+    func toggleOverview() {}
+    func zoom(by factor: CGFloat) {}
+    func setViewport(center: CGPoint, magnification: CGFloat?) {}
+    func modelDidChangeExternally(animated: Bool) {}
+}
 
 @Suite("Canvas shortcut context")
 struct CanvasShortcutContextTests {
@@ -65,5 +82,199 @@ struct CanvasShortcutContextTests {
         #expect(markdown.overlaps(canvas))
         #expect(canvas.overlaps(sidebar))
         #expect(sidebar.overlaps(canvas))
+    }
+
+    @Test
+    func canvasActualSizeSharesCommandZeroWithBrowserAndMarkdownActualSize() {
+        let canvasActualSize = KeyboardShortcutSettings.Action.canvasZoomReset.defaultShortcut
+        let browserActualSize = KeyboardShortcutSettings.Action.browserZoomReset.defaultShortcut
+        let markdownActualSize = KeyboardShortcutSettings.Action.markdownZoomReset.defaultShortcut
+
+        #expect(canvasActualSize == StoredShortcut(key: "0", command: true, shift: false, option: false, control: false))
+        #expect(browserActualSize == canvasActualSize)
+        #expect(markdownActualSize == canvasActualSize)
+        #expect(!KeyboardShortcutSettings.Action.browserZoomReset.conflicts(
+            with: canvasActualSize,
+            proposedAction: .canvasZoomReset,
+            configuredShortcut: browserActualSize
+        ))
+        #expect(!KeyboardShortcutSettings.Action.markdownZoomReset.conflicts(
+            with: canvasActualSize,
+            proposedAction: .canvasZoomReset,
+            configuredShortcut: markdownActualSize
+        ))
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct CanvasShortcutRoutingFeedbackTests {
+    @Test func canvasSurfaceDigitsWinOverRightSidebarModeDigitsInCanvasMode() throws {
+        try withIsolatedShortcutSettings {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(key: "1", keyCode: 18, windowNumber: window.windowNumber))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true))
+            #expect(workspace.focusedPanelId == secondPanelId)
+
+            appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .sessions, in: window)
+            let fileExplorerState = try #require(appDelegate.fileExplorerState)
+            fileExplorerState.mode = .sessions
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(workspace.focusedPanelId == firstPanelId)
+            #expect(
+                fileExplorerState.mode == .sessions,
+                "Ctrl+1 should select the first Canvas surface instead of switching the right sidebar to Files in canvas mode"
+            )
+        }
+    }
+
+    @Test func directionalFocusShortcutInCanvasRevealsTargetPane() throws {
+        try withTemporaryShortcut(action: .focusRight) {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let firstPanelId = try #require(workspace.focusedPanelId)
+            let event = try #require(makeKeyDownEvent(
+                key: "→",
+                modifiers: [.command, .option],
+                keyCode: 124,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let secondPanelId = try #require(workspace.openNewCanvasPane(type: .terminal, focus: true, direction: .right))
+            let viewport = CanvasRoutingViewportSpy()
+            workspace.canvasModel.viewport = viewport
+            workspace.focusPanel(firstPanelId)
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(workspace.focusedPanelId == secondPanelId)
+            #expect(viewport.revealedPanelIds.last == secondPanelId)
+        }
+    }
+
+    @Test func cmdZeroInCanvasResetsCanvasZoom() throws {
+        try withTemporaryShortcut(action: .canvasZoomReset) {
+            let appDelegate = try #require(AppDelegate.shared)
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            let window = try #require(mainWindow(for: windowId))
+            let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+            let workspace = try #require(manager.selectedWorkspace)
+            let event = try #require(makeKeyDownEvent(
+                key: "0",
+                modifiers: [.command],
+                keyCode: 29,
+                windowNumber: window.windowNumber
+            ))
+
+            window.makeKeyAndOrderFront(nil)
+            workspace.setLayoutMode(.canvas)
+            let viewport = CanvasRoutingViewportSpy()
+            workspace.canvasModel.viewport = viewport
+
+#if DEBUG
+            #expect(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            Issue.record("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+
+            #expect(viewport.resetZoomCount == 1)
+        }
+    }
+
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags = [.control],
+        keyCode: UInt16,
+        windowNumber: Int
+    ) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        )
+    }
+
+    private func withTemporaryShortcut(action: KeyboardShortcutSettings.Action, _ body: () throws -> Void) rethrows {
+        let hadPersistedShortcut = UserDefaults.standard.object(forKey: action.defaultsKey) != nil
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            hadPersistedShortcut ? KeyboardShortcutSettings.setShortcut(originalShortcut, for: action) : KeyboardShortcutSettings.resetShortcut(for: action)
+#if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        }
+        KeyboardShortcutSettings.setShortcut(action.defaultShortcut, for: action)
+#if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        try body()
+    }
+
+    private func withIsolatedShortcutSettings(_ body: () throws -> Void) rethrows {
+        let actions = Set(KeyboardShortcutSettings.Action.allCases.filter { UserDefaults.standard.object(forKey: $0.defaultsKey) != nil })
+        let saved = Dictionary(uniqueKeysWithValues: actions.map { ($0, KeyboardShortcutSettings.shortcut(for: $0)) })
+        let originalStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-canvas-shortcut-routing")
+        KeyboardShortcutSettings.resetAll()
+#if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            for action in KeyboardShortcutSettings.Action.allCases {
+                if actions.contains(action), let shortcut = saved[action] {
+                    KeyboardShortcutSettings.setShortcut(shortcut, for: action)
+                } else {
+                    KeyboardShortcutSettings.resetShortcut(for: action)
+                }
+            }
+#if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: false)
+#endif
+        }
+        try body()
+    }
+
+    private func mainWindow(for windowId: UUID) -> NSWindow? {
+        AppDelegate.shared?.windowForMainWindowId(windowId)
+    }
+
+    private func closeWindow(withId windowId: UUID) {
+        mainWindow(for: windowId)?.close()
     }
 }

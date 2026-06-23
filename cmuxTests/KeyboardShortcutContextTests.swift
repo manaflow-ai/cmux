@@ -245,31 +245,6 @@ final class KeyboardShortcutContextTests: XCTestCase {
         )
     }
 
-    func testCanvasActualSizeSharesCommandZeroWithBrowserAndMarkdownActualSize() {
-        let canvasActualSize = KeyboardShortcutSettings.Action.canvasZoomReset.defaultShortcut
-        let browserActualSize = KeyboardShortcutSettings.Action.browserZoomReset.defaultShortcut
-        let markdownActualSize = KeyboardShortcutSettings.Action.markdownZoomReset.defaultShortcut
-
-        XCTAssertEqual(canvasActualSize, StoredShortcut(key: "0", command: true, shift: false, option: false, control: false))
-        XCTAssertEqual(browserActualSize, canvasActualSize)
-        XCTAssertEqual(markdownActualSize, canvasActualSize)
-
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.browserZoomReset.conflicts(
-                with: canvasActualSize,
-                proposedAction: .canvasZoomReset,
-                configuredShortcut: browserActualSize
-            )
-        )
-        XCTAssertFalse(
-            KeyboardShortcutSettings.Action.markdownZoomReset.conflicts(
-                with: canvasActualSize,
-                proposedAction: .canvasZoomReset,
-                configuredShortcut: markdownActualSize
-            )
-        )
-    }
-
     func testNewBrowserWorkspaceSettingsPackageActionStaysAligned() {
         guard let settingsAction = ShortcutAction(
             rawValue: KeyboardShortcutSettings.Action.newBrowserWorkspace.rawValue
