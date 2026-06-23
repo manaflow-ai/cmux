@@ -83,7 +83,7 @@
       "notificationRings": "Notification rings",
       "notificationRingsDesc": ": panes light up when agents need attention",
       "ios": "iOS app",
-      "iosDesc": ": your terminals sync to iPhone and iPad in realtime, over your own Tailscale or network",
+      "iosDesc": ": your terminals sync to iPhone and iPad in realtime",
       "inAppBrowser": "In-app browser",
       "inAppBrowserDesc": ": split a browser alongside your terminal with a scriptable API",
       "splitPanes": "Split panes",

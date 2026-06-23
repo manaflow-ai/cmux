@@ -2,15 +2,20 @@
 
 import Image from "next/image";
 import { useRef, useState } from "react";
+import { Link } from "../../../i18n/navigation";
 import phoneImage from "../assets/landing-iphone.png";
 
-// TEMP positioning mode: the phone is draggable so we can find the spot.
-// Drag it, read the right/bottom % from the badge, and we bake those in
-// (then restore the link to /docs/ios and drop the drag handle).
-const DEFAULT_POS = { right: 15, bottom: -6 };
+// Baked placement over the bottom-right of the Mac hero (percent offsets).
+// To retune, open the page with ?drag and drag the phone: the badge shows the
+// live right/bottom %, which persist to localStorage. Send us the numbers and
+// we update DEFAULT_POS here.
+const DEFAULT_POS = { right: -1.2, bottom: -4.3 };
 const STORAGE_KEY = "cmuxHeroPhonePos";
 
-function readInitial(): { right: number; bottom: number } {
+const sizeClasses =
+  "w-[22%] sm:w-[24%] md:w-[25%] lg:w-[25%] max-w-[360px]";
+
+function readStored(): { right: number; bottom: number } {
   if (typeof window === "undefined") return DEFAULT_POS;
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -22,7 +27,12 @@ function readInitial(): { right: number; bottom: number } {
 }
 
 export function HeroPhone() {
-  const [pos, setPos] = useState(readInitial);
+  const [dragMode] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).has("drag"),
+  );
+  const [pos, setPos] = useState(() => (dragMode ? readStored() : DEFAULT_POS));
   const posRef = useRef(pos);
   const drag = useRef<{
     x: number;
@@ -34,7 +44,6 @@ export function HeroPhone() {
   } | null>(null);
 
   function onPointerDown(e: React.PointerEvent<HTMLDivElement>) {
-    // offsetParent of this absolutely-positioned div is the hero container.
     const parent = e.currentTarget.offsetParent as HTMLElement | null;
     if (!parent) return;
     const rect = parent.getBoundingClientRect();
@@ -72,38 +81,70 @@ export function HeroPhone() {
     }
   }
 
+  const style: React.CSSProperties = {
+    right: `${pos.right}%`,
+    bottom: `${pos.bottom}%`,
+    ...(dragMode ? { animation: "none" } : null),
+  };
+
+  const img = (
+    <Image
+      src={phoneImage}
+      alt="cmux iOS app mirroring a live agent terminal"
+      sizes="(max-width: 640px) 22vw, (max-width: 1024px) 25vw, 360px"
+      className="pointer-events-none h-auto w-full select-none"
+      draggable={false}
+    />
+  );
+
+  // Drag mode: reposition the phone and read the live offsets.
+  if (dragMode) {
+    return (
+      <div
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        style={style}
+        className={`hero-phone absolute z-10 cursor-grab touch-none select-none drop-shadow-[0_28px_60px_rgba(0,0,0,0.5)] active:cursor-grabbing ${sizeClasses}`}
+      >
+        {img}
+        <div className="absolute -top-7 left-0 whitespace-nowrap rounded bg-black/85 px-2 py-0.5 font-mono text-[11px] text-white">
+          right: {pos.right}% · bottom: {pos.bottom}%
+        </div>
+        <HeroPhoneStyle />
+      </div>
+    );
+  }
+
+  // Default: static, links to the iOS docs (no hover scale).
   return (
     <div
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      style={{ right: `${pos.right}%`, bottom: `${pos.bottom}%` }}
-      className="hero-phone absolute z-10 w-[34%] sm:w-[28%] md:w-[26%] lg:w-[25%] max-w-[360px] cursor-grab touch-none select-none drop-shadow-[0_28px_60px_rgba(0,0,0,0.5)] active:cursor-grabbing"
+      style={style}
+      className={`hero-phone pointer-events-none absolute z-10 drop-shadow-[0_28px_60px_rgba(0,0,0,0.5)] ${sizeClasses}`}
     >
-      <Image
-        src={phoneImage}
-        alt="cmux iOS app mirroring a live agent terminal"
-        sizes="(max-width: 640px) 34vw, (max-width: 1024px) 26vw, 360px"
-        className="pointer-events-none h-auto w-full select-none"
-        draggable={false}
-      />
-      <div className="absolute -top-7 left-0 whitespace-nowrap rounded bg-black/85 px-2 py-0.5 font-mono text-[11px] text-white">
-        right: {pos.right}% · bottom: {pos.bottom}%
-      </div>
-      <style>{`
-        .hero-phone {
-          animation: heroPhoneIn 1150ms cubic-bezier(.22,1.18,.36,1) 350ms both;
-          transform-origin: 70% 100%;
-        }
-        @keyframes heroPhoneIn {
-          0%   { opacity: 0; transform: translateY(64px) scale(.9) rotate(2.5deg); filter: blur(8px); }
-          55%  { opacity: 1; filter: blur(0); }
-          100% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); filter: blur(0); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .hero-phone { animation: none; }
-        }
-      `}</style>
+      <Link href="/docs/ios" aria-label="cmux on iOS" className="pointer-events-auto block">
+        {img}
+      </Link>
+      <HeroPhoneStyle />
     </div>
+  );
+}
+
+function HeroPhoneStyle() {
+  return (
+    <style>{`
+      .hero-phone {
+        animation: heroPhoneIn 1150ms cubic-bezier(.22,1.18,.36,1) 350ms both;
+        transform-origin: 70% 100%;
+      }
+      @keyframes heroPhoneIn {
+        0%   { opacity: 0; transform: translateY(64px) scale(.9) rotate(2.5deg); filter: blur(8px); }
+        55%  { opacity: 1; filter: blur(0); }
+        100% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); filter: blur(0); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .hero-phone { animation: none; }
+      }
+    `}</style>
   );
 }

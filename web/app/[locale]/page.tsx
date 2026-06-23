@@ -147,13 +147,13 @@ function HomeContent() {
         {/* Screenshot */}
         <div
           data-dev="screenshot"
-          className="relative mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="relative mt-12 mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
         >
           <FadeImage
             src={landingImage}
             alt="cmux terminal app screenshot"
             priority
-            className="w-full rounded-xl"
+            className="w-full rounded-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65)]"
           />
           <HeroPhone />
         </div>

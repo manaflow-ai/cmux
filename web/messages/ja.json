@@ -83,7 +83,7 @@
       "notificationRings": "通知リング",
       "notificationRingsDesc": "：エージェントが注意を必要とするとペインが点灯",
       "ios": "iOSアプリ",
-      "iosDesc": "：ターミナルが iPhone と iPad にリアルタイムで同期。自分の Tailscale やネットワークも利用可能",
+      "iosDesc": "：ターミナルが iPhone と iPad にリアルタイムで同期",
       "inAppBrowser": "アプリ内ブラウザ",
       "inAppBrowserDesc": "：スクリプタブルなAPIでターミナルの横にブラウザを分割表示",
       "splitPanes": "分割ペイン",
