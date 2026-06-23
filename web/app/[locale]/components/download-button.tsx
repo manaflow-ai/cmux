@@ -79,10 +79,13 @@ export function DownloadButton({
   // In dark mode the pill is light and the divider/caret are dark, which reads
   // higher-contrast than the inverse in light mode, so dial those down further
   // under `dark:` to keep the split affordance equally quiet.
+  // Right padding after the label matches the caret zone's horizontal padding
+  // (`px-2`/`px-2.5`), so the divider sits with equal gaps on both sides and
+  // the same gap mirrors on the caret's outer edge.
   const downloadZone = `flex items-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
     isSmall
-      ? "gap-2 pl-4 pr-3 py-1.5 text-xs"
-      : "gap-2.5 pl-5 pr-4 py-2.5 text-[15px]"
+      ? "gap-2 pl-4 pr-2 py-1.5 text-xs"
+      : "gap-2.5 pl-5 pr-2.5 py-2.5 text-[15px]"
   }`;
   const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
     isSmall ? "px-2" : "px-2.5"

@@ -1889,6 +1889,7 @@
     "description": "{platform}版は準備中です。メールアドレスをご記入いただくと、公開され次第すぐにお知らせします。",
     "descriptionAny": "現在 cmux は macOS 専用です。メールアドレスをご記入いただくと、Linux・Windows・Android 版が公開され次第お知らせします。",
     "calloutText": "Linux・Windows・Android 版も準備中です。",
+    "platformsLabel": "対象プラットフォーム",
     "emailLabel": "メールアドレス",
     "emailPlaceholder": "you@example.com",
     "join": "リストに登録",

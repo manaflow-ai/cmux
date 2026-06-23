@@ -1887,6 +1887,7 @@
     "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
     "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
     "calloutText": "Coming to Linux, Windows, and Android.",
+    "platformsLabel": "Which platforms?",
     "emailLabel": "Email",
     "emailPlaceholder": "you@example.com",
     "join": "Join waitlist",

@@ -1,5 +1,6 @@
 "use client";
 
+import { Checkbox } from "@base-ui-components/react/checkbox";
 import { Dialog } from "@base-ui-components/react/dialog";
 import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
@@ -7,6 +8,7 @@ import { useRef, useState } from "react";
 import {
   WAITLIST_EARLY_ACCESS_FLAGS,
   WAITLIST_PLATFORMS,
+  type WaitlistPlatform,
   type WaitlistTarget,
 } from "../../lib/download";
 import { Modal } from "./modal";
@@ -62,23 +64,41 @@ function WaitlistBody({
   location: string;
 }) {
   const t = useTranslations("waitlist");
+  const tp = useTranslations("platforms");
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<
     "idle" | "error" | "submitting" | "done"
   >("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isAny = target === "any";
+  // The generic dialog lets the visitor pick which platforms to join (all
+  // checked by default); a per-platform entry is fixed to that one platform.
+  const [selected, setSelected] = useState<Set<WaitlistPlatform>>(
+    () => new Set(WAITLIST_PLATFORMS),
+  );
+  const chosen = isAny
+    ? WAITLIST_PLATFORMS.filter((p) => selected.has(p))
+    : [target as WaitlistPlatform];
+  const noneChosen = chosen.length === 0;
+  const togglePlatform = (p: WaitlistPlatform) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
+  };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (status === "submitting") return;
+    if (status === "submitting" || noneChosen) return;
     const trimmed = email.trim();
     if (!EMAIL_PATTERN.test(trimmed)) {
       setStatus("error");
       return;
     }
     setStatus("submitting");
-    const platforms = isAny ? [...WAITLIST_PLATFORMS] : [target];
+    const platforms = chosen;
     // Identify the visitor by the email they gave so the signup becomes a real
     // PostHog person (queryable in People, not just a raw event). `$set_once`
     // keeps `waitlist_email` as the original waitlist address even if the
@@ -116,7 +136,9 @@ function WaitlistBody({
       <form
         onSubmit={handleSubmit}
         aria-hidden={done}
-        className={`flex flex-col ${done ? "invisible" : ""}`}
+        className={`flex flex-col transition-opacity duration-300 ease-out ${
+          done ? "pointer-events-none opacity-0" : "opacity-100"
+        }`}
       >
         <Dialog.Title className="text-lg font-semibold tracking-tight">
           {isAny ? t("titleAny") : t("title", { platform: targetLabel })}
@@ -124,6 +146,46 @@ function WaitlistBody({
         <Dialog.Description className="mt-2 text-[15px] text-muted" style={{ lineHeight: 1.5 }}>
           {isAny ? t("descriptionAny") : t("description", { platform: targetLabel })}
         </Dialog.Description>
+
+        {isAny ? (
+          <fieldset className="mt-5">
+            <legend className="text-sm font-medium">{t("platformsLabel")}</legend>
+            <div className="mt-2 flex flex-col">
+              {WAITLIST_PLATFORMS.map((p) => (
+                <label
+                  key={p}
+                  htmlFor={`wl-${p}`}
+                  className="flex cursor-pointer select-none items-center gap-2.5 py-1.5"
+                >
+                  <Checkbox.Root
+                    id={`wl-${p}`}
+                    checked={selected.has(p)}
+                    onCheckedChange={() => togglePlatform(p)}
+                    disabled={submitting}
+                    className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border border-border transition-colors data-[checked]:border-foreground data-[checked]:bg-foreground"
+                  >
+                    <Checkbox.Indicator className="flex">
+                      <svg
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="var(--background)"
+                        strokeWidth="3.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="m5 13 4 4L19 7" />
+                      </svg>
+                    </Checkbox.Indicator>
+                  </Checkbox.Root>
+                  <span className="text-[15px]">{tp(p)}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : null}
 
         <label htmlFor="waitlist-email" className="mt-5 text-sm font-medium">
           {t("emailLabel")}
@@ -168,19 +230,29 @@ function WaitlistBody({
           </Dialog.Close>
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || noneChosen}
             aria-busy={submitting}
-            className="inline-flex min-w-[7.5rem] items-center justify-center gap-2 rounded-full bg-foreground px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-90"
+            className="relative inline-flex items-center justify-center rounded-full bg-foreground px-5 py-2.5 text-sm font-medium transition-opacity hover:opacity-85 disabled:opacity-100 disabled:hover:opacity-100"
             style={{ color: "var(--background)" }}
           >
-            {submitting ? (
-              <>
-                <Spinner />
-                {t("joining")}
-              </>
-            ) : (
-              t("join")
-            )}
+            {/* Label and spinner cross-fade in place so the button morphs
+                between states instead of hard-swapping its contents. */}
+            <span
+              className={`flex items-center gap-2 transition-opacity duration-200 ease-out ${
+                submitting ? "opacity-0" : "opacity-100"
+              }`}
+            >
+              {t("join")}
+            </span>
+            <span
+              aria-hidden="true"
+              className={`absolute inset-0 flex items-center justify-center gap-2 transition-opacity duration-200 ease-out ${
+                submitting ? "opacity-100" : "opacity-0"
+              }`}
+            >
+              <Spinner />
+              {t("joining")}
+            </span>
           </button>
         </div>
       </form>
@@ -227,29 +299,22 @@ function WaitlistBody({
   );
 }
 
-/** A small spinning ring that inherits the button's text color. */
+/**
+ * A smooth conic-gradient ring spinner that tapers from transparent to the
+ * button's text color (`currentColor`), masked to a thin ring.
+ */
 function Spinner() {
   return (
-    <svg
-      className="h-4 w-4 animate-spin"
-      viewBox="0 0 24 24"
-      fill="none"
+    <span
+      className="h-4 w-4 shrink-0 animate-spin rounded-full"
+      style={{
+        background:
+          "conic-gradient(from 90deg at 50% 50%, transparent 0deg, currentColor 300deg)",
+        WebkitMask:
+          "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
+        mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
+      }}
       aria-hidden="true"
-    >
-      <circle
-        cx="12"
-        cy="12"
-        r="9"
-        stroke="currentColor"
-        strokeOpacity="0.25"
-        strokeWidth="3"
-      />
-      <path
-        d="M21 12a9 9 0 0 0-9-9"
-        stroke="currentColor"
-        strokeWidth="3"
-        strokeLinecap="round"
-      />
-    </svg>
+    />
   );
 }
