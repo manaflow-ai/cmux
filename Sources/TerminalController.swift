@@ -8812,24 +8812,30 @@ class TerminalController {
 
     private nonisolated func v2BrowserCookieStoreAll(_ store: WKHTTPCookieStore, timeout: TimeInterval = 3.0) -> [HTTPCookie]? {
         v2AwaitCallback(timeout: timeout) { finish in
-            store.getAllCookies { items in
-                finish(items)
+            v2MainSync {
+                store.getAllCookies { items in
+                    finish(items)
+                }
             }
         }
     }
 
     private nonisolated func v2BrowserCookieStoreSet(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
         v2AwaitCallback(timeout: timeout) { finish in
-            store.setCookie(cookie) {
-                finish(true)
+            v2MainSync {
+                store.setCookie(cookie) {
+                    finish(true)
+                }
             }
         } ?? false
     }
 
     private nonisolated func v2BrowserCookieStoreDelete(_ store: WKHTTPCookieStore, cookie: HTTPCookie, timeout: TimeInterval = 3.0) -> Bool {
         v2AwaitCallback(timeout: timeout) { finish in
-            store.delete(cookie) {
-                finish(true)
+            v2MainSync {
+                store.delete(cookie) {
+                    finish(true)
+                }
             }
         } ?? false
     }
