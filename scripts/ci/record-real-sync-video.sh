@@ -54,6 +54,7 @@ MAC_RAW_VIDEO="$ARTIFACT_DIR/cmux-macos-${BUILD_TAG}.mp4"
 IOS_RAW_VIDEO="$ARTIFACT_DIR/cmux-ios-${BUILD_TAG}.mp4"
 FINAL_VIDEO="$ARTIFACT_DIR/cmux-real-sync-left-right-${BUILD_TAG}.mp4"
 MAC_RECORD_LOG="$ARTIFACT_DIR/macos-record.log"
+MAC_FRAME_DIR="$ARTIFACT_DIR/macos-frames"
 IOS_RECORD_LOG="$ARTIFACT_DIR/ios-record.log"
 METADATA_PATH="$ARTIFACT_DIR/metadata.json"
 
@@ -208,19 +209,28 @@ NODE
 }
 
 start_macos_recording() {
-  local devlist
-  local screen_index
-  devlist="$(ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true)"
-  echo "$devlist" | grep -E "AVFoundation|Capture screen" || true
-  screen_index="$(echo "$devlist" | grep "Capture screen" | head -1 | sed 's/.*\[\([0-9]*\)\].*/\1/')"
-  screen_index="${screen_index:-0}"
-  ffmpeg -hide_banner -y -f avfoundation -framerate 15 -capture_cursor 1 \
-    -i "${screen_index}:none" \
-    -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-    "$MAC_RAW_VIDEO" </dev/null >"$MAC_RECORD_LOG" 2>&1 &
+  rm -rf "$MAC_FRAME_DIR"
+  mkdir -p "$MAC_FRAME_DIR"
+  : > "$MAC_RECORD_LOG"
+  (
+    set +e
+    i=0
+    while true; do
+      frame="$(printf "%s/frame-%05d.jpg" "$MAC_FRAME_DIR" "$i")"
+      screencapture -x -C -t jpg "$frame"
+      i=$((i + 1))
+      sleep 0.12
+    done
+  ) >"$MAC_RECORD_LOG" 2>&1 &
   MAC_RECORDER_PID="$!"
-  sleep 2
-  kill -0 "$MAC_RECORDER_PID" >/dev/null 2>&1
+  for _ in $(seq 1 40); do
+    if [[ "$(find "$MAC_FRAME_DIR" -name 'frame-*.jpg' -type f | wc -l | tr -d ' ')" -ge 2 ]]; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  cat "$MAC_RECORD_LOG" >&2 || true
+  return 1
 }
 
 start_ios_recording() {
@@ -245,6 +255,13 @@ stop_recorders() {
     wait "$MAC_RECORDER_PID" >/dev/null 2>&1 || true
   fi
   MAC_RECORDER_PID=""
+  local frame_count
+  frame_count="$(find "$MAC_FRAME_DIR" -name 'frame-*.jpg' -type f 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "$frame_count" -ge 2 && ! -s "$MAC_RAW_VIDEO" ]]; then
+    ffmpeg -hide_banner -y -framerate 8 -pattern_type glob -i "$MAC_FRAME_DIR/frame-*.jpg" \
+      -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" \
+      -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$MAC_RAW_VIDEO" >>"$MAC_RECORD_LOG" 2>&1
+  fi
 }
 
 stitch_videos() {
