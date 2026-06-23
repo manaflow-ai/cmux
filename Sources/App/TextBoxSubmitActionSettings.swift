@@ -14,7 +14,7 @@ extension TerminalTextBoxInputSettings {
               !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let data = raw.data(using: .utf8),
               let decoded = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) else {
-            return TextBoxSubmitAction.builtInActions
+            return TextBoxSubmitAction.selectableActions
         }
         return TextBoxSubmitAction.normalizedCatalog(decoded)
     }
@@ -31,7 +31,7 @@ extension TerminalTextBoxInputSettings {
             return defaultSubmitActionID
         }
         guard actions.contains(where: { $0.id == configured }) else {
-            return TextBoxSubmitAction.builtInActions.contains(where: { $0.id == configured })
+            return TextBoxSubmitAction.selectableActions.contains(where: { $0.id == configured })
                 ? defaultSubmitActionID
                 : TextBoxSubmitAction.textEntryAction.id
         }
@@ -128,6 +128,8 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         ),
     ]
 
+    static let selectableActions: [TextBoxSubmitAction] = [textEntryAction] + builtInActions
+
     static func normalizedCatalog(_ configuredActions: [TextBoxSubmitAction]) -> [TextBoxSubmitAction] {
         var actionsByID: [String: TextBoxSubmitAction] = [:]
         var orderedIDs: [String] = []
@@ -140,7 +142,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             actionsByID[action.id] = action
         }
 
-        builtInActions.forEach(append)
+        selectableActions.forEach(append)
         configuredActions.forEach(append)
 
         return orderedIDs.compactMap { actionsByID[$0] }

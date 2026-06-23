@@ -119,6 +119,31 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+    func testDefaultTextBoxSubmitActionCatalogIncludesTextEntryEscapeHatch() {
+        XCTAssertEqual(
+            TerminalTextBoxInputSettings.submitActions(configuredJSON: nil).map(\.id),
+            ["text-entry", "claude", "codex", "opencode", "pi"]
+        )
+    }
+
+    func testCustomTextBoxSubmitActionCatalogKeepsTextEntrySelectable() throws {
+        let customAction = TextBoxSubmitAction(
+            id: "custom-router",
+            title: "Custom Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt {{prompt}}",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+        let data = try JSONEncoder().encode([customAction])
+        let json = String(decoding: data, as: UTF8.self)
+
+        XCTAssertEqual(
+            TerminalTextBoxInputSettings.submitActions(configuredJSON: json).map(\.id),
+            ["text-entry", "claude", "codex", "opencode", "pi", "custom-router"]
+        )
+    }
+
     func testTextBoxCustomDefaultFallsBackToTextEntryWhenConfiguredActionIsMissing() {
         let customAction = TextBoxSubmitAction(
             id: "custom-router",

@@ -2450,7 +2450,7 @@ struct TextBoxInputContainer: View {
     var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     var configuredSubmitActionsJSON = ""
-    @State var submitActionsCache = TextBoxSubmitAction.builtInActions
+    @State var submitActionsCache = TextBoxSubmitAction.selectableActions
     @State var submitActionImageCache: [String: NSImage] = [:]
 
     @Binding var text: String
