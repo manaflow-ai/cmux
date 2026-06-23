@@ -87,7 +87,7 @@ describe("appearanceBackgroundColor", () => {
     expect(style.getPropertyValue("--cmux-diff-addition-fg-dark")).toBe("#a6e22e");
   });
 
-  test("paints an opaque surface fill for opaque themes so loading/empty regions match the terminal", () => {
+  test("keeps the page surface transparent for opaque themes", () => {
     dom = new JSDOM("<!doctype html><html><body></body></html>");
     (globalThis as any).document = dom.window.document;
 
@@ -100,8 +100,8 @@ describe("appearanceBackgroundColor", () => {
     }));
 
     const style = dom.window.document.documentElement.style;
-    expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("#feffff");
-    expect(style.getPropertyValue("--cmux-diff-surface-fill-dark")).toBe("#272822");
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-light")).toBe("transparent");
+    expect(style.getPropertyValue("--cmux-diff-surface-fill-dark")).toBe("transparent");
   });
 
   test("keeps the surface fill transparent for transparent themes so the blurred backdrop shows", () => {
