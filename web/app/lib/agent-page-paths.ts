@@ -33,6 +33,7 @@ export const agentReadablePages = [
   { path: "/", title: "Home" },
   { path: "/ios", title: "cmux iOS" },
   { path: "/blog", title: "Blog" },
+  { path: "/blog/cmux-home", title: "cmux home" },
   { path: "/blog/cmux-history", title: "cmux history" },
   { path: "/blog/cmux-finder", title: "Introducing cmux Finder" },
   { path: "/blog/cmux-vault", title: "cmux Vault" },

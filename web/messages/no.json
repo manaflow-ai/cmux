@@ -484,6 +484,16 @@
         "fullHistoryTitle": "Det fullstendige historikkpanelet",
         "fullHistoryP": "Når du trenger mer enn det siste elementet, åpne det fullstendige historikkpanelet: en søkbar visning gruppert etter dag over alt du har lukket og hatt i fokus, med tidsstempler og en Clear Closed-handling.",
         "docsCta": "Se <link>hurtigtaster</link> for hele listen, inkludert hvordan du binder om historikknavigasjonen."
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "Vi legger ikke til worktrees i cmux. Det er en primitiv, så du kan skripte dine egne worktrees, flere utsjekkinger eller fjernutvikling og gjøre det til ditt hjem.",
+        "date": "23. juni 2026",
+        "p1": "Folk spør stadig om vi kommer til å legge til git-worktrees i cmux. Det gjør vi ikke, for vi vil ikke påtvinge noen worktrees. cmux er <link>en primitiv, ikke en løsning</link>.",
+        "p2": "Alle jobber forskjellig. Noen prosjekter er spredt over flere git-repoer. Noen har mange utsjekkinger av samme repo (medgründeren min har kloner kalt cmux0 til cmux40, av grunner jeg fortsatt ikke forstår). Noen bruker SSH og fjernutvikling som standard.",
+        "p3": "cmux er bare terminaler og nettlesere, med en CLI for å styre dem. Med noen få bash-skript kan du håndtere worktrees, sjonglere flere utsjekkinger eller åpne eksterne økter, og sette opp arbeidsområdet slik det passer deg.",
+        "p4": "cmux bør tilpasse seg arbeidsflyten din i stedet for å tvinge en på deg. Vi vil at cmux skal føles som et hjem.",
+        "p5": "<link>cmux-home</link> er ett eksempel på dette. Det er en liten Rust-TUI som starter Claude- og Codex-arbeidsområder og følger med på statusen deres i sanntid, bygget helt på cmux-primitiver. Starteren bruker kommandomaler, så du kan bytte inn dine egne skript for å lage worktrees, velge en utsjekking eller koble til en VM via SSH. Fork den og gjør den til din."
       }
     },
     "zenOfCmux": {
@@ -613,6 +623,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: gjenåpne lukkede terminaler og økter",
       "metaDescription": "cmux fører en historikk over det du har lukket og hatt i fokus. Gjenåpne lukkede terminaler, nettlesere, workspaces og Claude Code-, Codex- og OpenCode-økter med Cmd+Shift+T, og flytt fokus frem og tilbake med Cmd+[ og Cmd+]."
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux påtvinger deg ikke worktrees. Det er en primitiv, så du kan skripte dine egne worktrees, flere utsjekkinger eller fjernutvikling og gjøre cmux til ditt hjem."
     }
   },
   "docs": {

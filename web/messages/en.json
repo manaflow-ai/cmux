@@ -626,6 +626,16 @@
         "fullHistoryTitle": "The full history pane",
         "fullHistoryP": "When you need more than the last item, open the full History pane: a searchable, day grouped view of everything you closed and focused, with timestamps and a Clear Closed action.",
         "docsCta": "See the <link>keyboard shortcuts</link> for the full list, including how to rebind history navigation."
+      },
+      "cmuxHome": {
+        "title": "cmux home",
+        "summary": "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
+        "date": "June 23, 2026",
+        "p1": "People keep asking whether we'll add git worktrees to cmux. We're not going to, because we don't want to impose worktrees on everyone. cmux is <link>a primitive, not a solution</link>.",
+        "p2": "Everyone works differently. Some projects live across several git repos. Some people keep many checkouts of the same repo (my cofounder has clones named cmux0 through cmux40, for reasons I still don't understand). Some people default to SSH and remote development.",
+        "p3": "cmux is just terminals and browsers, with a CLI to drive them. You can write a few bash scripts to manage worktrees, juggle multiple checkouts, or open remote sessions, and lay out your workspace however fits your head.",
+        "p4": "cmux should bend to your workflow instead of forcing one on you. We want cmux to feel like home.",
+        "p5": "<link>cmux-home</link> is one example of what that looks like. It's a small Rust TUI that starts Claude and Codex workspaces and watches their live status, built entirely on cmux primitives. The launcher uses command templates, so you can swap in your own scripts for creating worktrees, picking a checkout, or SSHing into a VM. Fork it and make it yours."
       }
     },
     "cmuxFinder": {
@@ -687,6 +697,10 @@
     "cmuxHistory": {
       "metaTitle": "cmux history: reopen closed terminals and sessions",
       "metaDescription": "cmux keeps a history of what you closed and focused. Reopen closed terminals, browsers, workspaces, and Claude Code, Codex, and OpenCode sessions with Cmd+Shift+T, and move focus back and forward with Cmd+[ and Cmd+]."
+    },
+    "cmuxHome": {
+      "metaTitle": "cmux home",
+      "metaDescription": "cmux won't impose worktrees on you. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make cmux feel like home."
     }
   },
   "docs": {
