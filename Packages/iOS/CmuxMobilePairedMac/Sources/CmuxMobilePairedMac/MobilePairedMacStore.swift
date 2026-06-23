@@ -2,6 +2,9 @@ public import CMUXMobileCore
 public import Foundation
 import SQLite3
 import os
+#if canImport(Security)
+import Security
+#endif
 
 private let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 
@@ -301,8 +304,8 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
     /// v5: local-only attach credentials for trusted LAN/VPN reconnect.
     private func migrateToV5() throws {
         let existing = try tableColumns("paired_macs")
-        if !existing.contains("credential_auth_token") {
-            try exec("ALTER TABLE paired_macs ADD COLUMN credential_auth_token TEXT;")
+        if !existing.contains("credential_key") {
+            try exec("ALTER TABLE paired_macs ADD COLUMN credential_key TEXT;")
         }
         if !existing.contains("credential_expires_at") {
             try exec("ALTER TABLE paired_macs ADD COLUMN credential_expires_at REAL;")
@@ -459,15 +462,22 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
         teamID: String? = nil
     ) throws {
         try ensureReady()
+        let ownerKey = "\(stackUserID ?? "")\u{1F}\(teamID ?? "")"
+        let credentialKey = Self.credentialKey(macDeviceID: macDeviceID, ownerKey: ownerKey)
+        if let credential {
+            try Self.storeCredentialInKeychain(credential, key: credentialKey)
+        } else {
+            Self.deleteCredentialFromKeychain(key: credentialKey)
+        }
         try exec("""
             UPDATE paired_macs
-            SET credential_auth_token = ?, credential_expires_at = ?
+            SET credential_key = ?, credential_expires_at = ?
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
-            credential.map { .text($0.authToken) } ?? .null,
+            credential.map { _ in .text(credentialKey) } ?? .null,
             credential?.expiresAt.map { .real($0.timeIntervalSince1970) } ?? .null,
             .text(macDeviceID),
-            .text("\(stackUserID ?? "")\u{1F}\(teamID ?? "")"),
+            .text(ownerKey),
         ])
     }
 
@@ -531,7 +541,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
         defer { sqlite3_finalize(statement) }
         let sql = """
             SELECT display_name, stack_user_id, created_at, last_seen_at, is_active, team_id,
-                   credential_auth_token, credential_expires_at
+                   credential_key, credential_expires_at
             FROM paired_macs WHERE mac_device_id = ? AND owner_key = ?;
         """
         let rc = sqlite3_prepare_v2(db, sql, -1, &statement, nil)
@@ -623,12 +633,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
             INSERT INTO paired_macs (
                 mac_device_id, owner_key, display_name, stack_user_id, team_id,
                 created_at, last_seen_at, is_active, custom_name, custom_color, custom_icon,
-                credential_auth_token, credential_expires_at
+                credential_key, credential_expires_at
             )
             SELECT
                 mac_device_id, ?, display_name, stack_user_id, ?, created_at,
                 last_seen_at, is_active, custom_name, custom_color, custom_icon,
-                credential_auth_token, credential_expires_at
+                credential_key, credential_expires_at
             FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
@@ -680,7 +690,7 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
         let sql = """
             SELECT mac_device_id, owner_key, display_name, stack_user_id, created_at, last_seen_at, is_active,
                    custom_name, custom_color, custom_icon, team_id,
-                   credential_auth_token, credential_expires_at
+                   credential_key, credential_expires_at
             FROM paired_macs
             \(whereClause)
             ORDER BY last_seen_at DESC;
@@ -785,17 +795,101 @@ public actor MobilePairedMacStore: MobilePairedMacStoring, MobilePairedMacCreden
         authTokenColumn: Int32,
         expiresAtColumn: Int32
     ) -> MobilePairedMacCredential? {
-        guard let authToken = readNullableText(statement, column: authTokenColumn),
-              !authToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let key = readNullableText(statement, column: authTokenColumn),
+              !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              var credential = loadCredentialFromKeychain(key: key) else {
             return nil
         }
-        let expiresAt: Date?
-        if sqlite3_column_type(statement, expiresAtColumn) == SQLITE_NULL {
-            expiresAt = nil
-        } else {
-            expiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, expiresAtColumn))
+        if sqlite3_column_type(statement, expiresAtColumn) != SQLITE_NULL {
+            credential.expiresAt = Date(timeIntervalSince1970: sqlite3_column_double(statement, expiresAtColumn))
         }
-        return MobilePairedMacCredential(authToken: authToken, expiresAt: expiresAt)
+        return credential
+    }
+
+    private static let credentialKeychainService = "com.cmuxterm.mobile.paired-mac-credentials"
+    nonisolated(unsafe) private static var credentialFallbackStore: [String: Data] = [:]
+
+    private static func credentialKey(macDeviceID: String, ownerKey: String) -> String {
+        "\(macDeviceID)\u{1F}\(ownerKey)"
+    }
+
+    private static func storeCredentialInKeychain(
+        _ credential: MobilePairedMacCredential,
+        key: String
+    ) throws {
+        #if canImport(Security)
+        let data = try JSONEncoder().encode(credential)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: credentialKeychainService,
+            kSecAttrAccount as String: key,
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: data] as CFDictionary
+        )
+        if updateStatus == errSecSuccess { return }
+        if updateStatus == errSecMissingEntitlement {
+            credentialFallbackStore[key] = data
+            return
+        }
+        guard updateStatus == errSecItemNotFound else {
+            throw MobilePairedMacStoreError.stepFailed(updateStatus, "keychain credential update failed")
+        }
+        var insert = query
+        insert[kSecValueData as String] = data
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let addStatus = SecItemAdd(insert as CFDictionary, nil)
+        if addStatus == errSecMissingEntitlement {
+            credentialFallbackStore[key] = data
+            return
+        }
+        guard addStatus == errSecSuccess else {
+            throw MobilePairedMacStoreError.stepFailed(addStatus, "keychain credential insert failed")
+        }
+        #else
+        _ = credential
+        _ = key
+        #endif
+    }
+
+    private static func loadCredentialFromKeychain(key: String) -> MobilePairedMacCredential? {
+        #if canImport(Security)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: credentialKeychainService,
+            kSecAttrAccount as String: key,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else {
+            guard let fallbackData = credentialFallbackStore[key] else { return nil }
+            return try? JSONDecoder().decode(MobilePairedMacCredential.self, from: fallbackData)
+        }
+        return try? JSONDecoder().decode(MobilePairedMacCredential.self, from: data)
+        #else
+        _ = key
+        return nil
+        #endif
+    }
+
+    private static func deleteCredentialFromKeychain(key: String) {
+        #if canImport(Security)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: credentialKeychainService,
+            kSecAttrAccount as String: key,
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        SecItemDelete(query as CFDictionary)
+        credentialFallbackStore[key] = nil
+        #else
+        _ = key
+        #endif
     }
 
     // MARK: - Statement helpers

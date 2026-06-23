@@ -92,12 +92,13 @@ import Testing
             kind: .trustedNetwork,
             endpoint: .hostPort(host: "192.168.1.44", port: 58465)
         )
+        let macDeviceID = "mac-lan-\(UUID().uuidString)"
         let expiresAt = Date(timeIntervalSince1970: 2_000_000_000)
 
         do {
             let store = try MobilePairedMacStore(databaseURL: url)
             try await store.upsert(
-                macDeviceID: "mac-lan",
+                macDeviceID: macDeviceID,
                 displayName: "Studio LAN",
                 routes: [route],
                 markActive: true,
@@ -107,17 +108,21 @@ import Testing
             )
             try await store.storeCredential(
                 MobilePairedMacCredential(authToken: "trusted-ticket", expiresAt: expiresAt),
-                macDeviceID: "mac-lan",
+                macDeviceID: macDeviceID,
                 stackUserID: "user-1",
                 teamID: "team-a"
             )
         }
+        let databaseBytes = try Data(contentsOf: url)
+        let databaseText = String(decoding: databaseBytes, as: UTF8.self)
+        #expect(!databaseText.contains("trusted-ticket"))
 
         let reopened = try MobilePairedMacStore(databaseURL: url)
         let mac = try #require(await reopened.activeMac(stackUserID: "user-1", teamID: "team-a"))
         #expect(mac.credential?.authToken == "trusted-ticket")
         #expect(mac.credential?.expiresAt == expiresAt)
         #expect(mac.credential?.isUsable(now: Date(timeIntervalSince1970: 1_950_000_000)) == true)
+        try await reopened.storeCredential(nil, macDeviceID: macDeviceID, stackUserID: "user-1", teamID: "team-a")
     }
 
     @Test func setActiveScopesClearToTargetStackUser() async throws {
