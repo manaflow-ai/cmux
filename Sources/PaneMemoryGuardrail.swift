@@ -5,9 +5,11 @@ import Observation
 // MARK: - Monitor
 
 /// One instance owns the background poll timer, scans every live pane each tick,
-/// attributes process-tree memory by controlling tty, and drives the per-pane
-/// warning badge + dismissible banner. The heavy libproc scan runs off the main
-/// thread; only the small state updates touch `@MainActor`.
+/// and attributes process-tree memory by controlling tty. The user-facing
+/// warning badge and dismissible banner were removed in issue #6614, so the scan
+/// now only maintains the engine's monitoring state (surfaced in DEBUG logs) and
+/// the still-wired system memory-pressure response. The heavy libproc scan runs
+/// off the main thread; only the small state updates touch `@MainActor`.
 @MainActor
 @Observable
 final class PaneMemoryGuardrail {
@@ -21,18 +23,9 @@ final class PaneMemoryGuardrail {
     private static let thresholdRangeGB: ClosedRange<Double> = 1...256
     private static let bytesPerGB = 1024.0 * 1024.0 * 1024.0
 
-    /// The banner content for the most recent un-dismissed crossing, or nil.
-    private(set) var activeBanner: PaneMemoryWarning?
-
     /// Supplies the live pane set each tick (main-actor; reads ghostty/tty).
     @ObservationIgnored
     var paneProvider: (@MainActor () -> [PaneMemoryDescriptor])?
-    /// Pushes the set of workspaces that should show a warning badge.
-    @ObservationIgnored
-    var onWarnedWorkspacesChanged: (@MainActor (Set<UUID>) -> Void)?
-    /// Fallback when a pane has no high-memory process group to signal: close it.
-    @ObservationIgnored
-    var onRequestClosePane: (@MainActor (_ workspaceId: UUID, _ panelId: UUID) -> Void)?
     /// Invoked when the OS reports warning/critical system memory pressure.
     @ObservationIgnored
     var onSystemMemoryPressure: (@MainActor () -> Void)?
@@ -50,17 +43,9 @@ final class PaneMemoryGuardrail {
     @ObservationIgnored
     private var scanApplyTask: Task<Void, Never>?
     @ObservationIgnored
-    private var lastSamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
-    @ObservationIgnored
     private var lastScopedOnlySamplesByKey: [PaneMemoryPaneKey: PaneMemorySample] = [:]
     @ObservationIgnored
-    private var lastWarnedWorkspaceIds: Set<UUID> = []
-    @ObservationIgnored
     private var lastScopedScanAt = Date.distantPast
-    @ObservationIgnored
-    private var pendingBanners: [PaneMemoryWarning] = []
-    @ObservationIgnored
-    private var pendingKillTasksByKey: [PaneMemoryPaneKey: (id: UUID, task: Task<Void, Never>)] = [:]
 
     func start() {
         startSystemMemoryPressureSourceIfNeeded()
@@ -175,18 +160,6 @@ final class PaneMemoryGuardrail {
                 uniquingKeysWith: { _, last in last }
             ),
             includesCMUXScope: snapshot.hasCMUXScope
-        )
-    }
-
-    nonisolated static func computeFreshSamples(
-        descriptors: [PaneMemoryDescriptor],
-        thresholdBytes: Int64,
-        includeCMUXScope: Bool = false
-    ) -> [PaneMemorySample] {
-        computeSamples(
-            descriptors: descriptors,
-            thresholdBytes: thresholdBytes,
-            snapshot: CmuxTopProcessSnapshot.capture(includeCMUXScope: includeCMUXScope)
         )
     }
 
@@ -377,153 +350,28 @@ final class PaneMemoryGuardrail {
         let samples = reconciled.samples
         isScanning = false
         scanApplyTask = nil
-        let samplesByKey = Dictionary(samples.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
-        lastSamplesByKey = samplesByKey
-        for key in Array(pendingKillTasksByKey.keys) where samplesByKey[key] == nil {
-            pendingKillTasksByKey.removeValue(forKey: key)?.task.cancel()
-        }
 
+        // Keep the engine's monitoring state machine current. Its warn/clear
+        // output no longer drives any UI (the badge + banner were removed in
+        // issue #6614); it is retained for the DEBUG scan log below.
         let output = engine.ingest(samples: samples, thresholdBytes: thresholdBytes)
+        emitScanDebugLog(samples: samples, output: output, thresholdBytes: thresholdBytes, includesCMUXScope: batch.includesCMUXScope)
+    }
+
+    private func emitScanDebugLog(
+        samples: [PaneMemorySample],
+        output: PaneMemoryGuardrailEngineOutput,
+        thresholdBytes: Int64,
+        includesCMUXScope: Bool
+    ) {
 #if DEBUG
         let maxBytes = samples.map(\.memoryBytes).max() ?? 0
         cmuxDebugLog(
             "paneMemGuard.scan panes=\(samples.count) maxMB=\(maxBytes / 1_048_576) " +
             "thresholdMB=\(thresholdBytes / 1_048_576) warned=\(output.warnedWorkspaceIds.count) " +
-            "fired=\(output.bannerToPresent != nil ? 1 : 0) scope=\(batch.includesCMUXScope ? 1 : 0)"
+            "scope=\(includesCMUXScope ? 1 : 0)"
         )
 #endif
-
-        enqueuePendingBanners(output.bannersToPresent)
-        pendingBanners.removeAll { !output.warnedPaneKeys.contains($0.key) }
-
-        // Banner lifecycle.
-        if let active = activeBanner {
-            let activeKey = active.key
-            if output.clearedPanes.contains(activeKey) || lastSamplesByKey[activeKey] == nil {
-                activeBanner = nil
-            } else if let refreshed = lastSamplesByKey[activeKey], refreshed.memoryBytes >= thresholdBytes {
-                // Keep the on-screen memory figure current while it stays high.
-                let refreshedWarning = refreshed.warning
-                if refreshedWarning != active {
-                    activeBanner = refreshedWarning
-                }
-            }
-        }
-        presentNextPendingBannerIfNeeded()
-
-        if output.warnedWorkspaceIds != lastWarnedWorkspaceIds {
-            lastWarnedWorkspaceIds = output.warnedWorkspaceIds
-            onWarnedWorkspacesChanged?(output.warnedWorkspaceIds)
-        }
-    }
-
-    // MARK: Banner actions
-
-    func dismissActiveBanner() {
-        guard let active = activeBanner else { return }
-        engine.dismiss(active.key)
-        pendingBanners.removeAll { $0.key == active.key }
-        activeBanner = nil
-        presentNextPendingBannerIfNeeded()
-    }
-
-    func killActivePaneProcess() { if let active = activeBanner { killPaneProcess(for: active) } }
-
-    func killPaneProcess(for warning: PaneMemoryWarning) {
-        let key = warning.key
-        let descriptor = paneProvider?().first { $0.key == key }
-        engine.acknowledgeHandled(key)
-        pendingBanners.removeAll { $0.key == key }
-        if activeBanner?.key == key {
-            activeBanner = nil
-        }
-        if engine.warnedWorkspaceIds != lastWarnedWorkspaceIds {
-            lastWarnedWorkspaceIds = engine.warnedWorkspaceIds
-            onWarnedWorkspacesChanged?(engine.warnedWorkspaceIds)
-        }
-        guard let descriptor else {
-            presentNextPendingBannerIfNeeded()
-            return
-        }
-        let thresholdBytes = thresholdBytes()
-        let sampleTask = Task.detached(priority: .userInitiated) {
-            Self.computeFreshSamples(
-                descriptors: [descriptor],
-                thresholdBytes: thresholdBytes,
-                includeCMUXScope: true
-            ).first
-        }
-        presentNextPendingBannerIfNeeded()
-        Task { @MainActor [weak self] in
-            let sample = await sampleTask.value
-            self?.finishKillActivePaneProcess(
-                key: key,
-                warning: warning,
-                sample: sample,
-                thresholdBytes: thresholdBytes
-            )
-        }
-    }
-
-    private func finishKillActivePaneProcess(
-        key: PaneMemoryPaneKey,
-        warning: PaneMemoryWarning,
-        sample: PaneMemorySample?,
-        thresholdBytes: Int64
-    ) {
-        guard let sample, sample.memoryBytes >= thresholdBytes else { return }
-        let pgids = sample.memoryPressureProcessGroupIDs.filter { $0 > 1 }
-        if pgids.isEmpty {
-            onRequestClosePane?(warning.workspaceId, warning.panelId)
-            return
-        }
-        pendingKillTasksByKey[key]?.task.cancel()
-        let descriptor = sample.descriptor
-        let killer = PaneMemoryProcessKiller()
-        guard let task = killer.terminate(
-            processGroupIDs: pgids,
-            validateBeforeSIGKILL: {
-                let freshSample = Self.computeFreshSamples(
-                    descriptors: [descriptor],
-                    thresholdBytes: thresholdBytes,
-                    includeCMUXScope: true
-                ).first
-                guard let freshSample, freshSample.memoryBytes >= thresholdBytes else {
-                    return []
-                }
-                return Set(freshSample.memoryPressureProcessGroupIDs.filter { $0 > 1 })
-            }
-        ) else { return }
-        let id = UUID()
-        pendingKillTasksByKey[key] = (id: id, task: task)
-        Task { @MainActor [weak self] in
-            await task.value
-            if self?.pendingKillTasksByKey[key]?.id == id {
-                self?.pendingKillTasksByKey[key] = nil
-            }
-        }
-    }
-
-    private func enqueuePendingBanners(_ warnings: [PaneMemoryWarning]) {
-        guard !warnings.isEmpty else { return }
-        let activeKey = activeBanner?.key
-        var queuedKeys = Set(pendingBanners.map(\.key))
-        for warning in warnings {
-            guard warning.key != activeKey, queuedKeys.insert(warning.key).inserted else {
-                continue
-            }
-            pendingBanners.append(warning)
-        }
-    }
-
-    private func presentNextPendingBannerIfNeeded() {
-        guard activeBanner == nil else { return }
-        while !pendingBanners.isEmpty {
-            let next = pendingBanners.removeFirst()
-            guard let refreshed = lastSamplesByKey[next.key] else { continue }
-            activeBanner = refreshed.warning
-            return
-        }
     }
 
     // MARK: Clearing
@@ -533,16 +381,7 @@ final class PaneMemoryGuardrail {
         isScanning = false
         scanApplyTask?.cancel()
         scanApplyTask = nil
-        if activeBanner != nil { activeBanner = nil }
-        pendingBanners.removeAll()
-        lastSamplesByKey.removeAll()
         lastScopedOnlySamplesByKey.removeAll()
         lastScopedScanAt = .distantPast
-        pendingKillTasksByKey.values.forEach { $0.task.cancel() }
-        pendingKillTasksByKey.removeAll()
-        if !lastWarnedWorkspaceIds.isEmpty {
-            lastWarnedWorkspaceIds = []
-            onWarnedWorkspacesChanged?([])
-        }
     }
 }
