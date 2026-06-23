@@ -29775,6 +29775,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return processBindingCache == nil ? "nil" : "resolved"
         }
 #endif
+        let resolvedDirectSurfaceArg: String? = {
+            guard let directSurfaceArg else { return nil }
+            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
+            return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
+        }()
         if def.name == "codex",
            (subcommand == "session-start" || subcommand == "active" || subcommand == "session-end"),
            codexLaunchIsForkSession(env: env, fallbackPID: inferredPID) {
@@ -29786,7 +29791,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 store: store,
                 env: env,
                 fallbackPID: inferredPID,
-                authoritativeForkSurfaceId: processBinding()?.surfaceId
+                authoritativeForkSurfaceId: processBinding()?.surfaceId ?? resolvedDirectSurfaceArg
             )
             if isCodexForkParentLifecycle {
                 telemetry.breadcrumb("codex-hook.\(subcommand).fork-parent-skipped")
@@ -29794,11 +29799,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return
             }
         }
-        let resolvedDirectSurfaceArg: String? = {
-            guard let directSurfaceArg else { return nil }
-            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
-            return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
-        }()
         // Same asymmetry for the surface: an explicit --surface flag that fails to resolve is a hard
         // error, but a stale/invalid ambient CMUX_SURFACE_ID (a surface that was closed, or belongs to
         // another workspace) must fall through to the PID/TTY binding instead of dropping the hook —
