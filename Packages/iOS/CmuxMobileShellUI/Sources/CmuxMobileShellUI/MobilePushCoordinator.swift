@@ -36,6 +36,11 @@ public final class MobilePushCoordinator {
     // the opt-in flag for the menu UI without awaiting the actor service.
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let enabledKey = "cmux.notifications.pushEnabled"
+    /// Set once when the user taps "Ignore forever" on the workspaces-list
+    /// notification prompt, so that banner never returns for this install.
+    /// Distinct from `enabledKey`: opting out via Settings does not silence the
+    /// banner's gating, but an explicit permanent dismissal does.
+    private static let bannerDismissedKey = "cmux.notifications.bannerDismissedForever.v1"
 
     /// APNs `aps.category` the web sets on every cmux terminal push (see
     /// `CMUX_APNS_CATEGORY` in `web/services/apns/payload.ts`). The matching
@@ -100,6 +105,17 @@ public final class MobilePushCoordinator {
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { defaults.bool(forKey: Self.enabledKey) }
 
+    /// Whether the user permanently dismissed the workspaces-list notification
+    /// prompt ("Ignore forever"). Synchronous mirror; the banner is gated on this
+    /// so it never returns once dismissed.
+    public var bannerDismissedForever: Bool { defaults.bool(forKey: Self.bannerDismissedKey) }
+
+    /// Permanently dismiss the workspaces-list notification prompt.
+    public func dismissNotificationBannerForever() {
+        defaults.set(true, forKey: Self.bannerDismissedKey)
+        analytics.capture("ios_push_banner_dismissed_forever", [:])
+    }
+
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
         self.store = store
@@ -137,8 +153,10 @@ public final class MobilePushCoordinator {
 
     /// Opt in: request system authorization, register for remote notifications,
     /// and persist the flag. Returns whether authorization was granted.
+    /// - Parameter trigger: Analytics provenance for the opt-in events (e.g.
+    ///   `"settings_toggle"`, `"onboarding"`, `"workspaces_banner"`).
     @discardableResult
-    public func enable() async -> Bool {
+    public func enable(trigger: String = "settings_toggle") async -> Bool {
         let priorStatus = await UNUserNotificationCenter.current()
             .notificationSettings().authorizationStatus
         // Only an undetermined status produces a real OS prompt; gate the
@@ -146,7 +164,7 @@ public final class MobilePushCoordinator {
         // not log a phantom prompt.
         if priorStatus == .notDetermined {
             analytics.capture("ios_push_optin_prompt_shown", [
-                "trigger": .string("settings_toggle"),
+                "trigger": .string(trigger),
                 "prior_authorization_status": .string("not_determined"),
             ])
         }
@@ -154,15 +172,36 @@ public final class MobilePushCoordinator {
             .requestAuthorization(options: [.alert, .sound, .badge])) ?? false
         guard granted else {
             analytics.capture("ios_push_optin_declined", [
-                "trigger": .string("settings_toggle"),
+                "trigger": .string(trigger),
                 "was_os_level_predenied": .bool(priorStatus == .denied),
             ])
             return false
         }
-        analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
+        analytics.capture("ios_push_optin_granted", ["trigger": .string(trigger)])
         await registration.setEnabled(true)
         UIApplication.shared.registerForRemoteNotifications()
         return true
+    }
+
+    /// Opt in from a primer surface (onboarding step / workspaces banner). Same
+    /// as ``enable(trigger:)`` when the OS status is undetermined or granted, but
+    /// when notifications were previously **denied** — iOS will not re-prompt —
+    /// it opens the system Settings app so the user can flip them on there,
+    /// instead of the silent no-op `enable()` would be. Returns whether
+    /// notifications are enabled after the call (always `false` on the
+    /// open-Settings path, since the change happens out of process).
+    @discardableResult
+    public func enableOrOpenSettings(trigger: String) async -> Bool {
+        let status = await UNUserNotificationCenter.current()
+            .notificationSettings().authorizationStatus
+        if status == .denied {
+            analytics.capture("ios_push_optin_open_settings", ["trigger": .string(trigger)])
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url, options: [:], completionHandler: nil)
+            }
+            return false
+        }
+        return await enable(trigger: trigger)
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.

@@ -62,6 +62,15 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
+    /// Whether to show the "enable notifications" prompt banner at the top of the
+    /// list. Gated by the caller (notifications off and not permanently
+    /// dismissed). The banner takes closures only, so it does not cross the
+    /// snapshot boundary. `false` (with `nil` closures) in previews/older callers.
+    var showsNotificationBanner: Bool = false
+    /// Fire the OS permission prompt (or open Settings if previously denied).
+    var enableNotifications: (() -> Void)?
+    /// Permanently dismiss the notification banner.
+    var ignoreNotificationsForever: (() -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -127,6 +136,19 @@ struct WorkspaceListView: View {
 
     var body: some View {
         List {
+            #if os(iOS)
+            if showsNotificationBanner, let enableNotifications, let ignoreNotificationsForever {
+                Section {
+                    NotificationPromptBanner(
+                        onEnable: enableNotifications,
+                        onIgnoreForever: ignoreNotificationsForever
+                    )
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
+            }
+            #endif
             if connectionStatus != .connected {
                 Section {
                     MobileMacConnectionStatusRow(host: host, status: connectionStatus)

@@ -2,6 +2,15 @@
 import CmuxMobileSupport
 import Foundation
 
+/// Distinguishes a plain explanatory page from a page that carries an action.
+/// The flow view switches its footer on this: `.info` pages keep the
+/// Next/Get-started footer; `.enableNotifications` renders an "Enable
+/// notifications" primary + "Not now" secondary that drive the push opt-in.
+enum OnboardingPageKind: Sendable {
+    case info
+    case enableNotifications
+}
+
 /// Value model for an onboarding page: an SF Symbol, a title, a body, an optional
 /// checklist of short bullet items, and zero or more inline links. Pure data so
 /// the page list is trivial to extend (e.g. a future Hive "add your own servers"
@@ -16,25 +25,31 @@ struct OnboardingPage: Sendable {
     /// Inline links shown under the checklist (e.g. the Tailscale App Store link
     /// for the phone and the Tailscale download page for the Mac).
     let links: [OnboardingPageLink]
+    /// The page's role, which selects the footer actions. Defaults to `.info`
+    /// (pure prose), so existing pages are unaffected.
+    let kind: OnboardingPageKind
 
     init(
         systemImage: String,
         title: String,
         body: String,
         checklist: [String] = [],
-        links: [OnboardingPageLink] = []
+        links: [OnboardingPageLink] = [],
+        kind: OnboardingPageKind = .info
     ) {
         self.systemImage = systemImage
         self.title = title
         self.body = body
         self.checklist = checklist
         self.links = links
+        self.kind = kind
     }
 
     /// The ordered first-run pages: what cmux is, how it connects (the private
-    /// link), the Tailscale set-up checklist (both devices), and how to pair.
+    /// link), the Tailscale set-up checklist (both devices), how to pair, and a
+    /// final "enable notifications" opt-in (dropped at runtime when already on).
     static var allPages: [OnboardingPage] {
-        [whatItIs, howItConnects, tailscaleChecklist, pairNow]
+        [whatItIs, howItConnects, tailscaleChecklist, pairNow, enableNotifications]
     }
 
     private static var whatItIs: OnboardingPage {
@@ -124,6 +139,21 @@ struct OnboardingPage: Sendable {
                 "mobile.onboarding.pairBody",
                 defaultValue: "Make sure cmux on your Mac is signed in to the same account, then scan the pairing QR code it shows (or enter its address by hand). You only do this once per Mac."
             )
+        )
+    }
+
+    private static var enableNotifications: OnboardingPage {
+        OnboardingPage(
+            systemImage: "bell.badge",
+            title: L10n.string(
+                "mobile.onboarding.notificationsTitle",
+                defaultValue: "Get notified when your Mac needs you"
+            ),
+            body: L10n.string(
+                "mobile.onboarding.notificationsBody",
+                defaultValue: "When an agent finishes or asks a question, cmux can notify your phone, even when it's locked. Turn it on so you don't have to keep checking."
+            ),
+            kind: .enableNotifications
         )
     }
 }
