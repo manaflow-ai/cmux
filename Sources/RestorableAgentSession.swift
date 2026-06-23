@@ -1089,12 +1089,25 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> RestorableAgentSessionIndex {
         // Resolve background agents at most once per config dir per load, only when a
         // transcript-less Claude ghost actually needs reconciliation (the provider fires
-        // lazily from `resolvedClaudeWorkflowRecord`). https://github.com/manaflow-ai/cmux/issues/6622
+        // lazily from `resolvedClaudeWorkflowRecord`). Cap the number of distinct config dirs
+        // probed per load: each miss can run `claude agents --json` (bounded, but serialized),
+        // so a hook store littered with transcript-less ghosts across many config dirs must not
+        // turn one index load into an unbounded chain of subprocess waits. Beyond the cap,
+        // reconciliation degrades to no-op for the extra configs.
+        // https://github.com/manaflow-ai/cmux/issues/6622
+        let maxProbedConfigDirs = 4
         var backgroundAgentsByConfigDir: [String: [ClaudeBackgroundAgentSnapshot]] = [:]
+        var probedConfigDirCount = 0
         func backgroundAgents(forConfigDir configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
             let key = configDir ?? ""
             if let cached = backgroundAgentsByConfigDir[key] { return cached }
-            let resolved = backgroundAgentsProvider(configDir)
+            let resolved: [ClaudeBackgroundAgentSnapshot]
+            if probedConfigDirCount >= maxProbedConfigDirs {
+                resolved = []
+            } else {
+                probedConfigDirCount += 1
+                resolved = backgroundAgentsProvider(configDir)
+            }
             backgroundAgentsByConfigDir[key] = resolved
             return resolved
         }
@@ -1300,6 +1313,14 @@ struct RestorableAgentSessionIndex: Sendable {
         lookup: ClaudeTranscriptLookupCache,
         backgroundAgents: (String?) -> [ClaudeBackgroundAgentSnapshot]
     ) -> RestorableAgentHookSessionRecord {
+        // Sanitize the launch capture up front so every config-root lookup and the daemon
+        // reconciliation below use only a TRUSTED launch command. A Claude session launched
+        // under another agent inherits the ancestor's CMUX_AGENT_LAUNCH_* env, whose cwd/config
+        // would otherwise poison the project-root search and match the ghost to an unrelated
+        // conversation. An untrusted capture drops to nil, falling back to the hook-reported
+        // cwd and the default config root. https://github.com/manaflow-ai/cmux/issues/6622
+        var record = record
+        record.launchCommand = trustedLaunchCommand(record.launchCommand, kind: .claude)
         guard let sessionId = normalizedNonEmptyValue(record.sessionId),
               claudeSessionIdIsSafeFilename(sessionId) else {
             return record
@@ -1349,15 +1370,11 @@ struct RestorableAgentSessionIndex: Sendable {
         guard !claudeTranscriptExists(for: record, fileManager: fileManager, lookup: lookup) else {
             return record
         }
-        // Derive the daemon-match cwd and CLAUDE_CONFIG_DIR only from a TRUSTED launch capture:
-        // a Claude session launched under another agent inherits the ancestor's
-        // CMUX_AGENT_LAUNCH_* env, so an untrusted launch command could point at the ancestor's
-        // cwd/config and reconcile the ghost to an unrelated conversation. Fall back to the
-        // hook-reported cwd (and the default config root) when the capture is untrusted.
-        let trustedLaunch = trustedLaunchCommand(record.launchCommand, kind: .claude)
-        let panelCwd = normalizedWorkingDirectory(trustedLaunch?.workingDirectory)
+        // `record.launchCommand` is already trust-sanitized above, so `panelCwd`, `configDir`,
+        // and `roots` all derive from the same trusted config (or the default when untrusted).
+        let panelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
             ?? normalizedWorkingDirectory(record.cwd)
-        let configDir = normalizedNonEmptyValue(trustedLaunch?.environment?["CLAUDE_CONFIG_DIR"])
+        let configDir = normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"])
         guard let realSessionId = ClaudeBackgroundAgentReconciler().reconciledSessionId(
             forGhostSessionId: sessionId,
             panelCwd: panelCwd,
