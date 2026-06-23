@@ -90,12 +90,7 @@ struct MobilePairingView: View {
         }
     }
 
-    private enum NetworkStatus {
-        case automatic
-        case manual
-    }
-
-    private var networkStatus: NetworkStatus? {
+    private var networkStatus: MobilePairingNetworkStatus? {
         switch model.state {
         case .ready, .connected: return .automatic
         case .manualOnly, .connectedManual: return .manual
@@ -103,7 +98,7 @@ struct MobilePairingView: View {
         }
     }
 
-    private func networkSubtitle(status: NetworkStatus?) -> String {
+    private func networkSubtitle(status: MobilePairingNetworkStatus?) -> String {
         switch status {
         case .some(.automatic):
             return String(localized: "mobile.pairing.req.network.automatic", defaultValue: "QR ready over Tailscale. Manual VPN/LAN host entry also works.")
@@ -160,7 +155,7 @@ struct MobilePairingView: View {
         }
     }
 
-    private func manualOnlyContent(_ manual: MobilePairingModel.ManualOnly) -> some View {
+    private func manualOnlyContent(_ manual: MobilePairingManualOnly) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "network.slash")
                 .cmuxFont(size: 28)
@@ -279,7 +274,7 @@ struct MobilePairingView: View {
     }
 
     @ViewBuilder
-    private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+    private func readyContent(_ ready: MobilePairingReady) -> some View {
         // Manual entry sits above the QR so Copy IP / Copy Port are reachable
         // without scrolling (they used to sit below the steps, below the fold).
         if ready.reachableViaTailscale {
@@ -322,11 +317,11 @@ struct MobilePairingView: View {
     }
 
     @ViewBuilder
-    private func connectedContent(_: MobilePairingModel.Ready) -> some View {
+    private func connectedContent(_: MobilePairingReady) -> some View {
         connectedContent()
     }
 
-    private func connectedManualContent(_: MobilePairingModel.ManualOnly) -> some View {
+    private func connectedManualContent(_: MobilePairingManualOnly) -> some View {
         connectedContent()
     }
 
@@ -381,7 +376,7 @@ struct MobilePairingView: View {
     }
 
     @ViewBuilder
-    private func manualFallback(_ ready: MobilePairingModel.Ready) -> some View {
+    private func manualFallback(_ ready: MobilePairingReady) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
                 .cmuxFont(.caption, weight: .semibold)

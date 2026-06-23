@@ -47,19 +47,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private struct TrustedNetworkAuthConfirmation: Codable, Hashable {
-        var userID: String
-        var teamID: String?
-        var macDeviceID: String
-        var host: String
-        var port: Int
-    }
-
-    private struct TrustedNetworkAuthConfirmationCandidate {
-        var host: String
-        var port: Int
-    }
-
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
     private static let trustedNetworkAuthConfirmationDefaultsKey = "cmux.mobile.trustedNetworkAuthConfirmations"
 

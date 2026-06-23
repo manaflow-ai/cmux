@@ -11,8 +11,8 @@ import Testing
 @MainActor
 @Suite("Mobile pairing connection transition")
 struct MobilePairingConnectionTransitionTests {
-    private func makeReady() -> MobilePairingModel.Ready {
-        MobilePairingModel.Ready(
+    private func makeReady() -> MobilePairingReady {
+        MobilePairingReady(
             attachURL: "cmux-ios://attach?ticket=abc",
             macName: "Test Mac",
             tailscaleLines: ["100.64.0.1:7777"],
@@ -20,8 +20,8 @@ struct MobilePairingConnectionTransitionTests {
         )
     }
 
-    private func makeManualOnly() -> MobilePairingModel.ManualOnly {
-        MobilePairingModel.ManualOnly(macName: "Test Mac", port: 58465)
+    private func makeManualOnly() -> MobilePairingManualOnly {
+        MobilePairingManualOnly(macName: "Test Mac", port: 58465)
     }
 
     @Test("A phone attaching above the baseline flips a displayed ticket to connected")

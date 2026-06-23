@@ -26,42 +26,17 @@ final class MobilePairingModel {
         /// Signed in; bringing the listener up and minting the first ticket.
         case preparing
         /// A ticket is ready to display.
-        case ready(Ready)
+        case ready(MobilePairingReady)
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner.
-        case connected(Ready)
+        case connected(MobilePairingReady)
         /// The listener is up but there is no automatic route for a QR code, so
         /// the user can enter their own VPN/LAN host with the displayed port.
-        case manualOnly(ManualOnly)
+        case manualOnly(MobilePairingManualOnly)
         /// A phone has attached through the manual host/port path.
-        case connectedManual(ManualOnly)
+        case connectedManual(MobilePairingManualOnly)
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
-    }
-
-    /// A minted ticket ready for display.
-    struct Ready: Equatable {
-        /// The `cmux-ios://attach?...` URL encoded into the QR code.
-        let attachURL: String
-        /// The Mac's display name, shown above the code.
-        let macName: String
-        /// Reachable Tailscale `host:port` routes. Empty when Tailscale is not
-        /// detected, in which case a real iPhone cannot reach this Mac.
-        let tailscaleLines: [String]
-        /// The best route for manual phone entry, behind the "Copy IP" and
-        /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
-        let manualEntry: CmxManualPairingEntry?
-
-        /// Whether at least one Tailscale route resolved.
-        var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
-    }
-
-    /// Manual pairing details when the user brings their own VPN/LAN route.
-    struct ManualOnly: Equatable {
-        /// The Mac's display name, shown in the manual instructions.
-        let macName: String
-        /// The listener port the iPhone should use with the user's chosen host/IP.
-        let port: Int
     }
 
     /// The current render state, observed by ``MobilePairingView``.
@@ -189,7 +164,7 @@ final class MobilePairingModel {
                 return
             }
             state = .ready(
-                Ready(
+                MobilePairingReady(
                     attachURL: attachURL,
                     macName: Self.macDisplayName,
                     tailscaleLines: Self.tailscaleLines(status.routes),
@@ -301,9 +276,9 @@ final class MobilePairingModel {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
-    private static func manualOnlyDetails(from status: MobileHostServiceStatus) -> ManualOnly? {
+    private static func manualOnlyDetails(from status: MobileHostServiceStatus) -> MobilePairingManualOnly? {
         guard let port = status.port else { return nil }
-        return ManualOnly(macName: macDisplayName, port: port)
+        return MobilePairingManualOnly(macName: macDisplayName, port: port)
     }
 
     /// Whether `route` is one a physical iPhone can dial automatically from a QR:
