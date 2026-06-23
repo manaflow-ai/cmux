@@ -4781,8 +4781,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
-        terminalLiveFontContinuationsBySurfaceID = [:]
-        terminalLiveFontTokensBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
@@ -4790,6 +4788,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         stopRenderGridLivenessWatchdog(listenerID: nil)
         lastTerminalEventAt = nil
     }
+
+    #if DEBUG
+    func debugResetTerminalOutputTrackingForTesting() {
+        resetTerminalOutputTracking()
+    }
+    #endif
 
     /// The one shared entry every pairing flow funnels through, so it is also the
     /// single `ios_pairing_started` fire-site. `method` is `qr`/`manual`/
@@ -6418,6 +6422,30 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
     }
+
+    #if DEBUG
+    func debugDeliverTerminalSetFontForTesting(
+        surfaceID: String? = nil,
+        workspaceID: String? = nil,
+        fontSize: Double
+    ) {
+        var payload: [String: Any] = ["font_size": fontSize]
+        if let surfaceID {
+            payload["surface_id"] = surfaceID
+        }
+        if let workspaceID {
+            payload["workspace_id"] = workspaceID
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload) else {
+            return
+        }
+        handleTerminalSetFontEvent(MobileEventEnvelope(
+            topic: "terminal.set_font",
+            payloadJSON: data,
+            streamID: nil
+        ))
+    }
+    #endif
 
     private func handleNotificationDismissedEvent(_ event: MobileEventEnvelope) async {
         guard
