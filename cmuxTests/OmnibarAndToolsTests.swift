@@ -594,7 +594,7 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         let launchCallLock = NSLock()
         var launchCallCount = 0
 
-        let controller = VSCodeServeWebController.makeForTesting { _, _ in
+        let controller = VSCodeServeWebController { _, _ in
             launchCallLock.lock()
             launchCallCount += 1
             let callNumber = launchCallCount
@@ -652,22 +652,6 @@ final class VSCodeServeWebControllerTests: XCTestCase {
         XCTAssertEqual(launchCalls, 2)
     }
 
-    func testStopRemovesOrphanedConnectionTokenFiles() throws {
-        let tokenFileURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: tokenFileURL) }
-        try Data("token".utf8).write(to: tokenFileURL)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tokenFileURL.path))
-
-        let controller = VSCodeServeWebController.makeForTesting { _, _ in
-            XCTFail("Expected no launch")
-            return nil
-        }
-        controller.trackConnectionTokenFileForTesting(tokenFileURL)
-
-        controller.stop()
-
-        XCTAssertFalse(FileManager.default.fileExists(atPath: tokenFileURL.path))
-    }
 }
 
 final class OmnibarStateMachineTests: XCTestCase {

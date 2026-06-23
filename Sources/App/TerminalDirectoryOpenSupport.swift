@@ -4,6 +4,12 @@ import AppKit
 import CmuxCommandPalette
 import Darwin
 import Foundation
+import os
+
+nonisolated private let vscodeServeWebLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "vscode.serve-web"
+)
 
 enum FinderServicePathResolver {
     private static func canonicalDirectoryPath(_ path: String) -> String {
@@ -326,7 +332,7 @@ enum VSCodeServeWebURLBuilder {
     }
 }
 
-struct VSCodeCLILaunchConfiguration {
+nonisolated struct VSCodeCLILaunchConfiguration {
     let executableURL: URL
     let argumentsPrefix: [String]
     let environment: [String: String]
@@ -353,7 +359,7 @@ struct VSCodeCLILaunchConfiguration {
     }
 }
 
-struct VSCodeServeWebLaunchOptions: Equatable {
+nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
     static let portEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_PORT"
     static let dataDirectoryEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_DATA_DIR"
     static let extraArgumentsEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_ARGS"
@@ -414,6 +420,9 @@ struct VSCodeServeWebLaunchOptions: Equatable {
                 withIntermediateDirectories: true
             )
         } catch {
+            vscodeServeWebLogger.error(
+                "Failed to create VS Code serve-web directories serverDataDir=\(serverDataDirectoryURL.path, privacy: .public) userDataDir=\(userDataDirectoryURL.path, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+            )
             return nil
         }
 
@@ -511,7 +520,10 @@ struct VSCodeServeWebLaunchOptions: Equatable {
             isDirectory: false
         )
         if fileManager.fileExists(atPath: tokenFileURL.path) {
-            return tokenFileURL
+            if isUsableConnectionTokenFile(tokenFileURL, fileManager: fileManager) {
+                return tokenFileURL
+            }
+            try? fileManager.removeItem(at: tokenFileURL)
         }
 
         let token = randomConnectionToken()
@@ -519,7 +531,10 @@ struct VSCodeServeWebLaunchOptions: Equatable {
 
         let fileDescriptor = open(tokenFileURL.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR)
         if fileDescriptor < 0 {
-            return fileManager.fileExists(atPath: tokenFileURL.path) ? tokenFileURL : nil
+            return fileManager.fileExists(atPath: tokenFileURL.path)
+                && isUsableConnectionTokenFile(tokenFileURL, fileManager: fileManager)
+                ? tokenFileURL
+                : nil
         }
         defer { _ = close(fileDescriptor) }
 
@@ -537,6 +552,20 @@ struct VSCodeServeWebLaunchOptions: Equatable {
 
     private static func randomConnectionToken() -> String {
         UUID().uuidString.replacingOccurrences(of: "-", with: "")
+    }
+
+    private static func isUsableConnectionTokenFile(
+        _ tokenFileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: tokenFileURL.path),
+              let fileSize = attributes[.size] as? NSNumber,
+              fileSize.intValue == 32,
+              let data = try? Data(contentsOf: tokenFileURL),
+              let token = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return token.range(of: #"^[0-9A-Fa-f]{32}$"#, options: .regularExpression) != nil
     }
 
     private static func extraArguments(from rawValue: String?) -> [String] {
@@ -739,47 +768,15 @@ final class VSCodeServeWebController {
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
     private var serveWebProcess: Process?
     private var launchingProcess: Process?
-    private var connectionTokenFilesByProcessID: [ObjectIdentifier: URL] = [:]
     private var serveWebURL: URL?
     private var pendingCompletions: [(generation: UInt64, completion: (URL?) -> Void)] = []
     private var isLaunching = false
     private var activeLaunchGeneration: UInt64?
     private var lifecycleGeneration: UInt64 = 0
-#if DEBUG
-    private var testingTrackedProcesses: [Process] = []
-#endif
 
-    private init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
+    init(launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)? = nil) {
         self.launchProcessOverride = launchProcessOverride
     }
-
-#if DEBUG
-    static func makeForTesting(
-        launchProcessOverride: @escaping (URL, UInt64) -> (process: Process, url: URL)?
-    ) -> VSCodeServeWebController {
-        VSCodeServeWebController(launchProcessOverride: launchProcessOverride)
-    }
-
-    func trackConnectionTokenFileForTesting(
-        _ connectionTokenFileURL: URL,
-        setAsLaunchingProcess: Bool = false,
-        setAsServeWebProcess: Bool = false
-    ) {
-        let process = Process()
-        queue.sync {
-            if setAsLaunchingProcess {
-                self.launchingProcess = process
-            }
-            if setAsServeWebProcess {
-                self.serveWebProcess = process
-            }
-            if !setAsLaunchingProcess && !setAsServeWebProcess {
-                self.testingTrackedProcesses.append(process)
-            }
-            self.connectionTokenFilesByProcessID[ObjectIdentifier(process)] = connectionTokenFileURL
-        }
-    }
-#endif
 
     func ensureServeWebURL(vscodeApplicationURL: URL, completion: @escaping (URL?) -> Void) {
         queue.async {
@@ -867,7 +864,7 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
-        let (processes, tokenFileURLs, completions): ([Process], [URL], [(URL?) -> Void]) = queue.sync {
+        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
             self.lifecycleGeneration &+= 1
             self.isLaunching = false
             self.activeLaunchGeneration = nil
@@ -881,22 +878,10 @@ final class VSCodeServeWebController {
             }
             self.serveWebProcess = nil
             self.launchingProcess = nil
-#if DEBUG
-            self.testingTrackedProcesses.removeAll()
-#endif
-            var tokenFileURLs = processes.compactMap {
-                self.connectionTokenFilesByProcessID.removeValue(forKey: ObjectIdentifier($0))
-            }
-            tokenFileURLs.append(contentsOf: self.connectionTokenFilesByProcessID.values)
-            self.connectionTokenFilesByProcessID.removeAll()
             self.serveWebURL = nil
             let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
-            return (processes, tokenFileURLs, completions)
-        }
-
-        for tokenFileURL in tokenFileURLs {
-            Self.removeConnectionTokenFile(at: tokenFileURL)
+            return (processes, completions)
         }
 
         for process in processes where process.isRunning {
@@ -935,6 +920,8 @@ final class VSCodeServeWebController {
             vscodeApplicationURL: vscodeApplicationURL
         ) else { return nil }
 
+        // Use the child-process environment so CMUX_* overrides that survive
+        // nodeSafeEnvironment are also honored by serve-web option resolution.
         guard let launchOptions = VSCodeServeWebLaunchOptions.resolve(
             environment: launchConfiguration.environment
         ) else { return nil }
@@ -996,11 +983,6 @@ final class VSCodeServeWebController {
                     self.serveWebProcess = nil
                     self.serveWebURL = nil
                 }
-                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                    forKey: ObjectIdentifier(terminatedProcess)
-                ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
-                }
             }
         }
 
@@ -1016,11 +998,6 @@ final class VSCodeServeWebController {
             } catch {
                 if self.launchingProcess === process {
                     self.launchingProcess = nil
-                }
-                if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                    forKey: ObjectIdentifier(process)
-                ) {
-                    Self.removeConnectionTokenFile(at: tokenFileURL)
                 }
                 return false
             }
@@ -1046,11 +1023,6 @@ final class VSCodeServeWebController {
                         self.serveWebProcess = nil
                         self.serveWebURL = nil
                     }
-                    if let tokenFileURL = self.connectionTokenFilesByProcessID.removeValue(
-                        forKey: ObjectIdentifier(process)
-                    ) {
-                        Self.removeConnectionTokenFile(at: tokenFileURL)
-                    }
                 }
             }
             return nil
@@ -1068,10 +1040,6 @@ final class VSCodeServeWebController {
                 return
             }
         }
-    }
-
-    private static func removeConnectionTokenFile(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
     }
 
     private static func urlsShareLoopbackOrigin(_ lhs: URL, _ rhs: URL?) -> Bool {
