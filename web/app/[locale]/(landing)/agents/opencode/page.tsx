@@ -1,27 +1,27 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { Link } from "../../../../i18n/navigation";
-import { buildAlternates } from "../../../../i18n/seo";
-import { LandingCTA } from "../landing-ui";
-import { LandingFaq, LandingSchema } from "../landing-schema";
+import { Link } from "../../../../../i18n/navigation";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { LandingCTA } from "../../landing-ui";
+import { LandingFaq, LandingSchema } from "../../landing-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "landing.codex" });
+  const t = await getTranslations({ locale, namespace: "landing.opencode" });
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/codex-cli"),
+    alternates: buildAlternates(locale, "/agents/opencode"),
   };
 }
 
-export default function CodexCliPage() {
-  const t = useTranslations("landing.codex");
+export default function OpenCodePage() {
+  const t = useTranslations("landing.opencode");
   const tl = useTranslations("landing.links");
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
-      <LandingSchema namespace="landing.codex" path="/codex-cli" />
+      <LandingSchema namespace="landing.opencode" path="/agents/opencode" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
 
@@ -36,7 +36,7 @@ export default function CodexCliPage() {
         {t.rich("omoBody", {
           code,
           link: (chunks) => (
-            <Link href="/docs/agent-integrations/oh-my-codex" className="underline underline-offset-2">
+            <Link href="/docs/agent-integrations/oh-my-opencode" className="underline underline-offset-2">
               {chunks}
             </Link>
           ),
@@ -49,14 +49,14 @@ export default function CodexCliPage() {
       <h2>{t("scriptTitle")}</h2>
       <p>{t("scriptBody")}</p>
 
-      <LandingFaq namespace="landing.codex" />
+      <LandingFaq namespace="landing.opencode" />
 
       <LandingCTA
         related={[
           { href: "/agents", label: tl("agents") },
-          { href: "/claude-code-terminal", label: tl("claude") },
-          { href: "/opencode", label: tl("opencode") },
-          { href: "/docs/agent-integrations/oh-my-codex", label: tl("ohMyCodex") },
+          { href: "/agents/claude-code", label: tl("claude") },
+          { href: "/agents/codex", label: tl("codex") },
+          { href: "/docs/agent-integrations/oh-my-opencode", label: tl("ohMyOpenCode") },
         ]}
       />
     </>

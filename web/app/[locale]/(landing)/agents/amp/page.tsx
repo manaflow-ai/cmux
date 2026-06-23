@@ -1,26 +1,26 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "../../../../i18n/seo";
-import { LandingCTA } from "../landing-ui";
-import { LandingFaq, LandingSchema } from "../landing-schema";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { LandingCTA } from "../../landing-ui";
+import { LandingFaq, LandingSchema } from "../../landing-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "landing.aider" });
+  const t = await getTranslations({ locale, namespace: "landing.amp" });
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/aider"),
+    alternates: buildAlternates(locale, "/agents/amp"),
   };
 }
 
-export default function AiderPage() {
-  const t = useTranslations("landing.aider");
+export default function AmpPage() {
+  const t = useTranslations("landing.amp");
   const tl = useTranslations("landing.links");
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
-      <LandingSchema namespace="landing.aider" path="/aider" />
+      <LandingSchema namespace="landing.amp" path="/agents/amp" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
 
@@ -36,14 +36,14 @@ export default function AiderPage() {
       <h2>{t("scriptTitle")}</h2>
       <p>{t("scriptBody")}</p>
 
-      <LandingFaq namespace="landing.aider" />
+      <LandingFaq namespace="landing.amp" />
 
       <LandingCTA
         related={[
           { href: "/agents", label: tl("agents") },
-          { href: "/claude-code-terminal", label: tl("claude") },
-          { href: "/codex-cli", label: tl("codex") },
-          { href: "/docs/getting-started", label: tl("getStarted") },
+          { href: "/agents/claude-code", label: tl("claude") },
+          { href: "/agents/codex", label: tl("codex") },
+          { href: "/docs/notifications", label: tl("notifications") },
         ]}
       />
     </>

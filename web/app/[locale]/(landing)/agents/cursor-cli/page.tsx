@@ -1,8 +1,8 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "../../../../i18n/seo";
-import { LandingCTA } from "../landing-ui";
-import { LandingFaq, LandingSchema } from "../landing-schema";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { LandingCTA } from "../../landing-ui";
+import { LandingFaq, LandingSchema } from "../../landing-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -10,7 +10,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/cursor-cli"),
+    alternates: buildAlternates(locale, "/agents/cursor-cli"),
   };
 }
 
@@ -20,7 +20,7 @@ export default function CursorCliPage() {
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
-      <LandingSchema namespace="landing.cursorCli" path="/cursor-cli" />
+      <LandingSchema namespace="landing.cursorCli" path="/agents/cursor-cli" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
 
@@ -41,8 +41,8 @@ export default function CursorCliPage() {
       <LandingCTA
         related={[
           { href: "/agents", label: tl("agents") },
-          { href: "/claude-code-terminal", label: tl("claude") },
-          { href: "/codex-cli", label: tl("codex") },
+          { href: "/agents/claude-code", label: tl("claude") },
+          { href: "/agents/codex", label: tl("codex") },
           { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />

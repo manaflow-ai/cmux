@@ -1,26 +1,26 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { buildAlternates } from "../../../../i18n/seo";
-import { LandingCTA } from "../landing-ui";
-import { LandingFaq, LandingSchema } from "../landing-schema";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { LandingCTA } from "../../landing-ui";
+import { LandingFaq, LandingSchema } from "../../landing-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
-  const t = await getTranslations({ locale, namespace: "landing.geminiCli" });
+  const t = await getTranslations({ locale, namespace: "landing.aider" });
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: buildAlternates(locale, "/gemini-cli"),
+    alternates: buildAlternates(locale, "/agents/aider"),
   };
 }
 
-export default function GeminiCliPage() {
-  const t = useTranslations("landing.geminiCli");
+export default function AiderPage() {
+  const t = useTranslations("landing.aider");
   const tl = useTranslations("landing.links");
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
-      <LandingSchema namespace="landing.geminiCli" path="/gemini-cli" />
+      <LandingSchema namespace="landing.aider" path="/agents/aider" />
       <h1>{t("title")}</h1>
       <p>{t.rich("intro", { code })}</p>
 
@@ -36,14 +36,14 @@ export default function GeminiCliPage() {
       <h2>{t("scriptTitle")}</h2>
       <p>{t("scriptBody")}</p>
 
-      <LandingFaq namespace="landing.geminiCli" />
+      <LandingFaq namespace="landing.aider" />
 
       <LandingCTA
         related={[
           { href: "/agents", label: tl("agents") },
-          { href: "/claude-code-terminal", label: tl("claude") },
-          { href: "/codex-cli", label: tl("codex") },
-          { href: "/docs/notifications", label: tl("notifications") },
+          { href: "/agents/claude-code", label: tl("claude") },
+          { href: "/agents/codex", label: tl("codex") },
+          { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />
     </>

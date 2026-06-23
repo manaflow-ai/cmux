@@ -16,13 +16,13 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 }
 
 const AGENTS: { href: string; key: string }[] = [
-  { href: "/claude-code-terminal", key: "claude" },
-  { href: "/codex-cli", key: "codex" },
-  { href: "/opencode", key: "opencode" },
-  { href: "/gemini-cli", key: "geminiCli" },
-  { href: "/aider", key: "aider" },
-  { href: "/amp", key: "amp" },
-  { href: "/cursor-cli", key: "cursorCli" },
+  { href: "/agents/claude-code", key: "claude" },
+  { href: "/agents/codex", key: "codex" },
+  { href: "/agents/opencode", key: "opencode" },
+  { href: "/agents/gemini-cli", key: "geminiCli" },
+  { href: "/agents/aider", key: "aider" },
+  { href: "/agents/amp", key: "amp" },
+  { href: "/agents/cursor-cli", key: "cursorCli" },
 ];
 
 export default function AgentsPage() {
@@ -63,9 +63,9 @@ export default function AgentsPage() {
 
       <LandingCTA
         related={[
-          { href: "/claude-code-terminal", label: tl("claude") },
-          { href: "/codex-cli", label: tl("codex") },
-          { href: "/opencode", label: tl("opencode") },
+          { href: "/agents/claude-code", label: tl("claude") },
+          { href: "/agents/codex", label: tl("codex") },
+          { href: "/agents/opencode", label: tl("opencode") },
           { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />
