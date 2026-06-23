@@ -3459,7 +3459,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "launchCommand": [
                         "launcher": "codex",
                         "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex", "--model", "gpt-5.4"],
+                        "arguments": ["/usr/local/bin/codex"],
                         "workingDirectory": root.path,
                         "capturedAt": now,
                         "source": "test",
