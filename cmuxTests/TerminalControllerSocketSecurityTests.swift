@@ -1229,6 +1229,46 @@ final class TerminalControllerSocketSecurityTests {
         XCTAssertEqual(error["code"] as? String, "browser_disabled")
     }
 
+    @Test func testWorkspaceTasksStalePaneTargetDoesNotMutateSelectedWorkspace() async throws {
+        let key = "workspaceTasks.beta.enabled"
+        let defaults = UserDefaults.standard
+        let previousWorkspaceTasksBeta = defaults.object(forKey: key)
+        defaults.set(true, forKey: key)
+        defer {
+            if let previousWorkspaceTasksBeta {
+                defaults.set(previousWorkspaceTasksBeta, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            TerminalController.shared.stop()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let selectedWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let socketPath = makeSocketPath("workspace-tasks")
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.tasks.add",
+            params: [
+                "title": "Should not be added",
+                "pane_id": UUID().uuidString
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(error["code"] as? String, "not_found")
+        XCTAssertEqual(selectedWorkspace.workspaceTasks, [])
+    }
+
     @Test func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
         ClosedItemHistoryStore.shared.removeAll()
         defer {

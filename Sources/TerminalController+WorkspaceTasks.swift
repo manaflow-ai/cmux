@@ -194,11 +194,31 @@ extension TerminalController {
                     data: nil
                 )
             }
-            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+            guard let workspace = v2ResolveWorkspaceTasksWorkspace(params: params, tabManager: tabManager) else {
                 return .err(code: "not_found", message: String(localized: "socket.workspaceTasks.workspaceNotFound", defaultValue: "Workspace not found"), data: nil)
             }
             return body(workspace, tabManager)
         }
+    }
+
+    @MainActor
+    private func v2ResolveWorkspaceTasksWorkspace(params: [String: Any], tabManager: TabManager) -> Workspace? {
+        if let wsId = v2UUID(params, "workspace_id") {
+            return tabManager.tabs.first(where: { $0.id == wsId })
+        }
+        if let surfaceId = v2UUID(params, "surface_id")
+            ?? v2UUID(params, "terminal_id")
+            ?? v2UUID(params, "tab_id") {
+            return tabManager.tabs.first(where: { $0.panels[surfaceId] != nil })
+        }
+        if let paneId = v2UUID(params, "pane_id") {
+            guard let located = v2LocatePane(paneId),
+                  located.tabManager === tabManager
+            else { return nil }
+            return located.workspace
+        }
+        guard let wsId = tabManager.selectedTabId else { return nil }
+        return tabManager.tabs.first(where: { $0.id == wsId })
     }
 
     @MainActor
