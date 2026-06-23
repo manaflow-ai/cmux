@@ -12,6 +12,9 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    var isInitialConnectionLoading = false
+    var initialConnectionTimedOut = false
+    var retryInitialConnection: (() -> Void)?
     /// Present the add-device (pairing) flow from the Computers screen. `nil`
     /// hides the add affordance.
     var showAddDevice: (() -> Void)?
@@ -34,6 +37,13 @@ struct WorkspaceShellView: View {
         #else
         false
         #endif
+    }
+
+    private var listConnectionStatus: MobileMacConnectionStatus {
+        if isInitialConnectionLoading || initialConnectionTimedOut {
+            return .reconnecting
+        }
+        return store.macConnectionStatus
     }
 
     var body: some View {
@@ -68,9 +78,6 @@ struct WorkspaceShellView: View {
             consumeDeeplinkNavigationRequestIfNeeded()
         }
         .accessibilityIdentifier("MobileWorkspaceShell")
-        .overlay(alignment: .top) {
-            MobileConnectionRecoveryBanner(store: store, signOut: signOut)
-        }
     }
 
     private var stackLayout: some View {
@@ -80,7 +87,7 @@ struct WorkspaceShellView: View {
                 groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
+                connectionStatus: listConnectionStatus,
                 navigationStyle: .push,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,
@@ -99,7 +106,10 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                isInitialConnectionLoading: isInitialConnectionLoading,
+                initialConnectionTimedOut: initialConnectionTimedOut,
+                retryInitialConnection: retryInitialConnection
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -164,7 +174,7 @@ struct WorkspaceShellView: View {
                 groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
+                connectionStatus: listConnectionStatus,
                 navigationStyle: .sidebar,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,
@@ -172,7 +182,7 @@ struct WorkspaceShellView: View {
                 profilePictureLeftShift: displaySettings.profilePictureLeftShift,
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
-                createWorkspace: store.createWorkspace,
+                createWorkspace: createWorkspaceIfConnected,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -183,13 +193,16 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                isInitialConnectionLoading: isInitialConnectionLoading,
+                initialConnectionTimedOut: initialConnectionTimedOut,
+                retryInitialConnection: retryInitialConnection
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
-                createWorkspace: store.createWorkspace,
+                createWorkspace: createWorkspaceIfConnected,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
         }
@@ -263,6 +276,10 @@ struct WorkspaceShellView: View {
         return { Task { await store.reconnectOrRefresh() } }
     }
 
+    private var canCreateWorkspace: Bool {
+        listConnectionStatus == .connected
+    }
+
     /// Group collapse/expand closure. Present when the Mac advertises
     /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
     /// emits groups in the workspace list also handles collapse/expand (both
@@ -277,6 +294,7 @@ struct WorkspaceShellView: View {
     }
 
     private func createWorkspaceInCompactStack() {
+        guard canCreateWorkspace else { return }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
@@ -288,6 +306,11 @@ struct WorkspaceShellView: View {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath
         }
+    }
+
+    private func createWorkspaceIfConnected() {
+        guard canCreateWorkspace else { return }
+        store.createWorkspace()
     }
 
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {
@@ -326,7 +349,9 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            safeAreaContext: safeAreaContext
+            canCreateWorkspace: canCreateWorkspace,
+            safeAreaContext: safeAreaContext,
+            signOut: signOut
         )
     }
 }

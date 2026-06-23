@@ -82,6 +82,14 @@ struct WorkspaceListView: View {
     /// disclosure indicator. Grouped rendering itself is gated on `groups`, not
     /// on this closure.
     var toggleGroupCollapsed: ((MobileWorkspaceGroupPreview.ID, Bool) -> Void)?
+    /// Whether the root scene is still trying the first stored-Mac reconnect.
+    /// The list stays visible and owns this loading state so startup never gets
+    /// trapped behind a full-screen spinner.
+    var isInitialConnectionLoading = false
+    /// Whether the first stored-Mac reconnect exceeded the root-scene deadline.
+    /// The status row then exposes recovery actions instead of staying silent.
+    var initialConnectionTimedOut = false
+    var retryInitialConnection: (() -> Void)?
     @State private var searchText = ""
     @State private var showingShortcutsSettings = false
     @State private var showingSettings = false
@@ -147,9 +155,40 @@ struct WorkspaceListView: View {
 
     var body: some View {
         List {
+            if let store, showsConnectionRecoveryRow {
+                Section {
+                    MobileConnectionRecoveryBanner(
+                        connectionRequiresReauth: store.connectionRequiresReauth,
+                        connectionRecoveryFailed: store.connectionRecoveryFailed,
+                        isRecoveringConnection: store.isRecoveringConnection,
+                        connectionError: store.connectionError,
+                        retry: { store.retryMobileConnection() },
+                        signOut: signOut,
+                        rendersInline: true
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                    .listRowSeparator(.hidden)
+                }
+            }
             if connectionStatus != .connected {
                 Section {
-                    MobileMacConnectionStatusRow(host: host, status: connectionStatus, reconnect: reconnect)
+                    MobileMacConnectionStatusRow(
+                        host: host,
+                        status: connectionStatus,
+                        showsSpinner: isInitialConnectionLoading,
+                        titleOverride: initialConnectionTimedOut
+                            ? L10n.string("mobile.loading.timeout.title", defaultValue: "Still loading")
+                            : nil,
+                        descriptionOverride: initialConnectionTimedOut
+                            ? L10n.string(
+                                "mobile.loading.timeout.message",
+                                defaultValue: "cmux could not finish restoring this session. Check that the Mac app is running, then retry or add this Mac again."
+                            )
+                            : nil,
+                        retry: initialConnectionTimedOut ? retryInitialConnection : nil,
+                        addDevice: initialConnectionTimedOut ? showAddDevice : nil,
+                        reconnect: reconnect
+                    )
                         .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                         .listRowSeparator(.hidden)
                 }
@@ -194,12 +233,16 @@ struct WorkspaceListView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
-                newWorkspaceButton
+                if canCreateWorkspace {
+                    newWorkspaceButton
+                }
             }
             #else
             ToolbarItemGroup {
                 WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
-                newWorkspaceButton
+                if canCreateWorkspace {
+                    newWorkspaceButton
+                }
             }
             #endif
         }
@@ -226,6 +269,17 @@ struct WorkspaceListView: View {
             }
         }
         #endif
+    }
+
+    private var showsConnectionRecoveryRow: Bool {
+        guard let store else { return false }
+        return store.connectionRequiresReauth
+            || store.connectionRecoveryFailed
+            || store.isRecoveringConnection
+    }
+
+    private var canCreateWorkspace: Bool {
+        connectionStatus == .connected
     }
 
     #if os(iOS)
@@ -302,9 +356,13 @@ struct WorkspaceListView: View {
     }
 
     private var newWorkspaceButton: some View {
-        Button(action: createWorkspace) {
+        Button {
+            guard canCreateWorkspace else { return }
+            createWorkspace()
+        } label: {
             Image(systemName: "plus")
         }
+        .disabled(!canCreateWorkspace)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }
