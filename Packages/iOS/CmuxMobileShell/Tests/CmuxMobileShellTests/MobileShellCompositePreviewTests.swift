@@ -119,6 +119,27 @@ import Testing
         #expect(!store.shouldPreserveWorkspaceShellDuringReconnect)
     }
 
+    @Test func teamSwitchRejectsStaleRegistryDeviceLoad() async {
+        let identity = MutableIdentityProvider(currentUserID: "user-1")
+        let team = TeamIDBox("team-a")
+        let registry = BlockingDeviceRegistry()
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            deviceRegistry: registry,
+            identityProvider: identity,
+            teamIDProvider: { await team.value }
+        )
+
+        let load = Task { await store.loadRegistryDevices() }
+        await registry.waitUntilListPending()
+        await team.set("team-b")
+        store.currentTeamDidChange()
+        await registry.resumeList(with: .ok([Self.registryDevice(id: "old-team-mac")]))
+        await load.value
+
+        #expect(store.registryDevices.isEmpty)
+    }
+
     @Test func pairingErrorDoesNotPreserveCachedWorkspaceShell() async {
         let store = MobileShellComposite(
             isSignedIn: true,
@@ -277,6 +298,73 @@ import Testing
 
         #expect(route?.0 == "100.71.210.41")
         #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
+    }
+
+    private static func registryDevice(id: String) -> RegistryDevice {
+        RegistryDevice(
+            deviceId: id,
+            platform: "mac",
+            displayName: id,
+            lastSeenAt: Date(),
+            instances: [
+                RegistryAppInstance(tag: "stable", routes: [], lastSeenAt: Date()),
+            ]
+        )
+    }
+}
+
+@MainActor
+private final class MutableIdentityProvider: MobileIdentityProviding, @unchecked Sendable {
+    var currentUserIDValue: String?
+
+    init(currentUserID: String?) {
+        self.currentUserIDValue = currentUserID
+    }
+
+    var currentUserID: String? { currentUserIDValue }
+}
+
+private actor TeamIDBox {
+    var value: String?
+
+    init(_ value: String?) {
+        self.value = value
+    }
+
+    func set(_ value: String?) {
+        self.value = value
+    }
+}
+
+private actor BlockingDeviceRegistry: DeviceRegistryRefreshing {
+    private var listContinuation: CheckedContinuation<DeviceRegistryListOutcome, Never>?
+    private var pendingWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func freshRoutes(forMacDeviceID macDeviceID: String) async -> [CmxAttachRoute]? {
+        nil
+    }
+
+    func listDevices() async -> DeviceRegistryListOutcome {
+        await withCheckedContinuation { continuation in
+            listContinuation = continuation
+            let waiters = pendingWaiters
+            pendingWaiters = []
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
+    }
+
+    func waitUntilListPending() async {
+        if listContinuation != nil { return }
+        await withCheckedContinuation { continuation in
+            pendingWaiters.append(continuation)
+        }
+    }
+
+    func resumeList(with outcome: DeviceRegistryListOutcome) {
+        listContinuation?.resume(returning: outcome)
+        listContinuation = nil
     }
 }
 

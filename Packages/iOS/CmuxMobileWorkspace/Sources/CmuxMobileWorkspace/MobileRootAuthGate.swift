@@ -9,18 +9,111 @@ public import Foundation
 /// stale attach auth should be cleared or a stored Mac reconnected). All members are
 /// pure functions so the root scene's gating logic can be tested without a store.
 public struct MobileRootAuthGate {
-    private init() {}
+    /// Creates a pure root authentication gate policy value.
+    public init() {}
 
-    public enum RootContentDestination: Equatable, Sendable {
-        case terminalLayoutPreview
-        case workspaceListLayoutPreview
-        case restoringSession
-        case signIn
-        case workspaceShell
-        case restoringStoredMac
-        case pairedMacDetermining
-        case onboarding
-        case disconnectedWorkspaceShell
+    /// Backwards-compatible nested spelling for root content destinations.
+    public typealias RootContentDestination = MobileRootContentDestination
+
+    /// Backwards-compatible static spelling for ``isAuthenticated(stackAuthenticated:attachTicketAuthenticated:)``.
+    public static func isAuthenticated(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool = false
+    ) -> Bool {
+        MobileRootAuthGate().isAuthenticated(
+            stackAuthenticated: stackAuthenticated,
+            attachTicketAuthenticated: attachTicketAuthenticated
+        )
+    }
+
+    /// Backwards-compatible static spelling for ``shouldShowRestoringSession(stackAuthenticated:attachTicketAuthenticated:isRestoringSession:)``.
+    public static func shouldShowRestoringSession(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool = false,
+        isRestoringSession: Bool
+    ) -> Bool {
+        MobileRootAuthGate().shouldShowRestoringSession(
+            stackAuthenticated: stackAuthenticated,
+            attachTicketAuthenticated: attachTicketAuthenticated,
+            isRestoringSession: isRestoringSession
+        )
+    }
+
+    /// Backwards-compatible static spelling for ``isAttachURL(_:)``.
+    public static func isAttachURL(_ url: URL) -> Bool {
+        MobileRootAuthGate().isAttachURL(url)
+    }
+
+    /// Backwards-compatible static spelling for ``shouldClearAttachTicketAuthentication(pairingResult:connectionState:hasActiveUnexpiredTicket:)``.
+    public static func shouldClearAttachTicketAuthentication(
+        pairingResult: MobilePairingURLConnectionResult,
+        connectionState: MobileConnectionState,
+        hasActiveUnexpiredTicket: Bool
+    ) -> Bool {
+        MobileRootAuthGate().shouldClearAttachTicketAuthentication(
+            pairingResult: pairingResult,
+            connectionState: connectionState,
+            hasActiveUnexpiredTicket: hasActiveUnexpiredTicket
+        )
+    }
+
+    /// Backwards-compatible static spelling for ``shouldReconnectStoredMac(stackAuthenticated:attachTicketAuthenticated:connectionState:)``.
+    public static func shouldReconnectStoredMac(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool,
+        connectionState: MobileConnectionState
+    ) -> Bool {
+        MobileRootAuthGate().shouldReconnectStoredMac(
+            stackAuthenticated: stackAuthenticated,
+            attachTicketAuthenticated: attachTicketAuthenticated,
+            connectionState: connectionState
+        )
+    }
+
+    /// Backwards-compatible static spelling for ``shouldShowRestoringStoredMac(authenticated:connectionState:isReconnectingStoredMac:hasKnownPairedMac:pairedMacHintUndetermined:didFinishStoredMacReconnectAttempt:)``.
+    public static func shouldShowRestoringStoredMac(
+        authenticated: Bool,
+        connectionState: MobileConnectionState,
+        isReconnectingStoredMac: Bool,
+        hasKnownPairedMac: Bool,
+        pairedMacHintUndetermined: Bool,
+        didFinishStoredMacReconnectAttempt: Bool
+    ) -> Bool {
+        MobileRootAuthGate().shouldShowRestoringStoredMac(
+            authenticated: authenticated,
+            connectionState: connectionState,
+            isReconnectingStoredMac: isReconnectingStoredMac,
+            hasKnownPairedMac: hasKnownPairedMac,
+            pairedMacHintUndetermined: pairedMacHintUndetermined,
+            didFinishStoredMacReconnectAttempt: didFinishStoredMacReconnectAttempt
+        )
+    }
+
+    /// Backwards-compatible static spelling for ``rootContentDestination(showsTerminalLayoutPreview:showsWorkspaceListLayoutPreview:showsRestoringSession:authenticated:preservesWorkspaceShellDuringReconnect:connectionState:showsRestoringStoredMac:hasKnownPairedMac:isReconnectingStoredMac:showsOnboarding:)``.
+    public static func rootContentDestination(
+        showsTerminalLayoutPreview: Bool,
+        showsWorkspaceListLayoutPreview: Bool,
+        showsRestoringSession: Bool,
+        authenticated: Bool,
+        preservesWorkspaceShellDuringReconnect: Bool,
+        connectionState: MobileConnectionState,
+        showsRestoringStoredMac: Bool,
+        hasKnownPairedMac: Bool,
+        isReconnectingStoredMac: Bool,
+        showsOnboarding: Bool
+    ) -> RootContentDestination {
+        MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: showsTerminalLayoutPreview,
+            showsWorkspaceListLayoutPreview: showsWorkspaceListLayoutPreview,
+            showsRestoringSession: showsRestoringSession,
+            authenticated: authenticated,
+            preservesWorkspaceShellDuringReconnect: preservesWorkspaceShellDuringReconnect,
+            connectionState: connectionState,
+            showsRestoringStoredMac: showsRestoringStoredMac,
+            hasKnownPairedMac: hasKnownPairedMac,
+            isReconnectingStoredMac: isReconnectingStoredMac,
+            showsOnboarding: showsOnboarding
+        )
     }
 
     /// Whether the user is authenticated by either Stack auth or an attach ticket.
@@ -28,7 +121,7 @@ public struct MobileRootAuthGate {
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access. Defaults to `false`.
     /// - Returns: `true` when either source authenticates the user.
-    public static func isAuthenticated(
+    public func isAuthenticated(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool = false
     ) -> Bool {
@@ -41,7 +134,7 @@ public struct MobileRootAuthGate {
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access. Defaults to `false`.
     ///   - isRestoringSession: Whether a session restore is in progress.
     /// - Returns: `true` only while restoring and not yet authenticated.
-    public static func shouldShowRestoringSession(
+    public func shouldShowRestoringSession(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool = false,
         isRestoringSession: Bool
@@ -56,7 +149,7 @@ public struct MobileRootAuthGate {
     /// any channel's pairing scheme; see ``CmxPairingURLScheme``).
     /// - Parameter url: The URL to classify.
     /// - Returns: `true` when the URL is an attach deep link.
-    public static func isAttachURL(_ url: URL) -> Bool {
+    public func isAttachURL(_ url: URL) -> Bool {
         guard CmxPairingURLScheme.isPairingScheme(url.scheme) else {
             return false
         }
@@ -69,7 +162,7 @@ public struct MobileRootAuthGate {
     ///   - connectionState: The current connection state.
     ///   - hasActiveUnexpiredTicket: Whether a non-expired attach ticket is still active.
     /// - Returns: `true` when the attach auth is no longer backed by a live, ticketed connection.
-    public static func shouldClearAttachTicketAuthentication(
+    public func shouldClearAttachTicketAuthentication(
         pairingResult: MobilePairingURLConnectionResult,
         connectionState: MobileConnectionState,
         hasActiveUnexpiredTicket: Bool
@@ -92,7 +185,7 @@ public struct MobileRootAuthGate {
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
     ///   - connectionState: The current connection state.
     /// - Returns: `true` when Stack-authenticated without a temporary ticket and not yet connected.
-    public static func shouldReconnectStoredMac(
+    public func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
         connectionState: MobileConnectionState
@@ -124,7 +217,7 @@ public struct MobileRootAuthGate {
     /// - Returns: `true` while authenticated, not yet connected, and either actively
     ///   reconnecting a stored Mac or — before the first attempt resolves — holding
     ///   the paired-Mac hint or an undetermined hint.
-    public static func shouldShowRestoringStoredMac(
+    public func shouldShowRestoringStoredMac(
         authenticated: Bool,
         connectionState: MobileConnectionState,
         isReconnectingStoredMac: Bool,
@@ -142,7 +235,7 @@ public struct MobileRootAuthGate {
     /// what protects the terminal reconnect path: once a real remote terminal
     /// snapshot is cached, transient reconnects must keep the workspace shell
     /// mounted so the Ghostty surface and PTY mirror retain their last frame.
-    public static func rootContentDestination(
+    public func rootContentDestination(
         showsTerminalLayoutPreview: Bool,
         showsWorkspaceListLayoutPreview: Bool,
         showsRestoringSession: Bool,

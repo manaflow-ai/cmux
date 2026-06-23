@@ -240,6 +240,50 @@ import Testing
     collector.unmount()
 }
 
+/// Preserving the workspace shell during reconnect keeps the mounted terminal
+/// output stream alive. Because it does not cold-register again, connect success
+/// must explicitly replay the mounted sink or an idle TUI can remain on the stale
+/// pre-disconnect frame forever.
+@MainActor
+@Test func successfulReconnectReplaysMountedSinkWhenShellIsPreserved() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    try await router.setReplayFrame(
+        surfaceID: "live-terminal",
+        seq: 1,
+        text: "STORED-RECONNECT"
+    )
+    let store = try await makeDisconnectedStoreWithActivePairedMac(
+        router: router,
+        box: box,
+        clock: clock
+    )
+
+    let collector = OutputCollector()
+    collector.mount(store: store, surfaceID: "live-terminal")
+    let sinkMounted = try await pollUntil {
+        store.debugHasTerminalOutputSinkForTesting(surfaceID: "live-terminal")
+    }
+    #expect(sinkMounted)
+    let replayCountBeforeReconnect = await router.count(of: "mobile.terminal.replay")
+    #expect(replayCountBeforeReconnect == 0, "a disconnected preserved shell cannot replay until the stored Mac reconnects")
+
+    let connected = await store.connectPairingURL(try attachURL(for: makeTicket(clock: clock)))
+    #expect(connected)
+    #expect(store.debugHasTerminalOutputSinkForTesting(surfaceID: "live-terminal"))
+
+    let replayRequested = try await pollUntil {
+        await router.count(of: "mobile.terminal.replay") >= 1
+    }
+    #expect(replayRequested, "stored-Mac reconnect success must replay already-mounted terminal sinks")
+    let replayDelivered = try await pollUntil {
+        collector.lines.contains { $0.contains("STORED-RECONNECT") }
+    }
+    #expect(replayDelivered)
+    collector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.

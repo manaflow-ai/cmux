@@ -100,6 +100,9 @@ struct CMUXMobileRootView: View {
             pushCoordinator.workspacesDidChange()
         }
         #endif
+        .onChange(of: authManager.selectedTeamID) { _, _ in
+            store.currentTeamDidChange()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
@@ -112,7 +115,7 @@ struct CMUXMobileRootView: View {
         }
         .onOpenURL { url in
             let rawURL = url.absoluteString
-            if MobileRootAuthGate.isAttachURL(url) {
+            if MobileRootAuthGate().isAttachURL(url) {
                 connectAttachURL(rawURL)
                 return
             }
@@ -162,7 +165,10 @@ struct CMUXMobileRootView: View {
         case .workspaceListLayoutPreview:
             workspaceListLayoutPreview
         case .restoringSession:
-            RestoringSessionView()
+            RestoringSessionView(
+                onRetry: { Task { await authManager.revalidateSession() } },
+                onSignInAgain: signOut
+            )
         case .signIn:
             SignInView()
         case .workspaceShell:
@@ -196,8 +202,8 @@ struct CMUXMobileRootView: View {
         }
     }
 
-    private var rootContentDestination: MobileRootAuthGate.RootContentDestination {
-        MobileRootAuthGate.rootContentDestination(
+    private var rootContentDestination: MobileRootContentDestination {
+        MobileRootAuthGate().rootContentDestination(
             showsTerminalLayoutPreview: shouldShowTerminalLayoutPreview,
             showsWorkspaceListLayoutPreview: shouldShowWorkspaceListLayoutPreview,
             showsRestoringSession: shouldShowRestoringSession,
@@ -302,14 +308,14 @@ struct CMUXMobileRootView: View {
     #endif
 
     private var isAuthenticated: Bool {
-        MobileRootAuthGate.isAuthenticated(
+        MobileRootAuthGate().isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication
         )
     }
 
     private var shouldShowRestoringSession: Bool {
-        MobileRootAuthGate.shouldShowRestoringSession(
+        MobileRootAuthGate().shouldShowRestoringSession(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
             isRestoringSession: authManager.isRestoringSession
@@ -317,7 +323,7 @@ struct CMUXMobileRootView: View {
     }
 
     private var shouldShowRestoringStoredMac: Bool {
-        MobileRootAuthGate.shouldShowRestoringStoredMac(
+        MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: isAuthenticated,
             connectionState: store.connectionState,
             isReconnectingStoredMac: store.isReconnectingStoredMac,
@@ -335,7 +341,7 @@ struct CMUXMobileRootView: View {
         _ isAuthenticated: Bool,
         isRestoringSession: Bool? = nil
     ) {
-        MobileRootAuthGate.syncShellAuthentication(
+        MobileRootAuthGate().syncShellAuthentication(
             stackAuthenticated: isAuthenticated,
             isRestoringSession: isRestoringSession ?? authManager.isRestoringSession,
             store: store
@@ -351,7 +357,7 @@ struct CMUXMobileRootView: View {
         guard isAuthenticated else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
         guard !startedUITestAttachURL,
-              MobileRootAuthGate.shouldReconnectStoredMac(
+              MobileRootAuthGate().shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
                 connectionState: store.connectionState
@@ -404,7 +410,7 @@ struct CMUXMobileRootView: View {
 
     private func isRawAttachURL(_ rawURL: String) -> Bool {
         guard let url = URL(string: rawURL) else { return false }
-        return MobileRootAuthGate.isAttachURL(url)
+        return MobileRootAuthGate().isAttachURL(url)
     }
 
     private func cancelPairing() {
@@ -422,7 +428,7 @@ struct CMUXMobileRootView: View {
     }
 
     private func clearAttachTicketAuthentication(after result: MobilePairingURLConnectionResult) {
-        guard MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        guard MobileRootAuthGate().shouldClearAttachTicketAuthentication(
             pairingResult: result,
             connectionState: store.connectionState,
             hasActiveUnexpiredTicket: store.hasActiveUnexpiredAttachTicket

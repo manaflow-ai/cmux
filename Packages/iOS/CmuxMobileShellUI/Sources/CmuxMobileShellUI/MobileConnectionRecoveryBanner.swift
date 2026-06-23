@@ -7,13 +7,6 @@ import SwiftUI
 /// automatic recovery runs, and a manual Retry control if it could not restore
 /// the connection. Renders nothing while the connection is healthy.
 struct MobileConnectionRecoveryBanner: View {
-    enum Presentation: Equatable {
-        case none
-        case reauth(String?)
-        case lost
-        case reconnecting
-    }
-
     @Bindable var store: CMUXMobileShellStore
     /// Sign the user out so they can re-authenticate into the account that owns
     /// the Mac. Shown only for the account-mismatch / authorization-failure
@@ -57,7 +50,7 @@ struct MobileConnectionRecoveryBanner: View {
         .animation(.default, value: store.connectionRequiresReauth)
     }
 
-    var presentation: Presentation {
+    var presentation: MobileConnectionRecoveryBannerPresentation {
         Self.presentation(
             requiresReauth: store.connectionRequiresReauth,
             connectionError: store.connectionError,
@@ -73,7 +66,7 @@ struct MobileConnectionRecoveryBanner: View {
         recoveryFailed: Bool,
         isRecoveringConnection: Bool,
         preservesWorkspaceShellDuringReconnect: Bool
-    ) -> Presentation {
+    ) -> MobileConnectionRecoveryBannerPresentation {
         if requiresReauth {
             return .reauth(connectionError)
         }

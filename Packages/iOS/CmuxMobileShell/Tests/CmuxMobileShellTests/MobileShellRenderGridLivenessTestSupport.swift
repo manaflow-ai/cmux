@@ -62,6 +62,9 @@ actor LivenessHostRouter {
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var replayRequestCount = 0
+    private var heldReplayRequestNumbers: Set<Int> = []
+    private var heldReplayContinuationsByRequestNumber: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var holdSubscribe = false
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
@@ -107,6 +110,18 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    func holdReplayRequest(number: Int) {
+        heldReplayRequestNumbers.insert(number)
+    }
+
+    func releaseHeldReplayRequest(number: Int) {
+        heldReplayRequestNumbers.remove(number)
+        let continuations = heldReplayContinuationsByRequestNumber.removeValue(forKey: number) ?? []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -120,9 +135,12 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        heldReplayRequestNumbers = []
+        let replayContinuations = heldReplayContinuationsByRequestNumber.values.flatMap { $0 }
+        heldReplayContinuationsByRequestNumber = [:]
         let continuations = heldContinuations
         heldContinuations = []
-        for continuation in continuations {
+        for continuation in continuations + replayContinuations {
             continuation.resume()
         }
     }
@@ -173,6 +191,10 @@ actor LivenessHostRouter {
                 "already_subscribed": alreadySubscribed,
             ])
         case "mobile.terminal.replay":
+            replayRequestCount += 1
+            if heldReplayRequestNumbers.contains(replayRequestCount) {
+                await parkReplay(number: replayRequestCount)
+            }
             if let surfaceID, let frame = replayFramesBySurfaceID[surfaceID] {
                 return try? Self.resultFrame(id: id, result: [
                     "render_grid": try frame.jsonObject(),
@@ -192,6 +214,12 @@ actor LivenessHostRouter {
     private func park() async {
         await withCheckedContinuation { continuation in
             heldContinuations.append(continuation)
+        }
+    }
+
+    private func parkReplay(number: Int) async {
+        await withCheckedContinuation { continuation in
+            heldReplayContinuationsByRequestNumber[number, default: []].append(continuation)
         }
     }
 

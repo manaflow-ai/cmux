@@ -10,15 +10,18 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 
     private var payload: Payload
     var replaceable: Bool
+    var endSeq: UInt64?
 
-    init(bytes: Data, replaceable: Bool) {
+    init(bytes: Data, replaceable: Bool, endSeq: UInt64? = nil) {
         self.payload = .bytes(bytes)
         self.replaceable = replaceable
+        self.endSeq = endSeq
     }
 
     init(renderGrid frame: MobileTerminalRenderGridFrame, replaceable: Bool) {
         self.payload = .renderGrid(frame)
         self.replaceable = replaceable
+        self.endSeq = frame.stateSeq
     }
 
     var bytes: Data {
@@ -38,8 +41,13 @@ struct TerminalOutputDelivery: Equatable, Sendable {
 /// prior chunk, so fast scroll gestures can skip obsolete intermediate frames.
 struct TerminalOutputDeliveryQueue: Sendable {
     private var inFlight = false
+    private var currentInFlightEndSeq: UInt64?
     private var pending: [TerminalOutputDelivery] = []
     private var pendingHeadIndex = 0
+
+    var inFlightEndSeq: UInt64? {
+        inFlight ? currentInFlightEndSeq : nil
+    }
 
     var isIdle: Bool {
         !inFlight && pendingCount == 0
@@ -52,6 +60,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {
         guard inFlight else {
             inFlight = true
+            currentInFlightEndSeq = delivery.endSeq
             return delivery
         }
         appendPending(delivery)
@@ -60,17 +69,20 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     mutating func completeInFlight() -> TerminalOutputDelivery? {
         guard inFlight else {
+            currentInFlightEndSeq = nil
             pending.removeAll(keepingCapacity: false)
             pendingHeadIndex = 0
             return nil
         }
         guard pendingHeadIndex < pending.count else {
             inFlight = false
+            currentInFlightEndSeq = nil
             pending.removeAll(keepingCapacity: true)
             pendingHeadIndex = 0
             return nil
         }
         let next = pending[pendingHeadIndex]
+        currentInFlightEndSeq = next.endSeq
         pendingHeadIndex += 1
         compactPendingStorageIfNeeded()
         return next
@@ -78,6 +90,7 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     mutating func reset() {
         inFlight = false
+        currentInFlightEndSeq = nil
         pending.removeAll(keepingCapacity: false)
         pendingHeadIndex = 0
     }
