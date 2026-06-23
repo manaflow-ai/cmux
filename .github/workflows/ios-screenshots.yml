@@ -113,7 +113,10 @@ jobs:
           print(f"SNAPSHOT_DEVICES={','.join(chosen)}", file=sys.stderr)
           print(f"SNAPSHOT_DEVICES={','.join(chosen)}")
           PY
-          echo "Resolved SNAPSHOT_DEVICES=$SNAPSHOT_DEVICES"
+          # $SNAPSHOT_DEVICES is only in $GITHUB_ENV for later steps, not this
+          # shell, so read it back from the file rather than referencing the var
+          # (which would trip `set -u`).
+          grep '^SNAPSHOT_DEVICES=' "$GITHUB_ENV" || { echo "device resolution failed" >&2; exit 1; }
 
       - name: Ensure fastlane
         run: |
