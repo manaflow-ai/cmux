@@ -2,7 +2,6 @@ import AppKit
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
@@ -111,17 +110,6 @@ public struct AppSection: View {
 
     private static let columnWidth: CGFloat = 196
     private static let notificationSoundControlWidth: CGFloat = 280
-    static var customNotificationSoundAllowedContentTypes: [UTType] {
-        [
-            UTType(filenameExtension: "aiff"),
-            UTType(filenameExtension: "wav"),
-            UTType(filenameExtension: "caf"),
-            UTType(filenameExtension: "m4a"),
-            UTType(filenameExtension: "m4r"),
-            UTType.mpeg4Audio,
-            UTType(filenameExtension: "mp3"),
-        ].compactMap { $0 }
-    }
 
     /// Languages legacy `AppLanguage` exposes (cmuxApp.swift line
     /// 4338). The shared `CmuxSettings.AppLanguage` adds `.vi` for a
