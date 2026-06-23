@@ -227,41 +227,30 @@ public final class MobilePushCoordinator {
         return await syncNotificationPreferencesToMac(preferences, generation: generation) ?? preferences
     }
 
-    /// Reconcile local iOS settings with the connected Mac. If this iPhone has
-    /// an explicit local preference, it drives the Mac; otherwise it adopts the
-    /// Mac's current state so Settings reflects an existing desktop setup.
+    /// Reconcile local iOS settings with the connected Mac. Passive reconcile is
+    /// read-only toward the Mac: explicit iOS actions drive writes, while bind /
+    /// Settings refreshes adopt the Mac's current shared forwarding settings so a
+    /// later Mac-side opt-out or privacy change is not overwritten by an old
+    /// phone opt-in.
     @discardableResult
     public func reconcileNotificationPreferencesWithMac() async -> MobileNotificationPreferences {
         let generation = claimNotificationSettingsSyncGeneration()
-        if hasStoredNotificationOptIn {
-            var localPreferences = notificationPreferences
-            if !hasStoredForwardingModePreference || !hasStoredHideContentPreference {
-                guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
-                    return localPreferences
-                }
-                guard isCurrentNotificationSettingsSync(generation) else {
-                    return notificationPreferences
-                }
-                if !hasStoredForwardingModePreference {
-                    localPreferences.forwardingMode = macPreferences.forwardingMode
-                }
-                if !hasStoredHideContentPreference {
-                    localPreferences.hidesContent = macPreferences.hidesContent
-                }
-                localPreferences.persist(to: defaults)
-            }
-            guard localPreferences.isEnabled else { return localPreferences }
-            return await syncNotificationPreferencesToMac(localPreferences, generation: generation) ?? localPreferences
-        }
         guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
             return notificationPreferences
         }
         guard isCurrentNotificationSettingsSync(generation) else {
             return notificationPreferences
         }
+        guard let localOptIn = storedNotificationOptIn else {
+            // A Mac forwarding opt-in is not the same as this device opting into
+            // APNs. Keep the phone locally off until the user enables it here.
+            return notificationPreferences
+        }
         var localPreferences = notificationPreferences
+        localPreferences.isEnabled = localOptIn && macPreferences.isEnabled
         localPreferences.forwardingMode = macPreferences.forwardingMode
         localPreferences.hidesContent = macPreferences.hidesContent
+        localPreferences.persist(to: defaults)
         return localPreferences
     }
 
@@ -403,16 +392,8 @@ public final class MobilePushCoordinator {
         await deliveredNotificationClearer.removeDelivered(ids: trimmed)
     }
 
-    private var hasStoredNotificationOptIn: Bool {
-        defaults.object(forKey: MobileNotificationPreferences.enabledKey) != nil
-    }
-
-    private var hasStoredForwardingModePreference: Bool {
-        defaults.object(forKey: MobileNotificationPreferences.forwardingModeKey) != nil
-    }
-
-    private var hasStoredHideContentPreference: Bool {
-        defaults.object(forKey: MobileNotificationPreferences.hideContentKey) != nil
+    private var storedNotificationOptIn: Bool? {
+        defaults.object(forKey: MobileNotificationPreferences.enabledKey) as? Bool
     }
 
     private func claimNotificationSettingsSyncGeneration() -> UInt64 {
