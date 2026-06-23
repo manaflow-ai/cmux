@@ -524,22 +524,6 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     }
 }
 
-private final class TerminalScrollMechanicsView: UIScrollView {
-    private let backSwipeEdgeReservation = TerminalBackSwipeEdgeReservation()
-
-    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
-        if gestureRecognizer === panGestureRecognizer,
-           let window {
-            let touchXInWindow = Double(gestureRecognizer.location(in: window).x)
-            if backSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: touchXInWindow) {
-                return false
-            }
-        }
-
-        return super.gestureRecognizerShouldBegin(gestureRecognizer)
-    }
-}
-
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
