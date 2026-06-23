@@ -231,20 +231,20 @@ start_macos_recording() {
     while true; do
       frame="$(printf "%s/frame-%05d.png" "$MAC_FRAME_DIR" "$i")"
       label="$(printf "sync-%05d" "$i")"
-      params="$(python3 - "$SURFACE_ID" "$label" <<'PY'
+      params="$(python3 - "$label" <<'PY'
 import json
 import sys
-print(json.dumps({"surface_id": sys.argv[1], "label": sys.argv[2]}, separators=(",", ":")))
+print(json.dumps({"label": sys.argv[1]}, separators=(",", ":")))
 PY
 )"
-      payload="$(cmux_tagged rpc debug.panel_snapshot "$params" 2>>"$MAC_RECORD_LOG")"
+      payload="$(cmux_tagged rpc debug.window.screenshot "$params" 2>>"$MAC_RECORD_LOG")"
       snapshot_path="$(printf '%s\n' "$payload" | json_field path 2>/dev/null)"
       if [[ -n "$snapshot_path" && -f "$snapshot_path" ]]; then
         cp "$snapshot_path" "$frame"
         failures=0
       else
         failures=$((failures + 1))
-        echo "debug.panel_snapshot failed payload=$payload" >&2
+        echo "debug.window.screenshot failed payload=$payload" >&2
         if [[ "$failures" -ge 10 ]]; then
           exit 1
         fi
@@ -368,12 +368,11 @@ ATTACH_URL="$(mint_attach_url "$WORKSPACE_ID" "$SURFACE_ID")"
 
 phase "building and installing real iOS app"
 run_with_timeout 600 ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
-phase "launching and attaching real iOS app"
-xcrun simctl terminate "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
-xcrun simctl launch "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null
-sleep 2
-run_with_timeout 30 xcrun simctl openurl "$SIMULATOR_ID" "$ATTACH_URL"
-sleep 5
+phase "launching and auto-attaching real iOS app"
+export CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL"
+run_with_timeout 90 scripts/mobile-dev-launch.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --attach --detach
+unset CMUX_DOGFOOD_ATTACH_URL
+sleep 10
 
 phase "starting macOS and iOS recordings"
 start_macos_recording
@@ -382,11 +381,11 @@ start_ios_recording
 phase "sending synced terminal input through real macOS cmux"
 cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "clear\r"
 sleep 1
-cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "printf 'real cmux desktop <> iOS\\n'\r"
+cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "echo real cmux desktop <> iOS\r"
 sleep 1
 cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "echo ${SYNC_MARKER}\r"
 sleep 4
-cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "printf 'same terminal, two clients\\n'\r"
+cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "echo same terminal, two clients\r"
 sleep 6
 
 cmux_tagged read-screen --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" --lines 20 > "$ARTIFACT_DIR/macos-read-screen.txt" || true
