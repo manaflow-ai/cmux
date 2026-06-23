@@ -75,9 +75,9 @@ struct RestoringSessionView: View {
     @MainActor
     private func scheduleTimeout() {
         timeoutTask?.cancel()
-        let timeoutNanoseconds = UInt64(max(0, timeoutSeconds) * 1_000_000_000)
+        let timeoutMilliseconds = Int64((max(0, timeoutSeconds) * 1_000).rounded(.up))
         timeoutTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            try? await ContinuousClock().sleep(for: .milliseconds(timeoutMilliseconds))
             guard !Task.isCancelled else { return }
             didTimeout = true
         }
