@@ -424,6 +424,79 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
     }
 
+    func testDefaultFreestyleCloudSplitRepairsRawSSHStartupCommand() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                port: 22,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                managedCloudVMID: "71smiccrg35sw9pydt8k",
+                terminalStartupCommand: "ssh -p 22 -tt 71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                skipDaemonBootstrap: true
+            ),
+            autoConnect: false
+        )
+
+        let splitPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
+        )
+        let splitCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
+        XCTAssertTrue(splitCommand.contains("vm ssh-attach"), splitCommand)
+        XCTAssertTrue(splitCommand.contains("--default-freestyle-sshd"), splitCommand)
+        XCTAssertFalse(splitCommand.contains("ssh -p 22"), splitCommand)
+    }
+
+    func testDefaultFreestyleCloudReconnectRepairsRawSSHStartupCommand() throws {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let remotePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.configureRemoteConnection(
+            WorkspaceRemoteConfiguration(
+                destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                port: 22,
+                identityFile: nil,
+                sshOptions: [],
+                localProxyPort: nil,
+                relayPort: nil,
+                relayID: nil,
+                relayToken: nil,
+                localSocketPath: nil,
+                managedCloudVMID: "71smiccrg35sw9pydt8k",
+                terminalStartupCommand: "ssh -p 22 -tt 71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+                preserveAfterTerminalExit: true,
+                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                skipDaemonBootstrap: true
+            ),
+            autoConnect: false
+        )
+
+        XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
+        let replacement = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
+        let reconnectCommand = try XCTUnwrap(replacement.surface.debugInitialCommand())
+        XCTAssertTrue(reconnectCommand.contains("vm ssh-attach"), reconnectCommand)
+        XCTAssertTrue(reconnectCommand.contains("--default-freestyle-sshd"), reconnectCommand)
+        XCTAssertFalse(reconnectCommand.contains("ssh -p 22"), reconnectCommand)
+    }
+
     func testPaneCloseOnLastRemotePanelKeepsWorkspaceDisconnected() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

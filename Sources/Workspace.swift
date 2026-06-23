@@ -5628,8 +5628,7 @@ final class Workspace: Identifiable, ObservableObject {
     func reconnectRemoteConnection(surfaceId: UUID? = nil) -> Bool {
         guard let configuration = remoteConfiguration else { return false }
         var didRespawnTerminal = false
-        if let startupCommand = configuration.terminalStartupCommand?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
+        if let startupCommand = effectiveRemoteTerminalStartupCommand(from: configuration),
            !startupCommand.isEmpty,
            let reconnectingSurfaceId = remoteReconnectTerminalSurfaceId(requestedSurfaceId: surfaceId) {
             let shouldRespawnSurface =
@@ -6175,6 +6174,57 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    private func defaultFreestyleSSHDTerminalStartupCommand(vmID: String) -> String {
+        let lines = [
+            "cmux_freestyle_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
+            "if [ -z \"$cmux_freestyle_cli\" ] || [ ! -x \"$cmux_freestyle_cli\" ]; then cmux_freestyle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
+            "if [ -z \"$cmux_freestyle_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for Cloud VM SSH attach.' >&2; exit 127; fi",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "export CMUX_SSH_RECONNECT_LIMIT CMUX_SSH_RECONNECT_DELAY_SECONDS",
+            "cmux_freestyle_retry=0",
+            "while :; do",
+            "  if [ \"$cmux_freestyle_retry\" -gt 0 ]; then",
+            "    CMUX_CLOUD_RECONNECT_ATTEMPT=\"$cmux_freestyle_retry\" \"$cmux_freestyle_cli\" vm ssh-attach --id \(Self.shellQuote(vmID)) --default-freestyle-sshd",
+            "  else",
+            "    \"$cmux_freestyle_cli\" vm ssh-attach --id \(Self.shellQuote(vmID)) --default-freestyle-sshd",
+            "  fi",
+            "  cmux_freestyle_status=$?",
+            "  case \"$cmux_freestyle_status\" in 254|255) ;; *) exit \"$cmux_freestyle_status\" ;; esac",
+            "  if [ \"$cmux_freestyle_retry\" -ge \"$CMUX_SSH_RECONNECT_LIMIT\" ]; then exit \"$cmux_freestyle_status\"; fi",
+            "  cmux_freestyle_retry=$((cmux_freestyle_retry + 1))",
+            "  sleep \"$CMUX_SSH_RECONNECT_DELAY_SECONDS\"",
+            "done",
+        ]
+        return "/bin/sh -c \(Self.shellQuote(lines.joined(separator: "\n")))"
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+        if value.range(of: safePattern, options: .regularExpression) != nil {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private func effectiveRemoteTerminalStartupCommand(from configuration: WorkspaceRemoteConfiguration?) -> String? {
+        guard let configuration else { return nil }
+        if configuration.skipDaemonBootstrap,
+           configuration.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1",
+           let vmID = configuration.managedCloudVMID {
+            let command = configuration.terminalStartupCommand?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if command?.contains("vm ssh-attach") == true,
+               command?.contains("--default-freestyle-sshd") == true {
+                return command
+            }
+            return defaultFreestyleSSHDTerminalStartupCommand(vmID: vmID)
+        }
+        let command = configuration.terminalStartupCommand?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return command?.isEmpty == false ? command : nil
+    }
+
     func discardRemotePTYSessionID(panelId: UUID) {
         remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
         endedPersistentRemotePTYAttachSurfaceIds.remove(panelId)
@@ -6372,8 +6422,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func rememberPendingRemoteDisconnectReplacement(configuration: WorkspaceRemoteConfiguration) {
-        let reconnectCommand = configuration.terminalStartupCommand?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let reconnectCommand = effectiveRemoteTerminalStartupCommand(from: configuration)
         pendingRemoteDisconnectReplacement = PendingRemoteDisconnectReplacement(
             target: configuration.displayTarget,
             reconnectCommand: reconnectCommand?.isEmpty == false ? reconnectCommand : nil
@@ -7636,8 +7685,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard !suppressRemoteTerminalStartupForSessionRestoreScaffold else {
             return nil
         }
-        guard let command = remoteConfiguration?.terminalStartupCommand?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let command = effectiveRemoteTerminalStartupCommand(from: remoteConfiguration),
               !command.isEmpty else {
             return nil
         }
