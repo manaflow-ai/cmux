@@ -211,10 +211,6 @@ jobs:
           DEVICE_FAMILY: ${{ inputs.device_family }}
           ARTIFACT_DIR: ${{ github.workspace }}/artifact
           SYNC_MARKER: real-cmux-left-right-cloud-demo
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
-          CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
-          CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
         run: scripts/ci/record-real-sync-video.sh
 
       # --- iOS video: run a real simulator UI test while recording the screen ---

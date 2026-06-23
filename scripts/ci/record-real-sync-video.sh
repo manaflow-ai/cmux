@@ -369,9 +369,9 @@ ATTACH_URL="$(mint_attach_url "$WORKSPACE_ID" "$SURFACE_ID")"
 phase "building and installing real iOS app"
 run_with_timeout 600 ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
 phase "launching and auto-attaching real iOS app"
-export CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL"
-run_with_timeout 90 scripts/mobile-dev-launch.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --attach --detach
-unset CMUX_DOGFOOD_ATTACH_URL
+SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA=0 \
+SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
+  run_with_timeout 30 xcrun simctl launch "$SIMULATOR_ID" "$IOS_BUNDLE_ID"
 sleep 10
 
 phase "starting macOS and iOS recordings"
