@@ -26,9 +26,14 @@ enum RemoteTmuxAgentHookInstaller {
     /// - `agent`: the label cmux maps back to a provider (`claude` / `codex`).
     /// - `state`: the lifecycle word (`running` / `working` / `idle`).
     static func hookScript(agent: String, state: String) -> String {
-        // model extraction: grep the event JSON for "model":"…"; harmless if absent.
-        // tmux set is scoped to $TMUX_PANE so it lands on the agent's own pane; if
-        // not inside tmux, $TMUX_PANE is empty and we skip (no-op, print {}).
+        // Publishes two pane-scoped tmux options the cmux mirror subscribes to:
+        //   @cmux_agent — {agent,state,model?}: written synchronously (cheap).
+        //   @cmux_git   — {branch,dirty,pr?}:   written in a DETACHED background
+        //                 subshell because `git` + `gh pr view` can be slow, and a
+        //                 hook must never delay the agent's own event.
+        // Both `tmux set` are scoped to $TMUX_PANE so they land on the agent's own
+        // pane; outside tmux ($TMUX_PANE empty) everything is skipped. Always
+        // prints `{}` last so a blocking hook gets valid stdout.
         """
         IN=$(cat 2>/dev/null); \
         if [ -n "${TMUX_PANE:-}" ] && command -v tmux >/dev/null 2>&1; then \
@@ -38,6 +43,13 @@ enum RemoteTmuxAgentHookInstaller {
         else \
         tmux set -t "$TMUX_PANE" @cmux_agent "{\\"agent\\":\\"\(agent)\\",\\"state\\":\\"\(state)\\"}" >/dev/null 2>&1; \
         fi; \
+        ( P="$TMUX_PANE"; \
+        B=$(git rev-parse --abbrev-ref HEAD 2>/dev/null); \
+        if [ -n "$B" ] && [ "$B" != "HEAD" ]; then \
+        if git diff --quiet --ignore-submodules HEAD >/dev/null 2>&1; then D=0; else D=1; fi; \
+        PR=$(gh pr view --json number,state,url -q '\",\\"pr\\":{\\"number\\":\"+(.number|tostring)+\",\\"state\\":\\"\"+.state+\"\\",\\"url\\":\\"\"+.url+\"\\"}\"' 2>/dev/null); \
+        tmux set -t "$P" @cmux_git "{\\"branch\\":\\"$B\\",\\"dirty\\":$D$PR}" >/dev/null 2>&1; \
+        fi ) >/dev/null 2>&1 </dev/null & \
         fi; \
         printf '{}'
         """

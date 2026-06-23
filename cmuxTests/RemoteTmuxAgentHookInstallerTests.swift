@@ -30,6 +30,17 @@ import Testing
         #expect(script.contains(#"\"model\":"#))
     }
 
+    @Test func hookScriptAlsoPublishesGitStatusInBackground() {
+        let script = Installer.hookScript(agent: "claude", state: "working")
+        // Publishes branch/PR into @cmux_git…
+        #expect(script.contains(#"@cmux_git"#))
+        #expect(script.contains("git rev-parse --abbrev-ref HEAD"))
+        #expect(script.contains("gh pr view"))
+        // …in a DETACHED background subshell so git/gh latency can't delay the
+        // agent's event (trailing `&`).
+        #expect(script.contains("</dev/null &"))
+    }
+
     @Test func claudeHooksCoverLifecycleWithExpectedStates() {
         let obj = Installer.claudeHooksObject()
         #expect(Set(obj.keys) == ["SessionStart", "UserPromptSubmit", "Stop"])

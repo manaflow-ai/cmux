@@ -106,6 +106,9 @@ final class RemoteTmuxSessionMirror {
             onPaneAgent: { [weak self] paneId, rawValue in
                 self?.handlePaneAgent(paneId: paneId, rawValue: rawValue)
             },
+            onPaneGit: { [weak self] paneId, rawValue in
+                self?.handlePaneGit(paneId: paneId, rawValue: rawValue)
+            },
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
@@ -475,6 +478,44 @@ final class RemoteTmuxSessionMirror {
     /// A remote agent's lifecycle hook published into `@cmux_agent` for `paneId`
     /// (Option C, via the live tmux subscription). An empty value clears it (the
     /// hook clears the option to drop the chip). Re-renders the sidebar status.
+    /// A remote hook published git branch + PR into `@cmux_git` for `paneId`
+    /// (Option C). Maps it onto the tab's per-panel `gitBranch` / `pullRequest`
+    /// sidebar models — the rows a local workspace shows but the local git/PR
+    /// pollers skip for a remote mirror. An empty/unparseable value clears them.
+    private func handlePaneGit(paneId: Int, rawValue: String) {
+        guard let workspace, let panelId = tabPanelId(forPane: paneId) else { return }
+        guard let git = RemoteTmuxGitStatus.parse(rawValue) else {
+            workspace.panelGitBranches[panelId] = nil
+            workspace.panelPullRequests[panelId] = nil
+            #if DEBUG
+            cmuxDebugLog("remote.git pane=\(paneId) cleared")
+            #endif
+            return
+        }
+        if let branch = git.branch {
+            workspace.panelGitBranches[panelId] = SidebarGitBranchState(branch: branch, isDirty: git.isDirty)
+        } else {
+            workspace.panelGitBranches[panelId] = nil
+        }
+        if let pr = git.pullRequest,
+           let status = SidebarPullRequestStatus(rawValue: pr.status.rawValue) {
+            // A PR row only displays when its branch matches the panel's branch
+            // (see Workspace.sidebarPullRequestsInDisplayOrder), so stamp it with
+            // the same branch we just set.
+            workspace.panelPullRequests[panelId] = SidebarPullRequestState(
+                number: pr.number, label: pr.label, url: pr.url, status: status, branch: git.branch
+            )
+        } else {
+            workspace.panelPullRequests[panelId] = nil
+        }
+        #if DEBUG
+        cmuxDebugLog(
+            "remote.git pane=\(paneId) branch=\(git.branch ?? "-") dirty=\(git.isDirty ? 1 : 0) "
+                + "pr=\(git.pullRequest.map { "#\($0.number) \($0.status.rawValue)" } ?? "-")"
+        )
+        #endif
+    }
+
     private func handlePaneAgent(paneId: Int, rawValue: String) {
         let status = RemoteTmuxAgentStatus.parse(rawValue)
         hookAgentStatusByPane[paneId] = status

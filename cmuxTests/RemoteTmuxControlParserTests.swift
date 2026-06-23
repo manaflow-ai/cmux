@@ -566,6 +566,13 @@ import Testing
                 == "refresh-client -B \"cmux_agent_12:%12:#{@cmux_agent}\""
         )
     }
+
+    @Test @MainActor func gitSubscribeCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.paneGitSubscriptionCommand(paneId: 4)
+                == "refresh-client -B \"cmux_git_4:%4:#{@cmux_git}\""
+        )
+    }
 }
 
 /// Close-time activity queries: the wire commands (same quoting constraint as

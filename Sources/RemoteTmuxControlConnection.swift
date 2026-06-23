@@ -187,6 +187,13 @@ final class RemoteTmuxControlConnection {
     /// appended for routing, mirroring ``cwdSubscriptionPrefix``.
     private static let agentSubscriptionPrefix = "cmux_agent_"
 
+    /// Subscription-name prefix for a per-pane git/PR status, published by the
+    /// remote agent hook into the `@cmux_git` user option (`tmux set @cmux_git
+    /// '<json>'`). Same channel/mechanism as ``agentSubscriptionPrefix`` — a mirror
+    /// pane has no local git repo (it's on the SSH host), so this carries the
+    /// branch + PR the local pollers can't compute. See ``RemoteTmuxGitStatus``.
+    private static let gitSubscriptionPrefix = "cmux_git_"
+
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
     private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
@@ -243,6 +250,7 @@ final class RemoteTmuxControlConnection {
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
         onPaneAgent: ((_ paneId: Int, _ rawValue: String) -> Void)? = nil,
+        onPaneGit: ((_ paneId: Int, _ rawValue: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
         onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
@@ -254,6 +262,7 @@ final class RemoteTmuxControlConnection {
             onActivePaneChanged: onActivePaneChanged,
             onSessionChanged: onSessionChanged,
             onPaneAgent: onPaneAgent,
+            onPaneGit: onPaneGit,
             onTopologyChanged: onTopologyChanged,
             onExit: onExit,
             onConnectionStateChanged: onConnectionStateChanged
@@ -668,6 +677,7 @@ final class RemoteTmuxControlConnection {
         requestPanePath(paneId: paneId)
         subscribePanePath(paneId: paneId)
         subscribePaneAgent(paneId: paneId)
+        subscribePaneGit(paneId: paneId)
     }
 
     /// One-shot query of a pane's working directory (`pane_current_path`),
@@ -794,6 +804,24 @@ final class RemoteTmuxControlConnection {
     /// ``unsubscribePanePath(paneId:)``.
     func unsubscribePaneAgent(paneId: Int) {
         send("refresh-client -B \(Self.agentSubscriptionPrefix)\(paneId)")
+    }
+
+    /// The `refresh-client -B` line that subscribes `paneId`'s `@cmux_git` option
+    /// (branch + PR published by the remote hook). Same load-bearing quoting as
+    /// ``panePathSubscriptionCommand(paneId:)``.
+    static func paneGitSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(gitSubscriptionPrefix)\(paneId):%\(paneId):#{@cmux_git}\""
+    }
+
+    /// Subscribes to live `@cmux_git` changes for `paneId`. Best-effort like the
+    /// other subscriptions.
+    func subscribePaneGit(paneId: Int) {
+        send(Self.paneGitSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes the live `@cmux_git` subscription for `paneId`.
+    func unsubscribePaneGit(paneId: Int) {
+        send("refresh-client -B \(Self.gitSubscriptionPrefix)\(paneId)")
     }
 
     /// Format for close-time activity queries: the pane id (for cache refresh and
@@ -1252,6 +1280,15 @@ final class RemoteTmuxControlConnection {
                 )
                 #endif
                 observers.emitPaneAgent(paneId, value)
+            } else if name.hasPrefix(Self.gitSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(Self.gitSubscriptionPrefix.count)) {
+                // Git/PR status published into @cmux_git by the remote hook.
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.git.sub pane=\(paneId) value=\"\(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))\""
+                )
+                #endif
+                observers.emitPaneGit(paneId, value)
             }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —

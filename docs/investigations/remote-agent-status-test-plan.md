@@ -60,6 +60,30 @@ Same as Test A, but run `codex` instead. Expect `agent=codex` in the logs and
 
 **Pass:** an already-running agent still shows a (coarser) chip.
 
+## Test E — git branch + PR row (the “which PR is open” ask)
+
+The same hook also publishes `@cmux_git` (branch + dirty + PR), which the mirror
+maps onto the workspace's per-panel branch/PR sidebar rows — the rows a local
+workspace shows but the local git/PR pollers skip for a remote mirror.
+
+1. Attach + start a fresh agent in a repo dir with a GitHub remote (Test A).
+2. Submit a prompt (fires the hook → backgrounded `git`/`gh` probe).
+   - **Expect log:** `remote.git.sub pane=N value="{"branch":…,"pr":{…}}"` then
+     `remote.git pane=N branch=… pr=#NNNN <state>`.
+   - **Expect UI:** a **branch row** (`arrow.triangle.branch` + branch name) and a
+     **clickable PR row** linking to the GitHub PR — same as a local workspace.
+3. The PR row only renders when its branch matches the panel's branch (cmux
+   invariant); the hook stamps both from the same payload, so they match.
+
+**Pass:** branch + clickable PR link appear for the remote mirror.
+
+**Notes / current limits:**
+- `gh` must be installed + authed on the remote, and the cwd must be a git repo
+  with a GitHub remote. No PR (or no `gh`) → branch row only, no PR row.
+- The probe runs on hook events (prompt submit / stop / session start), not on a
+  timer — so the branch/PR refresh when the agent acts, not on a `git checkout`
+  done idly in the pane.
+
 ## Test D — clean teardown
 
 1. Exit the agent (so its pane returns to a shell), or close the mirror window.
