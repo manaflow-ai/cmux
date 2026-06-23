@@ -611,8 +611,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// GPU is available so any in-flight render drains — and gate dispatch so
     /// no `render_now` is sent into the background.
     private var renderingSuspended: Bool = false
-    private var processOutputCounter: UInt64 = 0
-    private var renderCounter: UInt64 = 0
     #if DEBUG
     /// Last time the display-link heartbeat logged (DEBUG diagnostic). The
     /// per-frame callback runs on the main thread, so a steady heartbeat proves
@@ -2182,7 +2180,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         completion: (@MainActor @Sendable () -> Void)?
     ) {
         guard let surface, !isDismantled else {
-            MobileDebugLog.anchormux("surface.process.drop reason=no_surface_or_dismantled bytes=\(data.count)")
             completion?()
             return
         }
@@ -2206,13 +2203,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // TUI that hides the cursor. nil = this delta carried no DECTCEM, so the
         // previous visibility stands.
         let cursorVisibilityDelta = Self.lastCursorVisibility(in: forwarded)
-        processOutputCounter &+= 1
-        let processID = processOutputCounter
-        let enqueuedAt = CACurrentMediaTime()
-        MobileDebugLog.anchormux(
-            "surface.process.enqueue id=\(processID) bytes=\(forwarded.count) "
-            + "win=\(window != nil) needsDraw=\(needsDraw) renderInFlight=\(renderInFlight)"
-        )
 
         // `ghostty_surface_process_output` BLOCKS on libghostty's internal
         // renderer/IO synchronization (a futex). Device crash logs show it
@@ -2221,18 +2211,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // the main thread. Feed it on a serial background queue (order
         // preserved) and hop back to main only for the Swift-side UI state.
         Self.outputQueue.async { [weak self] in
-            let startedAt = CACurrentMediaTime()
-            let lagMs = (startedAt - enqueuedAt) * 1000
-            MobileDebugLog.anchormux(
-                "surface.process.start id=\(processID) lagMs=\(Int(lagMs)) bytes=\(forwarded.count)"
-            )
             forwarded.withUnsafeBytes { buffer in
                 guard let baseAddress = buffer.baseAddress else { return }
                 let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
                 ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
             }
-            let processedAt = CACurrentMediaTime()
-            let processMs = (processedAt - startedAt) * 1000
             #if DEBUG
             // `ghostty_surface_read_text` takes the same internal surface lock as
             // `process_output`. Reading it on the MAIN thread per-output (to feed
@@ -2252,7 +2235,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             #endif
             DispatchQueue.main.async {
                 guard let self, !self.isDismantled else {
-                    MobileDebugLog.anchormux("surface.process.main_drop id=\(processID) reason=dismantled")
                     completion?()
                     return
                 }
@@ -2261,10 +2243,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     self.hostCursorVisible = cursorVisibilityDelta
                     self.updateCursorOverlay()
                 }
-                let appliedAt = CACurrentMediaTime()
-                let mainLagMs = (appliedAt - processedAt) * 1000
                 #if DEBUG
-                self.lastOutputAppliedTime = appliedAt
+                self.lastOutputAppliedTime = CACurrentMediaTime()
                 #endif
                 if !self.surfaceHasReceivedOutput {
                     self.surfaceHasReceivedOutput = true
@@ -2279,14 +2259,6 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                     }
                 }
                 #if DEBUG
-                let renderLayer = (self.layer.sublayers ?? []).first(where: { self.isGhosttyRendererLayer($0) })
-                let renderSize = renderLayer?.bounds.size ?? .zero
-                MobileDebugLog.anchormux(
-                    "surface.process.applied id=\(processID) processMs=\(Int(processMs)) "
-                    + "mainLagMs=\(Int(mainLagMs)) contents=\(renderLayer?.contents != nil) "
-                    + "render=\(Int(renderSize.width))x\(Int(renderSize.height)) "
-                    + "needsDraw=\(self.needsDraw) renderInFlight=\(self.renderInFlight)"
-                )
                 if let accessibilityText, !accessibilityText.isEmpty {
                     self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
                 }
@@ -2730,49 +2702,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // now bounded in libghostty (so a foreground stall self-heals as a
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
-        guard !renderingSuspended, let surface, !isDismantled else {
-            MobileDebugLog.anchormux(
-                "render.skip reason=not_ready suspended=\(renderingSuspended) hasSurface=\(surface != nil) dismantled=\(isDismantled)"
-            )
-            return
-        }
+        guard !renderingSuspended, let surface, !isDismantled else { return }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
-            MobileDebugLog.anchormux("render.coalesce needsAnother=true")
             needsAnotherRender = true
             return
         }
         renderInFlight = true
-        renderCounter &+= 1
-        let renderID = renderCounter
         let enqueuedAt = CACurrentMediaTime()
-        MobileDebugLog.anchormux(
-            "render.enqueue id=\(renderID) needsDraw=\(needsDraw) pendingFrames=\(pendingRenderFrames)"
-        )
         Self.outputQueue.async { [weak self] in
             // Queue LAG = how long this render waited behind other ops. If this
             // climbs into hundreds of ms the queue is backlogged (the freeze).
-            let startedAt = CACurrentMediaTime()
-            let lagMs = (startedAt - enqueuedAt) * 1000
-            MobileDebugLog.anchormux("render.start id=\(renderID) lagMs=\(Int(lagMs))")
+            let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
+            if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             ghostty_surface_render_now(surface)
-            let renderMs = (CACurrentMediaTime() - startedAt) * 1000
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.renderInFlight = false
                 guard !self.isDismantled else {
                     self.needsAnotherRender = false
-                    MobileDebugLog.anchormux("render.main_drop id=\(renderID) reason=dismantled")
                     return
                 }
-                let renderLayer = (self.layer.sublayers ?? []).first(where: { self.isGhosttyRendererLayer($0) })
-                let renderSize = renderLayer?.bounds.size ?? .zero
-                MobileDebugLog.anchormux(
-                    "render.done id=\(renderID) renderMs=\(Int(renderMs)) "
-                    + "contents=\(renderLayer?.contents != nil) render=\(Int(renderSize.width))x\(Int(renderSize.height)) "
-                    + "needsAnother=\(self.needsAnotherRender)"
-                )
                 if self.needsAnotherRender {
                     self.needsAnotherRender = false
                     self.requestRender()
@@ -3539,10 +3490,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             done.signal()
         }
         if done.wait(timeout: .now() + 0.6) == .timedOut {
-            MobileDebugLog.anchormux("snapshot.timeout pending=\(pending.count)")
             return "===== visible terminal: (snapshot skipped — render busy) ====="
         }
-        MobileDebugLog.anchormux("snapshot.ok pending=\(pending.count)")
         return holder.sections.joined(separator: "\n\n")
     }
 
