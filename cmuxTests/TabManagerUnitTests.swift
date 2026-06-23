@@ -3924,3 +3924,58 @@ final class CrossWindowWorkspaceMoveTests: XCTestCase {
         XCTAssertTrue(destination.tabs.contains { $0.id == moving.id })
     }
 }
+
+@MainActor
+final class TabManagerShellActivityReplayTests: XCTestCase {
+    // Regression for https://github.com/manaflow-ai/cmux/issues/6618: a
+    // `report_shell_state` report that reaches the app while its workspace is not
+    // yet reachable through any window's TabManager (the common case during
+    // session restore, where the Workspace and its panels already exist but have
+    // not been inserted into a manager) must be buffered and replayed once the
+    // workspace registers. The shell reports each transition once and dedupes
+    // locally, so a dropped report otherwise strands `shellState` at `.unknown`.
+    func testBufferedShellStateReplaysWhenWorkspaceRegisters() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared, "Test host AppDelegate expected")
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        _ = try XCTUnwrap(workspace.terminalPanel(for: panelId), "Expected a terminal panel")
+
+        // A standalone manager is not wired into AppDelegate's window routes, so
+        // the report cannot resolve the workspace and must take the buffered path
+        // — exactly the unreachable condition that occurs mid session-restore.
+        XCTAssertNil(appDelegate.tabManagerFor(tabId: workspace.id))
+        XCTAssertEqual(workspace.panelShellActivityStates[panelId] ?? .unknown, .unknown)
+
+        appDelegate.recordReportedShellActivity(
+            workspaceId: workspace.id,
+            surfaceId: panelId,
+            state: .promptIdle
+        )
+
+        // Unreachable at report time → buffered, not dropped, not yet applied.
+        XCTAssertEqual(
+            workspace.panelShellActivityStates[panelId] ?? .unknown,
+            .unknown,
+            "Report must not apply while the workspace is unreachable"
+        )
+        XCTAssertTrue(
+            appDelegate.hasPendingShellActivityReports,
+            "An unreachable report must be buffered, not dropped"
+        )
+
+        // A later tab-set change (a workspace registering) replays the buffer onto
+        // the now-live panel.
+        _ = manager.addTab(select: false)
+
+        XCTAssertEqual(
+            workspace.panelShellActivityStates[panelId],
+            .promptIdle,
+            "Buffered shell state must replay onto the live panel once it registers"
+        )
+        XCTAssertFalse(
+            appDelegate.hasPendingShellActivityReports,
+            "Replayed reports must be cleared from the buffer"
+        )
+    }
+}

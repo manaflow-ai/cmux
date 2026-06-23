@@ -673,6 +673,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
 
+    // MARK: - Pending shell-activity reports (issue #6618)
+
+    private struct PendingShellActivitySurfaceKey: Hashable {
+        let workspaceId: UUID
+        let surfaceId: UUID
+    }
+
+    /// Shell-activity reports (`report_shell_state`) that arrived over the control
+    /// socket before their workspace was reachable through any window's
+    /// `TabManager` — the common case during session restore, where the
+    /// `Workspace` and its panels already exist but have not yet been inserted into
+    /// a manager. The shell reports each transition exactly once and dedupes
+    /// locally (`_CMUX_SHELL_ACTIVITY_LAST`), so a dropped report would otherwise
+    /// leave `shellState` stuck at `.unknown` until the next transition (never, for
+    /// an idle terminal). We keep the latest reported state per surface and replay
+    /// it once the workspace registers.
+    private var pendingShellActivityStates: [PendingShellActivitySurfaceKey: PanelShellActivityState] = [:]
+    private let maxPendingShellActivityStates = 4096
+
+    /// Cheap early-out so the per-tabs-change replay skips the workspace scan in
+    /// the overwhelmingly common case where nothing is buffered.
+    var hasPendingShellActivityReports: Bool { !pendingShellActivityStates.isEmpty }
+
+    /// Shared apply-or-buffer entrypoint for every control-socket shell-activity
+    /// reporter. Applies the state immediately when the workspace is reachable,
+    /// otherwise buffers the latest report for replay by
+    /// `TabManager.workspaceTabsWillChange`.
+    func recordReportedShellActivity(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        state: PanelShellActivityState
+    ) {
+        let key = PendingShellActivitySurfaceKey(workspaceId: workspaceId, surfaceId: surfaceId)
+        if let tabManager = tabManagerFor(tabId: workspaceId),
+           tabManager.updateSurfaceShellActivity(tabId: workspaceId, surfaceId: surfaceId, state: state) {
+            pendingShellActivityStates[key] = nil
+            return
+        }
+        if pendingShellActivityStates[key] == nil,
+           pendingShellActivityStates.count >= maxPendingShellActivityStates {
+            // Bounded like the socket fast-path dedupe: drop the batch wholesale
+            // rather than tracking insertion order.
+            pendingShellActivityStates.removeAll(keepingCapacity: true)
+        }
+        pendingShellActivityStates[key] = state
+    }
+
     /// Notification jump/open navigation, extracted into `CmuxNotifications`.
     /// `AppDelegate` is the composition root: it conforms to every seam (see
     /// `AppDelegate+NotificationNavSeams.swift`) and injects itself. Built lazily

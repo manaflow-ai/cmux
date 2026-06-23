@@ -227,8 +227,11 @@ extension TerminalController {
             return
         }
         TerminalMutationBus.shared.enqueueMainActorMutation {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: scope.workspaceID) else { return }
-            tabManager.updateSurfaceShellActivity(tabId: scope.workspaceID, surfaceId: scope.panelID, state: state)
+            AppDelegate.shared?.recordReportedShellActivity(
+                workspaceId: scope.workspaceID,
+                surfaceId: scope.panelID,
+                state: state
+            )
         }
     }
 

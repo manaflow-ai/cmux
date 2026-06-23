@@ -1974,20 +1974,39 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.clearSurfaceGitBranch(workspaceId: tabId, panelId: surfaceId)
     }
 
+    @discardableResult
     func updateSurfaceShellActivity(
         tabId: UUID,
         surfaceId: UUID,
         state: PanelShellActivityState
-    ) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
+    ) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return updateSurfaceShellActivity(workspace: tab, surfaceId: surfaceId, state: state)
+    }
+
+    /// Applies a reported shell-activity state against an explicit workspace
+    /// object. Used by the buffered-report replay (issue #6618), which runs while
+    /// the workspace is being inserted and is therefore not yet findable through
+    /// `tabs`.
+    /// - Returns: `true` when the report landed on a live panel, `false` when the
+    ///   panel is still absent so the caller can keep the report buffered.
+    @discardableResult
+    func updateSurfaceShellActivity(
+        workspace: Workspace,
+        surfaceId: UUID,
+        state: PanelShellActivityState
+    ) -> Bool {
+        guard workspace.updatePanelShellActivityState(panelId: surfaceId, state: state) else {
+            return false
+        }
         if state == .promptIdle {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
-                workspaceId: tabId,
+                workspaceId: workspace.id,
                 panelId: surfaceId,
                 reason: "shellPrompt"
             )
         }
+        return true
     }
 
     func handleWorkspacePullRequestCommandHint(
