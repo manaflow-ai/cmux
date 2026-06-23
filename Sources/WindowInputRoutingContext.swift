@@ -51,9 +51,10 @@ struct WindowInputRoutingContext: Equatable {
              .pointerDrag,
              .pointerUp,
              .pointerHover,
+             .scroll,
              .appKitRouting:
             return true
-        case .keyboard, .scroll, .other:
+        case .keyboard, .other:
             return false
         }
     }

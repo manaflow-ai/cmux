@@ -332,7 +332,7 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.applicationDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.systemDefined))
         XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.periodic))
-        XCTAssertFalse(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.scrollWheel))
+        XCTAssertTrue(BonsplitTabBarPassThrough.isPassThroughPointerEvent(.scrollWheel))
     }
 
     func testBrowserPortalDragRoutingKeepsAppKitEventsOutOfPassThrough() {
@@ -361,11 +361,11 @@ final class PortalTabDragRoutingTests: XCTestCase {
         XCTAssertFalse(context.allowsTerminalPortalDragRouting)
     }
 
-    func testWindowInputRoutingContextKeepsScrollOutOfTabBarPassThrough() {
+    func testWindowInputRoutingContextAllowsScrollOverTabBarPassThrough() {
         let context = WindowInputRoutingContext(eventType: .scrollWheel)
 
         XCTAssertTrue(context.allowsPortalPointerHitTesting)
-        XCTAssertFalse(context.allowsTabBarPassThroughHitTesting)
+        XCTAssertTrue(context.allowsTabBarPassThroughHitTesting)
     }
 
     func testWindowInputRoutingContextPreservesNoEventWorkspaceDropHitTesting() {
