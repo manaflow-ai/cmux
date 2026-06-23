@@ -218,6 +218,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
+    /// Workspaces removed optimistically on close, keyed by row id, with the
+    /// snapshot captured at removal so a rejected close can roll back the row.
+    ///
+    /// An id stays here only while its close is unconfirmed: every applied remote
+    /// list filters these ids out, and the id is dropped the moment an
+    /// authoritative list confirms the workspace is gone or the close fails.
+    var optimisticallyClosedWorkspaces: [MobileWorkspacePreview.ID: MobileWorkspacePreview] = [:]
+
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
     /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
@@ -3379,7 +3387,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Recompute the derived ``workspaces`` / ``workspaceGroups`` from the per-Mac
     /// source of truth. Pure and cheap; the only place those two are assigned,
     /// called on any ``workspacesByMac`` or foreground change.
-    private func recomputeDerivedWorkspaceState() {
+    func recomputeDerivedWorkspaceState() {
         let previousSelection = selectedWorkspaceID.flatMap { id in
             workspaces.first { $0.id == id }
         }
@@ -3393,6 +3401,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         var derived = workspaceAggregation.derivedWorkspaces(
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+        if !optimisticallyClosedWorkspaces.isEmpty {
+            derived.removeAll { workspace in
+                optimisticallyClosedWorkspaces[workspace.id] != nil
+            }
+        }
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
         // workspace avatar matches its computer's customization (same place the
         // aggregation already assigned the automatic color index).
@@ -6687,16 +6700,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         syncSelectedTerminalForWorkspace()
     }
 
-    private func remoteWorkspacesPreservingSnapshots(
+    func remoteWorkspacesPreservingSnapshots(
         from response: MobileSyncWorkspaceListResponse
     ) -> [MobileWorkspacePreview] {
-        response.workspaces.map { remoteWorkspace in
+        // Reconcile pending optimistic closes against this authoritative list
+        // first: any id the Mac no longer reports is genuinely closed, so its
+        // pending entry is retired (it no longer needs to be filtered). Ids the
+        // Mac still reports stay pending and get filtered below, so a snapshot
+        // fetched before the Mac processed the close cannot resurrect the row.
+        reconcileOptimisticClosures(against: response)
+        return response.workspaces.compactMap { remoteWorkspace in
             var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
             // Tag every workspace with the Mac it came from, so the aggregated
             // multi-Mac list can group and filter by machine (P1 of the multi-Mac
             // work). Today there is one connected Mac, so all rows share its id.
             workspace.macDeviceID = activeTicket?.macDeviceID
             let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
+            guard !optimisticallyClosedWorkspaces.values.contains(where: {
+                pendingOptimisticClose($0, matchesRemoteID: workspace.id, macDeviceID: foregroundMacID)
+            }) else {
+                return nil
+            }
             guard let existingWorkspace = workspaces.first(where: {
                 workspaceMatchesRemoteID($0, remoteID: workspace.id, macDeviceID: foregroundMacID)
             }) else {
@@ -6712,6 +6736,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             return workspace
         }
+    }
+
+    /// Retire pending optimistic closes that the Mac's authoritative list confirms
+    /// are gone, so a real server confirmation never stays filtered. Ids still
+    /// present in the response remain pending (the close has not landed yet) and
+    /// keep being filtered out of the applied list.
+    func reconcileOptimisticClosures(against response: MobileSyncWorkspaceListResponse) {
+        guard !optimisticallyClosedWorkspaces.isEmpty else { return }
+        let remoteIDs = Set(response.workspaces.map { MobileWorkspacePreview.ID(rawValue: $0.id) })
+        let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
+        for (id, snapshot) in optimisticallyClosedWorkspaces
+            where pendingOptimisticClose(snapshot, belongsToMacDeviceID: foregroundMacID)
+                && !remoteIDs.contains(snapshot.rpcWorkspaceID)
+        {
+            optimisticallyClosedWorkspaces.removeValue(forKey: id)
+        }
+    }
+
+    func pendingOptimisticClose(
+        _ snapshot: MobileWorkspacePreview,
+        matchesRemoteID remoteID: MobileWorkspacePreview.ID,
+        macDeviceID: String?
+    ) -> Bool {
+        snapshot.rpcWorkspaceID == remoteID
+            && pendingOptimisticClose(snapshot, belongsToMacDeviceID: macDeviceID)
+    }
+
+    func pendingOptimisticClose(
+        _ snapshot: MobileWorkspacePreview,
+        belongsToMacDeviceID macDeviceID: String?
+    ) -> Bool {
+        guard let macDeviceID, !macDeviceID.isEmpty else { return true }
+        guard let snapshotMacID = snapshot.macDeviceID, !snapshotMacID.isEmpty else { return true }
+        return snapshotMacID == macDeviceID
     }
 
     private func selectActiveTicketTargetIfAvailable() -> Bool {
