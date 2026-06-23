@@ -796,26 +796,7 @@ final class SessionIndexStore: ObservableObject {
         return out
     }
 
-    /// Returns a usable user-prompt string from a Codex `user_message` /
-    /// `response_item.input_text` payload, or nil when the message is just an
-    /// envelope/system wrapper (`<environment_context>...`, `<user_instructions>`,
-    /// `<permissions>`, AGENTS.md preamble) that we don't want to surface as a
-    /// session title.
-    nonisolated static func realCodexUserMessage(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let envelopePrefixes = [
-            "<environment_context",
-            "<user_instructions",
-            "<permissions",
-            "<system",
-            "# AGENTS.md",
-        ]
-        for prefix in envelopePrefixes where trimmed.hasPrefix(prefix) {
-            return nil
-        }
-        return trimmed
-    }
+    // `realCodexUserMessage(_:)` moved to CmuxFoundation (RipgrepFileScanner).
 
     nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
         // Claude encodes cwd by replacing "/" with "-" and prefixing "-"
@@ -941,7 +922,7 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func extractCodexMetadata(url: URL) -> CodexParsed {
         var out = CodexParsed()
         let maxBytes = 4 * 1024 * 1024
-        forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
+        ripgrepScanner.forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
             let type = obj["type"] as? String
             let payload = obj["payload"] as? [String: Any]
             if type == "session_meta", let p = payload {
@@ -969,7 +950,7 @@ final class SessionIndexStore: ObservableObject {
             if out.firstUserMessage.isEmpty, type == "event_msg", let p = payload,
                (p["type"] as? String) == "user_message",
                let msg = p["message"] as? String,
-               let real = realCodexUserMessage(msg) {
+               let real = ripgrepScanner.realCodexUserMessage(msg) {
                 out.firstUserMessage = real
             }
             if out.firstUserMessage.isEmpty, type == "response_item", let p = payload,
@@ -979,7 +960,7 @@ final class SessionIndexStore: ObservableObject {
                 for part in content {
                     guard (part["type"] as? String) == "input_text",
                           let text = part["text"] as? String,
-                          let real = realCodexUserMessage(text) else { continue }
+                          let real = ripgrepScanner.realCodexUserMessage(text) else { continue }
                     out.firstUserMessage = real
                     break
                 }
@@ -997,43 +978,7 @@ final class SessionIndexStore: ObservableObject {
         return out
     }
 
-    /// Stream JSON-lines from the start of `url`. `body` returns true to stop early.
-    /// Caps total bytes read at `maxBytes`.
-    nonisolated static func forEachJSONLine(
-        url: URL,
-        maxBytes: Int,
-        body: ([String: Any]) -> Bool
-    ) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return }
-        defer { try? handle.close() }
-        var leftover = Data()
-        var totalRead = 0
-        let chunkSize = 64 * 1024
-        while totalRead < maxBytes {
-            let chunk: Data
-            if #available(macOS 10.15.4, *) {
-                chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
-            } else {
-                chunk = handle.readData(ofLength: chunkSize)
-            }
-            if chunk.isEmpty { break }
-            totalRead += chunk.count
-            leftover.append(chunk)
-            while let nl = leftover.firstIndex(of: 0x0a) {
-                let lineData = leftover.subdata(in: 0..<nl)
-                leftover.removeSubrange(0..<(nl + 1))
-                if lineData.isEmpty { continue }
-                if let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] {
-                    if body(obj) { return }
-                }
-            }
-        }
-        // Flush trailing line if no newline at EOF.
-        if !leftover.isEmpty,
-           let obj = try? JSONSerialization.jsonObject(with: leftover) as? [String: Any] {
-            _ = body(obj)
-        }
-    }
+    // `forEachJSONLine(url:maxBytes:body:)` moved to CmuxFoundation (RipgrepFileScanner).
 
     // MARK: OpenCode
 
@@ -1395,7 +1340,7 @@ final class SessionIndexStore: ObservableObject {
                         )
                     }
                     let head = ripgrepScanner.readFileHead(url: candidate.url, byteCap: headByteCap)
-                    let tail = readFileTail(url: candidate.url, byteCap: tailByteCap)
+                    let tail = ripgrepScanner.readFileTail(url: candidate.url, byteCap: tailByteCap)
                     if !needle.isEmpty && !candidate.prefilteredByRipgrep {
                         let combined = head + "\n" + tail
                         if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
@@ -1663,27 +1608,5 @@ final class SessionIndexStore: ObservableObject {
 
     // `readFileHead(url:byteCap:)` moved to CmuxFoundation (RipgrepFileScanner).
 
-    /// Read up to `byteCap` bytes from the end of the file as UTF-8.
-    /// Used to find late-arriving events like pr-link without scanning the whole file.
-    nonisolated static func readFileTail(url: URL, byteCap: Int) -> String {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
-        defer { try? handle.close() }
-        let size: UInt64
-        do { size = try handle.seekToEnd() } catch { return "" }
-        if size == 0 { return "" }
-        let cap = UInt64(byteCap)
-        let offset: UInt64 = size > cap ? size - cap : 0
-        do { try handle.seek(toOffset: offset) } catch { return "" }
-        let data: Data
-        if #available(macOS 10.15.4, *) {
-            data = (try? handle.read(upToCount: byteCap)) ?? Data()
-        } else {
-            data = handle.readData(ofLength: byteCap)
-        }
-        // Trim leading partial line (we likely cut mid-record).
-        if offset > 0, let nl = data.firstIndex(of: 0x0a) {
-            return String(data: data[(nl + 1)...], encoding: .utf8) ?? ""
-        }
-        return String(data: data, encoding: .utf8) ?? ""
-    }
+    // `readFileTail(url:byteCap:)` moved to CmuxFoundation (RipgrepFileScanner).
 }

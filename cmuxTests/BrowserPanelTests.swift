@@ -8,6 +8,7 @@ import Bonsplit
 import UserNotifications
 import Darwin
 import Testing
+import CmuxAppKitSupportUI
 import CmuxBrowser
 
 #if canImport(cmux_DEV)
@@ -361,11 +362,11 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let baseColor = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
         let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
 
-        guard let actual = resolvedBrowserChromeBackgroundColor(
+        guard let actual = BrowserChromeStyle(
             for: .dark,
             themeBackgroundColor: themeBackground,
             drawsBackground: false
-        ).usingColorSpace(.sRGB) else {
+        ).backgroundColor.usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -381,16 +382,16 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
     }
 
     func testBrowserChromeColorSchemeAccountsForTranslucentBackground() {
+        // A nearly transparent dark theme color, composited over a light window
+        // background, is perceived as light, so the chrome color scheme that
+        // reads against it is `.light`. The compositing + readable-scheme math
+        // lives on `WindowChromeColorResolver`, the public seam
+        // `BrowserChromeStyle` routes through.
         let darkTranslucentBackground = NSColor(srgbRed: 0.02, green: 0.03, blue: 0.04, alpha: 0.05)
+        let resolver = WindowChromeColorResolver()
+        let perceived = resolver.compositedColor(darkTranslucentBackground, over: .white)
 
-        XCTAssertEqual(
-            resolvedBrowserChromeColorScheme(
-                for: .dark,
-                themeBackgroundColor: darkTranslucentBackground,
-                windowBackgroundColor: .white
-            ),
-            .light
-        )
+        XCTAssertEqual(resolver.readableColorScheme(for: perceived), .light)
     }
 
     func testBrowserChromeDrawDecisionClearsBlankPageForTransparentGhosttyBackground() {
@@ -489,11 +490,11 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         let themeBackground = NSColor(srgbRed: 0.13, green: 0.29, blue: 0.47, alpha: 1.0)
 
         guard
-            let actual = resolvedBrowserChromeBackgroundColor(
+            let actual = BrowserChromeStyle(
                 for: colorScheme,
                 themeBackgroundColor: themeBackground,
                 drawsBackground: true
-            ).usingColorSpace(.sRGB),
+            ).backgroundColor.usingColorSpace(.sRGB),
             let expected = themeBackground.usingColorSpace(.sRGB)
         else {
             XCTFail("Expected sRGB-convertible colors", file: file, line: line)
@@ -880,21 +881,32 @@ final class BrowserPanelDiffViewerSchemeTests: XCTestCase {
 
 final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     func testLightModeSlightlyDarkensThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .light, darkenMix: 0.04)
+        // An opaque light theme color resolves to a `.light` chrome scheme, which
+        // selects the 0.04 darken mix for the omnibar pill.
+        assertResolvedColorMatchesExpectedBlend(
+            themeBackground: NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0),
+            darkenMix: 0.04
+        )
     }
 
     func testDarkModeSlightlyDarkensThemeBackground() {
-        assertResolvedColorMatchesExpectedBlend(for: .dark, darkenMix: 0.05)
+        // An opaque dark theme color resolves to a `.dark` chrome scheme, which
+        // selects the 0.05 darken mix for the omnibar pill.
+        assertResolvedColorMatchesExpectedBlend(
+            themeBackground: NSColor(srgbRed: 0.06, green: 0.07, blue: 0.09, alpha: 1.0),
+            darkenMix: 0.05
+        )
     }
 
     func testTransparentGhosttyBackgroundUsesCompositedOmnibarPill() {
         let baseColor = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
         let themeBackground = GhosttyBackgroundTheme.color(backgroundColor: baseColor, opacity: 0.42)
 
-        guard let actual = resolvedBrowserOmnibarPillBackgroundColor(
+        guard let actual = BrowserChromeStyle(
             for: .light,
-            themeBackgroundColor: themeBackground
-        ).usingColorSpace(.sRGB) else {
+            themeBackgroundColor: themeBackground,
+            drawsBackground: true
+        ).omnibarPillBackgroundColor.usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
@@ -903,19 +915,19 @@ final class BrowserPanelOmnibarPillBackgroundColorTests: XCTestCase {
     }
 
     private func assertResolvedColorMatchesExpectedBlend(
-        for colorScheme: ColorScheme,
+        themeBackground: NSColor,
         darkenMix: CGFloat,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let themeBackground = NSColor(srgbRed: 0.94, green: 0.93, blue: 0.91, alpha: 1.0)
         let expected = themeBackground.blended(withFraction: darkenMix, of: .black) ?? themeBackground
 
         guard
-            let actual = resolvedBrowserOmnibarPillBackgroundColor(
-                for: colorScheme,
-                themeBackgroundColor: themeBackground
-            ).usingColorSpace(.sRGB),
+            let actual = BrowserChromeStyle(
+                for: .light,
+                themeBackgroundColor: themeBackground,
+                drawsBackground: true
+            ).omnibarPillBackgroundColor.usingColorSpace(.sRGB),
             let expectedSRGB = expected.usingColorSpace(.sRGB),
             let themeSRGB = themeBackground.usingColorSpace(.sRGB)
         else {

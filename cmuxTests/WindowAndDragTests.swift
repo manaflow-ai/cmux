@@ -28,6 +28,9 @@ import struct CmuxPanes.FileExternalOpenApplication
 import struct CmuxPanes.FileExternalOpenApplicationResolver
 import struct CmuxPanes.FileExternalOpenMenuBuilder
 import struct CmuxPanes.FileExternalOpenStrings
+import enum CmuxPanes.FilePreviewPDFChromeStyleVariant
+import class CmuxPanes.FilePreviewPDFChromeHostView
+import class CmuxPanes.FilePreviewPDFChromeHostingView
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2468,8 +2471,12 @@ final class FilePreviewPDFChromeTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousValue = defaults.string(forKey: FilePreviewPDFChromeStyleVariant.defaultsKey)
         let notificationFlag = FilePreviewPDFChromeNotificationFlag()
+        // The `.filePreviewPDFChromeStyleDidChange` extension now lives in CmuxPanes;
+        // this test can't `import CmuxPanes` wholesale (its generic exports collide
+        // with app-target names), and selective type imports don't surface
+        // extension members. Reference the identical raw name directly.
         let observer = NotificationCenter.default.addObserver(
-            forName: .filePreviewPDFChromeStyleDidChange,
+            forName: Notification.Name("filePreviewPDFChromeStyleDidChange"),
             object: nil,
             queue: nil
         ) { _ in

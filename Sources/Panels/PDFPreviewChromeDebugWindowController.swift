@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import SwiftUI
 
 private enum PDFPreviewChromeDebugAction {
@@ -219,6 +220,7 @@ private struct PDFPreviewChromeDebugSample: View {
         FilePreviewPDFZoomChromeView(
             chromeStyleVariant: variant,
             fileURL: URL(fileURLWithPath: "/tmp/cmux-pdf-chrome-debug.pdf"),
+            strings: .live,
             zoomOut: { model.record(.zoomOut) },
             actualSize: { model.record(.actualSize) },
             zoomIn: { model.record(.zoomIn) },

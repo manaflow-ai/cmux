@@ -891,39 +891,9 @@ final class FeedKeyboardFocusView: NSView {
 }
 
 // MARK: - Row snapshot + actions (respects snapshot-boundary rule)
-
-/// Immutable snapshot of a `WorkstreamItem` handed to row views so rows
-/// never hold a reference to the store.
-struct FeedItemSnapshot: Equatable {
-    let id: UUID
-    let workstreamId: String
-    let source: WorkstreamSource
-    let kind: WorkstreamKind
-    let title: String?
-    let cwd: String?
-    let createdAt: Date
-    let status: WorkstreamStatus
-    let payload: WorkstreamPayload
-    let context: WorkstreamContext?
-    /// Most recent user-prompt text in the same workstream, attached
-    /// by the list view so every card can show a "You: …" echo for
-    /// context, even when the agent payload doesn't carry it directly.
-    let userPromptEcho: String?
-
-    init(item: WorkstreamItem, userPromptEcho: String? = nil) {
-        self.id = item.id
-        self.workstreamId = item.workstreamId
-        self.source = item.source
-        self.kind = item.kind
-        self.title = item.title
-        self.cwd = item.cwd
-        self.createdAt = item.createdAt
-        self.status = item.status
-        self.payload = item.payload
-        self.context = item.context
-        self.userPromptEcho = userPromptEcho
-    }
-}
+//
+// `FeedItemSnapshot` (the immutable `WorkstreamItem` projection handed to row
+// views) now lives in the `CMUXAgentLaunch` package under `Workstream/`.
 
 /// Closure bundle; binds to `FeedCoordinator` by default.
 struct FeedRowActions {
@@ -1559,46 +1529,6 @@ private struct PermissionActionArea: View {
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .stroke(Color.primary.opacity(0.10), lineWidth: 1)
         )
-    }
-}
-
-/// Pulls a human-readable command + description out of an agent's
-/// tool_input JSON. Handles Bash (`command` + `description`), Write /
-/// Edit / Read (`file_path`), and falls back to the raw JSON.
-private struct PermissionInputPreview {
-    let sigil: String?
-    let primary: String?
-    let secondary: String?
-
-    init(toolName: String, toolInputJSON: String) {
-        let dict = (try? JSONSerialization.jsonObject(
-            with: Data(toolInputJSON.utf8)
-        )) as? [String: Any] ?? [:]
-
-        switch toolName.lowercased() {
-        case "bash":
-            self.sigil = "$"
-            self.primary = (dict["command"] as? String) ?? toolInputJSON
-            self.secondary = (dict["description"] as? String)
-        case "write", "edit", "multiedit":
-            self.sigil = nil
-            self.primary = (dict["file_path"] as? String) ?? toolInputJSON
-            if toolName.lowercased() == "write" {
-                let content = (dict["content"] as? String) ?? ""
-                let preview = content.split(separator: "\n").first.map(String.init) ?? ""
-                self.secondary = preview.isEmpty ? nil : preview
-            } else {
-                self.secondary = nil
-            }
-        case "read":
-            self.sigil = nil
-            self.primary = (dict["file_path"] as? String) ?? toolInputJSON
-            self.secondary = nil
-        default:
-            self.sigil = nil
-            self.primary = toolInputJSON == "{}" ? nil : toolInputJSON
-            self.secondary = nil
-        }
     }
 }
 
@@ -3915,23 +3845,5 @@ private struct ResolvedDivider: View {
         Rectangle()
             .fill(Color.primary.opacity(0.08))
             .frame(height: 1)
-    }
-}
-
-// MARK: - Kind → SF Symbol
-
-private extension WorkstreamKind {
-    var symbolName: String {
-        switch self {
-        case .permissionRequest: return "lock.shield"
-        case .exitPlan: return "list.bullet.rectangle"
-        case .question: return "questionmark.circle"
-        case .toolUse, .toolResult: return "terminal"
-        case .userPrompt: return "person"
-        case .assistantMessage: return "sparkles"
-        case .sessionStart, .sessionEnd: return "play.circle"
-        case .stop: return "stop.circle"
-        case .todos: return "checklist"
-        }
     }
 }

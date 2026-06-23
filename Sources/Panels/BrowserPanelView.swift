@@ -330,80 +330,6 @@ private extension Image {
     }
 }
 
-func resolvedBrowserChromeBackgroundColor(
-    for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor,
-    drawsBackground: Bool
-) -> NSColor {
-    guard drawsBackground else { return .clear }
-    switch colorScheme {
-    case .dark, .light:
-        return themeBackgroundColor
-    @unknown default:
-        return themeBackgroundColor
-    }
-}
-
-func resolvedBrowserChromeColorScheme(
-    for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor,
-    windowBackgroundColor: NSColor = .windowBackgroundColor
-) -> ColorScheme {
-    let perceivedBackgroundColor = themeBackgroundColor.alphaComponent < 0.999
-        ? cmuxCompositedNSColor(themeBackgroundColor, over: windowBackgroundColor)
-        : themeBackgroundColor
-    return cmuxReadableColorScheme(for: perceivedBackgroundColor)
-}
-
-func resolvedBrowserOmnibarPillBackgroundColor(
-    for colorScheme: ColorScheme,
-    themeBackgroundColor: NSColor
-) -> NSColor {
-    let darkenMix: CGFloat
-    switch colorScheme {
-    case .light:
-        darkenMix = 0.04
-    case .dark:
-        darkenMix = 0.05
-    @unknown default:
-        darkenMix = 0.04
-    }
-
-    let blendedColor = themeBackgroundColor.blended(withFraction: darkenMix, of: .black) ?? themeBackgroundColor
-    return blendedColor.withAlphaComponent(themeBackgroundColor.alphaComponent)
-}
-
-private struct BrowserChromeStyle {
-    let backgroundColor: NSColor
-    let colorScheme: ColorScheme
-    let omnibarPillBackgroundColor: NSColor
-
-    static func resolve(
-        for colorScheme: ColorScheme,
-        themeBackgroundColor: NSColor,
-        drawsBackground: Bool
-    ) -> BrowserChromeStyle {
-        let backgroundColor = resolvedBrowserChromeBackgroundColor(
-            for: colorScheme,
-            themeBackgroundColor: themeBackgroundColor,
-            drawsBackground: drawsBackground
-        )
-        let chromeColorScheme = resolvedBrowserChromeColorScheme(
-            for: colorScheme,
-            themeBackgroundColor: themeBackgroundColor
-        )
-        let omnibarPillBackgroundColor = resolvedBrowserOmnibarPillBackgroundColor(
-            for: chromeColorScheme,
-            themeBackgroundColor: themeBackgroundColor
-        )
-        return BrowserChromeStyle(
-            backgroundColor: backgroundColor,
-            colorScheme: chromeColorScheme,
-            omnibarPillBackgroundColor: omnibarPillBackgroundColor
-        )
-    }
-}
-
 /// View for rendering a browser panel with address bar
 struct BrowserPanelView: View {
     @ObservedObject var panel: BrowserPanel
@@ -514,7 +440,7 @@ struct BrowserPanelView: View {
         self.isVisibleInUI = isVisibleInUI
         self.portalPriority = portalPriority
         self.onRequestPanelFocus = onRequestPanelFocus
-        self._browserChromeStyle = State(initialValue: BrowserChromeStyle.resolve(
+        self._browserChromeStyle = State(initialValue: BrowserChromeStyle(
             for: .light,
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
@@ -1975,7 +1901,7 @@ struct BrowserPanelView: View {
     }
 
     private func refreshBrowserChromeStyle() {
-        browserChromeStyle = BrowserChromeStyle.resolve(
+        browserChromeStyle = BrowserChromeStyle(
             for: colorScheme,
             themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
@@ -3050,44 +2976,10 @@ private struct BrowserAddressBarWidthPreferenceKey: PreferenceKey {
     }
 }
 
-func browserOmnibarShouldReacquireFocusAfterEndEditing(
-    desiredOmnibarFocus: Bool,
-    nextResponderIsOtherTextField: Bool
-) -> Bool {
-    desiredOmnibarFocus && !nextResponderIsOtherTextField
-}
-
 func browserOmnibarShouldSelectAllOnFocusReassertion(
     selectionIntent: BrowserAddressBarFocusSelectionIntent
 ) -> Bool {
     selectionIntent.shouldSelectAll
-}
-
-/// Whether a completed single click that just moved first responder into the
-/// omnibar should select the field's entire contents (Chrome/Safari/Arc parity),
-/// instead of leaving the caret the field editor placed at the click point.
-///
-/// The first click on an unfocused omnibar showing a URL selects everything so
-/// the user can immediately type a replacement. A subsequent click (the field is
-/// already first responder, so `gainedFocusOnThisClick` is `false`) keeps the
-/// caret placement from https://github.com/manaflow-ai/cmux/issues/5268. A drag
-/// or a Shift-click expresses an explicit range, so select-all defers to it; a
-/// double-click never reaches this path (the field routes multi-clicks straight
-/// to the field editor for word/line selection, and its second click lands after
-/// this click's `mouseUp`, so word selection wins).
-///
-/// - Parameters:
-///   - gainedFocusOnThisClick: `true` when the field had no field editor at
-///     `mouseDown`, i.e. this click is the one that moved focus into the omnibar.
-///   - isShiftClick: `true` when Shift was held, extending an explicit selection.
-///   - didDrag: `true` when the pointer moved far enough to build a drag selection.
-/// - Returns: `true` only for an undragged, unmodified focus-gaining click.
-func browserOmnibarFocusGainingClickShouldSelectAll(
-    gainedFocusOnThisClick: Bool,
-    isShiftClick: Bool,
-    didDrag: Bool
-) -> Bool {
-    gainedFocusOnThisClick && !isShiftClick && !didDrag
 }
 
 final class OmnibarNativeTextField: NSTextField {
@@ -3209,11 +3101,11 @@ final class OmnibarNativeTextField: NSTextField {
         // to the field editor for word/line selection and leaves `mouseSelectionState`
         // nil, and the second click lands after this `mouseUp`, so word selection wins.
         // The keyboard path (Cmd+L) still selects all via the `selectAllRequestId` flow.
-        guard browserOmnibarFocusGainingClickShouldSelectAll(
+        guard BrowserOmnibarFocusGainingClick(
             gainedFocusOnThisClick: state.gainedFocus,
             isShiftClick: state.isShift,
             didDrag: state.didDrag
-        ), let editor = currentEditor() as? NSTextView else {
+        ).shouldSelectAll, let editor = currentEditor() as? NSTextView else {
             return
         }
         editor.setSelectedRange(NSRange(location: 0, length: editor.string.utf16.count))
@@ -3455,10 +3347,10 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             if pointerDownBlurIntent(window: window) {
                 return false
             }
-            return browserOmnibarShouldReacquireFocusAfterEndEditing(
+            return BrowserOmnibarEndEditingFocusDecision(
                 desiredOmnibarFocus: parent.isFocused,
                 nextResponderIsOtherTextField: nextResponderIsOtherTextField(window: window)
-            )
+            ).shouldReacquireFocus
         }
 
         func controlTextDidBeginEditing(_ obj: Notification) {

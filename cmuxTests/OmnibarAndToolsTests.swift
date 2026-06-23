@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import CmuxBrowser
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -495,11 +496,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // omnibar selects the whole URL so the next keystroke replaces it (Chrome parity).
     func testFocusGainingClickSelectsAll() throws {
         XCTAssertTrue(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
     }
 
@@ -507,11 +508,11 @@ final class OmnibarStateMachineTests: XCTestCase {
     // first responder keeps the caret placed at the click point — no select-all.
     func testAlreadyFocusedClickPlacesCaret() throws {
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: false,
                 isShiftClick: false,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
     }
 
@@ -519,18 +520,18 @@ final class OmnibarStateMachineTests: XCTestCase {
     // select-all defers to it even on the click that gains focus.
     func testFocusGainingClickDefersToExplicitSelection() throws {
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: true,
                 didDrag: false
-            )
+            ).shouldSelectAll
         )
         XCTAssertFalse(
-            browserOmnibarFocusGainingClickShouldSelectAll(
+            BrowserOmnibarFocusGainingClick(
                 gainedFocusOnThisClick: true,
                 isShiftClick: false,
                 didDrag: true
-            )
+            ).shouldSelectAll
         )
     }
 

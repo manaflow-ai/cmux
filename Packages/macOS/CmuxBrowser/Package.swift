@@ -19,6 +19,9 @@ let package = Package(
         .package(path: "../CMUXDebugLog"),
         // CmuxSettings owns BrowserSearchEngine, the omnibar suggestion domain type.
         .package(path: "../CmuxSettings"),
+        // CmuxAppKitSupportUI owns WindowChromeColorResolver, the chrome color math
+        // BrowserChromeStyle routes compositing/readable-scheme selection through.
+        .package(path: "../CmuxAppKitSupportUI"),
     ],
     targets: [
         .target(
@@ -27,6 +30,7 @@ let package = Package(
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
