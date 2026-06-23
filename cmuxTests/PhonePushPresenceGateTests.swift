@@ -1,4 +1,5 @@
 import CoreGraphics
+import CMUXMobileCore
 import Foundation
 import Testing
 
@@ -390,7 +391,7 @@ import Testing
             auth: nil
         )
 
-        guard case .err = await TerminalController.shared.mobileHostHandleRPC(request) else {
+        guard case .failure = await TerminalController.shared.mobileHostHandleRPC(request) else {
             Issue.record("expected invalid settings to fail")
             return
         }
