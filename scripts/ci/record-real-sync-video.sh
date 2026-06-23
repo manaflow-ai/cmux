@@ -376,7 +376,8 @@ run_with_timeout 30 env \
   SIMCTL_CHILD_CMUX_UITEST_AUTH_EMAIL=cloud-recording@cmux.local \
   "SIMCTL_CHILD_CMUX_UITEST_AUTH_NAME=Cloud Recording" \
   "SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL=$ATTACH_URL" \
-  xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" "$IOS_BUNDLE_ID"
+  xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" "$IOS_BUNDLE_ID" \
+    --cmux-dogfood-attach-url "$ATTACH_URL"
 sleep 18
 
 phase "starting macOS and iOS recordings"

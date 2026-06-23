@@ -45,7 +45,10 @@ public struct UITestConfig {
     /// is always `nil`, so a dedicated, not-mock-gated accessor is required for the
     /// real-backend auto-pair path to fire. DEBUG-only; always `nil` in release.
     public static var dogfoodAttachURL: String? {
-        dogfoodAttachURL(from: ProcessInfo.processInfo.environment)
+        dogfoodAttachURL(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
     }
 
     /// The dogfood attach URL for an explicit environment, not gated on mock data.
@@ -53,13 +56,18 @@ public struct UITestConfig {
     /// - Parameter env: The environment dictionary to read.
     /// - Returns: The trimmed value of `CMUX_DOGFOOD_ATTACH_URL` when present and
     ///   non-empty; otherwise `nil`. Always `nil` in release builds.
-    public static func dogfoodAttachURL(from env: [String: String]) -> String? {
+    public static func dogfoodAttachURL(
+        from env: [String: String],
+        arguments: [String] = []
+    ) -> String? {
         #if DEBUG
         // Read the env directly, NOT through the mock-gated value(for:), so the
         // URL is returned with CMUX_UITEST_MOCK_DATA=0 (the real-backend
         // dev-launch path) and iOS auto-pair actually fires.
-        let value = env["CMUX_DOGFOOD_ATTACH_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value?.isEmpty == false ? value : nil
+        if let value = trimmedNonEmpty(env["CMUX_DOGFOOD_ATTACH_URL"]) {
+            return value
+        }
+        return argumentValue(for: "--cmux-dogfood-attach-url", arguments: arguments)
         #else
         return nil
         #endif
@@ -138,5 +146,18 @@ public struct UITestConfig {
 
     private static func value(for key: String) -> String? {
         value(for: key, env: ProcessInfo.processInfo.environment)
+    }
+
+    private static func trimmedNonEmpty(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func argumentValue(for key: String, arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: key),
+              arguments.indices.contains(arguments.index(after: index)) else {
+            return nil
+        }
+        return trimmedNonEmpty(arguments[arguments.index(after: index)])
     }
 }
