@@ -396,6 +396,16 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
         return try body(defaults)
     }
 
+    private func assertCmuxGeneratedToken(_ data: Data, file: StaticString = #filePath, line: UInt = #line) throws {
+        let token = try XCTUnwrap(String(data: data, encoding: .utf8), file: file, line: line)
+        XCTAssertNotNil(
+            token.range(of: #"^[0-9A-Fa-f]{32}$"#, options: .regularExpression),
+            "Expected a 32-character hexadecimal token, got \(token)",
+            file: file,
+            line: line
+        )
+    }
+
     func testResolveCreatesStableDataDirectoryPortAndTokenFile() throws {
         try withTemporaryDirectory { appSupportURL in
             try withDefaults { defaults in
@@ -415,6 +425,7 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                 ))
                 let secondTokenData = try Data(contentsOf: second.connectionTokenFileURL)
 
+                try assertCmuxGeneratedToken(firstTokenData)
                 XCTAssertEqual(first.port, second.port)
                 XCTAssertTrue(first.allowsEphemeralPortFallback)
                 XCTAssertEqual(first.ephemeralPortFallback()?.port, 0)
@@ -476,6 +487,54 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                 XCTAssertEqual(options.connectionTokenFileURL.deletingLastPathComponent().path, dataDirectoryURL.path)
                 XCTAssertEqual(options.extraArguments, ["--future-flag", "value with spaces"])
                 XCTAssertEqual(Array(options.arguments.suffix(2)), ["--future-flag", "value with spaces"])
+            }
+        }
+    }
+
+    func testResolveReusesValidConnectionTokenFile() throws {
+        try withTemporaryDirectory { rootURL in
+            let dataDirectoryURL = rootURL.appendingPathComponent("valid-token", isDirectory: true)
+            try FileManager.default.createDirectory(at: dataDirectoryURL, withIntermediateDirectories: true)
+            let tokenFileURL = dataDirectoryURL.appendingPathComponent("connection-token", isDirectory: false)
+            let existingToken = "0123456789abcdef0123456789ABCDEF"
+            try Data(existingToken.utf8).write(to: tokenFileURL)
+
+            let options = try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                applicationSupportDirectoryURL: rootURL
+            ))
+            let tokenData = try Data(contentsOf: options.connectionTokenFileURL)
+
+            XCTAssertEqual(options.connectionTokenFileURL, tokenFileURL)
+            XCTAssertEqual(String(data: tokenData, encoding: .utf8), existingToken)
+        }
+    }
+
+    func testResolveReplacesInvalidConnectionTokenFiles() throws {
+        let invalidTokens = [
+            "",
+            "partial",
+            String(repeating: "0", count: 31),
+            String(repeating: "0", count: 33),
+            String(repeating: "g", count: 32),
+        ]
+
+        try withTemporaryDirectory { rootURL in
+            for (index, invalidToken) in invalidTokens.enumerated() {
+                let dataDirectoryURL = rootURL.appendingPathComponent("invalid-token-\(index)", isDirectory: true)
+                try FileManager.default.createDirectory(at: dataDirectoryURL, withIntermediateDirectories: true)
+                let tokenFileURL = dataDirectoryURL.appendingPathComponent("connection-token", isDirectory: false)
+                try Data(invalidToken.utf8).write(to: tokenFileURL)
+
+                let options = try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                    environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                    applicationSupportDirectoryURL: rootURL
+                ))
+                let tokenData = try Data(contentsOf: options.connectionTokenFileURL)
+
+                XCTAssertEqual(options.connectionTokenFileURL, tokenFileURL)
+                try assertCmuxGeneratedToken(tokenData)
+                XCTAssertNotEqual(String(data: tokenData, encoding: .utf8), invalidToken)
             }
         }
     }
