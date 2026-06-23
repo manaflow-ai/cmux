@@ -24,6 +24,22 @@ import Testing
         #expect(store.selectedTerminalID?.rawValue == "terminal-build")
     }
 
+    @Test func missingPairedMacStoreResolvesSavedMacHintAsEmpty() throws {
+        let defaultsName = "cmux-tests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        defaults.set(true, forKey: "cmux.mobile.hasKnownPairedMac")
+
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            pairedMacStore: nil,
+            pairingHintDefaults: defaults
+        )
+
+        #expect(store.hasKnownPairedMac == false)
+        #expect(store.pairedMacHintUndetermined == false)
+    }
+
     @Test func signInMovesToPairingUntilPreviewCodeConnects() {
         let store = MobileShellComposite.preview()
 

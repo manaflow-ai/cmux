@@ -199,10 +199,16 @@ import Testing
     let rebuiltGeneration = session.generation
     session.markOutputApplied()
     #expect(session.requestRender(now: 5) == .enqueue(generation: rebuiltGeneration))
-    let didBeginRebuiltRender = session.beginRenderExecution(generation: rebuiltGeneration, now: 5)
-    #expect(didBeginRebuiltRender)
-    #expect(session.markRenderStale(now: 8, timeout: 3) == .failClosed(stalledGeneration: rebuiltGeneration))
-    #expect(session.requestRender(now: 8.1) == .blockedByStalledSurface)
+    let didBeginFirstRebuiltRender = session.beginRenderExecution(generation: rebuiltGeneration, now: 5)
+    #expect(didBeginFirstRebuiltRender)
+    #expect(session.completeRender(generation: rebuiltGeneration) == .idle)
+
+    #expect(session.requestRender(now: 5.1) == .enqueue(generation: rebuiltGeneration))
+    let didBeginSecondRebuiltRender = session.beginRenderExecution(generation: rebuiltGeneration, now: 5.1)
+    #expect(didBeginSecondRebuiltRender)
+    #expect(session.markRenderStale(now: 8.1, timeout: 3) == .failClosed(stalledGeneration: rebuiltGeneration))
+    #expect(session.requestRender(now: 8.2) == .blockedByStalledSurface)
+    #expect(session.presentation == .renderStalledLiveFrame)
     #expect(session.generation == rebuiltGeneration)
 }
 

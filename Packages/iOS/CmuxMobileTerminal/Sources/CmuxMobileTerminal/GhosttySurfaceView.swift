@@ -606,7 +606,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Stale renders become recovery events, not another same-surface render.
     var surfaceSession = TerminalSurfaceSessionState()
     var recoveryReplayTask: Task<Void, Never>?
-    var renderWorkItemsByGeneration: [UInt64: DispatchWorkItem] = [:]
+    var renderWorkItemsByGeneration: [UInt64: GhosttyRenderWorkItem] = [:]
     var pendingOutputTimeoutTasks: [UInt64: [TerminalSurfaceOutputWaitState.WaitID: Task<Void, Never>]] = [:]
     /// True while the app is inactive/backgrounded. On iOS `render_now`
     /// produces a frame synchronously on the surface generation executor and acquires a
@@ -2670,9 +2670,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileDebugLog.anchormux(
                 "render.stale fail_closed generation=\(stalledGeneration) elapsedMs=\(Int((now - (surfaceSession.renderStartedAt ?? now)) * 1000))"
             )
-            cancelRenderWorkItem(generation: stalledGeneration)
-            completeAllPendingOutput(generation: stalledGeneration)
-            syncSnapshotFallback()
+            failClosedSurfaceRecovery(generation: stalledGeneration, reason: "render_stale")
         }
         let blinkChanged = cursorBlinkState.advance(now: now)
         // Draw on content/cursor changes, and for a short bounded burst after
@@ -2757,46 +2755,43 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let executor = surfaceExecutor
         let surfaceHandle = GhosttySurfaceWorkHandle(surface: surface)
         let enqueuedAt = CACurrentMediaTime()
-        var workItem: DispatchWorkItem!
-        workItem = DispatchWorkItem { [weak self] in
-            guard !workItem.isCancelled else { return }
-            // Queue LAG shows whether this render waited behind other ops.
-            let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
-            if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
-            let startedAt = CACurrentMediaTime()
-            Task { @MainActor [weak self] in
-                guard let self,
-                      self.renderWorkItemsByGeneration[generation] === workItem,
-                      self.surfaceSession.beginRenderExecution(generation: generation, now: startedAt) else {
-                    self?.clearRenderWorkItem(generation: generation)
-                    MobileDebugLog.anchormux("render.stale skipped generation=\(generation)")
-                    return
-                }
-                var renderWorkItem: DispatchWorkItem!
-                renderWorkItem = DispatchWorkItem { [weak self] in
-                    guard !renderWorkItem.isCancelled else { return }
-                    ghostty_surface_render_now(surfaceHandle.surface)
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        let completion = self.surfaceSession.completeRender(generation: generation)
-                        guard !self.isDismantled else {
-                            return
-                        }
-                        self.clearRenderWorkItem(generation: generation)
-                        self.syncSnapshotFallback()
-                        if completion == .enqueueCoalesced {
-                            self.requestRender()
-                        } else if completion == .ignoredStaleCompletion {
-                            MobileDebugLog.anchormux("render.stale late_completion generation=\(generation)")
-                        }
-                    }
-                }
-                self.renderWorkItemsByGeneration[generation] = renderWorkItem
-                executor.async(execute: renderWorkItem)
+        let token = GhosttyRenderCancellationToken()
+        let renderWorkItem = Self.makeGhosttyRenderWorkItem(
+            token: token,
+            surfaceHandle: surfaceHandle,
+            executor: executor,
+            generation: generation,
+            enqueuedAt: enqueuedAt,
+            beginExecution: { [weak self] startedGeneration, startedToken, startedAt in
+            guard let self,
+                  self.renderWorkItemsByGeneration[startedGeneration]?.token === startedToken,
+                  self.surfaceSession.beginRenderExecution(generation: startedGeneration, now: startedAt) else {
+                self?.clearRenderWorkItem(generation: startedGeneration)
+                MobileDebugLog.anchormux("render.stale skipped generation=\(startedGeneration)")
+                return false
             }
-        }
-        renderWorkItemsByGeneration[generation] = workItem
-        executor.async(execute: workItem)
+            return true
+            },
+            completion: { [weak self] completedGeneration, completedToken in
+            guard let self,
+                  self.renderWorkItemsByGeneration[completedGeneration]?.token === completedToken else {
+                return
+            }
+            let completion = self.surfaceSession.completeRender(generation: completedGeneration)
+            guard !self.isDismantled else {
+                return
+            }
+            self.clearRenderWorkItem(generation: completedGeneration)
+            self.syncSnapshotFallback()
+            if completion == .enqueueCoalesced {
+                self.requestRender()
+            } else if completion == .ignoredStaleCompletion {
+                MobileDebugLog.anchormux("render.stale late_completion generation=\(completedGeneration)")
+            }
+            }
+        )
+        renderWorkItemsByGeneration[generation] = renderWorkItem
+        executor.async(execute: renderWorkItem.dispatchWorkItem)
     }
 
     private func recoverStalledSurface(stalledGeneration: UInt64) {
@@ -2861,9 +2856,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             MobileDebugLog.anchormux(
                 "output.apply_stalled fail_closed generation=\(stalledGeneration) elapsedMs=\(Int((now - startedAt) * 1000))"
             )
-            cancelRenderWorkItem(generation: stalledGeneration)
-            completeAllPendingOutput(generation: stalledGeneration)
-            syncSnapshotFallback()
+            failClosedSurfaceRecovery(generation: stalledGeneration, reason: "output_apply_stalled")
         }
     }
 

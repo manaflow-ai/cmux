@@ -322,7 +322,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         }
 
         func ghosttySurfaceViewReplayRecoveryFailed(_ surfaceView: GhosttySurfaceView) {
-            store?.terminalReplayRecoveryDidFail(surfaceID: surfaceID)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.store?.terminalReplayRecoveryDidFail(surfaceID: self.surfaceID)
+            }
         }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {

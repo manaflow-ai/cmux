@@ -7,6 +7,16 @@ extension GhosttySurfaceView {
     static let renderQueueTimeout: CFTimeInterval = 10.0
     static let recoveryReplayApplyTimeoutSeconds: Double = 2.0
 
+    func failClosedSurfaceRecovery(generation: UInt64, reason: String) {
+        MobileDebugLog.anchormux("render.recovery_failed generation=\(generation) reason=\(reason)")
+        cancelRenderWorkItem(generation: generation)
+        completeAllPendingOutput(generation: generation)
+        recoveryReplayTask?.cancel()
+        recoveryReplayTask = nil
+        syncSnapshotFallback()
+        delegate?.ghosttySurfaceViewReplayRecoveryFailed(self)
+    }
+
     func scheduleRecoveryReplayAttempt() {
         recoveryReplayTask?.cancel()
         switch surfaceSession.beginReplayAttempt() {
@@ -21,8 +31,7 @@ extension GhosttySurfaceView {
             }
         case let .failClosed(generation):
             MobileDebugLog.anchormux("render.replay fail_closed generation=\(generation) reason=max_attempts_before_request")
-            syncSnapshotFallback()
-            delegate?.ghosttySurfaceViewReplayRecoveryFailed(self)
+            failClosedSurfaceRecovery(generation: generation, reason: "max_attempts_before_request")
         }
     }
 
@@ -55,10 +64,7 @@ extension GhosttySurfaceView {
             scheduleRecoveryReplayAttempt()
         case let .failClosed(failedGeneration):
             MobileDebugLog.anchormux("render.replay fail_closed generation=\(failedGeneration) reason=replay_failed")
-            recoveryReplayTask?.cancel()
-            recoveryReplayTask = nil
-            syncSnapshotFallback()
-            delegate?.ghosttySurfaceViewReplayRecoveryFailed(self)
+            failClosedSurfaceRecovery(generation: failedGeneration, reason: "replay_failed")
         }
     }
 }

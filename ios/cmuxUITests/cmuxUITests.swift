@@ -358,6 +358,62 @@ final class cmuxUITests: XCTestCase {
         }
     }
 
+    /// App-lifecycle regression for the iOS reconnect freeze. The failure mode
+    /// was not just "did the store receive bytes"; the visible Ghostty surface
+    /// could stop presenting after leaving and returning to the app. This test
+    /// backgrounds the real app, foregrounds it, requires the mounted terminal to
+    /// replay again, then compares the composited terminal pixels against the
+    /// pre-background frame. The worst acceptable foreground state is preserved
+    /// pixels plus a recovery banner, never a cleared or blank terminal.
+    @MainActor
+    func testTerminalPixelsSurviveBackgroundForegroundReconnect() async throws {
+        let server = try MobileSyncMockHostServer(defaultTerminalLines: MockColorBands.lines())
+        let port = try await server.start()
+        defer { server.stop() }
+
+        let app = try launchConnectedApp(port: port, assertStatusRows: false)
+        let surface = app.otherElements["MobileTerminalSurface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+
+        let before = waitForCleanColorBandSignature(of: surface, label: "before background")
+        await assertTerminalReplay(terminalID: "terminal-build", server: server)
+
+        XCUIDevice.shared.press(.home)
+        let backgrounded = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let app = object as? XCUIApplication else { return false }
+                return app.state != .runningForeground
+            },
+            object: app
+        )
+        XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 8), .completed)
+
+        app.activate()
+        XCTAssertTrue(surface.waitForExistence(timeout: 8))
+        XCTAssertEqual(app.state, .runningForeground)
+
+        let replayedAfterForeground = await server.waitForReplay(
+            terminalID: "terminal-build",
+            minimumCount: 2,
+            timeout: 20
+        )
+        XCTAssertTrue(
+            replayedAfterForeground,
+            "Foreground reconnect must replay the still-mounted terminal sink instead of waiting for future output."
+        )
+
+        let after = waitForCleanColorBandSignature(of: surface, label: "after foreground")
+        XCTAssertTrue(
+            after.isClose(to: before, tolerance: 80),
+            "Foreground reconnect changed the visible terminal pixels. before=\(before) after=\(after)"
+        )
+
+        XCTAssertFalse(
+            app.otherElements["MobileWorkspaceList"].exists && !surface.exists,
+            "Reconnect must not replace the mounted terminal with a cleared workspace-only shell."
+        )
+    }
+
     @MainActor
     private func assertCleanColorBands(
         of surface: XCUIElement,
@@ -369,7 +425,23 @@ final class cmuxUITests: XCTestCase {
         // keyboard transition or rapid zoom the surface can be momentarily
         // blank/stale. Poll until the bands settle into a clean state rather
         // than judging a single frame (sleeps are acceptable in tests).
+        _ = waitForCleanColorBandSignature(
+            of: surface,
+            label: "zoom level \(level)",
+            file: file,
+            line: line
+        )
+    }
+
+    @MainActor
+    private func waitForCleanColorBandSignature(
+        of surface: XCUIElement,
+        label: String,
+        file: StaticString = #file,
+        line: UInt = #line
+    ) -> ColorBandSignature {
         var lastDetail = "no frames sampled"
+        var lastSignature = ColorBandSignature(strip: [], rowSamples: [])
         for _ in 0..<12 {
             Thread.sleep(forTimeInterval: 0.4)
             guard let cg = surface.screenshot().image.cgImage else {
@@ -392,16 +464,20 @@ final class cmuxUITests: XCTestCase {
             // band row. Sample left/center/right of a few rows; where all three
             // are strongly colored they must match.
             var uniform = true
+            var rowSamples: [[RGB]] = []
             for yUnit in [0.12, 0.30, 0.48] {
                 let l = pixels.color(xUnit: 0.22, yUnit: yUnit)
                 let c = pixels.color(xUnit: 0.50, yUnit: yUnit)
                 let r = pixels.color(xUnit: 0.78, yUnit: yUnit)
+                rowSamples.append([l, c, r])
                 guard l.isStrong, c.isStrong, r.isStrong else { continue }
                 if !(l.isClose(to: c, tolerance: 70) && c.isClose(to: r, tolerance: 70)) {
                     uniform = false
                 }
             }
 
+            let signature = ColorBandSignature(strip: strip, rowSamples: rowSamples)
+            lastSignature = signature
             lastDetail = "strong=\(strong.count)/24 distinct=\(distinct) uniform=\(uniform) strip=\(strip)"
             // Clean banded rendering: horizontally uniform (not garbled/torn)
             // AND either several distinct bands (lower zoom) or one band that
@@ -416,13 +492,40 @@ final class cmuxUITests: XCTestCase {
             let enoughBands = (distinct >= 2 && strong.count >= 6)
                 || (distinct == 1 && strong.count >= 12)
             if uniform, enoughBands {
-                return
+                return signature
             }
         }
         XCTFail(
-            "zoom level \(level): never rendered clean color bands. last: \(lastDetail)",
+            "\(label): never rendered clean color bands. last: \(lastDetail)",
             file: file, line: line
         )
+        return lastSignature
+    }
+
+    private struct ColorBandSignature: CustomStringConvertible {
+        let strip: [RGB]
+        let rowSamples: [[RGB]]
+
+        func isClose(to other: ColorBandSignature, tolerance: Int) -> Bool {
+            guard strip.count == other.strip.count,
+                  rowSamples.count == other.rowSamples.count else {
+                return false
+            }
+            for (lhs, rhs) in zip(strip, other.strip) where !lhs.isClose(to: rhs, tolerance: tolerance) {
+                return false
+            }
+            for (lhsRow, rhsRow) in zip(rowSamples, other.rowSamples) {
+                guard lhsRow.count == rhsRow.count else { return false }
+                for (lhs, rhs) in zip(lhsRow, rhsRow) where !lhs.isClose(to: rhs, tolerance: tolerance) {
+                    return false
+                }
+            }
+            return true
+        }
+
+        var description: String {
+            "strip=\(strip) rowSamples=\(rowSamples)"
+        }
     }
 
     /// A sampled pixel.
@@ -535,9 +638,11 @@ final class cmuxUITests: XCTestCase {
     private func launchConnectedApp(port: UInt16, assertStatusRows: Bool = true) throws -> XCUIApplication {
         let attachURL = try attachURL(port: port)
         let app = launchApp(mockData: true, environment: [
+            "CMUX_MOBILE_PAIRED_MAC_BACKUP": "0",
             "CMUX_UITEST_ATTACH_URL": attachURL.absoluteString,
+            "CMUX_UITEST_DISABLE_PAIRED_MAC_STORE": "1",
         ])
-        waitForWorkspaceShell(in: app)
+        waitForConnectedWorkspaceShell(in: app)
         try openSelectedWorkspaceIfNeeded(app)
         if assertStatusRows {
             assertTerminalRow(0, label: "$ cmux ios status", in: app)
@@ -557,6 +662,7 @@ final class cmuxUITests: XCTestCase {
             terminalID: nil,
             macDeviceID: "ui-test-mac",
             macDisplayName: "UI Test Mac",
+            macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             routes: [route],
             expiresAt: Date(timeIntervalSinceNow: 60 * 60),
             authToken: "ui-test-ticket"
@@ -593,14 +699,41 @@ final class cmuxUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UITEST_MOCK_DATA"] = mockData ? "1" : "0"
+        app.launchArguments += ["-CMUX_UITEST_MOCK_DATA", mockData ? "1" : "0"]
         for (key, value) in environment {
             app.launchEnvironment[key] = value
+            app.launchArguments += ["-\(key)", value]
         }
         if clearAuth {
             app.launchEnvironment["CMUX_UITEST_CLEAR_AUTH"] = "1"
+            app.launchArguments += ["-CMUX_UITEST_CLEAR_AUTH", "1"]
         }
+        app.terminate()
         app.launch()
         return app
+    }
+
+    @MainActor
+    private func waitForConnectedWorkspaceShell(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(90)
+        var lastWarningTap = Date.distantPast
+        while Date() < deadline {
+            if app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"].exists
+                || app.otherElements["MobileTerminalSurface"].exists {
+                return
+            }
+            let continueButton = app.buttons["MobilePairingVersionWarningContinueButton"]
+            if continueButton.exists, Date().timeIntervalSince(lastWarningTap) > 1 {
+                tap(continueButton, in: app, file: file, line: line)
+                lastWarningTap = Date()
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        waitForWorkspaceShell(in: app, file: file, line: line)
     }
 
     @MainActor
@@ -611,8 +744,15 @@ final class cmuxUITests: XCTestCase {
 
         let row = app.descendants(matching: .any)["MobileWorkspaceRow-workspace-main"]
         XCTAssertTrue(row.waitForExistence(timeout: 8))
-        row.tap()
-        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 8))
+        tap(row, in: app)
+        let terminalSurface = app.otherElements["MobileTerminalSurface"]
+        if !terminalSurface.waitForExistence(timeout: 8) {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "terminal-surface-timeout"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            XCTFail("Terminal surface never appeared after opening workspace. tree=\(app.debugDescription)")
+        }
     }
 
     @MainActor
@@ -688,7 +828,17 @@ final class cmuxUITests: XCTestCase {
             object: app
         )
         let result = XCTWaiter.wait(for: [expectation], timeout: 90)
-        XCTAssertEqual(result, .completed, file: file, line: line)
+        if result != .completed {
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "workspace-shell-timeout"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+            XCTFail(
+                "Workspace shell never appeared. appState=\(app.state.rawValue) tree=\(app.debugDescription)",
+                file: file,
+                line: line
+            )
+        }
     }
 
     @MainActor

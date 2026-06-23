@@ -812,10 +812,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
-        // determined there is no paired Mac). didSet is not called for these
+        // determined there is no paired Mac). If there is no paired-Mac store at
+        // all, the source is known-empty and must not keep the restoring gate in
+        // the migration-only undetermined state. didSet is not called for these
         // initial assignments, so the undetermined flag is not clobbered here.
-        self.pairedMacHintUndetermined = pairingHintDefaults.object(forKey: Self.hasKnownPairedMacDefaultsKey) == nil
-        self.hasKnownPairedMac = pairingHintDefaults.bool(forKey: Self.hasKnownPairedMacDefaultsKey)
+        let savedMacHintIsAbsent = pairingHintDefaults.object(forKey: Self.hasKnownPairedMacDefaultsKey) == nil
+        self.pairedMacHintUndetermined = pairedMacStore != nil && savedMacHintIsAbsent
+        self.hasKnownPairedMac = pairedMacStore != nil && pairingHintDefaults.bool(forKey: Self.hasKnownPairedMacDefaultsKey)
         // The id is resolved (and minted on first install) by
         // `MobileAnalyticsComposition`, which is constructed before this shell and
         // owns the `ios_app_first_launch` emit. The shell only needs the stable id

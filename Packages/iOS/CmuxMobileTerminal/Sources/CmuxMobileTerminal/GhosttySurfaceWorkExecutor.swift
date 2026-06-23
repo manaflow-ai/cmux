@@ -9,7 +9,11 @@ import Foundation
 /// given `ghostty_surface_t` is ordered on that generation's executor, including
 /// eventual free. If a generation stalls, the view can abandon this executor and
 /// create a new surface generation without freeing under the blocked call.
-final class GhosttySurfaceWorkExecutor {
+///
+/// Safety: instances contain only an immutable generation id and immutable
+/// serial `DispatchQueue`. Sending the executor between actors does not expose
+/// mutable state; callers can only enqueue work onto that serial owner.
+final class GhosttySurfaceWorkExecutor: @unchecked Sendable {
     let generation: UInt64
     private let queue: DispatchQueue
 
