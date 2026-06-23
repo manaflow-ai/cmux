@@ -9982,42 +9982,6 @@ extension SidebarDragState {
     }
 }
 
-/// Per-row drop-indicator visibility, computed by the parent from value
-/// inputs only. Takes UUIDs (not `Tab` objects or `SidebarDragState`) so it's
-/// trivially unit-testable and the row's view subtree never reads the
-/// `@Observable` store directly. Same predicate that used to live inside
-/// `SidebarTabDropIndicatorOverlay`.
-struct SidebarWorkspaceTopDropIndicator: View {
-    let isVisible: Bool
-    let isFirstRow: Bool
-    let rowSpacing: CGFloat
-
-    var body: some View {
-        if isVisible {
-            Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-                .offset(y: isFirstRow ? 0 : -(rowSpacing / 2))
-        }
-    }
-}
-
-struct SidebarWorkspaceBottomDropIndicator: View {
-    let isVisible: Bool
-    let rowSpacing: CGFloat
-
-    var body: some View {
-        if isVisible {
-            Rectangle()
-                .fill(cmuxAccentColor())
-                .frame(height: 2)
-                .padding(.horizontal, 8)
-                .offset(y: rowSpacing / 2)
-        }
-    }
-}
-
 /// Freezes `showsModifierShortcutHints` for the row whose context menu is open,
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
@@ -12508,262 +12472,6 @@ struct SidebarWorkspaceFrameAnchorModifier: ViewModifier {
     }
 }
 
-private struct SidebarWorkspaceDropTargetWriters: View {
-    let bonsplitTargetBridge: SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge
-    let bonsplitTargets: [SidebarDropPlanner.WorkspaceDropTarget]
-    let reorderTargetBridge: SidebarWorkspaceReorderDropOverlay.TargetBridge
-    let reorderTargets: [SidebarWorkspaceReorderDropOverlay.Target]
-
-    var body: some View {
-        Color.clear
-            .onAppear {
-                bonsplitTargetBridge.updateTargets(bonsplitTargets)
-                reorderTargetBridge.updateTargets(reorderTargets)
-            }
-            .onChange(of: bonsplitTargets) { _, targets in
-                bonsplitTargetBridge.updateTargets(targets)
-            }
-            .onChange(of: reorderTargets) { _, targets in
-                reorderTargetBridge.updateTargets(targets)
-            }
-            .onDisappear {
-                bonsplitTargetBridge.updateTargets([])
-                reorderTargetBridge.updateTargets([])
-            }
-    }
-}
-
-struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
-    struct Target: Equatable {
-        let workspaceId: UUID
-        let groupId: UUID?
-        let isGroupHeader: Bool
-        let frame: CGRect
-    }
-
-    @MainActor
-    final class TargetBridge {
-        private weak var view: DropView?
-        fileprivate var targets: [Target] = []
-
-        func attach(_ view: DropView) {
-            self.view = view
-            view.targets = targets
-        }
-
-        func updateTargets(_ targets: [Target]) {
-            self.targets = targets
-            view?.targets = targets
-            guard !targets.isEmpty else { return }
-            Task { @MainActor [weak view] in
-                view?.performPendingDropIfPossible()
-            }
-        }
-    }
-
-    let targetBridge: TargetBridge
-    let isValidDrag: () -> Bool
-    let updateDrag: (CGPoint, [Target]) -> Bool
-    let performDrop: (CGPoint, [Target]) -> Bool
-    let clearDropIndicator: () -> Void
-    let setWorkspaceDropTargetCollectionActive: (Bool) -> Void
-
-    func makeNSView(context: Context) -> DropView {
-        let view = DropView()
-        view.registerForDraggedTypes([Self.pasteboardType])
-        update(view)
-        targetBridge.attach(view)
-        return view
-    }
-
-    func updateNSView(_ nsView: DropView, context: Context) {
-        update(nsView)
-        targetBridge.attach(nsView)
-    }
-
-    private func update(_ view: DropView) {
-        view.isValidDrag = isValidDrag
-        view.updateDrag = updateDrag
-        view.performDropAtPoint = performDrop
-        view.clearDropIndicator = clearDropIndicator
-        view.setWorkspaceDropTargetCollectionActive = setWorkspaceDropTargetCollectionActive
-    }
-
-    private static let pasteboardType = NSPasteboard.PasteboardType(SidebarTabDragPayload.typeIdentifier)
-
-    static func shouldCaptureHitTest(
-        eventType: NSEvent.EventType?,
-        pasteboardTypes: [NSPasteboard.PasteboardType]?
-    ) -> Bool {
-        guard WindowInputRoutingContext.allowsWorkspaceDropOverlayHitTesting(eventType: eventType) else {
-            return false
-        }
-        return pasteboardTypes?.contains(pasteboardType) == true
-    }
-
-    @MainActor
-    final class DropView: NSView {
-        private struct PendingDrop {
-            let requestId: UInt64
-            let point: CGPoint
-        }
-
-        var targets: [Target] = []
-        var isValidDrag: (() -> Bool)?
-        var updateDrag: ((CGPoint, [Target]) -> Bool)?
-        var performDropAtPoint: ((CGPoint, [Target]) -> Bool)?
-        var clearDropIndicator: (() -> Void)?
-        var setWorkspaceDropTargetCollectionActive: ((Bool) -> Void)?
-        private var isRequestingTargets = false
-        private var targetRequestId: UInt64 = 0
-        private var pendingDrop: PendingDrop?
-
-        override var isFlipped: Bool { true }
-
-        override init(frame frameRect: NSRect) {
-            super.init(frame: frameRect)
-            wantsLayer = false
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            guard shouldCaptureHitTest() else { return nil }
-            return super.hitTest(point)
-        }
-
-        override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-            setTargetCollectionActive(true)
-            return update(sender)
-        }
-
-        override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-            setTargetCollectionActive(true)
-            return update(sender)
-        }
-
-        override func draggingExited(_ sender: NSDraggingInfo?) {
-            guard pendingDrop == nil else {
-                completeOrClearPendingDropAfterDragTeardown()
-                clearDropIndicator?()
-                return
-            }
-            setTargetCollectionActive(false)
-            clearDropIndicator?()
-        }
-
-        override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-            guard accepts(sender), let performDropAtPoint else { return false }
-            let point = convert(sender.draggingLocation, from: nil)
-            guard !targets.isEmpty else {
-                pendingDrop = PendingDrop(requestId: targetRequestId, point: point)
-                return true
-            }
-            let performed = performDropAtPoint(point, targets)
-            pendingDrop = nil
-            setTargetCollectionActive(false)
-            if !performed {
-                clearDropIndicator?()
-            }
-            return performed
-        }
-
-        override func concludeDragOperation(_ sender: NSDraggingInfo?) {
-            guard pendingDrop == nil else {
-                completeOrClearPendingDropAfterDragTeardown()
-                clearDropIndicator?()
-                return
-            }
-            setTargetCollectionActive(false)
-        }
-
-        func performPendingDropIfPossible() {
-            guard let pendingDrop,
-                  pendingDrop.requestId == targetRequestId,
-                  isRequestingTargets,
-                  !targets.isEmpty,
-                  let performDropAtPoint else {
-                return
-            }
-            self.pendingDrop = nil
-            let performed = performDropAtPoint(pendingDrop.point, targets)
-            setTargetCollectionActive(false)
-            if !performed {
-                clearDropIndicator?()
-            }
-        }
-
-        private func update(_ sender: NSDraggingInfo) -> NSDragOperation {
-            guard accepts(sender), let updateDrag else { return [] }
-            guard !targets.isEmpty else {
-                clearDropIndicator?()
-                return .move
-            }
-            let point = convert(sender.draggingLocation, from: nil)
-            return updateDrag(point, targets) ? .move : []
-        }
-
-        private func setTargetCollectionActive(_ isActive: Bool) {
-            if isActive, !isRequestingTargets {
-                targetRequestId &+= 1
-            }
-            if !isActive {
-                pendingDrop = nil
-            }
-            isRequestingTargets = isActive
-            setWorkspaceDropTargetCollectionActive?(isActive)
-        }
-
-        private func completeOrClearPendingDropAfterDragTeardown() {
-            completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: 3)
-        }
-
-        private func completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: Int) {
-            guard let pendingDrop else { return }
-            let requestId = pendingDrop.requestId
-            Task { @MainActor [weak self] in
-                await Task.yield()
-                guard let self,
-                      self.pendingDrop?.requestId == requestId else {
-                    return
-                }
-
-                if self.targets.isEmpty, remainingFrameWaits > 0 {
-                    self.completeOrClearPendingDropAfterDragTeardown(
-                        remainingFrameWaits: remainingFrameWaits - 1
-                    )
-                    return
-                }
-
-                self.performPendingDropIfPossible()
-                guard self.pendingDrop?.requestId == requestId else { return }
-                self.setTargetCollectionActive(false)
-                self.clearDropIndicator?()
-            }
-        }
-
-        private func accepts(_ sender: NSDraggingInfo) -> Bool {
-            guard sender.draggingPasteboard.types?.contains(SidebarWorkspaceReorderDropOverlay.pasteboardType) == true else {
-                return false
-            }
-            return isValidDrag?() == true
-        }
-
-        private func acceptsCurrentDragPasteboard() -> Bool {
-            SidebarWorkspaceReorderDropOverlay.shouldCaptureHitTest(
-                eventType: NSApp.currentEvent?.type,
-                pasteboardTypes: NSPasteboard(name: .drag).types
-            )
-        }
-
-        private func shouldCaptureHitTest() -> Bool {
-            return acceptsCurrentDragPasteboard()
-        }
-    }
-}
-
 extension View {
     func sidebarWorkspaceFrameAnchor(id: UUID, isEnabled: Bool) -> some View {
         modifier(SidebarWorkspaceFrameAnchorModifier(id: id, isEnabled: isEnabled))
@@ -12781,7 +12489,8 @@ struct SidebarWorkspaceRowFramePreferenceKey: PreferenceKey {
 @MainActor
 private final class SidebarDragFailsafeMonitor: ObservableObject {
     private static let escapeKeyCode: UInt16 = 53
-    private var pendingClearWorkItem: DispatchWorkItem?
+    // One-shot timer bridges synchronous AppKit event monitors to a cancellable drag-teardown deadline.
+    private var pendingClearTimer: DispatchSourceTimer?
     private var appResignObserver: NSObjectProtocol?
     private var keyDownMonitor: Any?
     private var localMouseMonitor: Any?
@@ -12836,8 +12545,8 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
     }
 
     func stop() {
-        pendingClearWorkItem?.cancel()
-        pendingClearWorkItem = nil
+        pendingClearTimer?.cancel()
+        pendingClearTimer = nil
         if let appResignObserver {
             NotificationCenter.default.removeObserver(appResignObserver)
             self.appResignObserver = nil
@@ -12858,19 +12567,23 @@ private final class SidebarDragFailsafeMonitor: ObservableObject {
     }
 
     private func requestClearSoon(reason: String) {
-        guard pendingClearWorkItem == nil else { return }
+        guard pendingClearTimer == nil else { return }
 #if DEBUG
         cmuxDebugLog("sidebar.dragFailsafe.schedule reason=\(reason)")
 #endif
-        let workItem = DispatchWorkItem { [weak self] in
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + SidebarDragFailsafePolicy.clearDelay)
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
 #if DEBUG
-            cmuxDebugLog("sidebar.dragFailsafe.fire reason=\(reason)")
+                cmuxDebugLog("sidebar.dragFailsafe.fire reason=\(reason)")
 #endif
-            self?.pendingClearWorkItem = nil
-            self?.onRequestClear?(reason)
+                self?.pendingClearTimer = nil
+                self?.onRequestClear?(reason)
+            }
         }
-        pendingClearWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + SidebarDragFailsafePolicy.clearDelay, execute: workItem)
+        pendingClearTimer = timer
+        timer.resume()
     }
 }
 
