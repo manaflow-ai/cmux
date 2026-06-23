@@ -1226,7 +1226,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
     }
 
-    func testTextBoxCustomDefaultFallsBackToTextEntryUntilConfiguredActionsParse() {
+    func testTextBoxCustomDefaultFallsBackToTextEntryWhenConfiguredActionIsMissing() {
         let customAction = TextBoxSubmitAction(
             id: "custom-router",
             title: "Custom Router",
@@ -1235,23 +1235,18 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             systemImage: "wand.and.stars",
             backgroundColorHex: "#123456"
         )
-        let raw = "[{\"id\":\"custom-router\"}]"
 
         XCTAssertEqual(
             TextBoxInputContainer.selectedSubmitAction(
                 defaultSubmitActionID: "custom-router",
-                submitActions: TextBoxSubmitAction.builtInActions,
-                submitActionsCacheRawJSON: nil,
-                configuredSubmitActionsJSON: raw
+                submitActions: TextBoxSubmitAction.builtInActions
             ).id,
             TextBoxSubmitAction.textEntryAction.id
         )
         XCTAssertEqual(
             TextBoxInputContainer.selectedSubmitAction(
                 defaultSubmitActionID: "custom-router",
-                submitActions: TextBoxSubmitAction.builtInActions + [customAction],
-                submitActionsCacheRawJSON: raw,
-                configuredSubmitActionsJSON: raw
+                submitActions: TextBoxSubmitAction.builtInActions + [customAction]
             ).id,
             "custom-router"
         )
