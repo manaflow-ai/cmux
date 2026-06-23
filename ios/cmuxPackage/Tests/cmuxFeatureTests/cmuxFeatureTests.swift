@@ -4097,6 +4097,7 @@ private struct InertPushRegistration: PushRegistering {
     )
 
     coordinator.bind(store: store)
+    coordinator.macConnectionDidBecomeAvailable()
 
     for _ in 0..<200 {
         if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.get" }),
@@ -4169,6 +4170,7 @@ private struct InertPushRegistration: PushRegistering {
     )
 
     coordinator.bind(store: store)
+    coordinator.macConnectionDidBecomeAvailable()
 
     for _ in 0..<200 {
         if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.get" }) {
@@ -4234,6 +4236,7 @@ private struct InertPushRegistration: PushRegistering {
     )
 
     coordinator.bind(store: store)
+    coordinator.macConnectionDidBecomeAvailable()
 
     for _ in 0..<200 {
         if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.get" }) {
@@ -4259,7 +4262,6 @@ private struct InertPushRegistration: PushRegistering {
     defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
     defaults.set(true, forKey: MobileNotificationPreferences.forwardingEnabledKey)
     defaults.set(MobileNotificationForwardingMode.always.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
-    defaults.set(false, forKey: MobileNotificationPreferences.hideContentKey)
 
     let coordinator = MobilePushCoordinator(
         registration: InertPushRegistration(),
@@ -4290,7 +4292,7 @@ private struct InertPushRegistration: PushRegistering {
         try rpcResultFrame(result: [
             "enabled": true,
             "mode": MobileNotificationForwardingMode.always.rawValue,
-            "hide_content": false,
+            "hide_content": true,
         ]),
     ])
     let runtime = testRuntime(
@@ -4298,6 +4300,8 @@ private struct InertPushRegistration: PushRegistering {
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    coordinator.bind(store: store)
     store.supportedHostCapabilities = ["notification.settings.v1"]
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,
@@ -4305,8 +4309,7 @@ private struct InertPushRegistration: PushRegistering {
         ticket: ticket,
         allowsStackAuthFallback: true
     )
-
-    coordinator.bind(store: store)
+    coordinator.macConnectionDidBecomeAvailable()
 
     for _ in 0..<200 {
         if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.set" }) {
@@ -4320,12 +4323,12 @@ private struct InertPushRegistration: PushRegistering {
     #expect(requests.contains { $0.method == "notification.settings.get" })
     #expect(setRequest.notificationEnabled == true)
     #expect(setRequest.notificationMode == MobileNotificationForwardingMode.always.rawValue)
-    #expect(setRequest.hideNotificationContent == false)
+    #expect(setRequest.hideNotificationContent == true)
     #expect(coordinator.notificationPreferences.isEnabled)
     #expect(coordinator.notificationPreferences.isForwardingEnabled)
     #expect(coordinator.notificationPreferences.receivesNotifications)
     #expect(coordinator.notificationPreferences.forwardingMode == .always)
-    #expect(!coordinator.notificationPreferences.hidesContent)
+    #expect(coordinator.notificationPreferences.hidesContent)
 }
 
 @Test @MainActor func localNotificationOptOutDoesNotDisableMacForwardingGate() async throws {
@@ -4373,6 +4376,7 @@ private struct InertPushRegistration: PushRegistering {
     )
 
     coordinator.bind(store: store)
+    coordinator.macConnectionDidBecomeAvailable()
 
     for _ in 0..<200 {
         if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.get" }) {

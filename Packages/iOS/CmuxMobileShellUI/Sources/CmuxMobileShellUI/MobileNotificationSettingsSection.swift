@@ -183,18 +183,11 @@ struct MobileNotificationSettingsSection: View {
                 await pushCoordinator.disable()
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
             } else {
-                var forwardingMode = notificationMode
-                var hidesContent = hideNotificationContent
                 if shouldRefreshBeforeEnable {
                     let preferences = await pushCoordinator.reconcileNotificationPreferencesWithMac()
                     loadNotificationPreferences(preferences)
-                    forwardingMode = preferences.forwardingMode
-                    hidesContent = preferences.hidesContent
                 }
-                let enabled = await pushCoordinator.enable(
-                    forwardingMode: forwardingMode,
-                    hidesContent: hidesContent
-                )
+                let enabled = await pushCoordinator.enable()
                 notificationsLocallyEnabled = enabled
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
             }
