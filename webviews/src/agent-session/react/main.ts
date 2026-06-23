@@ -11,6 +11,7 @@ import {
   CODEX_COMPOSER_FOOTER_MULTILINE,
   CODEX_COMPOSER_FOOTER_SINGLE_LINE,
   CODEX_COMPOSER_FRAME,
+  CODEX_COMPOSER_INPUT_AREA,
   CODEX_COMPOSER_INNER,
   CODEX_COMPOSER_STACK,
   CODEX_COMPOSER_SURFACE,
@@ -758,7 +759,7 @@ export function SessionSurface({
       ref: composerLayout.inputMeasureRef,
       className: isSingleLineComposer
         ? "min-w-0"
-        : "mb-1 flex-grow overflow-y-auto px-3",
+        : CODEX_COMPOSER_INPUT_AREA,
     },
     composerInput,
   );
