@@ -26610,18 +26610,26 @@ struct CMUXCLI {
     }
 
     private func codexForkCommandIndex(in arguments: [String]) -> Int? {
-        var index = 0
+        var index = codexLaunchArgumentsStartIndex(arguments)
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
                 return nil
             }
-            if argument == "fork" {
-                return index
+            if !argument.hasPrefix("-") || argument == "-" {
+                return argument == "fork" ? index : nil
             }
-            index += 1
+            index += codexForkOptionWidth(arguments, index: index)
         }
         return nil
+    }
+
+    private func codexLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
+        guard let first = arguments.first else {
+            return 0
+        }
+        let executableName = first.split(separator: "/").last.map(String.init) ?? first
+        return executableName == "codex" ? 1 : 0
     }
 
     private func codexRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {

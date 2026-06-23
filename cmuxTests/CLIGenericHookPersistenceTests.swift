@@ -3547,6 +3547,129 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testCodexResumeArgumentNamedForkRunsNormalLifecycle() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-resume-fork-arg")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-resume-fork-arg-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let originalSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let resumeSurfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+        let storePayload: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": originalSurfaceId,
+                    "cwd": root.path,
+                    "pid": NSNull(),
+                    "runtimeStatus": "idle",
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: storePayload, options: [.prettyPrinted, .sortedKeys])
+            .write(to: storeURL, options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else { return "OK" }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: resumeSurfaceId)
+            case "system.top":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [[
+                        "workspaces": [[
+                            "id": workspaceId,
+                            "panes": [[
+                                "surfaces": [[
+                                    "id": resumeSurfaceId,
+                                    "top_level_pids": [],
+                                ]],
+                            ]],
+                        ]],
+                    ]]]
+                )
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id, ok: false,
+                    error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = resumeSurfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            "/usr/local/bin/codex",
+            "resume",
+            sessionId,
+            "fork",
+        ])
+
+        let sessionStart = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-start"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 10
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        let resumeRequests = state.snapshot().compactMap { command -> [String: Any]? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else { return nil }
+            return payload["params"] as? [String: Any]
+        }
+        let params = try XCTUnwrap(resumeRequests.last, "expected resume command for non-fork Codex launch; saw \(state.snapshot())")
+        XCTAssertEqual(params["checkpoint_id"] as? String, sessionId, "\(params)")
+        XCTAssertEqual(params["surface_id"] as? String, resumeSurfaceId, "\(params)")
+
+        let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])
+        let session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(
+            session["surfaceId"] as? String,
+            resumeSurfaceId,
+            "`codex resume <session> fork` must not be treated as `codex fork`"
+        )
+    }
+
     /// G3 (https://github.com/manaflow-ai/cmux/issues/5333): the codex surface jumble. CMUX_SURFACE_ID
     /// can be leaked into the hook env as the operator's FOCUSED pane rather than the agent's own pane.
     /// When the agent process's controlling TTY is bound to a different, accessible surface in the same
