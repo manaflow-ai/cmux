@@ -47,7 +47,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private struct TrustedNetworkAuthConfirmation: Codable, Hashable {
+        var userID: String
+        var teamID: String?
+        var macDeviceID: String
+        var host: String
+        var port: Int
+    }
+
+    private struct TrustedNetworkAuthConfirmationCandidate {
+        var host: String
+        var port: Int
+    }
+
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
+    private static let trustedNetworkAuthConfirmationDefaultsKey = "cmux.mobile.trustedNetworkAuthConfirmations"
 
     /// Max seconds the launch reconnect may keep the restoring gate
     /// (``RestoringSessionView``) on screen before resolving to the
@@ -528,6 +542,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Durable outbox for phone→Mac dismissals.
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    private let trustedNetworkConfirmationDefaults: UserDefaults
     private let multiMacAggregationDefaults: UserDefaults
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
@@ -564,6 +579,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// false` and break the first-pair funnel.
     private var pairingAttemptIsFirstPair = false
     private var pendingPairingVersionWarningURL: String?
+    private var pendingTrustedNetworkAuthConfirmation: TrustedNetworkAuthConfirmationCandidate?
 
     /// The structured diagnostic log, injected from the app composition root.
     ///
@@ -760,6 +776,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
+        trustedNetworkConfirmationDefaults: UserDefaults = .standard,
         multiMacAggregationDefaults: UserDefaults = .standard,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         diagnosticLog: DiagnosticLog? = nil,
@@ -781,6 +798,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
+        self.trustedNetworkConfirmationDefaults = trustedNetworkConfirmationDefaults
         self.multiMacAggregationDefaults = multiMacAggregationDefaults
         self.analytics = analytics
         self.diagnosticLog = diagnosticLog
@@ -1378,12 +1396,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         port: Int,
         pairedMacDeviceID: String
     ) async {
+        let trustedNetworkAuthConfirmed = await hasTrustedNetworkAuthConfirmation(
+            macDeviceID: pairedMacDeviceID,
+            host: host,
+            port: port
+        )
         await connectManualHost(
             name: name,
             host: host,
             port: port,
             pairedMacDeviceID: pairedMacDeviceID,
-            trustedNetworkAuthConfirmed: true,
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
             recordsPairingAttempt: false
         )
     }
@@ -1447,15 +1470,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
             )
             guard isCurrentPairingAttempt(attemptID) else { return }
-            let allowsStackAuthFallback = directRoute.map {
-                MobileShellRouteAuthPolicy.routeAllowsStackAuth(
-                    $0,
-                    trustedNetworkConfirmed: trustedNetworkAuthConfirmed
-                )
-            } ?? false
             let noThrowFailure = try await connect(
                 ticket: ticket,
-                allowsStackAuthFallback: allowsStackAuthFallback,
                 trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
                 pairedMacDeviceID: pairedMacDeviceID
             )
@@ -1781,6 +1797,88 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             teamID: await teamIDProvider(),
             generation: secondaryAggregationScopeGeneration
         )
+    }
+
+    private func trustedNetworkAuthConfirmation(
+        macDeviceID: String,
+        host: String,
+        port: Int,
+        scope: MobileShellScopeSnapshot?
+    ) -> TrustedNetworkAuthConfirmation? {
+        guard let scope,
+              !macDeviceID.isEmpty,
+              let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
+            return nil
+        }
+        return TrustedNetworkAuthConfirmation(
+            userID: scope.userID,
+            teamID: scope.teamID,
+            macDeviceID: macDeviceID,
+            host: normalizedHost.lowercased(),
+            port: port
+        )
+    }
+
+    private func loadTrustedNetworkAuthConfirmations() -> Set<TrustedNetworkAuthConfirmation> {
+        guard let data = trustedNetworkConfirmationDefaults.data(
+            forKey: Self.trustedNetworkAuthConfirmationDefaultsKey
+        ) else {
+            return []
+        }
+        return (try? JSONDecoder().decode(Set<TrustedNetworkAuthConfirmation>.self, from: data)) ?? []
+    }
+
+    private func saveTrustedNetworkAuthConfirmations(_ confirmations: Set<TrustedNetworkAuthConfirmation>) {
+        guard let data = try? JSONEncoder().encode(confirmations) else { return }
+        trustedNetworkConfirmationDefaults.set(data, forKey: Self.trustedNetworkAuthConfirmationDefaultsKey)
+    }
+
+    private func hasTrustedNetworkAuthConfirmation(
+        macDeviceID: String,
+        host: String,
+        port: Int
+    ) async -> Bool {
+        hasTrustedNetworkAuthConfirmation(
+            macDeviceID: macDeviceID,
+            host: host,
+            port: port,
+            scope: await currentScopeSnapshot()
+        )
+    }
+
+    private func hasTrustedNetworkAuthConfirmation(
+        macDeviceID: String,
+        host: String,
+        port: Int,
+        scope: MobileShellScopeSnapshot?
+    ) -> Bool {
+        guard let confirmation = trustedNetworkAuthConfirmation(
+            macDeviceID: macDeviceID,
+            host: host,
+            port: port,
+            scope: scope
+        ) else {
+            return false
+        }
+        return loadTrustedNetworkAuthConfirmations().contains(confirmation)
+    }
+
+    private func recordTrustedNetworkAuthConfirmation(
+        macDeviceID: String,
+        host: String,
+        port: Int
+    ) async {
+        guard let confirmation = trustedNetworkAuthConfirmation(
+            macDeviceID: macDeviceID,
+            host: host,
+            port: port,
+            scope: await currentScopeSnapshot()
+        ) else {
+            return
+        }
+        var confirmations = loadTrustedNetworkAuthConfirmations()
+        confirmations.insert(confirmation)
+        saveTrustedNetworkAuthConfirmations(confirmations)
     }
 
     /// Whether a previously-captured list-load scope is still current.
@@ -2136,10 +2234,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // switch failure.
         let previousActive = pairedMacs.first { $0.isActive }
         let scope = await currentScopeSnapshot()
+        let trustedNetworkAuthConfirmed = hasTrustedNetworkAuthConfirmation(
+            macDeviceID: device.deviceId,
+            host: host,
+            port: port,
+            scope: scope
+        )
         await connectManualHost(
             name: device.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: device.deviceId,
-            trustedNetworkAuthConfirmed: true)
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed)
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
@@ -2337,10 +2441,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             mobileShellLog.error("switchToMac: no reconnectable route mac=\(macDeviceID, privacy: .public)")
             return false
         }
+        let trustedNetworkAuthConfirmed = hasTrustedNetworkAuthConfirmation(
+            macDeviceID: macDeviceID,
+            host: host,
+            port: port,
+            scope: scope
+        )
         await connectManualHost(
             name: refreshedTarget.displayName ?? host, host: host, port: port,
             pairedMacDeviceID: macDeviceID,
-            trustedNetworkAuthConfirmed: true)
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed)
         // The switch succeeded only if the live connection is to THIS Mac's route.
         // A different switch tapped while this connect was in flight supersedes it
         // via `beginPairingAttempt`, leaving `connectionState` `.connected` for the
@@ -2647,6 +2757,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                authToken: ticket.authToken
            ) {
             activeTicket = adopted
+            if let pendingTrustedNetworkAuthConfirmation {
+                await recordTrustedNetworkAuthConfirmation(
+                    macDeviceID: reportedID,
+                    host: pendingTrustedNetworkAuthConfirmation.host,
+                    port: pendingTrustedNetworkAuthConfirmation.port
+                )
+                self.pendingTrustedNetworkAuthConfirmation = nil
+            }
             // Move the foreground aggregate key from the anonymous key to the real
             // id so the Computers screen recognizes this Mac as connected and
             // secondary aggregation excludes it (no duplicate connection to self).
@@ -2966,6 +3084,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         ) else {
             return nil
         }
+        let trustedNetworkAuthConfirmed = await hasTrustedNetworkAuthConfirmation(
+            macDeviceID: mac.macDeviceID,
+            host: host,
+            port: port
+        )
         let ticket: CmxAttachTicket
         do {
             ticket = try await manualHostTicket(
@@ -2973,7 +3096,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 host: host,
                 port: port,
                 attemptStartedAt: nil,
-                trustedNetworkAuthConfirmed: true
+                trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed
             )
         } catch {
             mobileShellLog.warning(
@@ -3000,8 +3123,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             runtime: runtime,
             route: route,
             ticket: ticket,
-            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trustedNetworkConfirmed: true),
-            trustedNetworkAuthConfirmed: true,
+            allowsStackAuthFallback: MobileShellRouteAuthPolicy.routeAllowsStackAuth(route, trustedNetworkConfirmed: trustedNetworkAuthConfirmed),
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -4438,6 +4561,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog?.record(DiagnosticEvent(.connect))
         cancelRemoteOperationTasks()
         rawTerminalInputBuffer.clear()
+        pendingTrustedNetworkAuthConfirmation = nil
         let supportedKinds = runtime?.supportedRouteKinds ?? []
         let supportedRoutes = Self.supportedRoutes(for: ticket, supportedKinds: supportedKinds)
         guard let firstRoute = supportedRoutes.first else {
@@ -4483,7 +4607,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 route: route,
                 ticket: ticket,
                 allowsStackAuthFallback: routeAllowsStackAuthFallbackOverride
-                    ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+                    ?? MobileShellRouteAuthPolicy.routeAllowsStackAuth(
+                        route,
+                        trustedNetworkConfirmed: trustedNetworkAuthConfirmed
+                    ),
                 trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
                 connectAttemptRegistry: connectAttemptRegistry,
                 stackTokenGate: stackTokenGate,
@@ -4511,18 +4638,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     guard isCurrentConnectionAttempt(generation) else { return nil }
                     replaceRemoteClient(with: client)
                     startTerminalRefreshPolling()
-                    // The connect seam guarantees identity recovery for an
-                    // anonymous (v2 QR) ticket on every supported runtime, not
-                    // just push-event ones: when the event-listener task starts,
-                    // its status probe performs the recovery (one shared status
-                    // request); when the runtime has no server-push events that
-                    // task never runs, so recovery is scheduled directly here.
-                    // Without this, pairing succeeded but the Mac was never
-                    // persisted (no reconnect-on-launch, no host switcher entry).
-                    // The schedule is a no-op for tickets that carry a device id.
-                    if !(runtime.supportsServerPushEvents) {
-                        scheduleHostIdentityAdoptionIfNeeded(client: client)
-                    }
                     clearPairingError()
                     await persistPairedMacFromTicket(ticket)
                     // Set the foreground Mac id BEFORE applying the list so the
@@ -4537,6 +4652,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID
+                    }
+                    if trustedNetworkAuthConfirmed,
+                       route.kind == .trustedNetwork,
+                       case let .hostPort(routeHost, routePort) = route.endpoint {
+                        if resolvedForegroundMacID.isEmpty {
+                            pendingTrustedNetworkAuthConfirmation = TrustedNetworkAuthConfirmationCandidate(
+                                host: routeHost,
+                                port: routePort
+                            )
+                        } else {
+                            await recordTrustedNetworkAuthConfirmation(
+                                macDeviceID: resolvedForegroundMacID,
+                                host: routeHost,
+                                port: routePort
+                            )
+                        }
+                    }
+                    // The connect seam guarantees identity recovery for an
+                    // anonymous (v2 QR) ticket on every supported runtime, not
+                    // just push-event ones: when the event-listener task starts,
+                    // its status probe performs the recovery (one shared status
+                    // request); when the runtime has no server-push events that
+                    // task never runs, so recovery is scheduled directly here.
+                    // Without this, pairing succeeded but the Mac was never
+                    // persisted (no reconnect-on-launch, no host switcher entry).
+                    // The schedule is a no-op for tickets that carry a device id.
+                    if !(runtime.supportsServerPushEvents) {
+                        scheduleHostIdentityAdoptionIfNeeded(client: client)
                     }
                     applyRemoteWorkspaceList(
                         response,
