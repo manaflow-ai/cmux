@@ -107,6 +107,21 @@ final class AgentChatTranscriptService {
         await registry.refreshBindingsFromHookStore(sessionID: sessionID)
     }
 
+    /// Re-stamps a session's stored workspace id to the workspace its surface
+    /// currently lives in. cmux workspace ids regenerate on every Mac relaunch
+    /// while surface ids are stable, so a session created before the last
+    /// relaunch carries a stale `workspaceID`. The caller resolves the session's
+    /// live surface to its current workspace and calls this so the seed and the
+    /// live `descriptorChanged` pushes both scope to that workspace (the iOS
+    /// reducer is workspace-scoped and rejects stale-workspace live updates).
+    ///
+    /// - Parameters:
+    ///   - sessionID: The session to re-stamp.
+    ///   - workspaceID: The surface's current workspace UUID string.
+    func updateSessionWorkspace(sessionID: String, workspaceID: String) {
+        registry.update(sessionID: sessionID) { $0.workspaceID = workspaceID }
+    }
+
     /// Serves one history page, starting the session's tailer on demand.
     ///
     /// - Parameters:

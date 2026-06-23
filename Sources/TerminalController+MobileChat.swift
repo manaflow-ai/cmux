@@ -62,15 +62,63 @@ extension TerminalController {
 
     /// `mobile.chat.sessions`: list chat-capable coding-agent sessions,
     /// optionally scoped to one workspace.
+    ///
+    /// When a `workspace_id` W is given, sessions are scoped by the SURFACE'S
+    /// CURRENT workspace, never the record's stored `workspaceID`. cmux
+    /// workspace ids regenerate on every Mac relaunch while surface ids are
+    /// stable, so a session created before the last relaunch carries a stale
+    /// stored `workspaceID` and would otherwise be dropped from its terminal's
+    /// current workspace. We resolve W once, collect W's live terminal surface
+    /// ids once, then return every session whose surface is one of them and that
+    /// still matches its agent against THAT workspace+panel. Each returned
+    /// session is re-stamped to W so its seed and live `descriptorChanged`
+    /// pushes both scope to the current workspace.
     func v2MobileChatSessions(params: [String: Any]) -> V2CallResult {
         let workspaceID = v2String(params, "workspace_id")
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        let descriptors = service.sessionRecords(workspaceID: workspaceID)
-            .filter { mobileChatBindingIsCurrentAgent($0) }
-            .map(\.descriptor)
-        let encoded = descriptors.compactMap { service.wirePayload($0) }
+        guard let workspaceID else {
+            // No filter: return all current-agent sessions across workspaces,
+            // resolving each via its stored binding as before.
+            let descriptors = service.sessionRecords(workspaceID: nil)
+                .filter { mobileChatBindingIsCurrentAgent($0) }
+                .map(\.descriptor)
+            let encoded = descriptors.compactMap { service.wirePayload($0) }
+            return .ok(["sessions": encoded])
+        }
+        // Resolve W to its live Workspace once; build the set of its live
+        // terminal surface ids once, then filter sessions against that set.
+        guard let resolved = mobileResolveWorkspaceAndSurface(
+            params: ["workspace_id": workspaceID],
+            requireTerminal: false
+        ) else {
+            return .ok(["sessions": []])
+        }
+        let workspace = resolved.workspace
+        var encoded: [[String: Any]] = []
+        for record in service.sessionRecords(workspaceID: nil) {
+            guard let surfaceID = record.surfaceID,
+                  let surfaceUUID = UUID(uuidString: surfaceID),
+                  let terminalPanel = workspace.terminalPanel(for: surfaceUUID),
+                  mobileChatRecordMatchesAgent(
+                      record: record,
+                      workspace: workspace,
+                      terminalPanel: terminalPanel
+                  ) else {
+                continue
+            }
+            // Re-stamp stale-workspace records to W so the seed and live pushes
+            // both scope to the current workspace, then encode the re-stamped
+            // descriptor.
+            if record.workspaceID != workspaceID {
+                service.updateSessionWorkspace(sessionID: record.sessionID, workspaceID: workspaceID)
+            }
+            let descriptor = service.sessionRecord(sessionID: record.sessionID)?.descriptor ?? record.descriptor
+            if let payload = service.wirePayload(descriptor) {
+                encoded.append(payload)
+            }
+        }
         return .ok(["sessions": encoded])
     }
 
@@ -324,6 +372,13 @@ extension TerminalController {
     /// represents. This prevents a stale registry surface id from exposing a
     /// chat toggle or routing prompts into a plain shell after a terminal was
     /// restored/reused.
+    ///
+    /// Resolves the terminal via the record's STORED `workspaceID`, which is
+    /// the very value that goes stale after a Mac relaunch — so use this only
+    /// for the no-filter path. The workspace-filtered path
+    /// (``v2MobileChatSessions``) resolves the surface to its CURRENT workspace
+    /// and calls ``mobileChatRecordMatchesAgent(record:workspace:terminalPanel:)``
+    /// directly.
     private func mobileChatBindingIsCurrentAgent(_ record: AgentChatSessionRecord) -> Bool {
         guard let workspaceID = record.workspaceID,
               let surfaceID = record.surfaceID,
@@ -335,9 +390,25 @@ extension TerminalController {
               let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
             return false
         }
-        let title = resolved.workspace.panelTitle(panelId: terminalPanel.id) ?? terminalPanel.displayTitle
+        return mobileChatRecordMatchesAgent(
+            record: record,
+            workspace: resolved.workspace,
+            terminalPanel: terminalPanel
+        )
+    }
+
+    /// Agent-match core: whether an already-resolved `(workspace, terminalPanel)`
+    /// still looks like the agent the record represents. Resolution-free so the
+    /// workspace-filtered listing path can call it with the surface's CURRENT
+    /// workspace rather than the record's stale stored one.
+    private func mobileChatRecordMatchesAgent(
+        record: AgentChatSessionRecord,
+        workspace: Workspace,
+        terminalPanel: TerminalPanel
+    ) -> Bool {
+        let title = workspace.panelTitle(panelId: terminalPanel.id) ?? terminalPanel.displayTitle
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: resolved.workspace)
+        let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: workspace)
         switch record.agentKind {
         case .claude:
             return TextBoxAgentDetection.isClaudeCode(context: context)
