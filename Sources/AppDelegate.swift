@@ -1547,7 +1547,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
     }
 
-    private static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
+    private nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
         switch event.hookEventName {
         case .preCompact, .postCompact:
             return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
