@@ -31,6 +31,17 @@ import Testing
         #expect(MobileNotificationPreferences(defaults: defaults).forwardingMode == .always)
     }
 
+    @Test func missingForwardingMirrorDefaultsFromLegacyLocalOptIn() throws {
+        let defaults = try makeDefaults()
+        defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
+
+        let preferences = MobileNotificationPreferences(defaults: defaults)
+
+        #expect(preferences.isEnabled)
+        #expect(preferences.isForwardingEnabled)
+        #expect(preferences.receivesNotifications)
+    }
+
     @Test func persistsAndReadsNotificationPreferences() throws {
         let defaults = try makeDefaults()
         let preferences = MobileNotificationPreferences(

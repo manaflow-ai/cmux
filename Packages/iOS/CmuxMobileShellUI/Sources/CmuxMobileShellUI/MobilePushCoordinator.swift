@@ -246,8 +246,12 @@ public final class MobilePushCoordinator {
         }
         guard let localOptIn = storedNotificationOptIn else {
             // A Mac forwarding opt-in is not the same as this device opting into
-            // APNs. Keep the phone locally off until the user enables it here.
-            return notificationPreferences
+            // APNs. Preserve the shared Mac forwarding/privacy settings so a
+            // later first enable does not overwrite them with local defaults.
+            var localPreferences = macPreferences
+            localPreferences.isEnabled = false
+            localPreferences.persist(to: defaults)
+            return localPreferences
         }
         var localPreferences = notificationPreferences
         localPreferences.isEnabled = localOptIn

@@ -42,10 +42,12 @@ public struct MobileNotificationPreferences: Equatable, Sendable {
     /// Reads preferences from a `UserDefaults` store.
     /// - Parameter defaults: The defaults suite backing the iOS settings UI.
     public init(defaults: UserDefaults) {
+        let isEnabled = defaults.object(forKey: Self.enabledKey) as? Bool ?? false
+        let isForwardingEnabled = defaults.object(forKey: Self.forwardingEnabledKey) as? Bool
         let rawMode = defaults.string(forKey: Self.forwardingModeKey)
         self.init(
-            isEnabled: defaults.bool(forKey: Self.enabledKey),
-            isForwardingEnabled: defaults.object(forKey: Self.forwardingEnabledKey) as? Bool ?? false,
+            isEnabled: isEnabled,
+            isForwardingEnabled: isForwardingEnabled ?? isEnabled,
             forwardingMode: rawMode.flatMap(MobileNotificationForwardingMode.init(rawValue:))
                 ?? MobileNotificationForwardingMode.defaultMode,
             hidesContent: defaults.bool(forKey: Self.hideContentKey)

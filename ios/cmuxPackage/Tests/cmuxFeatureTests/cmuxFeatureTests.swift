@@ -4099,24 +4099,29 @@ private struct InertPushRegistration: PushRegistering {
     coordinator.bind(store: store)
 
     for _ in 0..<200 {
-        if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.get" }) {
+        if try await responses.sentRequests().contains(where: { $0.method == "notification.settings.get" }),
+           defaults.string(forKey: MobileNotificationPreferences.forwardingModeKey)
+           == MobileNotificationForwardingMode.onlyWhenAway.rawValue {
             break
         }
         try await Task.sleep(nanoseconds: 1_000_000)
     }
-    let request = try #require(try await responses.sentRequests().first { $0.method == "notification.settings.get" })
+    let requests = try await responses.sentRequests()
+    let request = try #require(requests.first { $0.method == "notification.settings.get" })
     await Task.yield()
 
     #expect(request.attachToken == "ticket-secret")
     #expect(request.stackAccessToken == "test-stack-token")
-    #expect(defaults.object(forKey: MobileNotificationPreferences.enabledKey) == nil)
-    #expect(defaults.object(forKey: MobileNotificationPreferences.forwardingModeKey) == nil)
-    #expect(defaults.object(forKey: MobileNotificationPreferences.hideContentKey) == nil)
+    #expect(!requests.contains { $0.method == "notification.settings.set" })
+    #expect(defaults.object(forKey: MobileNotificationPreferences.enabledKey) as? Bool == false)
+    #expect(defaults.object(forKey: MobileNotificationPreferences.forwardingEnabledKey) as? Bool == true)
+    #expect(defaults.string(forKey: MobileNotificationPreferences.forwardingModeKey) == MobileNotificationForwardingMode.onlyWhenAway.rawValue)
+    #expect(defaults.object(forKey: MobileNotificationPreferences.hideContentKey) as? Bool == true)
     #expect(!coordinator.notificationPreferences.isEnabled)
-    #expect(!coordinator.notificationPreferences.isForwardingEnabled)
+    #expect(coordinator.notificationPreferences.isForwardingEnabled)
     #expect(!coordinator.notificationPreferences.receivesNotifications)
-    #expect(coordinator.notificationPreferences.forwardingMode == .always)
-    #expect(!coordinator.notificationPreferences.hidesContent)
+    #expect(coordinator.notificationPreferences.forwardingMode == .onlyWhenAway)
+    #expect(coordinator.notificationPreferences.hidesContent)
 }
 
 @Test @MainActor func legacyNotificationOptInAdoptsMacModeAndPrivacyWithoutPassiveSync() async throws {
