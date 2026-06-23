@@ -1,4 +1,5 @@
 import Foundation
+import CmuxFoundation
 import Darwin
 
 extension CMUXCLI {
@@ -144,7 +145,7 @@ extension CMUXCLI {
         let originalForegroundProcessGroup = isatty(STDIN_FILENO) == 1 ? tcgetpgrp(STDIN_FILENO) : -1
         var didForegroundChild = false
         do {
-            try process.run()
+            try cliRunProcess(process)
         } catch {
             throw CLIError(message: "Failed to launch interactive theme picker: \(String(describing: error))")
         }

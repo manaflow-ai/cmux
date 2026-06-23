@@ -3276,7 +3276,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(params["auto_resume"] as? Bool, true)
             XCTAssertEqual(
                 params["command"] as? String,
-                "cd '\(workspace.path)' && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
+                "{ cd -- '\(workspace.path)' 2>/dev/null || [ ! -d '\(workspace.path)' ]; } && '\(scenario.executable)' 'chat' '--resume-id' '\(scenario.sessionId)' '--agent' 'cmux' '--trust-tools' 'fs_read,fs_write'"
             )
             XCTAssertEqual(params["environment"] as? [String: String], scenario.expectedEnvironment)
             XCTAssertFalse(
@@ -3487,37 +3487,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "gpt-5.4",
         ])
 
-        func startServer() -> XCTestExpectation {
-            startMockServer(listenerFD: listenerFD, state: state) { line in
-                guard let payload = self.jsonObject(line) else { return "OK" }
-                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
-                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
-                }
-                switch method {
-                case "surface.list":
-                    return self.v2Response(
-                        id: id,
-                        ok: true,
-                        result: [
-                            "surfaces": [
-                                ["id": parentSurfaceId, "ref": "surface:1", "focused": false],
-                                ["id": forkSurfaceId, "ref": "surface:2", "focused": true],
-                            ],
-                        ]
-                    )
-                case "surface.resume.set", "surface.resume.clear", "feed.push":
-                    return self.v2Response(id: id, ok: true, result: ["ok": true])
-                default:
-                    return self.v2Response(
-                        id: id,
-                        ok: false,
-                        error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
-                    )
-                }
-            }
-        }
-
-        let sessionStartServerHandled = startServer()
         let sessionStart = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "session-start"],
@@ -3525,9 +3494,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
-        wait(for: [sessionStartServerHandled], timeout: 5)
 
-        let sessionEndServerHandled = startServer()
         let sessionEnd = runProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "session-end"],
@@ -3535,7 +3502,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
             standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#,
             timeout: 5
         )
-        wait(for: [sessionEndServerHandled], timeout: 5)
 
         XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
         XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)

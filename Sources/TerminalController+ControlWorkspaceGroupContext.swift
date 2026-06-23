@@ -1,5 +1,7 @@
 import CmuxControlSocket
+import CmuxWorkspaces
 import Foundation
+import CmuxSettings
 
 /// The workspace-group-domain witnesses for the stage-3c
 /// ``ControlCommandCoordinator``: the byte-faithful bodies of the former
@@ -19,6 +21,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
             workspaceIsOtherGroupAnchor: String(
                 localized: "workspaceGroup.error.workspaceIsOtherGroupAnchor",
                 defaultValue: "Workspace is the anchor of another group; ungroup it first"
+            ),
+            invalidReferenceWorkspace: String(
+                localized: "workspaceGroup.error.invalidReferenceWorkspace",
+                defaultValue: "Reference workspace must be a member of the target group"
             )
         )
     }
@@ -189,7 +195,9 @@ extension TerminalController: ControlWorkspaceGroupContext {
     func controlAddWorkspaceToGroup(
         routing: ControlRoutingSelectors,
         groupID: UUID,
-        workspaceID: UUID
+        workspaceID: UUID,
+        placement: WorkspaceGroupNewPlacement?,
+        referenceWorkspaceID: UUID?
     ) -> ControlWorkspaceGroupAddResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -198,9 +206,18 @@ extension TerminalController: ControlWorkspaceGroupContext {
         guard let tab = tabManager.tabs.first(where: { $0.id == workspaceID }), hasGroup else {
             return .notFound
         }
+        if let referenceWorkspaceID,
+           !tabManager.tabs.contains(where: { $0.id == referenceWorkspaceID && $0.groupId == groupID }) {
+            return .invalidReferenceWorkspace
+        }
         // addWorkspaceToGroup silently no-ops for anchors of other groups.
         // Confirm membership actually changed before reporting success.
-        tabManager.addWorkspaceToGroup(workspaceId: workspaceID, groupId: groupID)
+        tabManager.addWorkspaceToGroup(
+            workspaceId: workspaceID,
+            groupId: groupID,
+            placement: placement,
+            referenceWorkspaceId: referenceWorkspaceID
+        )
         if tab.groupId == groupID {
             return .added
         }
@@ -261,7 +278,7 @@ extension TerminalController: ControlWorkspaceGroupContext {
         let configured = configStore?.resolveWorkspaceGroupConfig(forCwd: anchorCwd)?.newWorkspacePlacement
         let placement = explicitPlacement
             ?? configured
-            ?? WorkspaceGroupNewWorkspacePlacementSettings.resolved()
+            ?? UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().workspaceGroups.newWorkspacePlacement)
         guard let newWs = tabManager.createWorkspaceInGroup(
             groupId: groupID,
             placement: placement,
