@@ -7718,6 +7718,11 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try validateWorkspaceTasksRequiredOptionValues(
+            commandArgs,
+            commandName: "workspace tasks list",
+            valueFlags: ["--workspace", "--window"]
+        )
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
         try rejectUnknownWorkspaceTasksFlags(rem1, commandName: "workspace tasks list", knownFlags: ["--workspace", "--window"])
@@ -7747,6 +7752,11 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try validateWorkspaceTasksRequiredOptionValues(
+            commandArgs,
+            commandName: "workspace tasks add",
+            valueFlags: ["--title", "--before", "--after", "--index", "--workspace", "--window"]
+        )
         let (titleOpt, rem0) = parseOption(commandArgs, name: "--title")
         let (beforeOpt, rem1) = parseOption(rem0, name: "--before")
         let (afterOpt, rem2) = parseOption(rem1, name: "--after")
@@ -7808,6 +7818,11 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try validateWorkspaceTasksRequiredOptionValues(
+            commandArgs,
+            commandName: commandName,
+            valueFlags: ["--task", "--task-id", "--id", "--workspace", "--window"]
+        )
         let (taskOpt, rem0) = parseOption(commandArgs, name: "--task")
         let (taskIdOpt, rem1) = parseOption(rem0, name: "--task-id")
         let (idOpt, rem2) = parseOption(rem1, name: "--id")
@@ -7864,6 +7879,11 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try validateWorkspaceTasksRequiredOptionValues(
+            commandArgs,
+            commandName: "workspace tasks move",
+            valueFlags: ["--task", "--task-id", "--id", "--before", "--after", "--index", "--workspace", "--window"]
+        )
         let (taskOpt, rem0) = parseOption(commandArgs, name: "--task")
         let (taskIdOpt, rem1) = parseOption(rem0, name: "--task-id")
         let (idOpt, rem2) = parseOption(rem1, name: "--id")
@@ -7917,6 +7937,11 @@ struct CMUXCLI {
         idFormat: CLIIDFormat,
         windowOverride: String?
     ) throws {
+        try validateWorkspaceTasksRequiredOptionValues(
+            commandArgs,
+            commandName: "workspace tasks open",
+            valueFlags: ["--workspace", "--window", "--focus"]
+        )
         let (workspaceArg, rem0) = parseOption(commandArgs, name: "--workspace")
         let (_, rem1) = parseOption(rem0, name: "--window")
         let (focusOpt, rem2) = parseOption(rem1, name: "--focus")
@@ -7966,6 +7991,56 @@ struct CMUXCLI {
             params["workspace_id"] = workspaceId
         }
         return params
+    }
+
+    private func validateWorkspaceTasksRequiredOptionValues(
+        _ args: [String],
+        commandName: String,
+        valueFlags: Set<String>
+    ) throws {
+        var index = 0
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                return
+            }
+            guard arg.hasPrefix("--") else {
+                index += 1
+                continue
+            }
+
+            let flag = String(arg.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false).first ?? "")
+            guard valueFlags.contains(flag) else {
+                index += 1
+                continue
+            }
+
+            if arg.hasPrefix("\(flag)=") {
+                let value = String(arg.dropFirst(flag.count + 1))
+                if !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    index += 1
+                    continue
+                }
+            } else if index + 1 < args.count {
+                let value = args[index + 1]
+                if value != "--",
+                   !value.hasPrefix("--"),
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    index += 2
+                    continue
+                }
+            }
+
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspaceTasks.error.flagRequiresValue",
+                    defaultValue: "%@: %@ requires a value"
+                ),
+                locale: .current,
+                commandName,
+                flag
+            ))
+        }
     }
 
     private func applyWorkspaceTaskPlacement(

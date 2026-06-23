@@ -731,6 +731,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }?.rpcWorkspaceID
     }
 
+    func terminalSurfaceMatchesRemoteWorkspace(surfaceID: String, remoteWorkspaceID: String) -> Bool {
+        self.remoteWorkspaceID(containingTerminalID: surfaceID)?.rawValue == remoteWorkspaceID
+    }
+
     private var selectedTerminal: MobileTerminalPreview? {
         guard let selectedWorkspace else {
             return nil
@@ -6405,7 +6409,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             terminalLiveFontContinuationsBySurfaceID[surfaceID]?.yield(points)
         } else if let targetWorkspaceID = payload.workspaceID {
             for (surfaceID, continuation) in terminalLiveFontContinuationsBySurfaceID
-            where workspaceID(forTerminalID: surfaceID)?.rawValue == targetWorkspaceID {
+            where terminalSurfaceMatchesRemoteWorkspace(surfaceID: surfaceID, remoteWorkspaceID: targetWorkspaceID) {
                 continuation.yield(points)
             }
         } else {

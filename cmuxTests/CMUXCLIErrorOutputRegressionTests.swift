@@ -1286,6 +1286,45 @@ import Testing
         XCTAssertTrue(result.stdout.contains("workspace tasks move requires --before, --after, or --index"), result.stdout)
     }
 
+    @Test func testWorkspaceTasksMissingWorkspaceFlagValueFailsBeforeSocketFallback() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = "workspace:ambient"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "0.1"
+
+        let missingResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace", "tasks", "add", "--title", "Fix CI", "--workspace"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(missingResult.timedOut, missingResult.stdout)
+        XCTAssertEqual(missingResult.status, 1, missingResult.stdout)
+        XCTAssertTrue(
+            missingResult.stdout.contains("workspace tasks add: --workspace requires a value"),
+            missingResult.stdout
+        )
+
+        let emptyResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["workspace", "tasks", "add", "--title", "Fix CI", "--workspace", ""],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(emptyResult.timedOut, emptyResult.stdout)
+        XCTAssertEqual(emptyResult.status, 1, emptyResult.stdout)
+        XCTAssertTrue(
+            emptyResult.stdout.contains("workspace tasks add: --workspace requires a value"),
+            emptyResult.stdout
+        )
+    }
+
     func bundledCLIPath() throws -> String {
         try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
     }
