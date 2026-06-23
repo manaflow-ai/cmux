@@ -8,6 +8,7 @@ import Carbon.HIToolbox
 @testable import cmux
 #endif
 
+@MainActor
 final class TextBoxSubmitActionTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
