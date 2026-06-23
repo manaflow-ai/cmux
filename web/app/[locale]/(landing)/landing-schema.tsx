@@ -48,17 +48,20 @@ export function LandingSchema({
 /** Renders the localized FAQ section body for an agent landing page. */
 export function LandingFaq({ namespace }: { namespace: string }) {
   const t = useTranslations(namespace);
+  const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
-    <>
-      <h2>{t("faqTitle")}</h2>
-      {[1, 2, 3, 4].map((n) => (
-        <div key={n}>
-          <p>
-            <strong>{t(`faqQ${n}`)}</strong>
-          </p>
-          <p>{t(`faqA${n}`)}</p>
-        </div>
-      ))}
-    </>
+    <section className="not-prose mt-12">
+      <h2 className="text-xs font-medium text-muted tracking-tight mb-4">
+        {t("faqTitle")}
+      </h2>
+      <div className="space-y-5 text-[15px]" style={{ lineHeight: 1.5 }}>
+        {[1, 2, 3, 4].map((n) => (
+          <div key={n}>
+            <p className="font-medium mb-1">{t.rich(`faqQ${n}`, { code })}</p>
+            <p className="text-muted">{t.rich(`faqA${n}`, { code })}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
