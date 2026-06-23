@@ -206,20 +206,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
-    /// True after a connected Mac has returned at least one workspace snapshot.
-    ///
-    /// Ordinary network drops intentionally keep the last ``workspaces`` value so
-    /// the UI can keep rendering the local Ghostty mirror while the transport
-    /// reconnects. This flag distinguishes that real cached snapshot from the
-    /// preview/empty shell state used before a Mac has ever connected.
     public private(set) var hasCachedRemoteWorkspaceSnapshot: Bool
-    public var shouldPreserveWorkspaceShellDuringReconnect: Bool {
-        connectionState != .connected
-            && hasCachedRemoteWorkspaceSnapshot
-            && !connectionRequiresReauth
-            && (isRecoveringConnection || isReconnectingStoredMac)
-            && workspaces.contains { !$0.terminals.isEmpty }
-    }
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -4637,18 +4624,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         checkRenderGridLiveness(listenerID: listenerID)
     }
 
-    /// Test-only: drive the same recovery entry used by network foreground/path
-    /// changes without depending on NWPathMonitor timing.
     func debugRecoverMobileConnectionForTesting() {
         recoverMobileConnection(trigger: .networkChange)
     }
 
-    /// Test-only: expose whether the SwiftUI-mounted Ghostty surface still has
-    /// an output consumer. This is the proxy for "the surface was not
-    /// dismantled", because `dismantleUIView` cancels the consuming task.
-    func debugHasTerminalOutputSinkForTesting(surfaceID: String) -> Bool {
-        hasTerminalOutputSink(surfaceID: surfaceID)
-    }
     #endif
 
     /// One watchdog tick on the main actor: if the subscription generation still
@@ -4901,7 +4880,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Whether a surface currently has an attached output stream consumer.
-    private func hasTerminalOutputSink(surfaceID: String) -> Bool {
+    func hasTerminalOutputSink(surfaceID: String) -> Bool {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
     }
 
@@ -5516,26 +5495,5 @@ private extension MobileWorkspacePreview {
 
     var hasReadyTerminal: Bool {
         terminals.contains(where: \.isReady)
-    }
-}
-private extension MobileShellComposite {
-    /// The name shown for the Mac until `mobile.host.status` reports the real
-    /// one: the ticket's display name, then its device id, then the dialed
-    /// route's host (a minimal v2 pairing code carries neither name nor id,
-    /// so the Tailscale hostname is the best available placeholder).
-    func placeholderHostName(
-        for ticket: CmxAttachTicket,
-        firstRoute: CmxAttachRoute
-    ) -> String {
-        if let name = ticket.macDisplayName, !name.isEmpty {
-            return name
-        }
-        if !ticket.macDeviceID.isEmpty {
-            return ticket.macDeviceID
-        }
-        if case let .hostPort(host, _) = firstRoute.endpoint {
-            return host
-        }
-        return ""
     }
 }
