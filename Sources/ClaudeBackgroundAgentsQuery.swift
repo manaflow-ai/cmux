@@ -22,7 +22,6 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     private let probe: @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot]
     private let now: @Sendable () -> Date
     private let cacheTTL: TimeInterval
-    private let saveTolerance: TimeInterval
     private let coldProbeWindow: TimeInterval
     private let maxColdProbesPerWindow: Int
 
@@ -37,14 +36,12 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
 
     init(
         cacheTTL: TimeInterval = 20,
-        saveTolerance: TimeInterval = 300,
         coldProbeWindow: TimeInterval = 10,
         maxColdProbesPerWindow: Int = 6,
         now: @escaping @Sendable () -> Date = { Date() },
         probe: @escaping @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot] = claudeBackgroundAgentsProbe
     ) {
         self.cacheTTL = cacheTTL
-        self.saveTolerance = max(saveTolerance, cacheTTL)
         self.coldProbeWindow = coldProbeWindow
         self.maxColdProbesPerWindow = maxColdProbesPerWindow
         self.now = now
@@ -85,14 +82,14 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     /// config dir, never spawning `claude`. The synchronous quit/power-off session-save path
     /// uses this so it reconciles from the warm cache without a subprocess on the main thread.
     ///
-    /// Tolerates a longer staleness than ``live(configDir:)``'s probe TTL (`saveTolerance`):
-    /// `SharedLiveAgentIndex` refreshes the cache only every so often, so binding the save to
-    /// the short probe TTL would drop the reconciliation — and overwrite the persisted snapshot
-    /// with the empty ghost id — whenever the app is quit a little after the last refresh. A
-    /// reconciled id maps to a real on-disk transcript (the panel's actual conversation), so a
-    /// slightly-stale reconciliation is still correct; only a long-idle entry expires.
+    /// Applies the same short TTL as ``live(configDir:)``. Reconciliation matches a ghost to the
+    /// unique background agent in its cwd, which is only sound against fresh daemon data: a stale
+    /// snapshot could heal a ghost to a conversation that has since left or changed in that cwd.
+    /// If a quit drops a not-yet-saved reconciliation, the off-main `SharedLiveAgentIndex`
+    /// reconciliation re-establishes it from a fresh probe shortly after the next launch, so the
+    /// transient persisted ghost never becomes the unrecoverable #6622 ghost.
     func cachedOnly(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
-        freshCachedAgents(forKey: configDir ?? "", maxAge: saveTolerance) ?? []
+        freshCachedAgents(forKey: configDir ?? "", maxAge: cacheTTL) ?? []
     }
 
     private func freshCachedAgents(forKey key: String, maxAge: TimeInterval) -> [ClaudeBackgroundAgentSnapshot]? {
@@ -104,16 +101,15 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         return cached.agents
     }
 
-    /// Writes the freshly probed result and drops entries past the save tolerance, so this
-    /// process-wide singleton's cache does not accumulate config-dir keys (which are unbounded
-    /// user/session data) over a long-running app while still retaining a reconciliation long
-    /// enough for the synchronous save path. https://github.com/manaflow-ai/cmux/issues/6622
+    /// Writes the freshly probed result and drops every expired entry, so this process-wide
+    /// singleton's cache does not accumulate config-dir keys (which are unbounded user/session
+    /// data) over a long-running app. https://github.com/manaflow-ai/cmux/issues/6622
     private func storeAndEvictExpired(key: String, agents: [ClaudeBackgroundAgentSnapshot]) {
         lock.lock()
         defer { lock.unlock() }
         let writtenAt = now()
         cache[key] = (agents, writtenAt)
-        cache = cache.filter { writtenAt.timeIntervalSince($0.value.fetchedAt) < saveTolerance }
+        cache = cache.filter { writtenAt.timeIntervalSince($0.value.fetchedAt) < cacheTTL }
     }
 }
 
@@ -132,6 +128,10 @@ private struct ClaudeBackgroundAgentsProbeRunner {
 
     private static let probeTimeout: TimeInterval = 5
     private static let terminateGrace: TimeInterval = 1
+    // `claude agents --json` output is small; cap it generously so a broken or custom claude
+    // that prints rapidly cannot balloon a `Data` buffer before the timeout kills it.
+    private static let maxOutputBytes = 4 * 1024 * 1024
+    private static let readChunkBytes = 64 * 1024
 
     func run() -> [ClaudeBackgroundAgentSnapshot] {
         guard let plan = resolvedClaudeLaunchPlan() else { return [] }
@@ -177,7 +177,27 @@ private struct ClaudeBackgroundAgentsProbeRunner {
         let output = DataBox()
         let readDone = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
-            output.set(box.readHandle.readDataToEndOfFile())
+            // Read incrementally with a byte budget instead of `readDataToEndOfFile()` so a
+            // runaway writer cannot allocate an unbounded buffer; overflow stops the read and
+            // signals the caller to terminate the process and discard the output.
+            var data = Data()
+            var overflowed = false
+            while true {
+                let chunk: Data
+                do {
+                    guard let read = try box.readHandle.read(upToCount: Self.readChunkBytes),
+                          !read.isEmpty else { break }
+                    chunk = read
+                } catch {
+                    break
+                }
+                data.append(chunk)
+                if data.count > Self.maxOutputBytes {
+                    overflowed = true
+                    break
+                }
+            }
+            output.set(data, overflowed: overflowed)
             readDone.signal()
         }
 
@@ -192,6 +212,11 @@ private struct ClaudeBackgroundAgentsProbeRunner {
 
         // Bound the read.
         if readDone.wait(timeout: .now() + Self.probeTimeout) == .timedOut {
+            terminateAndDrain()
+            return []
+        }
+        // A broken/runaway claude that blew past the output cap: stop it and ignore the output.
+        if output.didOverflow {
             terminateAndDrain()
             return []
         }
@@ -227,7 +252,11 @@ private struct ClaudeBackgroundAgentsProbeRunner {
     private final class DataBox: @unchecked Sendable {
         private let lock = NSLock()
         private var value = Data()
-        func set(_ data: Data) { lock.lock(); value = data; lock.unlock() }
+        private var overflowed = false
+        func set(_ data: Data, overflowed: Bool) {
+            lock.lock(); value = data; self.overflowed = overflowed; lock.unlock()
+        }
         func get() -> Data { lock.lock(); defer { lock.unlock() }; return value }
+        var didOverflow: Bool { lock.lock(); defer { lock.unlock() }; return overflowed }
     }
 }

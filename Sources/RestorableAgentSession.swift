@@ -1368,8 +1368,13 @@ struct RestorableAgentSessionIndex: Sendable {
         }
         // `record.launchCommand` is already trust-sanitized above, so `panelCwd`, `configDir`,
         // and `roots` all derive from the same trusted config (or the default when untrusted).
-        let panelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
-            ?? normalizedWorkingDirectory(record.cwd)
+        // Require a cwd before probing: the reconciler can only match a background agent by cwd,
+        // so a record with no launch/recorded cwd can never reconcile and must not spawn or
+        // consume a `claude agents --json` probe.
+        guard let panelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+            ?? normalizedWorkingDirectory(record.cwd) else {
+            return record
+        }
         let configDir = normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"])
         guard let realSessionId = ClaudeBackgroundAgentReconciler().reconciledSessionId(
             forGhostSessionId: sessionId,
