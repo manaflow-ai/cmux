@@ -161,12 +161,23 @@ struct WorkstreamStoreTests {
         #expect(!store.items.map(\.title).contains("SubagentStart"))
         #expect(!store.items.contains { $0.kind == .sessionStart })
         #expect(!store.items.contains { $0.kind == .stop })
+        if let compactionStartItem = store.items.first(where: {
+            $0.title == "Compaction" && $0.kind == .toolUse
+        }) {
+            if case .toolUse(let toolName, _) = compactionStartItem.payload {
+                #expect(toolName == "Compaction")
+            } else {
+                Issue.record("expected PreCompact to decode as toolUse telemetry")
+            }
+        } else {
+            Issue.record("expected PreCompact item")
+        }
         if let subagentStartItem = store.items.first(where: {
             $0.title == "Subagent" && $0.kind == .toolUse
         }) {
             #expect(subagentStartItem.kind == .toolUse)
             if case .toolUse(let toolName, _) = subagentStartItem.payload {
-                #expect(toolName == "subagent")
+                #expect(toolName == "Subagent")
             } else {
                 Issue.record("expected SubagentStart to decode as toolUse telemetry")
             }
@@ -178,7 +189,7 @@ struct WorkstreamStoreTests {
         }) {
             #expect(subagentStopItem.kind == .toolResult)
             if case .toolResult(let toolName, _, _) = subagentStopItem.payload {
-                #expect(toolName == "subagent")
+                #expect(toolName == "Subagent")
             } else {
                 Issue.record("expected SubagentStop to decode as toolResult telemetry")
             }

@@ -412,7 +412,7 @@ extension CMUXCLI {
             .lowercased()
         switch normalized {
         case "posttooluse", "posttoolcall":
-            return "head -c 1048577 >/dev/null 2>/dev/null || true; echo '{}'"
+            return "cat >/dev/null 2>/dev/null || true; echo '{}'"
         default:
             return "echo '{}'"
         }

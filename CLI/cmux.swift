@@ -33158,6 +33158,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             data.append(chunk)
         }
         guard data.count <= feedHookMaxStdinBytes else {
+            while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
             return nil
         }
         return data

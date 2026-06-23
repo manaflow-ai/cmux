@@ -315,18 +315,18 @@ public final class WorkstreamStore {
                 .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: false)
             )
         case .preCompact:
-            return (.toolUse, .toolUse(toolName: "compaction", toolInputJSON: toolInput))
+            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
         case .postCompact:
             return (
                 .toolResult,
-                .toolResult(toolName: "compaction", resultJSON: toolInput, isError: false)
+                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
             )
         case .subagentStart:
-            return (.toolUse, .toolUse(toolName: "subagent", toolInputJSON: toolInput))
+            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
         case .subagentStop:
             return (
                 .toolResult,
-                .toolResult(toolName: "subagent", resultJSON: toolInput, isError: false)
+                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
             )
         case .userPromptSubmit:
             let prompt = Self.promptText(from: event.toolInputJSON)
