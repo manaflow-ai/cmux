@@ -1807,6 +1807,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> TrustedNetworkAuthConfirmation? {
         guard let scope,
               !macDeviceID.isEmpty,
+              !macDeviceID.hasPrefix("manual-"),
               let normalizedHost = MobileShellRouteAuthPolicy.normalizedManualHost(host) else {
             return nil
         }
@@ -4649,6 +4650,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // manual fallback ticket carries a synthetic `manual-…` id, so
                     // prefer the caller's real paired-Mac id when it is known.
                     let resolvedForegroundMacID = ticket.foregroundMacID(hint: pairedMacDeviceID)
+                    let resolvedForegroundMacIDCanCarryTrust = !resolvedForegroundMacID.isEmpty
+                        && !resolvedForegroundMacID.hasPrefix("manual-")
                     let previousForegroundKey = foregroundMacKey
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID
@@ -4656,7 +4659,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if trustedNetworkAuthConfirmed,
                        route.kind == .trustedNetwork,
                        case let .hostPort(routeHost, routePort) = route.endpoint {
-                        if resolvedForegroundMacID.isEmpty {
+                        if !resolvedForegroundMacIDCanCarryTrust {
                             pendingTrustedNetworkAuthConfirmation = TrustedNetworkAuthConfirmationCandidate(
                                 host: routeHost,
                                 port: routePort
