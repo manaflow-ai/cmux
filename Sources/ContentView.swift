@@ -12554,6 +12554,10 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         func updateTargets(_ targets: [Target]) {
             self.targets = targets
             view?.targets = targets
+            guard !targets.isEmpty else { return }
+            Task { @MainActor [weak view] in
+                view?.performPendingDropIfPossible()
+            }
         }
     }
 
@@ -12599,12 +12603,20 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
 
     @MainActor
     final class DropView: NSView {
+        private struct PendingDrop {
+            let requestId: UInt64
+            let point: CGPoint
+        }
+
         var targets: [Target] = []
         var isValidDrag: (() -> Bool)?
         var updateDrag: ((CGPoint, [Target]) -> Bool)?
         var performDropAtPoint: ((CGPoint, [Target]) -> Bool)?
         var clearDropIndicator: (() -> Void)?
         var setWorkspaceDropTargetCollectionActive: ((Bool) -> Void)?
+        private var isRequestingTargets = false
+        private var targetRequestId: UInt64 = 0
+        private var pendingDrop: PendingDrop?
 
         override var isFlipped: Bool { true }
 
@@ -12623,25 +12635,35 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         }
 
         override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-            setWorkspaceDropTargetCollectionActive?(true)
+            setTargetCollectionActive(true)
             return update(sender)
         }
 
         override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-            setWorkspaceDropTargetCollectionActive?(true)
+            setTargetCollectionActive(true)
             return update(sender)
         }
 
         override func draggingExited(_ sender: NSDraggingInfo?) {
-            setWorkspaceDropTargetCollectionActive?(false)
+            guard pendingDrop == nil else {
+                completeOrClearPendingDropAfterDragTeardown()
+                clearDropIndicator?()
+                return
+            }
+            setTargetCollectionActive(false)
             clearDropIndicator?()
         }
 
         override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
             guard accepts(sender), let performDropAtPoint else { return false }
             let point = convert(sender.draggingLocation, from: nil)
+            guard !targets.isEmpty else {
+                pendingDrop = PendingDrop(requestId: targetRequestId, point: point)
+                return true
+            }
             let performed = performDropAtPoint(point, targets)
-            setWorkspaceDropTargetCollectionActive?(false)
+            pendingDrop = nil
+            setTargetCollectionActive(false)
             if !performed {
                 clearDropIndicator?()
             }
@@ -12649,14 +12671,77 @@ struct SidebarWorkspaceReorderDropOverlay: NSViewRepresentable {
         }
 
         override func concludeDragOperation(_ sender: NSDraggingInfo?) {
-            setWorkspaceDropTargetCollectionActive?(false)
+            guard pendingDrop == nil else {
+                completeOrClearPendingDropAfterDragTeardown()
+                clearDropIndicator?()
+                return
+            }
+            setTargetCollectionActive(false)
+        }
+
+        func performPendingDropIfPossible() {
+            guard let pendingDrop,
+                  pendingDrop.requestId == targetRequestId,
+                  isRequestingTargets,
+                  !targets.isEmpty,
+                  let performDropAtPoint else {
+                return
+            }
+            self.pendingDrop = nil
+            let performed = performDropAtPoint(pendingDrop.point, targets)
+            setTargetCollectionActive(false)
+            if !performed {
+                clearDropIndicator?()
+            }
         }
 
         private func update(_ sender: NSDraggingInfo) -> NSDragOperation {
             guard accepts(sender), let updateDrag else { return [] }
-            guard !targets.isEmpty else { return .move }
+            guard !targets.isEmpty else {
+                clearDropIndicator?()
+                return .move
+            }
             let point = convert(sender.draggingLocation, from: nil)
             return updateDrag(point, targets) ? .move : []
+        }
+
+        private func setTargetCollectionActive(_ isActive: Bool) {
+            if isActive, !isRequestingTargets {
+                targetRequestId &+= 1
+            }
+            if !isActive {
+                pendingDrop = nil
+            }
+            isRequestingTargets = isActive
+            setWorkspaceDropTargetCollectionActive?(isActive)
+        }
+
+        private func completeOrClearPendingDropAfterDragTeardown() {
+            completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: 3)
+        }
+
+        private func completeOrClearPendingDropAfterDragTeardown(remainingFrameWaits: Int) {
+            guard let pendingDrop else { return }
+            let requestId = pendingDrop.requestId
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                guard let self,
+                      self.pendingDrop?.requestId == requestId else {
+                    return
+                }
+
+                if self.targets.isEmpty, remainingFrameWaits > 0 {
+                    self.completeOrClearPendingDropAfterDragTeardown(
+                        remainingFrameWaits: remainingFrameWaits - 1
+                    )
+                    return
+                }
+
+                self.performPendingDropIfPossible()
+                guard self.pendingDrop?.requestId == requestId else { return }
+                self.setTargetCollectionActive(false)
+                self.clearDropIndicator?()
+            }
         }
 
         private func accepts(_ sender: NSDraggingInfo) -> Bool {
