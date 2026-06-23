@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// The v1 line-protocol surface/send/notify/help witnesses and the v1 string

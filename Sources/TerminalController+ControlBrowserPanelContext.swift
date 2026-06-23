@@ -1,6 +1,7 @@
 import AppKit
 import CmuxControlSocket
 import CmuxFoundation
+import CmuxPanes
 import Foundation
 import WebKit
 

@@ -1,5 +1,6 @@
 #if DEBUG
 import CmuxNotifications
+import CmuxPanes
 import Foundation
 
 /// DEBUG-only app-side ``TerminalTextSendTracing`` conformer. Holds the workspace

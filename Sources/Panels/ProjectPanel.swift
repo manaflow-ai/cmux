@@ -1,5 +1,6 @@
 import AppKit
 import CMUXProjectModel
+import CmuxPanes
 import Combine
 import Foundation
 import SwiftUI

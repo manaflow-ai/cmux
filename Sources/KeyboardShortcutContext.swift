@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import CmuxSettings
 import CmuxShortcuts
 import WebKit

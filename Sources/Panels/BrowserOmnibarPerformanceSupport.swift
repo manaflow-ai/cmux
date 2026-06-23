@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import Foundation
 import Observation
 import CmuxBrowser

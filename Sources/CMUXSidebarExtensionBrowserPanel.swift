@@ -1,5 +1,6 @@
 @_spi(CmuxHostTransport) import CmuxSidebar
 import AppKit
+import CmuxPanes
 import SwiftUI
 
 @MainActor

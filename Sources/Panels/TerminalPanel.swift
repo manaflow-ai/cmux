@@ -1,5 +1,6 @@
 import Foundation
 import CmuxTerminalCore
+import CmuxPanes
 import Combine
 import AppKit
 import Bonsplit

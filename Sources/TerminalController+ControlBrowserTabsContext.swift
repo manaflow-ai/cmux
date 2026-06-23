@@ -1,5 +1,6 @@
 import AppKit
 import CmuxControlSocket
+import CmuxPanes
 import Foundation
 
 /// The live-app half of the main-actor browser-tab lifecycle commands

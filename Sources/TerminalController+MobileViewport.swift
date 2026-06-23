@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxPanes
 import Foundation
 
 /// The app-target seam between ``TerminalController`` and the package-owned

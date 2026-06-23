@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import CmuxSettings
 import CmuxCore
 import CmuxRemoteSession

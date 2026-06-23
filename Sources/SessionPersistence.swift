@@ -1,3 +1,4 @@
+import CmuxPanes
 import CoreGraphics
 import CmuxCore
 import Foundation

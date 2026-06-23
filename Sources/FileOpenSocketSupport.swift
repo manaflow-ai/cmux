@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import Foundation
 
 extension TerminalController {

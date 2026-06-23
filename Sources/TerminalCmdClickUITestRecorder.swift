@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxPanes
 import CmuxSettings
 import CmuxTestSupport
 import Foundation

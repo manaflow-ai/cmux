@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import Carbon.HIToolbox
 import CmuxControlSocket
+import CmuxPanes
 import CmuxSettings
 import Foundation
 import CmuxTerminal

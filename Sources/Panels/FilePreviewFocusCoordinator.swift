@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CmuxPanes
 
 final class FilePreviewFocusCoordinator {
     private struct Endpoint {

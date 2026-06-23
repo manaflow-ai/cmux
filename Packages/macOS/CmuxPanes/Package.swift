@@ -16,6 +16,8 @@ let package = Package(
     dependencies: [
         .package(path: "../../../vendor/bonsplit"),
         .package(path: "../CMUXDebugLog"),
+        .package(path: "../CmuxCore"),
+        .package(path: "../CmuxTerminalCore"),
     ],
     targets: [
         .target(
@@ -23,6 +25,8 @@ let package = Package(
             dependencies: [
                 .product(name: "Bonsplit", package: "bonsplit"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
+                .product(name: "CmuxCore", package: "CmuxCore"),
+                .product(name: "CmuxTerminalCore", package: "CmuxTerminalCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

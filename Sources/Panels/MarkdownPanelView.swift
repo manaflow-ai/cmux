@@ -1,5 +1,6 @@
 import AppKit
 import CmuxFoundation
+import CmuxPanes
 import SwiftUI
 import WebKit
 

@@ -15,6 +15,7 @@ import CmuxSettingsUI
 import CmuxShortcuts
 import CmuxUpdater
 import CmuxWorkspaces
+import CmuxSession
 import CmuxUpdaterUI
 import SwiftUI
 import Bonsplit
@@ -1343,15 +1344,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowStoreRegistry.fileExplorerStates.model(for: WindowID(context.windowId))
     }
 
-    private(set) var startupSessionSnapshot: AppSessionSnapshot?
-    private var didPrepareStartupSessionSnapshot = false
-    var didAttemptStartupSessionRestore = false
-    private var isApplyingSessionRestore = false
-    private var processDetectedSessionSaveGeneration: UInt64 = 0
-    private let sessionPersistenceQueue = DispatchQueue(
-        label: "com.cmuxterm.app.sessionPersistence",
-        qos: .utility
-    )
+    /// Session persistence + restore orchestration (CmuxSession);
+    /// composition-root owned. Owns the gating state (startup-prepare latch +
+    /// loaded `startupSessionSnapshot`, the startup-restore latch, the
+    /// in-progress-restore flag, the process-detected scan generation, and the
+    /// autosave fingerprint-skip state) that used to be scattered stored
+    /// properties on `AppDelegate`, plus the prepare/restore/autosave/save
+    /// sequencing that used to be private methods here. Every app-coupled effect
+    /// (build snapshot from the live window tree, read the fingerprint, persist,
+    /// apply a window snapshot, load resume indexes, evaluate the decision
+    /// policy) inverts back through this `AppDelegate`'s ``AppSessionHosting``
+    /// conformance (witnesses in `AppDelegate+AppSessionHosting.swift`).
+    /// `AppDelegate` keeps the thin public entrypoints (`reopenPreviousSession`,
+    /// `restorePreviousSessionSnapshot`, `startupSessionSnapshot`,
+    /// `didAttemptStartupSessionRestore`) that the menu / CLI / window-identity
+    /// callers read, forwarding into the coordinator.
+    lazy var sessionCoordinator: AppSessionCoordinator<AppDelegate> = {
+        let coordinator = AppSessionCoordinator<AppDelegate>()
+        coordinator.attach(host: self)
+        return coordinator
+    }()
+
+    /// The startup snapshot loaded by the coordinator's prepare step; the
+    /// window-identity path reads its first window id. Forwards to the
+    /// coordinator's owned value.
+    var startupSessionSnapshot: AppSessionSnapshot? { sessionCoordinator.startupSessionSnapshot }
+
+    /// Whether the startup-restore attempt has already run for this launch.
+    /// Read/written by the deferred-bootstrap and SSH-URL paths; forwards to
+    /// the coordinator's owned latch.
+    var didAttemptStartupSessionRestore: Bool {
+        get { sessionCoordinator.didAttemptStartupSessionRestore }
+        set { sessionCoordinator.didAttemptStartupSessionRestore = newValue }
+    }
+
+    /// Whether a restore is currently being applied. Forwards to the
+    /// coordinator; the live save path reads it through the decision policy.
+    private var isApplyingSessionRestore: Bool { sessionCoordinator.isApplyingSessionRestore }
     /// Session-snapshot autosave cadence (CmuxWorkspaces); composition-root
     /// owned. Owns the repeating-timer task, the typing-quiet deferral, and the
     /// in-flight latch the legacy `DispatchSourceTimer` + serial-queue retry
@@ -1402,25 +1431,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// sequence; inverts every store / registry / window-lifecycle / focus effect
     /// back through this `AppDelegate`'s ``ClosedItemReopenHosting`` conformance.
     lazy var closedItemReopen = ClosedItemReopenCoordinator(host: self)
-    /// Session snapshot persistence (CmuxSession); composition-root owned.
-    /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
-    nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
-        schemaVersion: SessionSnapshotSchema.currentVersion,
-        bundleIdentifier: Bundle.main.bundleIdentifier
-    )
+    /// Session snapshot file store (CmuxWorkspaces); composition-root owned.
+    /// The on-disk wire format stays owned here via the app's
+    /// `AppSessionSnapshot` (which conforms to
+    /// ``CmuxWorkspaces/SessionSnapshotRepresenting``). `nonisolated` because the
+    /// queued write runs off the main actor on the persistence repository's
+    /// serial executor. Qualified to disambiguate from the CmuxSession
+    /// `SessionSnapshotRepository` actor below.
+    nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> =
+        CmuxWorkspaces.SessionSnapshotRepository(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        )
     /// Session-snapshot + primary-window-geometry write coordinator
-    /// (CmuxWorkspaces); composition-root owned. Owns the serial persistence
-    /// queue and sequences the geometry write and the snapshot write into one
-    /// block, exactly as the legacy `persistSessionSnapshot` write block did.
-    /// Reuses the held ``sessionSnapshotStore`` so the snapshot file store has a
-    /// single owner; the persistor value is `Sendable` and the queued write
-    /// block it dispatches captures only `Sendable` values, so it is only
-    /// accessed from the main-actor `persistSessionSnapshot`.
+    /// (CmuxWorkspaces); composition-root owned. Sequences the geometry write
+    /// and the snapshot write into one block, exactly as the legacy
+    /// `persistSessionSnapshot` write block did. Reuses the held
+    /// ``sessionSnapshotStore`` so the snapshot file store has a single owner;
+    /// the persistor value is `Sendable`.
     private lazy var sessionSnapshotPersistor = SessionSnapshotPersistor(
         snapshotStore: sessionSnapshotStore,
         geometryStore: Self.windowGeometryStore,
         geometryDefaults: .standard,
-        queue: sessionPersistenceQueue
+        queue: Self.sessionPersistenceQueue
+    )
+    /// Serializes the queued session-snapshot writes (CmuxSession). Replaces the
+    /// legacy `sessionPersistenceQueue` `DispatchQueue`: the queued (async)
+    /// writes are serialized by actor isolation, while the termination/explicit
+    /// save still runs inline (`persistSynchronously`). Wraps the held
+    /// ``sessionSnapshotPersistor`` so the wire format stays single-sourced.
+    private lazy var sessionSnapshotRepository =
+        CmuxSession.SessionSnapshotRepository(persistor: sessionSnapshotPersistor)
+    /// The serial queue the persistor's inline write block reuses for its own
+    /// `qos: .utility` lane on the synchronous path. The actor above owns the
+    /// queued lane's ordering; this queue value is retained only because
+    /// ``SessionSnapshotPersistor`` takes one in its initializer (its
+    /// synchronous path never touches it).
+    private nonisolated static let sessionPersistenceQueue = DispatchQueue(
+        label: "com.cmuxterm.app.sessionPersistence",
+        qos: .utility
     )
     /// External-open URL classifier (CmuxWorkspaces); composition-root owned.
     /// The deep-link/services shims forward the pure URL-shaping rules here,
@@ -1467,8 +1516,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private nonisolated static func enqueueLaunchServicesRegistrationWork(_ work: @escaping @Sendable () -> Void) {
         launchServicesRegistrationQueue.async(execute: work)
     }
-    private var lastSessionAutosaveFingerprint: Int?
-    private var lastSessionAutosavePersistedAt: Date = .distantPast
+    // `lastSessionAutosaveFingerprint` / `lastSessionAutosavePersistedAt` moved
+    // into `AppSessionCoordinator` (CmuxSession); the autosave fingerprint-skip
+    // state is owned alongside the rest of the gating state there.
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
     var shouldDeferInitialMainWindowBootstrapForExternalConfirmation = false
@@ -2463,7 +2513,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
-        prepareStartupSessionSnapshotIfNeeded()
+        sessionCoordinator.prepareStartupSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
         installLaunchUITestRecorders()
@@ -2569,14 +2619,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    private func prepareStartupSessionSnapshotIfNeeded() {
-        guard !didPrepareStartupSessionSnapshot else { return }
-        didPrepareStartupSessionSnapshot = true
-        Self.windowGeometryStore.removeLegacy(defaults: .standard)
-        sessionSnapshotStore.syncManualRestoreSnapshotCache()
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
-        startupSessionSnapshot = sessionSnapshotStore.loadStartupSnapshot()
-    }
+    // `prepareStartupSessionSnapshotIfNeeded` moved into
+    // `AppSessionCoordinator.prepareStartupSnapshotIfNeeded()` (CmuxSession).
+    // The three app-coupled steps (removeLegacy / syncManualRestore /
+    // loadStartup) are now host witnesses in
+    // `AppDelegate+AppSessionHosting.swift`.
 
     private func persistedWindowGeometry(defaults: UserDefaults = .standard) -> PersistedWindowGeometry? {
         Self.windowGeometryStore.load(defaults: defaults)
@@ -2649,20 +2696,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// The primary window the next startup-restore witness applies to. Stashed
+    /// by `attemptStartupSessionRestoreIfNeeded(primaryWindow:)` immediately
+    /// before driving the coordinator, then read by the
+    /// ``AppSessionHosting/applyStartupRestore(snapshot:)`` /
+    /// ``AppSessionHosting/applyStartupRestoreFallbackGeometry()`` witnesses.
+    /// `nil` outside a startup-restore turn.
+    private weak var pendingStartupRestoreWindow: NSWindow?
+
+    /// Thin app entrypoint: stashes the primary window and drives the
+    /// `AppSessionCoordinator` startup-restore gating (which calls the
+    /// window-application witnesses below back). The gating state
+    /// (`didAttemptStartupSessionRestore`, `isApplyingSessionRestore`,
+    /// `startupSessionSnapshot`) now lives in the coordinator.
     @discardableResult
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
-        guard !didAttemptStartupSessionRestore else { return false }
-        didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return false }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
+        pendingStartupRestoreWindow = primaryWindow
+        defer { pendingStartupRestoreWindow = nil }
+        return sessionCoordinator.attemptStartupRestoreIfNeeded()
+    }
 
-        let startupSnapshot = startupSessionSnapshot
-        let primaryWindowSnapshot = startupSnapshot?.windows.first
-        if let primaryWindowSnapshot {
-            isApplyingSessionRestore = true
+    // MARK: AppSessionHosting startup-restore witnesses
+
+    /// App-coupled body of the legacy `attemptStartupSessionRestoreIfNeeded`'s
+    /// snapshot-present branch: applies the primary window snapshot and enqueues
+    /// additional windows. The coordinator owns the latch + in-progress flag and
+    /// calls ``AppSessionCoordinator/completeRestore(isManualReopen:)`` back when
+    /// the (possibly deferred) window application finishes.
+    func applyStartupRestore(snapshot: AppSessionSnapshot) -> Bool {
+        guard !didHandleExplicitOpenIntentAtStartup else {
+            sessionCoordinator.completeRestore(isManualReopen: false)
+            return false
+        }
+        guard let primaryWindow = pendingStartupRestoreWindow,
+              let primaryContext = contextForMainTerminalWindow(primaryWindow) else {
+            sessionCoordinator.completeRestore(isManualReopen: false)
+            return false
+        }
+
+        if let primaryWindowSnapshot = snapshot.windows.first {
 #if DEBUG
             cmuxDebugLog(
-                "session.restore.start windows=\(startupSnapshot?.windows.count ?? 0) " +
+                "session.restore.start windows=\(snapshot.windows.count) " +
                     "primaryFrame={\(debugSessionRectDescription(primaryWindowSnapshot.frame))} " +
                     "primaryDisplay={\(debugSessionDisplayDescription(primaryWindowSnapshot.display))}"
             )
@@ -2672,23 +2747,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: primaryContext,
                 window: primaryWindow
             )
-        } else {
-            let displays = currentDisplayGeometries()
-            let fallbackGeometry = persistedWindowGeometry()
-            if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
-                primarySnapshot: nil,
-                fallbackFrame: fallbackGeometry?.frame,
-                fallbackDisplaySnapshot: fallbackGeometry?.display,
-                availableDisplays: displays.available,
-                fallbackDisplay: displays.fallback
-            ) {
-                primaryWindow.setFrame(restoredFrame, display: true)
-            }
         }
 
-        guard let startupSnapshot else { return false }
-
-        let additionalWindows = Array(startupSnapshot
+        let additionalWindows = Array(snapshot
             .windows
             .dropFirst()
             .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
@@ -2707,47 +2768,67 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 for windowSnapshot in additionalWindows {
                     _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
                 }
-                self.completeSessionRestoreOperation(isManualReopen: false)
+                self.sessionCoordinator.completeRestore(isManualReopen: false)
             }
         } else {
-            completeSessionRestoreOperation(isManualReopen: false)
+            sessionCoordinator.completeRestore(isManualReopen: false)
         }
         return true
     }
 
-    private func completeSessionRestoreOperation(isManualReopen: Bool) {
-        startupSessionSnapshot = nil
-        isApplyingSessionRestore = false
-        if Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
-            // Auto-resume input can be queued before tmux has spawned; preserve
-            // restored process-detected bindings until a later live scan.
-            _ = saveSessionSnapshot(includeScrollback: false)
+    /// App-coupled body of the legacy `attemptStartupSessionRestoreIfNeeded`'s
+    /// no-snapshot branch: resolves the persisted geometry against live displays
+    /// and sets the primary window frame, then completes the restore.
+    func applyStartupRestoreFallbackGeometry() {
+        guard let primaryWindow = pendingStartupRestoreWindow,
+              contextForMainTerminalWindow(primaryWindow) != nil,
+              !didHandleExplicitOpenIntentAtStartup else {
+            return
+        }
+        let displays = currentDisplayGeometries()
+        let fallbackGeometry = persistedWindowGeometry()
+        if let restoredFrame = Self.resolvedStartupPrimaryWindowFrame(
+            primarySnapshot: nil,
+            fallbackFrame: fallbackGeometry?.frame,
+            fallbackDisplaySnapshot: fallbackGeometry?.display,
+            availableDisplays: displays.available,
+            fallbackDisplay: displays.fallback
+        ) {
+            primaryWindow.setFrame(restoredFrame, display: true)
         }
     }
 
+    // `completeSessionRestoreOperation` moved into
+    // `AppSessionCoordinator.completeRestore(isManualReopen:)` (CmuxSession).
+
+    /// Thin app entrypoint forwarding to the coordinator. Menu / CLI callers
+    /// keep this name.
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
-        guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
-            return false
-        }
-        return restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate)
+        sessionCoordinator.reopenPreviousSession(shouldActivate: shouldActivate)
     }
 
+    /// Thin app entrypoint forwarding to the coordinator. The shortcut-routing
+    /// test drives this name directly.
     @discardableResult
     func restorePreviousSessionSnapshot(
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
+        sessionCoordinator.restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate)
+    }
+
+    /// App-coupled body of the legacy `restorePreviousSessionSnapshot` window
+    /// creation: builds the windows and optionally activates the primary. The
+    /// coordinator owns the gating-state writes and calls
+    /// ``AppSessionCoordinator/completeRestore(isManualReopen:)`` afterward.
+    func applyManualRestore(snapshot: AppSessionSnapshot, shouldActivate: Bool) -> Bool {
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
         guard !snapshotWindows.isEmpty else { return false }
 
-        isApplyingSessionRestore = true
-        startupSessionSnapshot = nil
-        didAttemptStartupSessionRestore = true
         var createdWindowIds: [UUID] = []
-
         for windowSnapshot in snapshotWindows {
             let windowId = createMainWindow(
                 sessionWindowSnapshot: windowSnapshot,
@@ -2756,7 +2837,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             createdWindowIds.append(windowId)
         }
 
-        completeSessionRestoreOperation(isManualReopen: true)
+        sessionCoordinator.completeRestore(isManualReopen: true)
 
         if shouldActivate,
            let primaryWindowId = createdWindowIds.first,
@@ -2769,6 +2850,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    /// Witness: loads the manual-restore backup snapshot for the coordinator's
+    /// reopen flow.
+    func loadReopenSessionSnapshot() -> AppSessionSnapshot? {
+        sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil)
     }
 
     private func applySessionWindowSnapshot(
@@ -3029,22 +3116,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// App-coupled body of the legacy `saveSessionSnapshot`. The
+    /// restore-in-progress skip check moved to
+    /// ``AppSessionCoordinator/saveSessionSnapshot(includeScrollback:removeWhenEmpty:restorableAgentIndex:)``
+    /// (the coordinator owns the gating); this body keeps the irreducibly
+    /// app-coupled work: the synchronous-write decision, the draft-attachment
+    /// flush, the snapshot build from the live window tree, the geometry encode,
+    /// and the persist. Internal app callers (`saveSessionSnapshotIncluding…`
+    /// and the DEBUG benchmark) reach it through the coordinator; the witness
+    /// signature below adapts the opaque ``AppSessionResumeIndexes`` carrier.
     @discardableResult
-    private func saveSessionSnapshot(
+    func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
-        if Self.sessionPersistenceDecisionPolicy.shouldSkipSessionSaveDuringRestore(
-            isApplyingSessionRestore: isApplyingSessionRestore,
-            includeScrollback: includeScrollback
-        ) {
-#if DEBUG
-            cmuxDebugLog("session.save.skipped reason=session_restore_in_progress includeScrollback=0")
-#endif
-            return false
-        }
         let writeSynchronously = Self.sessionPersistenceDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: includeScrollback
@@ -3147,167 +3234,77 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    /// Performs one scheduled session-snapshot autosave, called by
-    /// ``SessionAutosaveScheduler`` after it has cleared the typing-quiet
-    /// deferral and taken the in-flight latch. Lifted from the legacy
-    /// `finishSessionAutosaveTick(source:generation:)`; the scheduler now owns
-    /// the latch, the typing-quiet check, and the retry, so this body keeps only
-    /// the app-coupled save: it allocates a process-detected scan generation,
-    /// loads the resume indexes, guards against a stale scan, applies the
-    /// unchanged-fingerprint skip, writes the snapshot, and records the new
-    /// autosave state. `nonisolated(unsafe)`-free; runs on the main actor.
+    /// `SessionAutosaveScheduling` witness: forwards the scheduled autosave to
+    /// the coordinator, which owns the process-detected scan generation, the
+    /// unchanged-fingerprint skip, and the autosave-state recording (lifted from
+    /// the legacy in-file body). The scheduler already times the whole tick.
     func performScheduledAutosave(source: String) async {
-        let generation = nextProcessDetectedSessionSaveGeneration()
-#if DEBUG
-        let timingStart = CmuxTypingTiming.start()
-        let phaseStart = ProcessInfo.processInfo.systemUptime
-        var fingerprintMs: Double = 0
-        var saveMs: Double = 0
-        defer {
-            let totalMs = (ProcessInfo.processInfo.systemUptime - phaseStart) * 1000.0
-            CmuxTypingTiming.logBreakdown(
-                path: "session.autosaveTick.phase",
-                totalMs: totalMs,
-                thresholdMs: 2.0,
-                parts: [
-                    ("fingerprintMs", fingerprintMs),
-                    ("saveMs", saveMs),
-                ],
-                extra: "source=\(source)"
-            )
-            CmuxTypingTiming.logDuration(
-                path: "session.autosaveTick",
-                startedAt: timingStart,
-                extra: "source=\(source)"
-            )
-        }
-#endif
-
-        let now = Date()
-#if DEBUG
-        let fingerprintStart = ProcessInfo.processInfo.systemUptime
-#endif
-        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-        guard !isTerminatingApp,
-              isCurrentProcessDetectedSessionSaveGeneration(generation) else {
-#if DEBUG
-            cmuxDebugLog(
-                "session.save.skipped reason=stale_process_detected_scan includeScrollback=0 source=\(source)"
-            )
-#endif
-            return
-        }
-        let autosaveFingerprint = sessionAutosaveFingerprint(
-            includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-        )
-#if DEBUG
-        fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
-#endif
-        if Self.sessionPersistenceDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
-            isTerminatingApp: isTerminatingApp,
-            includeScrollback: false,
-            previousFingerprint: lastSessionAutosaveFingerprint,
-            currentFingerprint: autosaveFingerprint,
-            lastPersistedAt: lastSessionAutosavePersistedAt,
-            now: now
-        ) {
-#if DEBUG
-            cmuxDebugLog(
-                "session.save.skipped reason=unchanged_autosave_fingerprint includeScrollback=0 source=\(source)"
-            )
-#endif
-            return
-        }
-
-#if DEBUG
-        let saveStart = ProcessInfo.processInfo.systemUptime
-#endif
-        _ = saveSessionSnapshot(
-            includeScrollback: false,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-        )
-#if DEBUG
-        saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
-#endif
-        updateSessionAutosaveSaveState(
-            includeScrollback: false,
-            persistedAt: now,
-            fingerprint: autosaveFingerprint
-        )
+        await sessionCoordinator.performScheduledAutosave(source: source)
     }
 
+    /// Thin app entrypoint: forwards the synchronous explicit/termination save
+    /// to the coordinator (which loads the resume indexes inline and applies the
+    /// restore-skip gating). App lifecycle callers keep this name.
     @discardableResult
     private func saveSessionSnapshotIncludingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
-        return saveSessionSnapshot(
+        sessionCoordinator.saveSessionSnapshotIncludingProcessDetectedIndexes(
             includeScrollback: includeScrollback,
-            removeWhenEmpty: removeWhenEmpty,
-            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            removeWhenEmpty: removeWhenEmpty
         )
     }
 
+    /// Thin app entrypoint: forwards the deferred-resume-index save to the
+    /// coordinator (which owns the scan-generation guard).
     private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) {
-        let generation = nextProcessDetectedSessionSaveGeneration()
-        Task { @MainActor [weak self] in
-            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
-            guard let self,
-                  !self.isTerminatingApp,
-                  self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
-            _ = self.saveSessionSnapshot(
-                includeScrollback: includeScrollback,
-                removeWhenEmpty: removeWhenEmpty,
-                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
-                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
-            )
-        }
+        sessionCoordinator.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty
+        )
     }
 
-    @discardableResult
-    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
-        processDetectedSessionSaveGeneration &+= 1
-        return processDetectedSessionSaveGeneration
-    }
-
-    private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
-        generation == processDetectedSessionSaveGeneration
-    }
+    // `nextProcessDetectedSessionSaveGeneration`,
+    // `isCurrentProcessDetectedSessionSaveGeneration`, and
+    // `updateSessionAutosaveSaveState` moved into `AppSessionCoordinator`
+    // (CmuxSession): the process-detected scan generation and the autosave
+    // fingerprint-skip state are owned alongside the rest of the gating state.
 
     fileprivate func recordTypingActivity() {
         sessionAutosaveScheduler.recordTypingActivity()
     }
 
-    private func updateSessionAutosaveSaveState(
-        includeScrollback: Bool,
-        persistedAt: Date,
-        fingerprint: Int?
-    ) {
-        guard !isTerminatingApp, !includeScrollback else { return }
-        lastSessionAutosaveFingerprint = fingerprint
-        lastSessionAutosavePersistedAt = persistedAt
-    }
-
+    /// Persists a snapshot + geometry through the ``SessionSnapshotRepository``
+    /// actor (CmuxSession). The synchronous (termination/explicit) path runs
+    /// inline via the actor's `nonisolated` `persistSynchronously`; the queued
+    /// path is fire-and-forget into the actor's serial executor, replacing the
+    /// legacy `sessionPersistenceQueue.async` lane while preserving write order.
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
         persistedGeometryData: Data?,
         synchronously: Bool
     ) {
-        sessionSnapshotPersistor.persist(
-            snapshot,
-            removeWhenEmpty: removeWhenEmpty,
-            persistedGeometryData: persistedGeometryData,
-            synchronously: synchronously
-        )
+        if synchronously {
+            sessionSnapshotRepository.persistSynchronously(
+                snapshot,
+                removeWhenEmpty: removeWhenEmpty,
+                persistedGeometryData: persistedGeometryData
+            )
+        } else {
+            let repository = sessionSnapshotRepository
+            Task {
+                await repository.persistQueued(
+                    snapshot,
+                    removeWhenEmpty: removeWhenEmpty,
+                    persistedGeometryData: persistedGeometryData
+                )
+            }
+        }
     }
 
     func sortedMainWindowContextsForSessionSnapshot() -> [RegisteredMainWindow] {
@@ -6123,10 +6120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func prepareForExplicitOpenIntentAtStartup() {
         didHandleExplicitOpenIntentAtStartup = true
-        if !didAttemptStartupSessionRestore {
-            startupSessionSnapshot = nil
-            didAttemptStartupSessionRestore = true
-        }
+        sessionCoordinator.discardStartupSnapshotForExplicitOpenIntent()
     }
 
     private func openWorkspaceForExternalDirectory(
@@ -13285,6 +13279,169 @@ extension AppDelegate: BrowserDebugContext {
 // `performScheduledAutosave(source:)` (the app-coupled snapshot save) are
 // declared on `AppDelegate` above; the scheduler drives them through this seam.
 extension AppDelegate: SessionAutosaveScheduling {}
+
+// MARK: - CmuxSession AppSessionHosting seam conformance
+
+// The app's process-detected resume-index pair rides inside the opaque
+// `AppSessionResumeIndexes` carrier the coordinator threads through the
+// save/autosave flow. The type is already `Sendable`; the marker conformance
+// only lets it be boxed.
+extension ProcessDetectedResumeIndexes: AppSessionResumeIndexCarrying {}
+
+// The `AppSessionHosting` witnesses live in this file (not a split extension)
+// so they retain access to `AppDelegate`'s `private` session helpers
+// (`buildSessionSnapshot`, `sessionAutosaveFingerprint`,
+// `persistSessionSnapshot`, the static `windowGeometryStore` /
+// `sessionPersistenceDecisionPolicy` / `encodedPersistedWindowGeometryData`,
+// and the display/geometry readers). `AppDelegate` is the composition root:
+// it constructs every CmuxWorkspaces session store and the
+// `AppSessionCoordinator`, then injects itself as the host so each app-coupled
+// effect inverts back here.
+extension AppDelegate: AppSessionHosting {
+    typealias Snapshot = AppSessionSnapshot
+    typealias GeometryPayload = PersistedWindowGeometry
+
+    // MARK: Startup snapshot preparation
+
+    func shouldAttemptStartupRestore() -> Bool {
+        SessionRestorePolicy.shouldAttemptRestore()
+    }
+
+    func removeLegacyWindowGeometry() {
+        Self.windowGeometryStore.removeLegacy(defaults: .standard)
+    }
+
+    func syncManualRestoreSnapshotCache() {
+        sessionSnapshotStore.syncManualRestoreSnapshotCache()
+    }
+
+    func loadStartupSnapshot() -> AppSessionSnapshot? {
+        sessionSnapshotStore.loadStartupSnapshot()
+    }
+
+    // MARK: Snapshot build + persist
+
+    func buildSessionSnapshot(
+        includeScrollback: Bool,
+        restorableAgentIndex: AppSessionResumeIndexes?
+    ) -> AppSessionSnapshot? {
+        let indexes = restorableAgentIndex?.processDetectedResumeIndexes
+        return buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: indexes?.restorableAgentIndex,
+            surfaceResumeBindingIndex: indexes?.surfaceResumeBindingIndex
+        )
+    }
+
+    func encodedPrimaryWindowGeometryData(for snapshot: AppSessionSnapshot) -> Data? {
+        snapshot.windows.first.flatMap { primaryWindow in
+            Self.encodedPersistedWindowGeometryData(
+                frame: primaryWindow.frame,
+                display: primaryWindow.display
+            )
+        }
+    }
+
+    func persist(
+        snapshot: AppSessionSnapshot?,
+        removeWhenEmpty: Bool,
+        persistedGeometryData: Data?,
+        synchronously: Bool
+    ) {
+        persistSessionSnapshot(
+            snapshot,
+            removeWhenEmpty: removeWhenEmpty,
+            persistedGeometryData: persistedGeometryData,
+            synchronously: synchronously
+        )
+    }
+
+    // MARK: Save decision policy (forwards to the CmuxWorkspaces policy)
+
+    func shouldWriteSessionSnapshotSynchronously(includeScrollback: Bool) -> Bool {
+        Self.sessionPersistenceDecisionPolicy.shouldWriteSessionSnapshotSynchronously(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: includeScrollback
+        )
+    }
+
+    func shouldSkipSessionSaveDuringRestore(includeScrollback: Bool) -> Bool {
+        Self.sessionPersistenceDecisionPolicy.shouldSkipSessionSaveDuringRestore(
+            isApplyingSessionRestore: isApplyingSessionRestore,
+            includeScrollback: includeScrollback
+        )
+    }
+
+    func shouldSkipSessionAutosaveForUnchangedFingerprint(
+        includeScrollback: Bool,
+        previousFingerprint: Int?,
+        currentFingerprint: Int?,
+        lastPersistedAt: Date,
+        now: Date
+    ) -> Bool {
+        Self.sessionPersistenceDecisionPolicy.shouldSkipSessionAutosaveForUnchangedFingerprint(
+            isTerminatingApp: isTerminatingApp,
+            includeScrollback: includeScrollback,
+            previousFingerprint: previousFingerprint,
+            currentFingerprint: currentFingerprint,
+            lastPersistedAt: lastPersistedAt,
+            now: now
+        )
+    }
+
+    func shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: Bool) -> Bool {
+        Self.sessionPersistenceDecisionPolicy.shouldSaveSessionSnapshotOnRestoreCompletion(
+            isManualReopen: isManualReopen
+        )
+    }
+
+    // MARK: Autosave fingerprint + save
+
+    func sessionAutosaveFingerprint(
+        includeScrollback: Bool,
+        restorableAgentIndex: AppSessionResumeIndexes
+    ) -> Int? {
+        guard let indexes = restorableAgentIndex.processDetectedResumeIndexes else { return nil }
+        return sessionAutosaveFingerprint(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: indexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: indexes.surfaceResumeBindingIndex
+        )
+    }
+
+    @discardableResult
+    func saveSessionSnapshot(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool,
+        restorableAgentIndex: AppSessionResumeIndexes?
+    ) -> Bool {
+        let indexes = restorableAgentIndex?.processDetectedResumeIndexes
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: indexes?.restorableAgentIndex,
+            surfaceResumeBindingIndex: indexes?.surfaceResumeBindingIndex
+        )
+    }
+
+    // MARK: Process-detected resume indexes
+
+    func loadProcessDetectedResumeIndexes() async -> AppSessionResumeIndexes {
+        AppSessionResumeIndexes(payload: await ProcessDetectedResumeIndexes.load())
+    }
+
+    func loadProcessDetectedResumeIndexesSynchronously() -> AppSessionResumeIndexes {
+        AppSessionResumeIndexes(payload: ProcessDetectedResumeIndexes.loadSynchronously())
+    }
+}
+
+extension AppSessionResumeIndexes {
+    /// Unwraps the opaque carrier back to the app's resume-index pair, or nil
+    /// when (defensively) the payload is some other carrier.
+    fileprivate var processDetectedResumeIndexes: ProcessDetectedResumeIndexes? {
+        payload as? ProcessDetectedResumeIndexes
+    }
+}
 
 #if DEBUG
 // MARK: - CmuxTestSupport diagnostics seam conformance

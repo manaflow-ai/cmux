@@ -1,5 +1,6 @@
 import Foundation
 import CmuxCore
+import CmuxPanes
 import CmuxBrowser
 import CmuxSettings
 import Combine

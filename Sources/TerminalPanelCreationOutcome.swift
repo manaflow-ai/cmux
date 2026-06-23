@@ -1,3 +1,4 @@
+import CmuxPanes
 import Foundation
 
 /// Outcome of a terminal split/surface creation request in a workspace that may

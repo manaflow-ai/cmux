@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxNotifications
+import CmuxPanes
 import Foundation
 
 /// App-side adapter that lets the `CmuxNotifications` navigation seams reach

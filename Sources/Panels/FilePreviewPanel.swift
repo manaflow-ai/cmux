@@ -1,5 +1,6 @@
 import AppKit
 import AVKit
+import CmuxPanes
 import Bonsplit
 import Combine
 import Foundation

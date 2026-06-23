@@ -1,5 +1,6 @@
 import Bonsplit
 import CmuxBrowser
+import CmuxPanes
 import Foundation
 
 /// `Workspace`'s conformance to the `CmuxBrowser` ``BrowserOpenWorkspaceHandle``

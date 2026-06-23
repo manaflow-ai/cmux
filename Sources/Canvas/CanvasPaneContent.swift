@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCanvasUI
+import CmuxPanes
 
 /// How a panel's content view mounts into a canvas pane.
 ///

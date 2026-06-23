@@ -1,3 +1,4 @@
+import CmuxPanes
 import CryptoKit
 import Foundation
 import WebKit

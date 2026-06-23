@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxPanes
 import CmuxShortcuts
 import ObjectiveC
 import WebKit

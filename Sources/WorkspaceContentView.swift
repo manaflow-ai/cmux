@@ -1,3 +1,4 @@
+import CmuxPanes
 import SwiftUI
 import Foundation
 import AppKit

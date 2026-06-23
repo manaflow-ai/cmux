@@ -1,3 +1,4 @@
+import CmuxPanes
 import CmuxWorkspaces
 import Bonsplit
 import Foundation
