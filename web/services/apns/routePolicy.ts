@@ -32,6 +32,11 @@ export type PushPayload = {
   readonly workspaceId: string | null;
   readonly surfaceId: string | null;
   /**
+   * The Mac device UUID that owns the workspace/surface ids. Needed because
+   * workspace ids are Mac-local and can collide across paired Macs.
+   */
+  readonly macDeviceId: string | null;
+  /**
    * Stable Mac-side notification id. Sent to APNs as `apns-collapse-id` and as
    * `cmux.notificationId` so cross-device dismiss-sync can target the exact
    * delivered banner. An opaque id, never terminal content.
@@ -88,6 +93,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   const text = boundedString(body.body, MAX_PUSH_BODY_CHARS);
   const workspaceId = body.workspaceId == null ? "" : boundedString(body.workspaceId, MAX_PUSH_ID_CHARS);
   const surfaceId = body.surfaceId == null ? "" : boundedString(body.surfaceId, MAX_PUSH_ID_CHARS);
+  const macDeviceId = body.macDeviceId == null ? "" : boundedString(body.macDeviceId, MAX_PUSH_ID_CHARS);
   const notificationId = body.notificationId == null ? "" : boundedString(body.notificationId, MAX_PUSH_ID_CHARS);
 
   if (title == null) return { ok: false, error: "title_too_long" };
@@ -95,6 +101,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
   if (text == null) return { ok: false, error: "body_too_long" };
   if (workspaceId == null) return { ok: false, error: "workspace_id_too_long" };
   if (surfaceId == null) return { ok: false, error: "surface_id_too_long" };
+  if (macDeviceId == null) return { ok: false, error: "mac_device_id_too_long" };
   if (notificationId == null) return { ok: false, error: "notification_id_too_long" };
   // A dismiss push is banner-less by design; only the visible kind needs text.
   if (kind === "notify" && !title && !text) return { ok: false, error: "empty_notification" };
@@ -114,6 +121,7 @@ export function parsePushPayload(body: Record<string, unknown>): PushPayloadResu
       body: text,
       workspaceId: workspaceId || null,
       surfaceId: surfaceId || null,
+      macDeviceId: macDeviceId || null,
       notificationId: notificationId || null,
       dismissedIds: kind === "dismiss" ? dismissedIds.value : [],
       badgeCount: parseBadgeCount(body.badgeCount),
