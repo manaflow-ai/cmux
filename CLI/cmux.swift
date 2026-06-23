@@ -3845,11 +3845,15 @@ struct CMUXCLI {
         case "mobile":
             let sub = commandArgs.first?.lowercased()
             let rest = Array(commandArgs.dropFirst())
+            let mobileUsage = String(
+                localized: "cli.mobile.setFont.usage",
+                defaultValue: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]"
+            )
             switch sub {
             case "set-font":
                 guard let sizeArg = rest.first(where: { !$0.hasPrefix("--") }),
                       let size = Double(sizeArg), size.isFinite, size > 0 else {
-                    throw CLIError(message: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]")
+                    throw CLIError(message: mobileUsage)
                 }
                 var params: [String: Any] = ["font_size": size]
                 if let surface = optionValue(rest, name: "--surface") {
@@ -3865,12 +3869,20 @@ struct CMUXCLI {
                 }
                 let delivered = (response["delivered"] as? Bool) ?? false
                 if delivered {
-                    print("Set mobile terminal font to \(size)pt on connected device(s).")
+                    print(localizedFormat(
+                        "cli.mobile.setFont.applied",
+                        defaultValue: "Set mobile terminal font to %@pt on connected device(s).",
+                        sizeArg
+                    ))
                 } else {
-                    print("Set mobile terminal font to \(size)pt (no iOS device is currently connected).")
+                    print(localizedFormat(
+                        "cli.mobile.setFont.appliedNoDevice",
+                        defaultValue: "Set mobile terminal font to %@pt (no iOS device is currently connected).",
+                        sizeArg
+                    ))
                 }
             default:
-                throw CLIError(message: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]")
+                throw CLIError(message: mobileUsage)
             }
 
         case "rpc":
