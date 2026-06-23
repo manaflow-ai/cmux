@@ -278,8 +278,14 @@ final class AgentChatSessionRegistry {
         if let workspaceID = event.workspaceId, !workspaceID.isEmpty {
             record.workspaceID = workspaceID
         }
+        if let surfaceID = event.surfaceId, !surfaceID.isEmpty {
+            record.surfaceID = surfaceID
+        }
         if let cwd = event.cwd, !cwd.isEmpty {
             record.workingDirectory = cwd
+        }
+        if let transcriptPath = event.transcriptPath, !transcriptPath.isEmpty {
+            record.transcriptPath = transcriptPath
         }
         record.lastActivityAt = event.receivedAt
 

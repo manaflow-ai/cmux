@@ -250,27 +250,11 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
     [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
 }
 
-# Best-effort, one-way launch signal BEFORE exec. Detection happens at launch
-# even if Codex's own SessionStart is delayed or the injection path is imperfect.
-# The wrapper has no Codex session_id yet, so it sends only surface/pid/cwd; the
-# registry dedups so Codex's own SessionStart (with the real id) reconciles it.
-# Fully fire-and-forget: never block startup, never fail the launch.
-cmux_codex_fire_launch_session_start() {
-    local cmux_bin="$CMUX_CODEX_HOOK_CMUX_BIN"
-    [[ -n "$cmux_bin" ]] || return 0
-    local -a base=()
-    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
-        base=("$cmux_bin" --socket "$CMUX_SOCKET_PATH")
-    else
-        base=("$cmux_bin")
-    fi
-    # `{}` on stdin: an empty hook payload. The handler falls back to env
-    # (CMUX_SURFACE_ID / CMUX_CODEX_PID) for binding when stdin carries no id.
-    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \
-        "${base[@]}" hooks codex session-start </dev/null >/dev/null 2>&1 &
-    disown 2>/dev/null || true
-}
-cmux_codex_fire_launch_session_start
+# NOTE: no wrapper-fired launch session-start. Codex's own injected SessionStart
+# hook (below) fires within ~1s carrying Codex's REAL session_id, so it is the
+# single authoritative signal. A pre-exec wrapper-fired session-start has no
+# session id and made the handler mint a junk `fallback-*` record alongside the
+# real one (a phantom duplicate in the GUI), so it is intentionally omitted.
 
 # Build the per-invocation [hooks] injection. Each event runs the SAME gated
 # command cmux installs into ~/.codex when hooks are persisted: resolve the cmux
