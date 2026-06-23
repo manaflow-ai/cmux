@@ -9694,6 +9694,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(textView.string, "")
     }
 
+    func testTextBoxShiftTabDefersDuringIMEComposition() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        var cycleCount = 0
+        textView.onCycleSubmitAction = {
+            cycleCount += 1
+        }
+        textView.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(textView.hasMarkedText())
+
+        guard let shiftTabEvent = makeKeyDownEvent(
+            key: "\t",
+            modifiers: .shift,
+            keyCode: UInt16(kVK_Tab),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Shift-Tab event")
+            return
+        }
+
+        textView.keyDown(with: shiftTabEvent)
+
+        XCTAssertEqual(cycleCount, 0)
+        XCTAssertTrue(textView.hasMarkedText())
+    }
+
     func testTextBoxReturnDoesNotSubmitWhileIMEHasMarkedText() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         var submitCount = 0

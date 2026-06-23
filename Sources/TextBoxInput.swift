@@ -3245,7 +3245,7 @@ struct TextBoxInputContainer: View {
             text: "",
             attachmentCount: 0
         )
-        let submitPlan = dispatchPlan(for: partsToSend, applying: effectiveSubmitAction)
+        let submitPlan = dispatchPlan(partsToSend, applying: effectiveSubmitAction)
         TextBoxSubmit.sendEvents(
             submitPlan.events,
             via: surface,
@@ -4764,7 +4764,8 @@ final class TextBoxInputTextView: NSTextView {
         }
 
         if event.keyCode == UInt16(kVK_Tab),
-           flags == NSEvent.ModifierFlags.shift {
+           flags == NSEvent.ModifierFlags.shift,
+           !eventHasMarkedText {
             onCycleSubmitAction()
             return
         }
