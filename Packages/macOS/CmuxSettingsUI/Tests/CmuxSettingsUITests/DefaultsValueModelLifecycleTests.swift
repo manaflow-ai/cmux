@@ -46,6 +46,7 @@ import Testing
             key: key,
             makeStream: { stream }
         )
+        model?.startObserving()
 
         // Drive one value through so the model's task is parked awaiting the
         // next element — the exact suspended state where `weak self` teardown
@@ -69,6 +70,26 @@ import Testing
             spins += 1
         }
         #expect(flag.didTerminate)
+    }
+
+    @Test func initializationDoesNotStartObservationStream() {
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: "defaults-value-model-lazy-observation")!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<Bool>.makeStream()
+        var streamCreations = 0
+
+        _ = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: {
+                streamCreations += 1
+                return stream
+            }
+        )
+
+        #expect(streamCreations == 0)
     }
 
     @Test func setUpdatesCurrentBeforeObservationRoundTrip() {
@@ -109,5 +130,28 @@ import Testing
         model.acceptCommittedValue(true)
         #expect(model.current == true)
         #expect(UserDefaults(suiteName: suiteName)?.object(forKey: key.userDefaultsKey) == nil)
+    }
+
+    @Test func setAfterCommitRunsAfterStoreWrite() async {
+        let suiteName = "defaults-value-model-after-commit"
+        UserDefaults(suiteName: suiteName)?.removePersistentDomain(forName: suiteName)
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!
+        )
+        let key = SettingCatalog().betaFeatures.extensions
+        let (stream, _) = AsyncStream<Bool>.makeStream()
+        let model = DefaultsValueModel(
+            store: store,
+            key: key,
+            makeStream: { stream }
+        )
+
+        let valueObservedAfterCommit = await withCheckedContinuation { continuation in
+            model.set(true) {
+                continuation.resume(returning: store.initialValue(for: key))
+            }
+        }
+
+        #expect(valueObservedAfterCommit == true)
     }
 }

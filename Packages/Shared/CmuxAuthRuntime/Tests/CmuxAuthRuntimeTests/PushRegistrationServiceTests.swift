@@ -47,6 +47,7 @@ struct FakeTokenProvider: TokenProviding {
         guard let access else { throw AuthError.unauthorized }
         return access
     }
+    func storedAccessToken() async -> String? { access }
     func refreshToken() async -> String? { refresh }
     func forceRefreshAccessToken() async throws -> String {
         guard let access else { throw AuthError.unauthorized }
@@ -54,7 +55,16 @@ struct FakeTokenProvider: TokenProviding {
     }
 }
 
-@Suite struct PushRegistrationServiceTests {
+// The push service records every request into the process-wide
+// `RecordingURLProtocol.recorder` singleton (URLProtocol only accepts protocol
+// *types*, not per-instance recorders, so the recorder must be reachable
+// statically). The reset-then-assert-aggregate tests below (e.g.
+// `registeringWhileDisabledCachesButDoesNotUpload`) call `recorder.reset()` and
+// then assert on the aggregate `methods`. Swift Testing runs `@Test` functions
+// in parallel by default, so without serialization a sibling test can reset or
+// append to the same singleton between this test's reset and its assertion,
+// failing nondeterministically. `.serialized` removes that interleaving.
+@Suite(.serialized) struct PushRegistrationServiceTests {
     private func makeService(
         tokenProvider: any TokenProviding = FakeTokenProvider()
     ) -> (PushRegistrationService, UserDefaults) {

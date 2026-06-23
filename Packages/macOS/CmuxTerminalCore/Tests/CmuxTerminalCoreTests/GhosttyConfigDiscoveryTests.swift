@@ -115,18 +115,20 @@ private struct NoFontProbe: GhosttyFontProbing {
 }
 
 @Suite struct GhosttyConfigDiscoveryLegacyTests {
+    private let discovery = GhosttyConfigDiscovery(fontProbe: NoFontProbe())
+
     @Test func loadLegacyOnlyWhenNewIsEmptyAndLegacyNonEmpty() {
-        #expect(GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 10))
-        #expect(!GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 5, legacyConfigFileSize: 10))
-        #expect(!GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 0))
-        #expect(!GhosttyConfigDiscovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: nil, legacyConfigFileSize: 10))
+        #expect(discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 10))
+        #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 5, legacyConfigFileSize: 10))
+        #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: 0, legacyConfigFileSize: 0))
+        #expect(!discovery.shouldLoadLegacyGhosttyConfig(newConfigFileSize: nil, legacyConfigFileSize: 10))
     }
 
     @Test func includeLegacyInScanPathsWhenNewMissingOrEmpty() {
-        #expect(GhosttyConfigDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: nil, legacyConfigFileSize: 10))
-        #expect(GhosttyConfigDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 0, legacyConfigFileSize: 10))
-        #expect(!GhosttyConfigDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 5, legacyConfigFileSize: 10))
-        #expect(!GhosttyConfigDiscovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 0, legacyConfigFileSize: 0))
+        #expect(discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: nil, legacyConfigFileSize: 10))
+        #expect(discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 0, legacyConfigFileSize: 10))
+        #expect(!discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 5, legacyConfigFileSize: 10))
+        #expect(!discovery.shouldIncludeLegacyGhosttyConfigInScanPaths(newConfigFileSize: 0, legacyConfigFileSize: 0))
     }
 }
 

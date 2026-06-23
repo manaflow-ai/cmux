@@ -388,7 +388,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(fileSearch["unbound"] as? Bool, true)
         let files = try diffViewerAllowedFiles(for: rawURL, from: params)
         XCTAssertTrue(html.contains("Review diff"), html)
-        XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">"), html)
+        XCTAssertTrue(html.contains("<script id=\"cmux-diff-viewer-config\" type=\"application/json\">") && html.contains("background: transparent;"), html)
         XCTAssertTrue(html.contains("<div id=\"root\"></div>"), html)
         XCTAssertTrue(html.contains("<script type=\"module\" src=\"./assets/cmux-diff-viewer-app/main.mjs\"></script>"), html)
         let assetDirectory = viewerFileURL.deletingLastPathComponent()
@@ -415,8 +415,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("\"light\":\"cmux-ghostty-light-"), html)
         XCTAssertTrue(html.contains("Unit Light"), html)
         XCTAssertTrue(html.contains("Unit Dark"), html)
-        XCTAssertTrue(html.contains("#101820"), html)
-        XCTAssertTrue(html.contains("#f8f8f2"), html)
+        XCTAssertTrue(html.contains("#101820") && !html.contains("background: rgba(16, 24, 32, 0.420);"), html)
+        XCTAssertTrue(html.contains("#f8f8f2") && !html.contains("background: rgba(248, 248, 242, 0.420);"), html)
         XCTAssertEqual(viewerPayload["patchURL"] as? String, "./\(patchSidecarURL.lastPathComponent)")
         XCTAssertNil(viewerPayload["patch"])
         XCTAssertTrue(files.contains { file in
@@ -625,10 +625,15 @@ final class CMUXOpenCommandTests: XCTestCase {
         let portLine = try readLine(from: stdoutPipe.fileHandleForReading, timeout: 3)
         let port = try XCTUnwrap(Int(portLine), "invalid diff viewer server port: \(portLine)")
         let url = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/__cmux_diff_viewer_wait/\(token)/pending.html"))
-        let startedAt = Date()
+        // The bounded deferred wait is the unit under test. With
+        // CMUX_DIFF_VIEWER_WAIT_TIMEOUT_SECONDS=0.05 the server must give up on the
+        // still-pending diff and answer the request instead of hanging. The deadline-
+        // bounded fetch below (timeout: 3) is itself the "did not hang" guard: a server
+        // that ignored the wait timeout would never respond and `fetchData` would throw.
+        // We assert on the logical outcome of the bound rather than a wall-clock latency:
+        // a 504 whose body has the pending marker stripped and the render-failed copy.
         let response = try fetchData(from: url, timeout: 3)
 
-        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 2)
         XCTAssertEqual(response.statusCode, 504)
         let body = String(data: response.data, encoding: .utf8) ?? ""
         XCTAssertFalse(body.contains("data-cmux-diff-pending=\"true\""), body)

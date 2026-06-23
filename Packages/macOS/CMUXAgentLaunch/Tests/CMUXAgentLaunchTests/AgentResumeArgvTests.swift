@@ -55,6 +55,59 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("OpenCode resume drops internal TUI settings selector")
+    func opencodeResumeDropsInternalTUISettingsSelector() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "opencode",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "opencode",
+                    "tui-settings",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                ]
+            ) == ["opencode", "--session", "SID", "--model", "anthropic/claude-sonnet-4-6"]
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "omo",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "cmux",
+                    "omo",
+                    "tui-settings",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                ]
+            ) == .resolved(["cmux", "omo", "--session", "SID", "--model", "anthropic/claude-sonnet-4-6"])
+        )
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "opencode",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "opencode",
+                    "--agent",
+                    "tui-settings",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                ]
+            ) == [
+                "opencode",
+                "--session",
+                "SID",
+                "--agent",
+                "tui-settings",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+            ]
+        )
+    }
+
     @Test("Captured executable path overrides the fallback executable")
     func executablePathOverridesFallback() {
         // Non-claude kinds replay the captured executable path verbatim.
@@ -74,6 +127,30 @@ struct AgentResumeArgvTests {
             AgentResumeArgv().launcherResolution(
                 launcher: "claudeTeams", sessionId: "SID", executablePath: nil, arguments: ["cmux", "claude-teams"]
             ) == .resolved(["cmux", "claude-teams", "--resume", "SID"])
+        )
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "claudeTeams",
+                sessionId: "SID",
+                executablePath: nil,
+                arguments: [
+                    "cmux",
+                    "claude-teams",
+                    "--worktree",
+                    "/tmp/team repo",
+                    "--tmux",
+                    "please",
+                    "--permission-mode",
+                    "bypassPermissions",
+                ]
+            ) == .resolved([
+                "cmux",
+                "claude-teams",
+                "--resume",
+                "SID",
+                "--worktree",
+                "/tmp/team repo",
+            ])
         )
         #expect(
             AgentResumeArgv().launcherResolution(

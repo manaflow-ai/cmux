@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -69,6 +70,34 @@ public struct SidebarSection: View {
             SettingsSectionHeader(String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"), section: .sidebarAppearance)
             mainCard
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            matchTerminal,
+            hideAll,
+            wrapTitles,
+            showDesc,
+            branchVerticalLayout,
+            stackBranchDir,
+            pathLastOnly,
+            showNotification,
+            showBranchDir,
+            showPR,
+            watchGit,
+            prClickable,
+            prLinks,
+            portLinks,
+            showSSH,
+            showPorts,
+            showLog,
+            showProgress,
+            showMetadata,
+            rightMaxWidth,
+            rememberedRightMaxWidth,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     /// Persists a new sidebar font size, cancelling any in-flight save so a
@@ -172,7 +201,7 @@ public struct SidebarSection: View {
                         .accessibilityIdentifier("SettingsSidebarFontSizeSlider")
 
                         Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(sidebarFont.points)))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
 
@@ -187,7 +216,7 @@ public struct SidebarSection: View {
 
                     if fontSaveFailed {
                         Text(String(localized: "settings.sidebarAppearance.fontSize.saveFailed", defaultValue: "Couldn't save sidebar font size. Please try again."))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)

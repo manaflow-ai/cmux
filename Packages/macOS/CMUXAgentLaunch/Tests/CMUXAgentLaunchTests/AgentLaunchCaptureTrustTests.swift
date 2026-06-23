@@ -41,4 +41,72 @@ final class AgentLaunchCaptureTrustTests: XCTestCase {
         // `--chrome` is a long option, not a shell command-string flag.
         XCTAssertFalse(AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(["zsh", "--chrome"]))
     }
+
+    func testPIDProcessMetadataMustMatchHookKind() {
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex", "--sandbox", "workspace-write"],
+                kind: "codex"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKnownAgent(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex", "--sandbox", "workspace-write"]
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "node",
+                arguments: ["node", "/Users/alice/.claude/local/claude.js"],
+                kind: "claude"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "grok-macos-aarch64",
+                arguments: ["/Users/alice/.local/bin/grok-macos-aarch64", "-r", "session"],
+                kind: "grok"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "kiro-cli",
+                arguments: ["/Users/alice/.cargo/bin/kiro-cli", "chat"],
+                kind: "kiro"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "acme-agent",
+                arguments: ["/Users/alice/bin/acme-agent", "--session", "native-session"],
+                kind: "acme-agent"
+            )
+        )
+        XCTAssertFalse(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "cmux DEV",
+                arguments: [
+                    "/tmp/cmux-tests/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+                    "-NSTreatUnknownArgumentsAsOpen",
+                ],
+                kind: "codex"
+            )
+        )
+        XCTAssertFalse(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "codex",
+                arguments: ["/opt/homebrew/bin/codex"],
+                kind: "claude"
+            )
+        )
+        XCTAssertTrue(
+            AgentLaunchCaptureTrust.nativeProcessDescribesKind(
+                processName: "agy",
+                arguments: ["/usr/local/bin/agy"],
+                kind: "antigravity"
+            )
+        )
+    }
 }

@@ -1,8 +1,12 @@
 public import AppKit
+import QuartzCore
 import CmuxCanvas
 
 
 extension CanvasRootView: CanvasViewportControlling {
+    private static let discreteZoomAnimationKey = "cmux.canvas.discreteZoom"
+    private static let discreteZoomAnimationDuration: TimeInterval = 0.2
+
     public func modelDidChangeExternally(animated: Bool) {
         reconcilePanes()
         applyZOrder()
@@ -33,6 +37,7 @@ extension CanvasRootView: CanvasViewportControlling {
     }
 
     public func revealPane(_ panelId: UUID, animated: Bool) {
+        cancelDiscreteZoomAnimation()
         guard let frame = model.frame(of: panelId) else { return }
         let docFrame = documentRect(fromCanvas: frame)
         let visible = scrollView.contentView.documentVisibleRect
@@ -54,13 +59,11 @@ extension CanvasRootView: CanvasViewportControlling {
             scrollView.maxMagnification
         )
         setMagnification(target)
-        updateMinimap(reveal: true)
     }
 
     public func resetZoom() {
         overviewRestore = nil
         setMagnification(1.0)
-        updateMinimap(reveal: true)
     }
 
     public var currentMagnification: CGFloat {
@@ -80,6 +83,16 @@ extension CanvasRootView: CanvasViewportControlling {
     func setViewport(center: CGPoint, magnification: CGFloat?, notifySettled: Bool) {
         // An explicit viewport set invalidates the overview round-trip restore.
         overviewRestore = nil
+        cancelDiscreteZoomAnimation()
+        applyViewport(center: center, magnification: magnification, notifySettled: notifySettled)
+    }
+
+    private func applyViewport(
+        center: CGPoint,
+        magnification: CGFloat?,
+        notifySettled: Bool,
+        notifyGeometry: Bool = true
+    ) {
         let targetMagnification: CGFloat
         if let magnification {
             targetMagnification = min(
@@ -108,7 +121,9 @@ extension CanvasRootView: CanvasViewportControlling {
         scrollView.contentView.setBoundsOrigin(targetOrigin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
         updateMinimap(reveal: true)
-        callbacks.onViewportGeometryChanged(window)
+        if notifyGeometry {
+            callbacks.onViewportGeometryChanged(window)
+        }
         if notifySettled {
             callbacks.onViewportSettled(window)
         }
@@ -120,6 +135,7 @@ extension CanvasRootView: CanvasViewportControlling {
     /// portals on a debounce.
     func zoom(by factor: CGFloat, towardWindowLocation windowLocation: CGPoint) {
         overviewRestore = nil
+        cancelDiscreteZoomAnimation()
         let target = min(
             max(scrollView.magnification * factor, scrollView.minMagnification),
             scrollView.maxMagnification
@@ -131,32 +147,109 @@ extension CanvasRootView: CanvasViewportControlling {
         updateMinimap(reveal: true)
     }
 
-    /// Animates to `magnification`, keeping the current viewport center
-    /// fixed (explicit origin math; `setMagnification(centeredAt:)` drifts
-    /// on large deltas).
+    /// Applies `magnification`, keeping the current viewport center fixed.
     private func setMagnification(_ magnification: CGFloat) {
+        cancelDiscreteZoomAnimation()
         guard magnification != scrollView.magnification else { return }
-        let visible = scrollView.contentView.documentVisibleRect
-        let center = CGPoint(x: visible.midX, y: visible.midY)
-        let viewportSize = scrollView.contentSize
-        let clipSize = CGSize(
-            width: viewportSize.width / magnification,
-            height: viewportSize.height / magnification
-        )
-        let targetOrigin = CGPoint(
-            x: center.x - clipSize.width / 2,
-            y: center.y - clipSize.height / 2
-        )
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.2
-            context.allowsImplicitAnimation = true
-            scrollView.animator().magnification = magnification
-            scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
+        let center = currentCenterInCanvas
+        if shouldReduceMotionForDiscreteZoom() {
+            applyViewport(center: center, magnification: magnification, notifySettled: true)
+            return
         }
+        animateDiscreteZoom(to: magnification, centeredAtCanvas: center)
+    }
+
+    private func animateDiscreteZoom(to magnification: CGFloat, centeredAtCanvas center: CGPoint) {
+        guard let layer = documentView.layer else {
+            applyViewport(center: center, magnification: magnification, notifySettled: true)
+            return
+        }
+        let sourceMagnification = scrollView.magnification
+        guard sourceMagnification > 0 else {
+            applyViewport(center: center, magnification: magnification, notifySettled: true)
+            return
+        }
+
+        let sourceVisibleCanvas = canvasRect(fromDocument: scrollView.contentView.documentVisibleRect)
+        applyViewport(center: center, magnification: magnification, notifySettled: false, notifyGeometry: false)
+        recomputeDocumentGeometry()
+        applyAllPaneFrames()
+
+        let targetMagnification = scrollView.magnification
+        guard targetMagnification > 0 else {
+            callbacks.onViewportSettled(window)
+            return
+        }
+        let sourceVisibleInTargetDocument = documentRect(fromCanvas: sourceVisibleCanvas)
+        updateLifecycle(visibleRect: sourceVisibleInTargetDocument.union(scrollView.contentView.documentVisibleRect))
+        updateMinimap(reveal: true)
+        callbacks.onViewportGeometryChanged(window)
+
+        let targetAnchor = CGPoint(
+            x: center.x - documentOriginInCanvas.x,
+            y: center.y - documentOriginInCanvas.y
+        )
+        let compensationScale = sourceMagnification / targetMagnification
+        var compensation = CATransform3DIdentity
+        compensation = CATransform3DTranslate(compensation, targetAnchor.x, targetAnchor.y, 0)
+        compensation = CATransform3DScale(compensation, compensationScale, compensationScale, 1)
+        compensation = CATransform3DTranslate(compensation, -targetAnchor.x, -targetAnchor.y, 0)
+
+        discreteZoomAnimationGeneration &+= 1
+        let generation = discreteZoomAnimationGeneration
+        isDiscreteZoomAnimationActive = true
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.removeAnimation(forKey: Self.discreteZoomAnimationKey)
+        layer.sublayerTransform = CATransform3DIdentity
+        CATransaction.commit()
+
+        let animation = CABasicAnimation(keyPath: "sublayerTransform")
+        animation.fromValue = NSValue(caTransform3D: compensation)
+        animation.toValue = NSValue(caTransform3D: CATransform3DIdentity)
+        animation.duration = Self.discreteZoomAnimationDuration
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.finishDiscreteZoomAnimation(generation: generation)
+            }
+        }
+        layer.add(animation, forKey: Self.discreteZoomAnimationKey)
+        CATransaction.commit()
+    }
+
+    func cancelDiscreteZoomAnimation() {
+        guard isDiscreteZoomAnimationActive || documentView.layer?.animation(forKey: Self.discreteZoomAnimationKey) != nil else {
+            return
+        }
+        isDiscreteZoomAnimationActive = false
+        discreteZoomAnimationGeneration &+= 1
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        documentView.layer?.removeAnimation(forKey: Self.discreteZoomAnimationKey)
+        documentView.layer?.sublayerTransform = CATransform3DIdentity
+        CATransaction.commit()
+    }
+
+    func finishDiscreteZoomAnimation(generation: UInt64? = nil) {
+        if let generation, generation != discreteZoomAnimationGeneration { return }
+        guard isDiscreteZoomAnimationActive else { return }
+        isDiscreteZoomAnimationActive = false
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        documentView.layer?.removeAnimation(forKey: Self.discreteZoomAnimationKey)
+        documentView.layer?.sublayerTransform = CATransform3DIdentity
+        CATransaction.commit()
+        callbacks.onViewportSettled(window)
     }
 
     public func toggleOverview() {
+        cancelDiscreteZoomAnimation()
         if let restore = overviewRestore {
             overviewRestore = nil
             NSAnimationContext.runAnimationGroup { context in

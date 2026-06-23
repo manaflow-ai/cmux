@@ -9,12 +9,24 @@ concurrency:
 
 jobs:
   build-ghosttykit:
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     env:
       GHOSTTYKIT_CRASH_REPORT_SUBDIR: cmux/crash
       GHOSTTYKIT_BUILD_FLAVOR: crashsubdir-cmux-crash-v1
     steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          # Self-hosted macOS runners reuse the workspace. A job cancelled or
+          # killed mid-checkout can leave a stale .git/modules/*/index.lock that
+          # fails every later submodule checkout (e.g. ghostty). Clear them first.
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+          if [ -d "$ws/.git/modules" ]; then
+            find "$ws/.git/modules" -type f -name "*.lock" -delete 2>/dev/null || true
+          fi
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:

@@ -9,14 +9,18 @@ import Observation
 /// their body. The ``UserDefaultsSettingsStore`` API is `async`, so we
 /// can't bind directly. ``DefaultsValueModel`` is the bridge:
 ///
-/// 1. On construction it seeds ``current`` from a synchronous store read
-///    and subscribes to ``UserDefaultsSettingsStore/values(for:)`` for
-///    later changes. That stream is `.bufferingNewest(1)`, so a burst of
-///    writes (e.g. a `ColorPicker` drag) coalesces to the latest value
-///    instead of replaying every intermediate back through ``current``.
+/// 1. On construction it seeds ``current`` from the synchronous
+///    `UserDefaults` value, but does not subscribe yet. ``startObserving()``
+///    subscribes to
+///    ``UserDefaultsSettingsStore/values(for:)`` once the owning SwiftUI view
+///    is mounted. That stream is `.bufferingNewest(1)`, so a burst of writes
+///    (e.g. a `ColorPicker` drag) coalesces to the latest value instead of
+///    replaying every intermediate back through ``current``.
 /// 2. SwiftUI views read ``current`` synchronously and write via ``set(_:)``.
 /// 3. ``set(_:)`` updates ``current`` optimistically (immediate UI) and
-///    persists the write in a fire-and-forget `Task`.
+///    persists the write in a fire-and-forget `Task`. ``set(_:afterCommit:)``
+///    uses the same store path, then runs a main-actor side effect after the
+///    async write has committed.
 ///
 /// Lifecycle: the observation is owned by a ``SettingReadDriver`` held by the
 /// model. When the model deallocates, the driver's `deinit` cancels the
@@ -33,6 +37,7 @@ public final class DefaultsValueModel<Value: SettingCodable> {
 
     private let store: UserDefaultsSettingsStore
     private let key: DefaultsKey<Value>
+    @ObservationIgnored private let makeStream: () -> AsyncStream<Value>
 
     /// Owns the change-stream subscription and cancels it when this model
     /// deallocates.
@@ -44,7 +49,12 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     ///   - store: The UserDefaults store to read from and write to.
     ///   - key: The setting to observe.
     public convenience init(store: UserDefaultsSettingsStore, key: DefaultsKey<Value>) {
-        self.init(store: store, key: key, makeStream: { store.values(for: key) })
+        self.init(
+            store: store,
+            key: key,
+            initialValue: store.initialValue(for: key),
+            makeStream: { store.values(for: key) }
+        )
     }
 
     /// Designated initializer with an injectable change-stream factory.
@@ -61,14 +71,24 @@ public final class DefaultsValueModel<Value: SettingCodable> {
     init(
         store: UserDefaultsSettingsStore,
         key: DefaultsKey<Value>,
+        initialValue: Value? = nil,
         makeStream: @escaping () -> AsyncStream<Value>
     ) {
         self.store = store
         self.key = key
-        // Seed with the key default; the observation stream's first
-        // element (the actual stored value) lands immediately after and
-        // is the sole writer of `current` thereafter.
-        self.current = key.defaultValue
+        self.makeStream = makeStream
+        // Keep init side-effect-light. SwiftUI may evaluate
+        // `State(initialValue:)` for throwaway view values during layout, so
+        // observing starts only after the retained view appears.
+        self.current = initialValue ?? key.defaultValue
+    }
+
+    /// Starts the settings change stream for the retained model.
+    ///
+    /// Idempotent: the first call starts observation and later calls are
+    /// ignored by ``SettingReadDriver``. Views should call this from a mounted
+    /// lifecycle hook such as `.task`, not from their initializer.
+    public func startObserving() {
         observation.activate(makeStream) { [weak self] value in
             self?.current = value
         }
@@ -83,6 +103,24 @@ public final class DefaultsValueModel<Value: SettingCodable> {
         current = value
         Task { [store, key] in
             await store.set(value, for: key)
+        }
+    }
+
+    /// Persists the value, then runs `afterCommit` after storage accepts it.
+    ///
+    /// Use this when a setting has host-side live-update work that must observe
+    /// the committed defaults value. The write still goes through the injected
+    /// ``UserDefaultsSettingsStore`` instead of assuming `UserDefaults.standard`.
+    ///
+    /// - Parameters:
+    ///   - value: The new value to persist.
+    ///   - afterCommit: Main-actor work to run after ``UserDefaultsSettingsStore``
+    ///     has completed the write.
+    public func set(_ value: Value, afterCommit: @escaping @MainActor @Sendable () -> Void) {
+        current = value
+        Task { [store, key, afterCommit] in
+            await store.set(value, for: key)
+            await afterCommit()
         }
     }
 

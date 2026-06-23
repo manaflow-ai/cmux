@@ -68,8 +68,9 @@ extension MobileShellComposite {
             return
         }
         do {
+            let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
             var params: [String: Any] = [
-                "workspace_id": workspaceID.rawValue,
+                "workspace_id": remoteWorkspaceID.rawValue,
                 "surface_id": delivery.surfaceID,
                 "client_id": clientID,
                 "delta_lines": delivery.lines,

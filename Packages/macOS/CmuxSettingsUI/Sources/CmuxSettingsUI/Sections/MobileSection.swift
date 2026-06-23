@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -87,6 +88,17 @@ public struct MobileSection: View {
                 ))
             }
         }
+        .task { startObservingSettings() }
+    }
+
+    private func startObservingSettings() {
+        let models: [any SettingObservationStarting] = [
+            iOSPairingHost,
+            port,
+            displayName,
+            status,
+        ]
+        models.forEach { $0.startObserving() }
     }
 
     @ViewBuilder
@@ -213,7 +225,7 @@ public struct MobileSection: View {
     @ViewBuilder
     private func statusCaption(@ViewBuilder _ content: () -> some View) -> some View {
         content()
-            .font(.caption)
+            .cmuxFont(.caption)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.bottom, 8)
@@ -277,7 +289,7 @@ public struct MobileSection: View {
             subtitle: String(localized: "settings.mobile.connections.subtitle", defaultValue: "iOS devices currently attached to this Mac.")
         ) {
             Text("\(snapshot?.activeConnectionCount ?? 0)")
-                .font(.system(size: 13, weight: .medium))
+                .cmuxFont(size: 13, weight: .medium)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
@@ -295,16 +307,16 @@ public struct MobileSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(String(localized: "settings.mobile.routes.title", defaultValue: "Reachable at"))
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundStyle(.secondary)
                     ForEach(snapshot.routes) { route in
                         HStack(spacing: 8) {
                             Text(route.kindLabel)
-                                .font(.caption)
+                                .cmuxFont(.caption)
                                 .foregroundStyle(.secondary)
                             Spacer(minLength: 8)
                             Text(route.endpoint)
-                                .font(.caption.monospaced())
+                                .cmuxFont(.caption, design: .monospaced)
                                 .foregroundStyle(.primary)
                                 .textSelection(.enabled)
                         }

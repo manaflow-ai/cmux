@@ -70,6 +70,37 @@ struct MobileSettingsView: View {
                     ))
                 }
 
+                // Stack team switcher. Only shown when the user belongs to more than
+                // one team. Rendered as an INLINE picker — each team is a row with a
+                // checkmark on the current one — so every team is visible at a glance
+                // and one tap switches (clearer than a menu/navigation push for a
+                // small set). Selecting a team writes `selectedTeamID`, which the root
+                // view observes to re-scope the team-bound surfaces (paired Macs,
+                // presence, backup) to that team without dropping the live terminal.
+                if authManager.availableTeams.count > 1 {
+                    Section {
+                        Picker(selection: teamSelection) {
+                            ForEach(authManager.availableTeams) { team in
+                                Text(team.displayName).tag(team.id as String?)
+                            }
+                        } label: {
+                            EmptyView()
+                        }
+                        .pickerStyle(.inline)
+                        .accessibilityIdentifier("MobileSettingsTeamPicker")
+                    } header: {
+                        Label(
+                            L10n.string("mobile.settings.team", defaultValue: "Team"),
+                            systemImage: "person.2"
+                        )
+                    } footer: {
+                        Text(L10n.string(
+                            "mobile.settings.teamFooter",
+                            defaultValue: "Switches which Stack team's Macs and devices this app shows."
+                        ))
+                    }
+                }
+
                 // Hidden entirely when there is nothing to show (no connected
                 // Mac, no store to switch with, no rescan), so the no-devices
                 // screen's reuse of this sheet does not render an empty header.
@@ -138,19 +169,53 @@ struct MobileSettingsView: View {
                 }
 
                 #if DEBUG
-                Section("Developer") {
+                Section(L10n.string("mobile.settings.developer", defaultValue: "Developer")) {
                     Button {
                         showingChatDemo = true
                     } label: {
-                        Label("Agent Chat Demo", systemImage: "bubble.left.and.bubble.right")
+                        Label(
+                            L10n.string("mobile.settings.agentChatDemo", defaultValue: "Agent Chat Demo"),
+                            systemImage: "bubble.left.and.bubble.right"
+                        )
                     }
                     .accessibilityIdentifier("MobileSettingsAgentChatDemo")
                     Button {
                         showingTerminalDemo = true
                     } label: {
-                        Label("Terminal Log Demo", systemImage: "terminal")
+                        Label(
+                            L10n.string("mobile.settings.terminalLogDemo", defaultValue: "Terminal Log Demo"),
+                            systemImage: "terminal"
+                        )
                     }
                     .accessibilityIdentifier("MobileSettingsTerminalLogDemo")
+
+                    debugLayoutSlider(
+                        title: L10n.string(
+                            "mobile.settings.unreadIndicatorLeftness",
+                            defaultValue: "Unread Indicator Leftness"
+                        ),
+                        value: $displaySettings.unreadIndicatorLeftShift,
+                        range: MobileDisplaySettings.unreadIndicatorLeftShiftRange,
+                        identifier: "MobileSettingsUnreadIndicatorLeftness"
+                    )
+                    debugLayoutSlider(
+                        title: L10n.string(
+                            "mobile.settings.profilePictureLeftness",
+                            defaultValue: "Profile Picture Leftness"
+                        ),
+                        value: $displaySettings.profilePictureLeftShift,
+                        range: MobileDisplaySettings.profilePictureLeftShiftRange,
+                        identifier: "MobileSettingsProfilePictureLeftness"
+                    )
+                    debugLayoutSlider(
+                        title: L10n.string(
+                            "mobile.settings.profilePictureSize",
+                            defaultValue: "Profile Picture Size"
+                        ),
+                        value: $displaySettings.profilePictureSize,
+                        range: MobileDisplaySettings.profilePictureSizeRange,
+                        identifier: "MobileSettingsProfilePictureSize"
+                    )
                 }
                 #endif
 
@@ -269,6 +334,21 @@ struct MobileSettingsView: View {
         !connectedHostName.isEmpty || store != nil || rescanQR != nil
     }
 
+    /// Drives the team Picker. Reads the EFFECTIVE current team (`resolvedTeamID`,
+    /// which falls back to the first team when nothing is explicitly selected) so
+    /// the picker always shows a concrete selection, and writes the user's choice
+    /// to `selectedTeamID` (persisted; observed by the root for the lazy re-scope).
+    private var teamSelection: Binding<String?> {
+        Binding(
+            get: { authManager.resolvedTeamID },
+            set: { newValue in
+                if let newValue, newValue != authManager.selectedTeamID {
+                    authManager.selectedTeamID = newValue
+                }
+            }
+        )
+    }
+
     private var accountEmail: String {
         let email = authManager.currentUser?.primaryEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let email, !email.isEmpty { return email }
@@ -280,5 +360,34 @@ struct MobileSettingsView: View {
         if let name, !name.isEmpty { return name }
         return L10n.string("mobile.settings.account", defaultValue: "Account")
     }
+
+    #if DEBUG
+    private func debugLayoutSlider(
+        title: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        identifier: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(debugPointValue(value.wrappedValue))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: range, step: 1)
+        }
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func debugPointValue(_ value: Double) -> String {
+        String(
+            format: L10n.string("mobile.settings.pointsFormat", defaultValue: "%lld pt"),
+            Int64(value.rounded())
+        )
+    }
+    #endif
+
 }
 #endif
