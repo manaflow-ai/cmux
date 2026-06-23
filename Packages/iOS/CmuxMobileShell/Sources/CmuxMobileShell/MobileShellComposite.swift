@@ -218,12 +218,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
-    /// The Mac's workspace groups, in section order. Empty when the Mac reports no
-    /// groups (or is old enough not to emit them). Drives the collapsible group
-    /// sections in the workspace list.
     /// The group sections the UI renders. A materialized derivation of
-    /// ``workspacesByMac`` (currently the foreground Mac's groups).
-    public private(set) var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+    /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
+    /// `isCollapsed` reflects this device's choice (see ``groupCollapseStore``),
+    /// not the Mac's live value.
+    public internal(set) var workspaceGroups: [MobileWorkspaceGroupPreview] = []
 
     /// The distinct per-Mac color index map (the SAME assignment the aggregated
     /// workspace avatars use), so the Computers screen can color each Mac's row to
@@ -247,6 +246,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         return result
     }
+
+    /// Device-local collapse state for workspace groups (per-device UI preference:
+    /// collapsing on the phone must not collapse on the Mac). Seeded once from the
+    /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
+    /// injected so tests/previews can pass a suite-scoped `UserDefaults`.
+    @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -760,10 +765,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
-        draftStore: (any TerminalDraftStoring)? = nil
+        draftStore: (any TerminalDraftStoring)? = nil,
+        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
+        self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
         self.pairedMacRestoreBoundary = pairedMacRestoreBoundary
         self.deviceRegistry = deviceRegistry
@@ -4507,7 +4514,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     if !resolvedForegroundMacID.isEmpty {
                         foregroundMacDeviceID = resolvedForegroundMacID
                     }
-                    applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
+                    applyRemoteWorkspaceList(
+                        response,
+                        preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
+                        // Scoped requests omit groups; only a non-scoped (full) list
+                        // is authoritative for the device-local collapse store.
+                        groupsAreAuthoritative: !workspaceListRequest.isScoped
+                    )
                     // Drop the now-stale previous-foreground/anonymous snapshot so it
                     // doesn't linger in the aggregate (it's re-added as a secondary
                     // below if still reachable).
@@ -6551,17 +6564,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
-        mergeExistingWorkspaces: Bool = false
+        mergeExistingWorkspaces: Bool = false,
+        groupsAreAuthoritative: Bool = true
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
         // recompute from the source of truth automatically (no explicit merge or
         // publish). Group sections are authoritative only on a full-list response:
-        // a merge path is a single-entry create/refresh that omits groups, so pass
-        // nil there to leave the existing sections intact.
-        let groups: [MobileWorkspaceGroupPreview]? = mergeExistingWorkspaces
-            ? nil
-            : response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        // a merge path or scoped attach response omits groups, so pass nil there
+        // to leave the existing sections intact. Authoritative groups are passed
+        // through the device-local collapse store before entering the per-Mac
+        // source of truth, so derived groups keep this phone's collapse choices.
+        let groups: [MobileWorkspaceGroupPreview]? =
+            (mergeExistingWorkspaces || !groupsAreAuthoritative)
+                ? nil
+                : groupCollapseStore.apply(
+                    to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+                )
         setForegroundWorkspaceState(
             workspaces: remoteWorkspaces, groups: groups, merge: mergeExistingWorkspaces)
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {

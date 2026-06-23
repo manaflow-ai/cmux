@@ -11,7 +11,10 @@ Current rules:
 - `algorithmic-complexity.md`
 - `cache-substitution-correctness.md`
 - `full-internationalization.md`
+- `hot-path-allocating-formatting.md`
+- `no-ambient-global-state.md`
 - `no-test-debug-seam-in-production-source.md`
+- `reliability-single-source-of-truth.md`
 - `runtime-no-hacky-sleeps.md`
 - `source-control-artifacts.md`
 - `swiftpm-package-resolved.md`
