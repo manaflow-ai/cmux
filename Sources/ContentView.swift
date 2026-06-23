@@ -12236,14 +12236,14 @@ struct VerticalTabsSidebar: View {
                 preferredAnchorWorkspaceId: anchorWorkspaceIdBeforeReorder
             )
             return didReorder
-        case .crossWindow(let insertionIndex):
-            return performCrossWindowWorkspaceDrop(plan: plan, insertionIndex: insertionIndex)
+        case .crossWindow(insertionIndex: _, proposedInsertionIndex: let proposedInsertionIndex):
+            return performCrossWindowWorkspaceDrop(plan: plan, proposedInsertionIndex: proposedInsertionIndex)
         }
     }
 
     private func performCrossWindowWorkspaceDrop(
         plan: SidebarWorkspaceReorderDropPlan,
-        insertionIndex: Int
+        proposedInsertionIndex: Int
     ) -> Bool {
         guard let app = AppDelegate.shared,
               let destinationWindowId = app.windowId(for: tabManager),
@@ -12272,7 +12272,7 @@ struct VerticalTabsSidebar: View {
             guard !tierIds.isEmpty else { continue }
             let topLevelIds = crossWindowTopLevelWorkspaceIds()
             let slot = clampedCrossWindowTopLevelSlot(
-                insertionIndex,
+                proposedInsertionIndex,
                 draggedIsPinned: isPinnedTier,
                 topLevelIds: topLevelIds,
                 pinnedTopLevelIds: crossWindowTopLevelPinnedWorkspaceIds()

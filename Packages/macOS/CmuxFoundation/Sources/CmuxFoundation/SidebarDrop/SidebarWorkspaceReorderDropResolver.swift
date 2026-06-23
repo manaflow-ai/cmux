@@ -359,6 +359,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             groupsById: groupsById,
             promotingWorkspaceId: nil
         )
+        let proposedInsertionIndex = insertionPosition(for: requestedIndicator, tabIds: topLevelIds)
         let result = SidebarDropPlanner().crossWindowInsertion(
             targetTabId: rootTarget.workspaceId,
             draggedIsPinned: draggedIsPinned,
@@ -377,7 +378,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             draggedWorkspaceId: request.draggedWorkspaceId,
             indicator: renderedIndicator(planned: result.indicator, requested: requestedIndicator, rootTarget: rootTarget),
             indicatorScope: rootTarget.indicatorScope,
-            action: .crossWindow(insertionIndex: result.insertionIndex)
+            action: .crossWindow(
+                insertionIndex: result.insertionIndex,
+                proposedInsertionIndex: proposedInsertionIndex
+            )
         )
     }
 
@@ -476,6 +480,14 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         rootTarget.workspaceId.map {
             SidebarDropIndicator(tabId: $0, edge: rootTarget.edge)
         } ?? SidebarDropIndicator(tabId: nil, edge: .bottom)
+    }
+
+    private func insertionPosition(for indicator: SidebarDropIndicator, tabIds: [UUID]) -> Int {
+        guard let tabId = indicator.tabId,
+              let index = tabIds.firstIndex(of: tabId) else {
+            return tabIds.count
+        }
+        return indicator.edge == .bottom ? index + 1 : index
     }
 
     private func renderedIndicator(

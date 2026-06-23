@@ -182,11 +182,41 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
 
         XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.rootAfter, edge: .top))
         XCTAssertEqual(plan.indicatorScope, .topLevel)
-        guard case .crossWindow(let insertionIndex) = plan.action else {
+        guard case .crossWindow(
+            insertionIndex: let insertionIndex,
+            proposedInsertionIndex: let proposedInsertionIndex
+        ) = plan.action else {
             XCTFail("Expected cross-window plan")
             return
         }
         XCTAssertEqual(insertionIndex, 2)
+        XCTAssertEqual(proposedInsertionIndex, 2)
+    }
+
+    func testCrossWindowPinnedClampCarriesUnclampedPointerSlot() throws {
+        let fixture = reorderFixture()
+        let foreignWorkspaceId = UUID()
+
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(
+                point: CGPoint(x: 2, y: 1),
+                draggedWorkspaceId: foreignWorkspaceId,
+                foreignDraggedIsPinned: false,
+                pinnedWorkspaceIds: [fixture.rootBefore]
+            )
+        ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .top))
+        XCTAssertEqual(plan.indicatorScope, .topLevel)
+        guard case .crossWindow(
+            insertionIndex: let insertionIndex,
+            proposedInsertionIndex: let proposedInsertionIndex
+        ) = plan.action else {
+            XCTFail("Expected cross-window plan")
+            return
+        }
+        XCTAssertEqual(insertionIndex, 1)
+        XCTAssertEqual(proposedInsertionIndex, 0)
     }
 
     func testGroupedChildRootLaneAfterOwnGroupStillPlansPromotion() throws {

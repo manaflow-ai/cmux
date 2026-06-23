@@ -6,5 +6,10 @@ public enum SidebarWorkspaceReorderDropAction: Equatable, Sendable {
     case reorder(targetIndex: Int, usesTopLevelRows: Bool, explicitGroupId: UUID?)
 
     /// Insert a workspace dragged from another window at the destination index.
-    case crossWindow(insertionIndex: Int)
+    ///
+    /// `insertionIndex` is clamped for the dragged workspace's pin state and
+    /// drives the rendered single-workspace plan. `proposedInsertionIndex`
+    /// preserves the raw pointer slot so multi-selection commits can clamp each
+    /// pin tier independently.
+    case crossWindow(insertionIndex: Int, proposedInsertionIndex: Int)
 }
