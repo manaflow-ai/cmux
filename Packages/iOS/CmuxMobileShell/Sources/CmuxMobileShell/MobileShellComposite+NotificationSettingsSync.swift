@@ -28,6 +28,7 @@ extension MobileShellComposite {
     ) async -> MobileNotificationPreferences? {
         guard let client = remoteClient else { return nil }
         guard await ensureNotificationSettingsCapability(client: client) else { return nil }
+        guard remoteClient === client else { return nil }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.settings.set",
@@ -48,6 +49,7 @@ extension MobileShellComposite {
                 hidesContent: response.hidesContent
             )
         } catch {
+            guard remoteClient === client else { return nil }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return nil }
             markMacConnectionUnavailableIfNeeded(after: error)
             notificationSettingsLog.error("notification settings sync failed: \(String(describing: error), privacy: .private)")
@@ -59,6 +61,7 @@ extension MobileShellComposite {
     public func fetchNotificationPreferencesFromMac() async -> MobileNotificationPreferences? {
         guard let client = remoteClient else { return nil }
         guard await ensureNotificationSettingsCapability(client: client) else { return nil }
+        guard remoteClient === client else { return nil }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.settings.get",
@@ -74,6 +77,7 @@ extension MobileShellComposite {
                 hidesContent: response.hidesContent
             )
         } catch {
+            guard remoteClient === client else { return nil }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return nil }
             markMacConnectionUnavailableIfNeeded(after: error)
             notificationSettingsLog.error("notification settings fetch failed: \(String(describing: error), privacy: .private)")
