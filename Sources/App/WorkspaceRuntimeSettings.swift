@@ -118,6 +118,9 @@ enum TerminalTextBoxInputSettings {
     static let defaultMaxLines = 10
     static let minimumMaxLines = 1
     static let maximumMaxLines = 20
+    static let submitActionsKey = "terminal.textBoxSubmitActions"
+    static let defaultSubmitActionKey = "terminal.textBoxDefaultSubmitAction"
+    static let defaultSubmitActionID = "text-entry"
 
     static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showOnNewTerminalsKey) == nil {
@@ -142,6 +145,146 @@ enum TerminalTextBoxInputSettings {
             return defaultMaxLines
         }
         return resolvedMaxLines(value)
+    }
+
+    static func submitActions(defaults: UserDefaults = .standard) -> [TextBoxSubmitAction] {
+        let configuredActions: [TextBoxSubmitAction]
+        if let data = defaults.data(forKey: submitActionsKey),
+           let decoded = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) {
+            configuredActions = decoded
+        } else if let raw = defaults.string(forKey: submitActionsKey),
+                  let data = raw.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) {
+            configuredActions = decoded
+        } else {
+            configuredActions = []
+        }
+        return TextBoxSubmitAction.normalizedCatalog(configuredActions)
+    }
+
+    static func defaultSubmitActionIDValue(defaults: UserDefaults = .standard) -> String {
+        let configured = defaults.string(forKey: defaultSubmitActionKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let actions = submitActions(defaults: defaults)
+        guard let configured,
+              actions.contains(where: { $0.id == configured }) else {
+            return defaultSubmitActionID
+        }
+        return configured
+    }
+}
+
+struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case textEntry
+        case commandTemplate
+    }
+
+    let id: String
+    let title: String
+    let kind: Kind
+    let commandTemplate: String?
+    let systemImage: String
+    let imagePath: String?
+    let backgroundColorHex: String
+
+    init(
+        id: String,
+        title: String,
+        kind: Kind,
+        commandTemplate: String? = nil,
+        systemImage: String,
+        imagePath: String? = nil,
+        backgroundColorHex: String
+    ) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.commandTemplate = commandTemplate
+        self.systemImage = systemImage
+        self.imagePath = imagePath
+        self.backgroundColorHex = backgroundColorHex
+    }
+
+    static let builtInActions: [TextBoxSubmitAction] = [
+        TextBoxSubmitAction(
+            id: TerminalTextBoxInputSettings.defaultSubmitActionID,
+            title: "Text Entry",
+            kind: .textEntry,
+            systemImage: "arrow.up",
+            backgroundColorHex: "#FFFFFF"
+        ),
+        TextBoxSubmitAction(
+            id: "codex-yolo",
+            title: "Codex Yolo",
+            kind: .commandTemplate,
+            commandTemplate: "codex --yolo {{prompt}}",
+            systemImage: "sparkles",
+            backgroundColorHex: "#8FDBFF"
+        ),
+        TextBoxSubmitAction(
+            id: "claude-dangerous",
+            title: "Claude Dangerous",
+            kind: .commandTemplate,
+            commandTemplate: "claude --dangerously-skip-permissions {{prompt}}",
+            systemImage: "bolt.fill",
+            backgroundColorHex: "#FFD166"
+        ),
+        TextBoxSubmitAction(
+            id: "opencode",
+            title: "OpenCode",
+            kind: .commandTemplate,
+            commandTemplate: "opencode {{prompt}}",
+            systemImage: "curlybraces",
+            backgroundColorHex: "#B5E48C"
+        ),
+        TextBoxSubmitAction(
+            id: "pi",
+            title: "Pi",
+            kind: .commandTemplate,
+            commandTemplate: "pi {{prompt}}",
+            systemImage: "brain.head.profile",
+            backgroundColorHex: "#D0B3FF"
+        ),
+    ]
+
+    static func normalizedCatalog(_ configuredActions: [TextBoxSubmitAction]) -> [TextBoxSubmitAction] {
+        var actionsByID: [String: TextBoxSubmitAction] = [:]
+        var orderedIDs: [String] = []
+
+        func append(_ action: TextBoxSubmitAction) {
+            guard action.isValid else { return }
+            if actionsByID[action.id] == nil {
+                orderedIDs.append(action.id)
+            }
+            actionsByID[action.id] = action
+        }
+
+        builtInActions.forEach(append)
+        configuredActions.forEach(append)
+
+        return orderedIDs.compactMap { actionsByID[$0] }
+    }
+
+    var isValid: Bool {
+        !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (kind == .textEntry || commandTemplate?.contains("{{prompt}}") == true)
+    }
+
+    func command(forPrompt prompt: String) -> String? {
+        guard kind == .commandTemplate,
+              let commandTemplate else {
+            return nil
+        }
+        return commandTemplate.replacingOccurrences(
+            of: "{{prompt}}",
+            with: Self.shellQuoted(prompt)
+        )
+    }
+
+    private static func shellQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 }
 

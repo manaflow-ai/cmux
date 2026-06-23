@@ -192,6 +192,7 @@ private struct TextBoxInputGlassPillBackground: View {
 
 private struct TextBoxSendButtonStyle: ButtonStyle {
     let canSend: Bool
+    let backgroundColor: Color
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -207,7 +208,7 @@ private struct TextBoxSendButtonStyle: ButtonStyle {
         guard canSend else {
             return Color.white.opacity(0.18)
         }
-        return isPressed ? Color.white.opacity(0.68) : Color.white
+        return isPressed ? backgroundColor.opacity(0.72) : backgroundColor
     }
 }
 
@@ -1203,6 +1204,56 @@ enum TextBoxTerminalKey: String {
     case returnKey = "return"
 }
 
+struct TextBoxSubmitActionPresentation: Equatable {
+    let action: TextBoxSubmitAction
+    let isForcedTextEntry: Bool
+
+    var label: String {
+        if isForcedTextEntry {
+            return String(localized: "textbox.submitAction.activeAgent", defaultValue: "Text Entry for Active Agent")
+        }
+        return Self.localizedTitle(for: action)
+    }
+
+    var accessibilityLabel: String {
+        String(
+            format: String(localized: "textbox.submitAction.accessibility", defaultValue: "Submit with %@"),
+            label
+        )
+    }
+
+    var helpText: String {
+        if isForcedTextEntry {
+            return String(localized: "textbox.submitAction.activeAgent.tooltip", defaultValue: "Active agent sessions use Text Entry. Shift-Tab changes the default for new sessions.")
+        }
+        return String(
+            format: String(localized: "textbox.submitAction.tooltip", defaultValue: "Submit with %@. Press Shift-Tab to change."),
+            label
+        )
+    }
+
+    var backgroundColor: Color {
+        Color(hex: action.backgroundColorHex.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .white
+    }
+
+    static func localizedTitle(for action: TextBoxSubmitAction) -> String {
+        switch action.id {
+        case TerminalTextBoxInputSettings.defaultSubmitActionID:
+            return String(localized: "textbox.submitAction.textEntry", defaultValue: "Text Entry")
+        case "codex-yolo":
+            return String(localized: "textbox.submitAction.codexYolo", defaultValue: "Codex Yolo")
+        case "claude-dangerous":
+            return String(localized: "textbox.submitAction.claudeDangerous", defaultValue: "Claude Dangerous")
+        case "opencode":
+            return String(localized: "textbox.submitAction.opencode", defaultValue: "OpenCode")
+        case "pi":
+            return String(localized: "textbox.submitAction.pi", defaultValue: "Pi")
+        default:
+            return action.title
+        }
+    }
+}
+
 func shouldHandleTextBoxPlainArrowLocally(
     keyCode: UInt16,
     firstResponderHasMarkedText: Bool,
@@ -1274,6 +1325,7 @@ enum TextBoxAgentDetection: CaseIterable {
     case claudeCode
     case codex
     case opencode
+    case pi
 
     private var definitionID: String {
         switch self {
@@ -1283,6 +1335,8 @@ enum TextBoxAgentDetection: CaseIterable {
             return "codex"
         case .opencode:
             return "opencode"
+        case .pi:
+            return "pi"
         }
     }
 
@@ -1294,6 +1348,8 @@ enum TextBoxAgentDetection: CaseIterable {
             return ["codex", "omx"]
         case .opencode:
             return ["opencode", "open-code", "opencode-ai", "omo"]
+        case .pi:
+            return ["pi", "pi-coding-agent"]
         }
     }
 
@@ -2669,6 +2725,11 @@ private final class TextBoxSubmitEventRunner {
 }
 
 struct TextBoxInputContainer: View {
+    @AppStorage(TerminalTextBoxInputSettings.defaultSubmitActionKey)
+    private var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
+    @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
+    private var configuredSubmitActionsJSON = ""
+
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
     let surface: TerminalSurface
@@ -2693,6 +2754,42 @@ struct TextBoxInputContainer: View {
 
     private var pendingCommentCount: Int {
         commentPool.pendingCount(workspaceId: surface.owningWorkspace()?.id)
+    }
+
+    private var submitActions: [TextBoxSubmitAction] {
+        if let data = configuredSubmitActionsJSON.data(using: .utf8),
+           let configuredActions = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) {
+            return TextBoxSubmitAction.normalizedCatalog(configuredActions)
+        }
+        return TextBoxSubmitAction.builtInActions
+    }
+
+    private var hasActiveAgentSession: Bool {
+        TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
+    }
+
+    private var selectedSubmitAction: TextBoxSubmitAction {
+        let actions = submitActions
+        if let selected = actions.first(where: { $0.id == defaultSubmitActionID }) {
+            return selected
+        }
+        return actions.first { $0.id == TerminalTextBoxInputSettings.defaultSubmitActionID }
+            ?? TextBoxSubmitAction.builtInActions[0]
+    }
+
+    private var effectiveSubmitAction: TextBoxSubmitAction {
+        guard !hasActiveAgentSession else {
+            return submitActions.first { $0.id == TerminalTextBoxInputSettings.defaultSubmitActionID }
+                ?? TextBoxSubmitAction.builtInActions[0]
+        }
+        return selectedSubmitAction
+    }
+
+    private var submitActionPresentation: TextBoxSubmitActionPresentation {
+        TextBoxSubmitActionPresentation(
+            action: effectiveSubmitAction,
+            isForcedTextEntry: hasActiveAgentSession && selectedSubmitAction.kind != .textEntry
+        )
     }
 
     private var textBasePointSize: CGFloat { max(14, terminalFont.pointSize / max(GlobalFontMagnification.scale, 0.01) + 2) }
@@ -2762,6 +2859,7 @@ struct TextBoxInputContainer: View {
                     onEscape: onEscape,
                     onFocusTextBox: onFocusTextBox,
                     onToggleFocus: onToggleFocus,
+                    onCycleSubmitAction: cycleSubmitAction,
                     onForwardText: forwardText(_:focusTerminalAfterSend:),
                     onForwardKey: forwardKey(_:),
                     onForwardControl: forwardControl(_:),
@@ -2792,7 +2890,7 @@ struct TextBoxInputContainer: View {
             .frame(height: clampedHeight)
             .frame(maxWidth: .infinity)
 
-            sendButton(canSend: canSend, foreground: foreground)
+            sendButton(canSend: canSend, foreground: foreground, presentation: submitActionPresentation)
                 .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
             }
@@ -2848,18 +2946,63 @@ struct TextBoxInputContainer: View {
         .frame(height: TextBoxLayout.attachmentChipHeight)
     }
 
-    private func sendButton(canSend: Bool, foreground: Color) -> some View {
-        Button(action: submit) {
-            Image(systemName: "arrow.up")
+    private func sendButton(
+        canSend: Bool,
+        foreground: Color,
+        presentation: TextBoxSubmitActionPresentation
+    ) -> some View {
+        Button {
+            guard canSend else {
+                NSSound.beep()
+                return
+            }
+            submit()
+        } label: {
+            submitActionImage(presentation.action)
                 .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         }
-        .buttonStyle(TextBoxSendButtonStyle(canSend: canSend))
+        .buttonStyle(TextBoxSendButtonStyle(
+            canSend: canSend,
+            backgroundColor: presentation.backgroundColor
+        ))
         .foregroundStyle(canSend ? Color.black.opacity(0.86) : foreground.opacity(0.38))
-        .help(String(localized: "textbox.send.tooltip", defaultValue: "Send"))
-        .accessibilityLabel(String(localized: "textbox.send.tooltip", defaultValue: "Send"))
-        .disabled(!canSend)
+        .help(presentation.helpText)
+        .accessibilityLabel(presentation.accessibilityLabel)
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
+        .contextMenu {
+            ForEach(submitActions) { action in
+                Button {
+                    defaultSubmitActionID = action.id
+                } label: {
+                    Label(
+                        TextBoxSubmitActionPresentation.localizedTitle(for: action),
+                        systemImage: action.id == selectedSubmitAction.id ? "checkmark" : action.systemImage
+                    )
+                }
+            }
+            Divider()
+            Button {
+                openSubmitActionsDocumentation()
+            } label: {
+                Label(
+                    String(localized: "textbox.submitAction.docs", defaultValue: "TextBox Submit Actions Docs"),
+                    systemImage: "book"
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func submitActionImage(_ action: TextBoxSubmitAction) -> some View {
+        if let path = action.imagePath,
+           let image = NSImage(contentsOfFile: NSString(string: path).expandingTildeInPath) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+        } else {
+            Image(systemName: action.systemImage)
+        }
     }
 
     @State private var showPendingCommentsPreview = false
@@ -2992,10 +3135,12 @@ struct TextBoxInputContainer: View {
             text: "",
             attachmentCount: 0
         )
+        let action = effectiveSubmitAction
+        let actionParts = submitParts(partsToSend, applying: action)
         TextBoxSubmit.send(
-            partsToSend,
+            actionParts,
             via: surface,
-            terminalAgentContext: terminalAgentContext
+            terminalAgentContext: action.kind == .textEntry ? terminalAgentContext : ""
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if let poolWorkspaceId, !pendingComments.isEmpty {
@@ -3040,6 +3185,33 @@ struct TextBoxInputContainer: View {
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
+    }
+
+    private func submitParts(
+        _ parts: [TextBoxSubmissionPart],
+        applying action: TextBoxSubmitAction
+    ) -> [TextBoxSubmissionPart] {
+        guard !hasActiveAgentSession,
+              let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
+            return parts
+        }
+        return [.text(command)]
+    }
+
+    private func cycleSubmitAction() {
+        let actions = submitActions
+        guard !actions.isEmpty else { return }
+        let currentIndex = actions.firstIndex(where: { $0.id == defaultSubmitActionID }) ?? 0
+        let nextIndex = actions.index(after: currentIndex)
+        defaultSubmitActionID = actions[nextIndex == actions.endIndex ? actions.startIndex : nextIndex].id
+        NSSound(named: NSSound.Name("Pop"))?.play()
+    }
+
+    private func openSubmitActionsDocumentation() {
+        guard let url = URL(string: "https://github.com/manaflow-ai/cmux/blob/main/docs/configuration.md#terminaltextboxsubmitactions") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func markContentChanged() {
@@ -3318,6 +3490,7 @@ struct TextBoxInputView: NSViewRepresentable {
     let onEscape: () -> Void
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
+    let onCycleSubmitAction: () -> Void
     let onForwardText: (String, Bool) -> Void
     let onForwardKey: (TextBoxTerminalKey) -> Void
     let onForwardControl: (String) -> Void
@@ -3344,6 +3517,7 @@ struct TextBoxInputView: NSViewRepresentable {
         onEscape: @escaping () -> Void,
         onFocusTextBox: @escaping () -> Void,
         onToggleFocus: @escaping () -> Void,
+        onCycleSubmitAction: @escaping () -> Void,
         onForwardText: @escaping (String, Bool) -> Void,
         onForwardKey: @escaping (TextBoxTerminalKey) -> Void,
         onForwardControl: @escaping (String) -> Void,
@@ -3369,6 +3543,7 @@ struct TextBoxInputView: NSViewRepresentable {
         self.onEscape = onEscape
         self.onFocusTextBox = onFocusTextBox
         self.onToggleFocus = onToggleFocus
+        self.onCycleSubmitAction = onCycleSubmitAction
         self.onForwardText = onForwardText
         self.onForwardKey = onForwardKey
         self.onForwardControl = onForwardControl
@@ -3474,6 +3649,7 @@ struct TextBoxInputView: NSViewRepresentable {
         textView.onEscape = onEscape
         textView.onFocusTextBox = onFocusTextBox
         textView.onToggleFocus = onToggleFocus
+        textView.onCycleSubmitAction = onCycleSubmitAction
         textView.onForwardText = onForwardText
         textView.onForwardKey = onForwardKey
         textView.onForwardControl = onForwardControl
@@ -3655,6 +3831,7 @@ final class TextBoxInputTextView: NSTextView {
     var onEscape: () -> Void = {}
     var onFocusTextBox: () -> Void = {}
     var onToggleFocus: () -> Void = {}
+    var onCycleSubmitAction: () -> Void = {}
     var onForwardText: (String, Bool) -> Void = { _, _ in }
     var onForwardKey: (TextBoxTerminalKey) -> Void = { _ in }
     var onForwardControl: (String) -> Void = { _ in }
@@ -4447,6 +4624,12 @@ final class TextBoxInputTextView: NSTextView {
                 return
             }
             onEscape()
+            return
+        }
+
+        if event.keyCode == UInt16(kVK_Tab),
+           flags == NSEvent.ModifierFlags.shift {
+            onCycleSubmitAction()
             return
         }
 

@@ -349,6 +349,8 @@ extension CmuxSettingsFileStore {
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
         "terminal.focusTextBoxOnNewTerminals",
+        "terminal.textBoxDefaultSubmitAction",
+        "terminal.textBoxSubmitActions",
         "terminal.agentHibernation.enabled",
         "terminal.agentHibernation.idleSeconds",
         "terminal.agentHibernation.maxLiveTerminals",

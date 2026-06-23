@@ -67,6 +67,51 @@ Opt-in Agent Hibernation. cmux kills idle background agent processes to free RAM
 
 Enable it from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
+## `terminal.textBoxSubmitActions`
+
+Controls what the TextBox submit button does for new terminal sessions. Active agent sessions such as Claude, Codex, OpenCode, and Pi always use plain Text Entry so prompts go into the running agent instead of launching another command.
+
+Press Shift-Tab in the TextBox to cycle the default action. Right-click the submit button to pick any configured action or open this documentation.
+
+```json
+{
+  "terminal": {
+    "textBoxDefaultSubmitAction": "codex-yolo",
+    "textBoxSubmitActions": [
+      {
+        "id": "codex-yolo",
+        "title": "Codex Yolo",
+        "kind": "commandTemplate",
+        "commandTemplate": "codex --yolo {{prompt}}",
+        "systemImage": "sparkles",
+        "backgroundColorHex": "#8FDBFF"
+      },
+      {
+        "id": "custom-router",
+        "title": "Custom Router",
+        "kind": "commandTemplate",
+        "commandTemplate": "agent-router --plan {{prompt}}",
+        "systemImage": "wand.and.stars",
+        "imagePath": "~/Pictures/router.png",
+        "backgroundColorHex": "#3DDC97"
+      }
+    ]
+  }
+}
+```
+
+Built-in action IDs: `text-entry`, `codex-yolo`, `claude-dangerous`, `opencode`, `pi`.
+
+Action fields:
+
+- `id`: stable action ID.
+- `title`: menu label for custom actions.
+- `kind`: `textEntry` or `commandTemplate`.
+- `commandTemplate`: shell command for `commandTemplate`; include `{{prompt}}` where the shell-quoted prompt should go.
+- `systemImage`: SF Symbol name shown on the submit button.
+- `imagePath`: optional PNG or image path for the submit button.
+- `backgroundColorHex`: submit button fill color.
+
 ## `automation.workspaceAutoNaming`
 
 Opt-in AI auto-naming of workspaces and tabs from agent conversation content. When enabled, cmux summarizes supported agent sessions into short sidebar and tab names using each agent's own binary, and refreshes them as the conversation topic shifts. See [workspace-auto-naming.md](workspace-auto-naming.md) for the supported adapter list and full behavior.

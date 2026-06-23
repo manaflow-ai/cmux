@@ -1126,6 +1126,75 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreAppliesTextBoxSubmitActionSettings() throws {
+        let defaults = UserDefaults.standard
+        let actionsKey = TerminalTextBoxInputSettings.submitActionsKey
+        let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
+        try preservingDefaults(keys: [actionsKey, defaultActionKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: actionsKey)
+            defaults.removeObject(forKey: defaultActionKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "textBoxDefaultSubmitAction": "custom-router",
+                    "textBoxSubmitActions": [
+                      {
+                        "id": "custom-router",
+                        "title": "Custom Router",
+                        "kind": "commandTemplate",
+                        "commandTemplate": "router --prompt {{prompt}}",
+                        "systemImage": "wand.and.stars",
+                        "imagePath": "/tmp/router.png",
+                        "backgroundColorHex": "#123456"
+                      }
+                    ]
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: defaultActionKey), "custom-router")
+            let actions = TerminalTextBoxInputSettings.submitActions(defaults: defaults)
+            XCTAssertTrue(actions.contains { $0.id == "custom-router" })
+            XCTAssertEqual(
+                TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
+                "custom-router"
+            )
+        }
+    }
+
+    func testTextBoxSubmitActionQuotesPromptForCommandTemplate() {
+        let action = TextBoxSubmitAction(
+            id: "router",
+            title: "Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt {{prompt}}",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+
+        XCTAssertEqual(
+            action.command(forPrompt: "ship user's fix"),
+            "router --prompt 'ship user'\\''s fix'"
+        )
+    }
+
     func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
         let defaults = UserDefaults.standard
         let key = TerminalCopyOnSelectSettings.copyOnSelectKey

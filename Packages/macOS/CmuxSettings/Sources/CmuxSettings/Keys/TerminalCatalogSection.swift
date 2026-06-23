@@ -111,6 +111,12 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textBoxMaxLines"
     )
 
+    public let textBoxDefaultSubmitAction = DefaultsKey<String>(
+        id: "terminal.textBoxDefaultSubmitAction",
+        defaultValue: "text-entry",
+        userDefaultsKey: "terminal.textBoxDefaultSubmitAction"
+    )
+
     public let resumeCommands = JSONKey<[String]>(
         id: "terminal.resumeCommands",
         defaultValue: []
