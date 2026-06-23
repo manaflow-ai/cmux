@@ -6418,6 +6418,7 @@ extension BrowserPanel {
         guard noteDetachedDeveloperToolsWindowClosed(window, source: source) else { return false }
         detachedDeveloperToolsExplicitUserCloseWindowIds.insert(ObjectIdentifier(window))
         window.close()
+        scheduleDetachedDeveloperToolsWindowCloseResolution(source: "\(source).reconcile")
         return true
     }
 
@@ -6480,7 +6481,10 @@ extension BrowserPanel {
 
     private func resolveDetachedDeveloperToolsWindowClose(source: String, startedAt: Date) {
         guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else {
+            reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+            return
+        }
 
         let visible = isDeveloperToolsVisible()
         let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
