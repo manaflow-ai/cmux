@@ -415,9 +415,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
         }
         if let explicitGroupId {
             guard model.workspaceGroups.contains(where: { $0.id == explicitGroupId }) else { return }
-            if tab.groupId != explicitGroupId {
-                tab.groupId = explicitGroupId
-            }
+            model.assignGroup(workspaceId: workspaceId, groupId: explicitGroupId)
             model.normalizeWorkspaceGroupContiguity()
             return
         }
@@ -448,7 +446,7 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             inferred = currentGroup
         }
         if tab.groupId != inferred {
-            tab.groupId = inferred
+            model.assignGroup(workspaceId: workspaceId, groupId: inferred)
             // Renormalize after group change to keep tiers contiguous.
             model.normalizeWorkspaceGroupContiguity()
         } else if inferred != nil {
