@@ -6,10 +6,13 @@ import { closeCloudDbForTests } from "../db/client";
 const runDbTests = process.env.CMUX_DB_TEST === "1";
 const dbTest = runDbTests ? test : test.skip;
 
+// `currentUserId` is switchable so a test can impersonate a second user and
+// attempt to hijack a token already owned by the first.
+let currentUserId = "push-user-1";
 const getUser = mock(async () => ({
-  id: "push-user-1",
+  id: currentUserId,
   displayName: null,
-  primaryEmail: "push@example.com",
+  primaryEmail: `${currentUserId}@example.com`,
   selectedTeam: null,
   listTeams: async () => [],
 }));
@@ -114,5 +117,45 @@ describe("device token route", () => {
       select count(*)::int as total from device_tokens where user_id = 'push-user-1'
     `;
     expect(remaining.total).toBe(0);
+  });
+
+  dbTest("refuses to let a second user take over a token owned by another user", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate device_tokens restart identity cascade`;
+    getUser.mockClear();
+
+    const sharedToken = "b".repeat(64);
+    const headers = {
+      authorization: "Bearer access-token",
+      "x-stack-refresh-token": "refresh-token",
+    };
+    const register = (deviceToken: string) =>
+      POST(
+        new Request("https://cmux.test/api/device-tokens", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            deviceToken,
+            bundleId: "dev.cmux.ios.push1",
+            platform: "ios",
+          }),
+        }),
+      );
+
+    // user-1 registers the token legitimately.
+    currentUserId = "push-user-1";
+    expect((await register(sharedToken)).status).toBe(200);
+
+    // user-2 attempts to hijack the same token by re-registering it — must be
+    // refused, and the row must remain owned by user-1.
+    currentUserId = "push-user-2";
+    const attack = await register(sharedToken);
+    expect(attack.status).toBe(403);
+    expect(((await attack.json()) as { error: string }).error).toBe("device_not_owned");
+
+    const [owner] = await sql<{ user_id: string }[]>`
+      select user_id from device_tokens where device_token = ${sharedToken}
+    `;
+    expect(owner.user_id).toBe("push-user-1");
   });
 });
