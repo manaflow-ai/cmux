@@ -1,6 +1,6 @@
-import XCTest
 import AppKit
 import Carbon.HIToolbox
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,25 +8,37 @@ import Carbon.HIToolbox
 @testable import cmux
 #endif
 
+private func XCTAssertEqual<T: Equatable>(_ lhs: T, _ rhs: T) {
+    #expect(lhs == rhs)
+}
+
+private func XCTAssertTrue(_ condition: Bool) {
+    #expect(condition)
+}
+
+private func XCTAssertFalse(_ condition: Bool) {
+    #expect(!condition)
+}
+
+private func XCTFail(_ message: String) {
+    Issue.record(message)
+}
+
+@Suite(.serialized)
 @MainActor
-final class TextBoxSubmitActionTests: XCTestCase {
-    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+struct TextBoxSubmitActionTests {
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
 
-    override func setUp() {
-        super.setUp()
-        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
-        KeyboardShortcutSettings.resetAll()
-    }
-
-    override func tearDown() {
-        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
-        KeyboardShortcutSettings.resetAll()
-        super.tearDown()
-    }
-
+    @Test
     func testSettingsFileStoreAppliesTextBoxSubmitActionSettings() throws {
+        let originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.resetAll()
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+            KeyboardShortcutSettings.resetAll()
+        }
+
         let defaults = UserDefaults.standard
         let actionsKey = TerminalTextBoxInputSettings.submitActionsKey
         let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
@@ -79,6 +91,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         }
     }
 
+
+    @Test
     func testTextBoxSubmitActionQuotesPromptForCommandTemplate() {
         let action = TextBoxSubmitAction(
             id: "router",
@@ -95,6 +109,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testBuiltInTextBoxSubmitActionsUsePromptFreeLaunchCommands() {
         let launchCommandsByID = Dictionary(
             uniqueKeysWithValues: TextBoxSubmitAction.builtInActions.compactMap { action in
@@ -109,6 +125,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         XCTAssertTrue(TextBoxSubmitAction.builtInActions.allSatisfy { $0.command(forPrompt: "secret") == nil })
     }
 
+
+    @Test
     func testProviderLaunchEventsKeepPromptInTextBoxUntilAgentIsActive() {
         XCTAssertEqual(
             TextBoxSubmit.launchDispatchEvents(launchCommand: "codex"),
@@ -119,6 +137,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testDefaultTextBoxSubmitActionCatalogIncludesTextEntryEscapeHatch() {
         XCTAssertEqual(
             TerminalTextBoxInputSettings.submitActions(configuredJSON: nil).map(\.id),
@@ -126,6 +146,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testCustomTextBoxSubmitActionCatalogKeepsTextEntrySelectable() throws {
         let customAction = TextBoxSubmitAction(
             id: "custom-router",
@@ -144,6 +166,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testTextBoxCustomDefaultFallsBackToTextEntryWhenConfiguredActionIsMissing() {
         let customAction = TextBoxSubmitAction(
             id: "custom-router",
@@ -170,6 +194,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testDefaultConfigTemplateIncludesTextBoxLaunchPromptFlag() {
         let template = CmuxSettingsFileStore.defaultTemplate()
 
@@ -177,6 +203,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         XCTAssertTrue(template.contains(#""preservePromptAfterLaunch" : true"#))
     }
 
+
+    @Test
     func testTextBoxForceTextEntryUsesShellEligibilityOverStaleAgentMetadata() {
         XCTAssertFalse(
             TextBoxInputContainer.shouldForceTextEntrySubmit(
@@ -198,6 +226,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testTextBoxTextEntryClearsStaleAgentContextWhenShellIsPromptIdle() {
         XCTAssertEqual(
             TextBoxInputContainer.textEntryTerminalAgentContext(
@@ -215,6 +245,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         )
     }
 
+
+    @Test
     func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
         let defaults = UserDefaults.standard
         let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
@@ -227,6 +259,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         }
     }
 
+
+    @Test
     func testTextBoxMissingCustomDefaultSubmitActionFailsClosedToTextEntry() {
         let defaults = UserDefaults.standard
         let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
@@ -242,6 +276,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         }
     }
 
+
+    @Test
     func testTextBoxShiftTabCyclesSubmitAction() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         var cycleCount = 0
@@ -260,6 +296,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         XCTAssertEqual(textView.string, "")
     }
 
+
+    @Test
     func testTextBoxShiftTabDefersDuringIMEComposition() {
         let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
         var cycleCount = 0
@@ -284,6 +322,8 @@ final class TextBoxSubmitActionTests: XCTestCase {
         XCTAssertTrue(textView.hasMarkedText())
     }
 
+
+    @Test
     func testTerminalPanelPublishesShellActivityStateForTextBoxRouting() {
         let panel = TerminalPanel(workspaceId: UUID())
 

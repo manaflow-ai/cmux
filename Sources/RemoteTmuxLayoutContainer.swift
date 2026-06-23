@@ -50,6 +50,7 @@ struct RemoteTmuxLayoutContainer: View {
                     appearance: appearance,
                     hasUnreadNotification: false,
                     terminalAgentContext: "",
+                    shellActivityState: .unknown,
                     onFocus: { mirror.focus(pane: paneId) },
                     onResumeAgentHibernation: {},
                     onAutoResumeAgentHibernation: {},

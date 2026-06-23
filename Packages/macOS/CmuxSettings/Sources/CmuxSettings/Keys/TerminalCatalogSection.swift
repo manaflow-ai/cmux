@@ -111,6 +111,7 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.textBoxMaxLines"
     )
 
+    /// Default TextBox submit action used when a terminal is eligible to launch a new agent session.
     public let textBoxDefaultSubmitAction = DefaultsKey<String>(
         id: "terminal.textBoxDefaultSubmitAction",
         defaultValue: "claude",

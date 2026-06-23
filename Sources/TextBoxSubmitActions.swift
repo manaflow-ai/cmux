@@ -1,86 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct TextBoxSubmitActionPresentation: Equatable {
-    let action: TextBoxSubmitAction
-    let isForcedTextEntry: Bool
-
-    var label: String {
-        if isForcedTextEntry {
-            return String(localized: "textbox.submitAction.activeAgent", defaultValue: "Text Entry for Active Agent")
-        }
-        return Self.localizedTitle(for: action)
-    }
-
-    var accessibilityLabel: String {
-        String(
-            format: String(localized: "textbox.submitAction.accessibility", defaultValue: "Submit with %@"),
-            label
-        )
-    }
-
-    var helpText: String {
-        if isForcedTextEntry {
-            return String(localized: "textbox.submitAction.activeAgent.tooltip", defaultValue: "Active agent sessions use Text Entry. Shift-Tab changes the default for new sessions.")
-        }
-        return String(
-            format: String(localized: "textbox.submitAction.tooltip", defaultValue: "Submit with %@. Press Shift-Tab to change."),
-            label
-        )
-    }
-
-    var backgroundColor: Color {
-        Color(hex: action.backgroundColorHex.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .white
-    }
-
-    static func localizedTitle(for action: TextBoxSubmitAction) -> String {
-        switch action.id {
-        case TextBoxSubmitAction.textEntryAction.id:
-            return String(localized: "textbox.submitAction.textEntry", defaultValue: "Text Entry")
-        case "claude":
-            return String(localized: "textbox.submitAction.claude", defaultValue: "Claude")
-        case "codex":
-            return String(localized: "textbox.submitAction.codex", defaultValue: "Codex")
-        case "opencode":
-            return String(localized: "textbox.submitAction.opencode", defaultValue: "OpenCode")
-        case "pi":
-            return String(localized: "textbox.submitAction.pi", defaultValue: "Pi")
-        default:
-            return action.title
-        }
-    }
-}
-
-private enum TextBoxSubmitActionImageLoader {
-    static let maximumImageBytes = 2 * 1024 * 1024
-
-    static func imageData(atPath path: String) -> Data? {
-        let url = URL(fileURLWithPath: path, isDirectory: false)
-        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-              values.isRegularFile == true,
-              let fileSize = values.fileSize,
-              fileSize > 0,
-              fileSize <= maximumImageBytes else {
-            return nil
-        }
-        return try? Data(contentsOf: url, options: [.mappedIfSafe])
-    }
-}
-
-private enum TextBoxSubmitActionIconMetrics {
-    static let size: CGFloat = 16
-
-    private static var nsSize: NSSize {
-        NSSize(width: size, height: size)
-    }
-
-    static func fixedSizeImage(_ image: NSImage) -> NSImage {
-        let copy = image.copy() as? NSImage ?? image
-        copy.size = nsSize
-        return copy
-    }
-}
-
 extension TextBoxInputContainer {
     var submitActions: [TextBoxSubmitAction] {
         submitActionsCache
@@ -175,8 +95,8 @@ extension TextBoxInputContainer {
             submitActionImage(presentation.action)
                 .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
                 .frame(
-                    width: TextBoxSubmitActionIconMetrics.size,
-                    height: TextBoxSubmitActionIconMetrics.size
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
                 )
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         }
@@ -215,14 +135,14 @@ extension TextBoxInputContainer {
                 .resizable()
                 .scaledToFit()
                 .frame(
-                    width: TextBoxSubmitActionIconMetrics.size,
-                    height: TextBoxSubmitActionIconMetrics.size
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
                 )
         } else {
             Image(systemName: action.systemImage)
                 .frame(
-                    width: TextBoxSubmitActionIconMetrics.size,
-                    height: TextBoxSubmitActionIconMetrics.size
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
                 )
         }
     }
@@ -244,11 +164,11 @@ extension TextBoxInputContainer {
     func submitActionNSImage(for action: TextBoxSubmitAction) -> NSImage? {
         if let path = action.imagePath,
            let image = submitActionImageCache[expandedSubmitActionImagePath(path)] {
-            return TextBoxSubmitActionIconMetrics.fixedSizeImage(image)
+            return TextBoxSubmitActionImageSupport.fixedSizeImage(image)
         }
         if let assetName = action.assetName,
            let image = NSImage(named: assetName) {
-            return TextBoxSubmitActionIconMetrics.fixedSizeImage(image)
+            return TextBoxSubmitActionImageSupport.fixedSizeImage(image)
         }
         return nil
     }
@@ -260,7 +180,7 @@ extension TextBoxInputContainer {
 
         for path in paths where submitActionImageCache[path] == nil {
             let data = await Task.detached(priority: .utility) {
-                TextBoxSubmitActionImageLoader.imageData(atPath: path)
+                TextBoxSubmitActionImageSupport.imageData(atPath: path)
             }.value
             guard !Task.isCancelled else { return }
             if let data,

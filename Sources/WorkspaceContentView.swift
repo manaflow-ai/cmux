@@ -7,59 +7,10 @@ import Bonsplit
 import CmuxWorkspaces
 import CmuxTerminal
 
-enum TmuxOverlayExperimentTarget: String, CaseIterable, Codable, Sendable {
-    case surface
-    case bonsplitPane
-    case tmuxActivePane
-
-    var usesWorkspacePaneOverlay: Bool {
-        self == .bonsplitPane
-    }
-
-    var usesTmuxActivePaneOverlay: Bool {
-        self == .tmuxActivePane
-    }
-}
-
-struct TmuxOverlayExperimentSettings {
-    static let enabledKey = "tmuxOverlayExperimentEnabled"
-    static let targetKey = "tmuxOverlayExperimentTarget"
-    static let defaultEnabled = false
-    static let defaultTarget: TmuxOverlayExperimentTarget = .surface
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        defaults.object(forKey: enabledKey) as? Bool ?? defaultEnabled
-    }
-
-    static func target(defaults: UserDefaults = .standard) -> TmuxOverlayExperimentTarget {
-        target(
-            enabled: isEnabled(defaults: defaults),
-            rawValue: defaults.string(forKey: targetKey)
-        )
-    }
-
-    static func target(enabled: Bool, rawValue: String?) -> TmuxOverlayExperimentTarget {
-        guard enabled else { return .surface }
-        guard let rawValue,
-              let target = TmuxOverlayExperimentTarget(rawValue: rawValue) else {
-            return defaultTarget
-        }
-        return target
-    }
-}
-
 private enum WorkspaceTitlebarInteractionMetrics {
     // Keep in sync with the minimal-mode titlebar strip so the monitor only
     // covers titlebar chrome.
     static let minimalModeTopStripHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
-}
-
-struct TmuxWorkspacePaneOverlayRenderState: Equatable {
-    let workspaceId: UUID
-    let unreadRects: [CGRect]
-    let flashRect: CGRect?
-    let flashToken: UInt64
-    let flashReason: WorkspaceAttentionFlashReason?
 }
 
 private struct WorkspacePanelContentHostView: View {
@@ -96,6 +47,7 @@ private struct WorkspacePanelContentHostView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: hasUnreadNotification,
             terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            shellActivityState: workspace.panelShellActivityStates[panel.id] ?? .unknown,
             onFocus: onFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
@@ -106,11 +58,11 @@ private struct WorkspacePanelContentHostView: View {
 }
 
 @MainActor
-final class TmuxWorkspacePaneOverlayModel: ObservableObject {
-    @Published private(set) var unreadRects: [CGRect] = []
-    @Published private(set) var flashRect: CGRect?
-    @Published private(set) var flashStartedAt: Date?
-    @Published private(set) var flashReason: WorkspaceAttentionFlashReason?
+final class TmuxWorkspacePaneOverlayModel {
+    private(set) var unreadRects: [CGRect] = []
+    private(set) var flashRect: CGRect?
+    private(set) var flashStartedAt: Date?
+    private(set) var flashReason: WorkspaceAttentionFlashReason?
 
     private var currentWorkspaceId: UUID?
     private var lastFlashTokenByWorkspaceId: [UUID: UInt64] = [:]

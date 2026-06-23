@@ -3143,7 +3143,7 @@ struct TextBoxInputView: NSViewRepresentable {
         onEscape: @escaping () -> Void,
         onFocusTextBox: @escaping () -> Void,
         onToggleFocus: @escaping () -> Void,
-        onCycleSubmitAction: @escaping () -> Void,
+        onCycleSubmitAction: @escaping () -> Void = {},
         onForwardText: @escaping (String, Bool) -> Void,
         onForwardKey: @escaping (TextBoxTerminalKey) -> Void,
         onForwardControl: @escaping (String) -> Void,

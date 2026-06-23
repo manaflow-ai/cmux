@@ -10534,7 +10534,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             onSubmit: {},
             onEscape: {},
             onFocusTextBox: {},
-            onToggleFocus: {}, onCycleSubmitAction: {},
+            onToggleFocus: {},
             onForwardText: { _, _ in },
             onForwardKey: { _ in },
             onForwardControl: { _ in },

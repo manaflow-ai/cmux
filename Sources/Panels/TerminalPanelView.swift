@@ -23,6 +23,7 @@ struct TerminalPanelView: View {
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
+    let shellActivityState: PanelShellActivityState
     let onFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
     let onAutoResumeAgentHibernation: () -> Void
@@ -105,7 +106,7 @@ struct TerminalPanelView: View {
                     ),
                     maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
                     terminalAgentContext: terminalAgentContext,
-                    allowsCommandTemplateSubmit: panel.shellActivityState == .promptIdle,
+                    allowsCommandTemplateSubmit: shellActivityState == .promptIdle,
                     onFocusTextBox: {
                         panel.textBoxDidBecomeFocused()
                         onFocus()
