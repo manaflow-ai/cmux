@@ -299,6 +299,9 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
                 return event
             }
 
+            if self.performBonsplitSplitActionButtonClick(event) {
+                return nil
+            }
             _ = self.focusPaneForPointerDown(event, in: window)
             return event
         }
@@ -417,6 +420,18 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private func paneView(atRootPoint point: CGPoint) -> NSView? {
         let documentPoint = documentView.convert(point, from: self)
         return documentView.bounds.contains(documentPoint) ? hostingView : nil
+    }
+
+    @discardableResult
+    private func performBonsplitSplitActionButtonClick(_ event: NSEvent) -> Bool {
+        let rootPoint = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(rootPoint) else { return false }
+        let documentPoint = documentView.convert(event.locationInWindow, from: nil)
+        guard documentView.bounds.contains(documentPoint),
+              let workspace else {
+            return false
+        }
+        return workspace.bonsplitController.performSplitActionButton(atLayoutPoint: documentPoint)
     }
 
     @discardableResult
