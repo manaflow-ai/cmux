@@ -51,6 +51,33 @@ public struct AgentResumeArgv: Sendable, Equatable {
     public static let claudeWrapperShellExecutableToken =
         "\"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\""
 
+    /// The shell token that resolves cmux's `codex` wrapper at exec time.
+    ///
+    /// The codex resume argv emits a bare `codex` executable, but the captured
+    /// auto-resume command (`codex resume <id>`) resolves to the *real* codex
+    /// binary inside the `$SHELL -lic` restore launcher, bypassing
+    /// `cmux-codex-wrapper` and dropping every cmux hook (no `SessionStart`, the
+    /// session registry never marks the resumed session live, so the iOS GUI
+    /// stays read-only). This mirrors the claude wrapper-shim mechanism: the
+    /// per-surface `codex` shim path is exported as the *managed* terminal
+    /// environment variable `CMUX_CODEX_WRAPPER_SHIM` (set by
+    /// `TerminalSurface+RuntimeSurfaceCreation`), inherited by every descendant
+    /// shell regardless of `PATH`/function shadowing, so resolving the codex
+    /// executable through it routes the resume command through the wrapper and
+    /// the hooks fire. https://github.com/manaflow-ai/cmux/issues/5639
+    ///
+    /// The token guards on `[ -x … ]` rather than bare `${VAR:-codex}`: a
+    /// long-idle surface can hold the env var after macOS reaps the shim file,
+    /// and the executability guard degrades to bare `codex` (PATH resolution —
+    /// hooks lost but resume works), the same graceful fallback used when the
+    /// variable is unset outside cmux.
+    ///
+    /// Like the claude token, this is POSIX command substitution that fish and
+    /// csh/tcsh reject, so any command containing it must reach those shells
+    /// wrapped via ``portableCodexResumeShellCommand(posixCommand:)``.
+    public static let codexWrapperShellExecutableToken =
+        "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+
     /// Wraps a rendered claude resume/fork command so it parses in any login shell.
     ///
     /// ``claudeWrapperShellExecutableToken`` is POSIX-only syntax, but the rendered
@@ -112,6 +139,58 @@ public struct AgentResumeArgv: Sendable, Equatable {
             if !replaced, part == "claude" {
                 replaced = true
                 return claudeWrapperShellExecutableToken
+            }
+            return quote(part)
+        }
+    }
+
+    /// Wraps a rendered codex resume command so it parses in any login shell.
+    ///
+    /// Mirror of ``portableClaudeResumeShellCommand(posixCommand:)`` for codex:
+    /// ``codexWrapperShellExecutableToken`` is POSIX-only command substitution,
+    /// but the rendered codex resume command is dispatched through the user's
+    /// `$SHELL` by the restore launcher and copy-pasted into the user's
+    /// interactive shell (fish/csh included), so wrapping it in
+    /// `/bin/sh -c '<command>'` makes every dispatching shell parse it
+    /// identically while `sh` still inherits `CMUX_CODEX_WRAPPER_SHIM` from the
+    /// managed terminal environment (and falls back to bare `codex` when unset).
+    public static func portableCodexResumeShellCommand(posixCommand: String) -> String {
+        "/bin/sh -c " + posixSingleQuoted(posixCommand)
+    }
+
+    /// Renders codex command `parts` through ``renderingCodexWrapperExecutable(parts:quote:)``
+    /// and joins them, wrapping via ``portableCodexResumeShellCommand(posixCommand:)`` only
+    /// when the wrapper token was actually substituted.
+    ///
+    /// The `/bin/sh -c` layer exists solely to make the POSIX-only token parse in
+    /// non-POSIX shells, so it is applied exactly when the token is present; a
+    /// codex resume that emitted no bare `codex` executable stays unwrapped.
+    public static func renderedPortableCodexResumeShellCommand(
+        parts: [String],
+        quote: (String) -> String
+    ) -> String {
+        let rendered = renderingCodexWrapperExecutable(parts: parts, quote: quote)
+        let joined = rendered.joined(separator: " ")
+        guard rendered.contains(codexWrapperShellExecutableToken) else { return joined }
+        return portableCodexResumeShellCommand(posixCommand: joined)
+    }
+
+    /// Renders shell command `parts` to quoted tokens, substituting
+    /// ``codexWrapperShellExecutableToken`` for the first bare `codex` executable token.
+    ///
+    /// Mirror of ``renderingClaudeWrapperExecutable(parts:quote:)`` for codex: only
+    /// the first element equal to `codex` — the wrapper executable emitted by the
+    /// codex resume builder — is replaced; every other token is quoted normally.
+    /// Call only for the codex kind. https://github.com/manaflow-ai/cmux/issues/5639
+    public static func renderingCodexWrapperExecutable(
+        parts: [String],
+        quote: (String) -> String
+    ) -> [String] {
+        var replaced = false
+        return parts.map { part in
+            if !replaced, part == "codex" {
+                replaced = true
+                return codexWrapperShellExecutableToken
             }
             return quote(part)
         }

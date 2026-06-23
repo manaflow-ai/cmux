@@ -164,15 +164,19 @@ extension TerminalSurface {
             // dir so typed `codex` resolves to cmux-codex-wrapper through the
             // PATH entry already prepended for the claude shim. Failure here
             // never blocks the claude shim (codex detection degrades, claude is
-            // unaffected).
-            installCodexCommandShimIfPossible(
+            // unaffected). The returned codex shim is carried on the claude shim
+            // so runtime surface creation can export CMUX_CODEX_WRAPPER_SHIM into
+            // the managed env, which a resumed `codex` session needs to route its
+            // resume through the wrapper and keep cmux hooks.
+            let codexShim = installCodexCommandShimIfPossible(
                 claudeWrapperURL: wrapperURL,
                 shimDirectory: shimDirectory,
                 fileManager: fileManager
             )
             return ClaudeCommandShim(
                 directoryPath: shimDirectory.path,
-                executablePath: shimURL.path
+                executablePath: shimURL.path,
+                codexCommandShim: codexShim
             )
         } catch {
             return nil

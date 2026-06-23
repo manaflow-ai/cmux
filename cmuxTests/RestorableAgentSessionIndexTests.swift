@@ -1162,11 +1162,17 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("claude"), "codex resume must not run the claude binary; got: \(resume)")
-        XCTAssertTrue(resume.contains("'codex' 'resume' '\(sid)'"), "codex resume must use the bare codex verb; got: \(resume)")
+        // Bare `codex` now routes through the codex wrapper token (CMUX_CODEX_WRAPPER_SHIM)
+        // wrapped in `/bin/sh -c '…'` so the resumed session keeps cmux hooks (issue #5639).
+        XCTAssertTrue(resume.contains("/bin/sh -c "), "codex resume must wrap the wrapper token for any login shell; got: \(resume)")
+        XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must route through the codex wrapper shim; got: \(resume)")
+        XCTAssertTrue(resume.contains("resume") && resume.contains(sid), "codex resume must use the resume verb and session id; got: \(resume)")
         XCTAssertFalse(resume.contains(foreignDir.path), "codex resume must not cd into the foreign launch dir; got: \(resume)")
         let fork = try XCTUnwrap(snapshot.forkCommand)
         XCTAssertFalse(fork.contains("claude"), "codex fork must not run the claude binary; got: \(fork)")
-        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork must use the bare codex verb; got: \(fork)")
+        XCTAssertTrue(fork.contains("/bin/sh -c "), "codex fork must wrap the wrapper token for any login shell; got: \(fork)")
+        XCTAssertTrue(fork.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex fork must route through the codex wrapper shim; got: \(fork)")
+        XCTAssertTrue(fork.contains("fork") && fork.contains(sid), "codex fork must use the fork verb and session id; got: \(fork)")
         XCTAssertFalse(fork.contains(foreignDir.path), "codex fork must not cd into the foreign launch dir; got: \(fork)")
     }
 
@@ -1208,10 +1214,14 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
         XCTAssertFalse(resume.contains("'sh'"), "codex resume must not run the hook shell wrapper; got: \(resume)")
-        XCTAssertTrue(resume.contains("'codex' 'resume' '\(sid)'"), "codex resume must use the bare codex verb; got: \(resume)")
+        // Bare `codex` routes through the codex wrapper token wrapped in `/bin/sh -c '…'`
+        // (issue #5639) so the resumed session keeps cmux hooks.
+        XCTAssertTrue(resume.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex resume must route through the codex wrapper shim; got: \(resume)")
+        XCTAssertTrue(resume.contains("resume") && resume.contains(sid), "codex resume must use the resume verb and session id; got: \(resume)")
         let fork = try XCTUnwrap(snapshot.forkCommand)
         XCTAssertFalse(fork.contains("'sh'"), "codex fork must not run the hook shell wrapper; got: \(fork)")
-        XCTAssertTrue(fork.contains("'codex' 'fork' '\(sid)'"), "codex fork must use the bare codex verb; got: \(fork)")
+        XCTAssertTrue(fork.contains("CMUX_CODEX_WRAPPER_SHIM"), "codex fork must route through the codex wrapper shim; got: \(fork)")
+        XCTAssertTrue(fork.contains("fork") && fork.contains(sid), "codex fork must use the fork verb and session id; got: \(fork)")
     }
 
     // Wrapper launchers legitimately differ from the hook kind; their captures must stay trusted.
