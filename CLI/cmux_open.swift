@@ -6403,6 +6403,35 @@ extension CMUXCLI {
                 continue
             }
             try? FileManager.default.removeItem(at: manifestURL)
+            // The editor view-state sidecar is keyed by the same token; drop it
+            // with its manifest so scroll memory does not outlive the page.
+            let token = manifestURL.lastPathComponent
+                .dropFirst(".manifest-".count).dropLast(".json".count)
+            try? FileManager.default.removeItem(
+                at: directory.appendingPathComponent(".viewstate-\(token).json", isDirectory: false)
+            )
+        }
+
+        // Reap any view-state sidecar whose page is gone (its manifest was
+        // already pruned or never restored) or that has gone stale. Without
+        // this, every unique `cmux edit` token would leak a `.viewstate-*` file
+        // into the serving directory indefinitely.
+        for viewStateURL in entries
+        where viewStateURL.lastPathComponent.hasPrefix(".viewstate-") && viewStateURL.pathExtension == "json" {
+            let token = viewStateURL.lastPathComponent
+                .dropFirst(".viewstate-".count).dropLast(".json".count)
+            let manifestURL = directory.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+            let manifestGone = !FileManager.default.fileExists(atPath: manifestURL.path)
+            let stale: Bool = {
+                guard let values = try? viewStateURL.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
+                      values.isRegularFile == true else {
+                    return false
+                }
+                return now.timeIntervalSince(values.contentModificationDate ?? values.creationDate ?? .distantPast) > 24 * 60 * 60
+            }()
+            if manifestGone || stale {
+                try? FileManager.default.removeItem(at: viewStateURL)
+            }
         }
     }
 

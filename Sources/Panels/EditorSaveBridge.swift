@@ -165,13 +165,27 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
         trustedRootURL.appendingPathComponent(".viewstate-\(token).json", isDirectory: false)
     }
 
+    /// A view-state token is authorized only when a real diff-viewer/editor page
+    /// was served under it, proven by its `.manifest-<token>.json` existing in
+    /// the uid-owned serving directory (`cmux edit`/`cmux diff` write one for
+    /// every served page; the manifest persists across restore). Without this,
+    /// any same-origin-shaped localhost page with a token-shaped path component
+    /// could write/overwrite arbitrary `.viewstate-<token>.json` files. A valid
+    /// token syntax alone is not enough.
+    private func tokenHasServedManifest(_ token: String) -> Bool {
+        guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else { return false }
+        let manifestURL = trustedRootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
+        return FileManager.default.fileExists(atPath: manifestURL.path)
+    }
+
     /// Persists opaque Monaco view state for an editor page. Unlike the write
-    /// capability, this is keyed by the page's scheme token alone (the handler
-    /// authorizes it from the unforgeable frame identity), so scroll memory
-    /// works for read-only files too. Written 0600 next to `.editor-<token>`.
+    /// capability, this is keyed by the page's scheme token (the handler
+    /// authorizes it from the unforgeable frame identity, and the token must map
+    /// to a real served page), so scroll memory works for read-only files too.
+    /// Written 0600 next to `.editor-<token>`.
     @discardableResult
     func storeViewState(_ data: Data, forToken token: String) -> Bool {
-        guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else { return false }
+        guard tokenHasServedManifest(token) else { return false }
         let url = viewStateSidecarURL(forToken: token)
         do {
             try data.write(to: url, options: .atomic)
@@ -182,9 +196,10 @@ final class CmuxEditorSaveRegistry: @unchecked Sendable {
         }
     }
 
-    /// Reads the persisted view-state sidecar for `token`, or nil when absent.
+    /// Reads the persisted view-state sidecar for `token`, or nil when absent or
+    /// when no real page was served under `token`.
     func loadViewState(forToken token: String) -> Data? {
-        guard CmuxDiffViewerURLSchemeHandler.isValidToken(token) else { return nil }
+        guard tokenHasServedManifest(token) else { return nil }
         return try? Data(contentsOf: viewStateSidecarURL(forToken: token))
     }
 }

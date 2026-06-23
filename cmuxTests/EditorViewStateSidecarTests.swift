@@ -22,8 +22,15 @@ struct EditorViewStateSidecarTests {
         return (CmuxEditorSaveRegistry(trustedRootURL: dir), dir)
     }
 
+    /// Marks `token` as a real served page by writing its manifest, which the
+    /// registry requires before it will read/write view state.
+    private func writeManifest(forToken token: String, in dir: URL) throws {
+        try Data("{}".utf8).write(to: dir.appendingPathComponent(".manifest-\(token).json"))
+    }
+
     @Test func roundTripsViewState() throws {
-        let (registry, _) = try makeRegistry()
+        let (registry, dir) = try makeRegistry()
+        try writeManifest(forToken: validToken, in: dir)
         let payload = #"{"cursorState":[],"viewState":{"scrollTop":420,"scrollLeft":0}}"#
         let data = Data(payload.utf8)
 
@@ -37,7 +44,8 @@ struct EditorViewStateSidecarTests {
     }
 
     @Test func overwritesPreviousViewState() throws {
-        let (registry, _) = try makeRegistry()
+        let (registry, dir) = try makeRegistry()
+        try writeManifest(forToken: validToken, in: dir)
         registry.storeViewState(Data(#"{"scrollTop":10}"#.utf8), forToken: validToken)
         registry.storeViewState(Data(#"{"scrollTop":99}"#.utf8), forToken: validToken)
         let loaded = try #require(registry.loadViewState(forToken: validToken))
@@ -54,9 +62,18 @@ struct EditorViewStateSidecarTests {
 
     @Test func sidecarIsOwnerOnly() throws {
         let (registry, dir) = try makeRegistry()
+        try writeManifest(forToken: validToken, in: dir)
         registry.storeViewState(Data("{}".utf8), forToken: validToken)
         let url = dir.appendingPathComponent(".viewstate-\(validToken).json")
         let perms = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int
         #expect(perms == 0o600)
+    }
+
+    @Test func rejectsTokenWithoutServedManifest() throws {
+        let (registry, _) = try makeRegistry()
+        // No manifest written: the token never served a real page, so view
+        // state must not be persisted or read (capability gate).
+        #expect(registry.storeViewState(Data(#"{"scrollTop":1}"#.utf8), forToken: validToken) == false)
+        #expect(registry.loadViewState(forToken: validToken) == nil)
     }
 }
