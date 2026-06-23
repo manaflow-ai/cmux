@@ -204,8 +204,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var workspaceTopologyVersion: UInt64 = 0
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups (or is old enough not to emit them). Drives the collapsible group
-    /// sections in the workspace list.
+    /// sections in the workspace list. Each group's `isCollapsed` reflects THIS
+    /// device's choice (see `groupCollapseStore`), not the Mac's live value.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+    /// Device-local collapse state for workspace groups. Folder collapse is a
+    /// per-device UI preference: collapsing a group on the phone must not collapse
+    /// it on the Mac. The Mac's reported `isCollapsed` only seeds a group the first
+    /// time this device sees it; thereafter the toggle writes here (no RPC to the
+    /// Mac) and the workspace-list ingest reads from here. Excluded from
+    /// observation: views read collapse through `workspaceGroups`, not this store.
+    @ObservationIgnored var groupCollapseStore = MobileWorkspaceGroupCollapseStore()
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -5267,7 +5275,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // full-list response (the non-merge path, which the event-driven refresh
         // and initial sync use) carries authoritative group state.
         if !mergeExistingWorkspaces {
-            workspaceGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+            // Apply this device's collapse state over the Mac's reported groups
+            // (seeding any group seen for the first time). Folder collapse is
+            // device-local, so the Mac's live `isCollapsed` never overrides a
+            // choice this phone already made.
+            workspaceGroups = groupCollapseStore.apply(
+                to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+            )
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
