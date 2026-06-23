@@ -91,7 +91,7 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
     var remotePortScanCoalesceTask: Task<Void, Never>?
     var remotePortScanCoalesceToken: UUID?
     var remotePortScanBurstTask: Task<Void, Never>?
-    var remotePortPollTimer: DispatchSourceTimer?
+    var remotePortPollTimer: (any DispatchSourceTimer)?
     var remotePortPollMode: RemotePortPollingMode?
     var polledRemotePorts: [Int] = []
     var remotePortPollBaselinePorts: Set<Int>?

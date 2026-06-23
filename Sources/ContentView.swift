@@ -1679,7 +1679,7 @@ struct ContentView: View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
-            windowId: windowId, sidebarWidth: sidebarWidth,
+            windowId: windowId,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
@@ -1830,9 +1830,6 @@ struct ContentView: View {
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .padding(.top, effectiveTitlebarPadding)
-        .overlay(alignment: .top) {
-            PaneMemoryGuardrailBanner(guardrail: PaneMemoryGuardrail.shared, tabManager: tabManager)
-        }
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
@@ -10015,7 +10012,6 @@ struct VerticalTabsSidebar: View {
     var updateViewModel: UpdateStateModel
     @ObservedObject var fileExplorerState: FileExplorerState
     let windowId: UUID
-    let sidebarWidth: CGFloat
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
@@ -10385,7 +10381,7 @@ struct VerticalTabsSidebar: View {
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
-        let tabItemSettings: SidebarTabItemSettingsSnapshot, sidebarWidth: CGFloat
+        let tabItemSettings: SidebarTabItemSettingsSnapshot
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
         let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
@@ -10447,7 +10443,7 @@ struct VerticalTabsSidebar: View {
             workspaceCount: workspaceCount,
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
-            tabItemSettings: tabItemSettings, sidebarWidth: sidebarWidth,
+            tabItemSettings: tabItemSettings,
             tabIndexById: tabIndexById,
             workspaceById: workspaceById,
             workspaceGroupIdByWorkspaceId: workspaceGroupIdByWorkspaceId,
@@ -12091,7 +12087,6 @@ struct VerticalTabsSidebar: View {
             target: contextMenuPinTarget
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
-        let liveHasMemoryWarning = sidebarUnread.hasMemoryWarning(forWorkspaceId: tab.id)
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
@@ -12149,7 +12144,6 @@ struct VerticalTabsSidebar: View {
             )
         }
 
-        let rowSidebarWidth = renderContext.sidebarWidth - (tab.groupId != nil ? SidebarWorkspaceGroupingMetrics.memberIndent : 0)
         let row = TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -12163,9 +12157,8 @@ struct VerticalTabsSidebar: View {
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
-            hasMemoryWarning: liveHasMemoryWarning,
             latestNotificationText: liveLatestNotificationText,
-            rowSpacing: tabRowSpacing, sidebarWidth: rowSidebarWidth,
+            rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
@@ -12962,9 +12955,8 @@ struct TabItemView: View, Equatable {
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
-        lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
-        lhs.rowSpacing == rhs.rowSpacing && lhs.sidebarWidth == rhs.sidebarWidth &&
+        lhs.rowSpacing == rhs.rowSpacing &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
         lhs.contextMenuWorkspaceIds == rhs.contextMenuWorkspaceIds &&
         lhs.remoteContextMenuWorkspaceIds == rhs.remoteContextMenuWorkspaceIds &&
@@ -12990,12 +12982,8 @@ struct TabItemView: View, Equatable {
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
-    /// True when any pane in this workspace is over the runaway-memory
-    /// threshold. Precomputed snapshot value (snapshot-boundary rule); drives
-    /// the orange warning badge alongside the unread badge.
-    let hasMemoryWarning: Bool
     let latestNotificationText: String?
-    let rowSpacing: CGFloat, sidebarWidth: CGFloat
+    let rowSpacing: CGFloat
     let setSelectionToTabs: () -> Void
     @Binding var selectedTabIds: Set<UUID>
     @Binding var lastSidebarSelectionIndex: Int?
@@ -13010,9 +12998,9 @@ struct TabItemView: View, Equatable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
-    /// Factory invoked from `body` with a stable drop-hit height. Closure
+    /// Factory invoked from `body` with the row's measured `rowHeight`. Closure
     /// captures the parent's `dragState`, so TabItemView itself never holds an
-    /// `@Observable` store reference or layout-driven state (snapshot-boundary rule).
+    /// `@Observable` store reference (snapshot-boundary rule).
     let tabDropDelegateFactory: (CGFloat) -> SidebarTabDropDelegate
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
@@ -13032,10 +13020,10 @@ struct TabItemView: View, Equatable {
     @State private var observedIsActive: Bool?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var metadataRowsExpanded = false
-    @State private var metadataBlocksExpanded = false
+    @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
 
+    private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
 
     var isMultiSelected: Bool {
@@ -13268,6 +13256,18 @@ struct TabItemView: View, Equatable {
         }
     }
 
+    private var rowHeightProbe: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear {
+                    rowHeight = max(proxy.size.height, 1)
+                }
+                .onChange(of: proxy.size.height) { _, newHeight in
+                    rowHeight = max(newHeight, 1)
+                }
+        }
+    }
+
     @ViewBuilder
     private var remoteWorkspaceSection: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -13371,19 +13371,10 @@ struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
-        let titleLineLimit = settings.wrapsWorkspaceTitles ? SidebarWorkspaceRowDropMetrics.maxWrappedTitleLines : 1
+        let titleLineLimit = settings.wrapsWorkspaceTitles ? Self.maxWrappedTitleLines : 1
         let displayedTitle = workspaceSnapshot.title.sidebarBoundedDisplayString(
             maxDisplayedLines: titleLineLimit,
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
-        )
-        let dropTargetHeight = SidebarWorkspaceRowDropMetrics.dropTargetHeight(
-            snapshot: workspaceSnapshot,
-            settings: settings,
-            effectiveSubtitle: effectiveSubtitle,
-            metadataEntryIsExpanded: metadataRowsExpanded,
-            metadataBlocksAreExpanded: metadataBlocksExpanded,
-            sidebarWidth: sidebarWidth, unreadCount: unreadCount,
-            hasMemoryWarning: hasMemoryWarning, canCloseWorkspace: canCloseWorkspace
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
@@ -13403,20 +13394,6 @@ struct TabItemView: View, Equatable {
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                }
-
-                if hasMemoryWarning {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .cmuxFont(size: scaledFontSize(11), weight: .semibold)
-                        .foregroundColor(.orange)
-                        .safeHelp(String(
-                            localized: "sidebar.memoryWarning.tooltip",
-                            defaultValue: "A pane in this workspace is using a lot of memory"
-                        ))
-                        .accessibilityLabel(String(
-                            localized: "sidebar.memoryWarning.accessibilityLabel",
-                            defaultValue: "High memory warning"
-                        ))
                 }
 
                 if workspaceSnapshot.isPinned {
@@ -13515,7 +13492,6 @@ struct TabItemView: View, Equatable {
                 if !metadataEntries.isEmpty {
                     SidebarMetadataRows(
                         entries: metadataEntries,
-                        isExpanded: $metadataRowsExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.95),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13527,7 +13503,6 @@ struct TabItemView: View, Equatable {
                 if !metadataBlocks.isEmpty {
                     SidebarMetadataMarkdownBlocks(
                         blocks: metadataBlocks,
-                        isExpanded: $metadataBlocksExpanded,
                         isActive: usesInvertedActiveForeground,
                         activeForegroundColor: activeSecondaryColor(0.8),
                         activeSecondaryForegroundColor: activeSecondaryColor(0.65),
@@ -13761,6 +13736,7 @@ struct TabItemView: View, Equatable {
         )
         .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
+        .background { rowHeightProbe }
         .contentShape(Rectangle())
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
@@ -13789,7 +13765,6 @@ struct TabItemView: View, Equatable {
             tabManager.selectedTabIdPublisher
                 .map { $0 == tab.id }
                 .removeDuplicates()
-                .receive(on: RunLoop.main)
         ) { isSelected in
             updateObservedActiveState(isSelected)
         }
@@ -13840,7 +13815,7 @@ struct TabItemView: View, Equatable {
         }
         .onDrag(onDragStart)
         .internalOnlyTabDrag()
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(dropTargetHeight))
+        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .onDrop(of: BonsplitTabDragPayload.dropContentTypes, delegate: SidebarBonsplitTabDropDelegate(
             targetWorkspaceId: tab.id,
             tabManager: tabManager,
@@ -14965,7 +14940,7 @@ private struct SidebarWorkspaceDescriptionText: View {
     let isActive: Bool
     let activeForegroundColor: Color
     let fontScale: CGFloat
-    private static let maxDisplayedLines = SidebarWorkspaceRowDropMetrics.maxDescriptionLines
+    private static let maxDisplayedLines = 12
     private static let maxDisplayedCharacters = 4096
 
     var body: some View {
@@ -15062,12 +15037,14 @@ private extension String {
 
 private struct SidebarMetadataRows: View {
     let entries: [SidebarStatusEntry]
-    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedEntryLimit = 3
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -15098,10 +15075,8 @@ private struct SidebarMetadataRows: View {
     }
 
     private var visibleEntries: [SidebarStatusEntry] {
-        guard !isExpanded, entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit else {
-            return entries
-        }
-        return Array(entries.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit))
+        guard !isExpanded, entries.count > collapsedEntryLimit else { return entries }
+        return Array(entries.prefix(collapsedEntryLimit))
     }
 
     private var helpText: String {
@@ -15113,7 +15088,7 @@ private struct SidebarMetadataRows: View {
     }
 
     private var shouldShowToggle: Bool {
-        entries.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataEntryLimit
+        entries.count > collapsedEntryLimit
     }
 }
 
@@ -15218,12 +15193,14 @@ private struct SidebarMetadataEntryRow: View {
 
 private struct SidebarMetadataMarkdownBlocks: View {
     let blocks: [SidebarMetadataBlock]
-    @Binding var isExpanded: Bool
     let isActive: Bool
     let activeForegroundColor: Color
     let activeSecondaryForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
+
+    @State private var isExpanded: Bool = false
+    private let collapsedBlockLimit = 1
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -15253,14 +15230,12 @@ private struct SidebarMetadataMarkdownBlocks: View {
     }
 
     private var visibleBlocks: [SidebarMetadataBlock] {
-        guard !isExpanded, blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit else {
-            return blocks
-        }
-        return Array(blocks.prefix(SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit))
+        guard !isExpanded, blocks.count > collapsedBlockLimit else { return blocks }
+        return Array(blocks.prefix(collapsedBlockLimit))
     }
 
     private var shouldShowToggle: Bool {
-        blocks.count > SidebarWorkspaceRowDropMetrics.collapsedMetadataBlockLimit
+        blocks.count > collapsedBlockLimit
     }
 }
 
@@ -15270,7 +15245,7 @@ private struct SidebarMetadataMarkdownBlockRow: View {
     let activeForegroundColor: Color
     let fontScale: CGFloat
     let onFocus: () -> Void
-    private static let maxDisplayedLines = SidebarWorkspaceRowDropMetrics.maxMetadataBlockLines
+    private static let maxDisplayedLines = 12
     private static let maxDisplayedCharacters = 4096
 
     var body: some View {

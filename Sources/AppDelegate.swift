@@ -2039,7 +2039,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSession(titleChange: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
-        startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
+        startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -2067,19 +2067,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Starts the per-pane runaway-memory guardrail: a background timer that
-    /// attributes each pane's process-tree memory by controlling tty and warns
-    /// (sidebar badge + dismissible banner with a kill action) before a single
+    /// attributes each pane's process-tree memory by controlling tty (monitoring
+    /// only — the user-facing sidebar badge and banner were removed in #6614) and
+    /// frees nonessential WebKit memory on system memory pressure before a single
     /// leaking pane can OOM-suspend the whole app (issue #6313).
-    private func startPaneMemoryGuardrailIfNeeded(notificationStore: TerminalNotificationStore) {
+    private func startPaneMemoryGuardrailIfNeeded() {
         let guardrail = PaneMemoryGuardrail.shared
         guardrail.paneProvider = { [weak self] in
             self?.paneMemoryGuardrailDescriptors() ?? []
-        }
-        guardrail.onWarnedWorkspacesChanged = { [weak notificationStore] ids in
-            notificationStore?.sidebarUnread.setMemoryWarningWorkspaceIds(ids)
-        }
-        guardrail.onRequestClosePane = { [weak self] workspaceId, panelId in
-            _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
         }
         guardrail.onSystemMemoryPressure = { [weak self] in
             self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
