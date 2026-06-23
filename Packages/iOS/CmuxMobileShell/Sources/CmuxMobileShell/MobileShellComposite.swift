@@ -207,14 +207,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// sections in the workspace list. Each group's `isCollapsed` reflects THIS
     /// device's choice (see `groupCollapseStore`), not the Mac's live value.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
-    /// Device-local collapse state for workspace groups. Folder collapse is a
-    /// per-device UI preference: collapsing a group on the phone must not collapse
-    /// it on the Mac. The Mac's reported `isCollapsed` only seeds a group the first
-    /// time this device sees it; thereafter the toggle writes here (no RPC to the
-    /// Mac) and the workspace-list ingest reads from here. Excluded from
-    /// observation: views read collapse through `workspaceGroups`, not this store.
-    /// Injected at the composition root (`.standard`-backed) and overridable in
-    /// tests/previews with a suite-scoped `UserDefaults`.
+    /// Device-local collapse state for workspace groups (per-device UI preference:
+    /// collapsing on the phone must not collapse on the Mac). Seeded once from the
+    /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
+    /// injected so tests/previews can pass a suite-scoped `UserDefaults`.
     @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
@@ -3312,7 +3308,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                     clearPairingError()
                     await persistPairedMacFromTicket(ticket)
-                    applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
+                    applyRemoteWorkspaceList(
+                        response,
+                        preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget,
+                        // Scoped requests omit groups; only a non-scoped (full) list
+                        // is authoritative for the device-local collapse store.
+                        groupsAreAuthoritative: !workspaceListRequest.isScoped
+                    )
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
@@ -5257,7 +5259,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func applyRemoteWorkspaceList(
         _ response: MobileSyncWorkspaceListResponse,
         preferActiveTicketTarget: Bool = false,
-        mergeExistingWorkspaces: Bool = false
+        mergeExistingWorkspaces: Bool = false,
+        groupsAreAuthoritative: Bool = true
     ) {
         let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
         if mergeExistingWorkspaces {
@@ -5279,13 +5282,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // full-list response (the non-merge path, which the event-driven refresh
         // and initial sync use) carries authoritative group state.
         if !mergeExistingWorkspaces {
-            // Apply this device's collapse state over the Mac's reported groups
-            // (seeding any group seen for the first time). Folder collapse is
-            // device-local, so the Mac's live `isCollapsed` never overrides a
-            // choice this phone already made.
-            workspaceGroups = groupCollapseStore.apply(
-                to: response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
-            )
+            let mappedGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+            if groupsAreAuthoritative {
+                // Apply this device's collapse state over the Mac's reported groups
+                // (seeding any group seen for the first time, pruning departed ones).
+                // Folder collapse is device-local, so the Mac's live `isCollapsed`
+                // never overrides a choice this phone already made.
+                workspaceGroups = groupCollapseStore.apply(to: mappedGroups)
+            } else {
+                // Scoped attach responses omit `groups`; feeding that empty list to
+                // the store would prune saved collapse choices. Leave it untouched —
+                // the full refresh that follows re-applies authoritatively.
+                workspaceGroups = mappedGroups
+            }
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return
