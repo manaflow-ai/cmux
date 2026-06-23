@@ -131,7 +131,7 @@ extension CMUXCLI {
                FileManager.default.isExecutableFile(atPath: candidate),
                !isBundledProviderExecutable(at: candidate)
             {
-                return candidate
+                return URL(fileURLWithPath: candidate, isDirectory: false).standardizedFileURL.path
             }
         }
         let userHomeCandidate = NSString(string: "~/.grok/bin/grok").expandingTildeInPath
@@ -141,7 +141,7 @@ extension CMUXCLI {
            FileManager.default.isExecutableFile(atPath: userHomeCandidate),
            !isBundledProviderExecutable(at: userHomeCandidate)
         {
-            return userHomeCandidate
+            return URL(fileURLWithPath: userHomeCandidate, isDirectory: false).standardizedFileURL.path
         }
         return resolveExecutableInSearchPath("grok", searchPath: searchPath)
     }
