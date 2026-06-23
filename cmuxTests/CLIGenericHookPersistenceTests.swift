@@ -3479,34 +3479,47 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_AGENT_LAUNCH_KIND"] = "codex"
         environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/codex"
         environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
-        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
-            "/usr/local/bin/codex",
-            "fork",
-            parentSessionId,
-            "--model",
-            "gpt-5.4",
-        ])
 
-        let sessionStart = runProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", "codex", "session-start"],
-            environment: environment,
-            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
-            timeout: 5
-        )
+        let forkLaunches: [(label: String, arguments: [String])] = [
+            (
+                "explicit parent id",
+                ["/usr/local/bin/codex", "fork", parentSessionId, "--model", "gpt-5.4"]
+            ),
+            (
+                "--last selector with prompt",
+                ["/usr/local/bin/codex", "fork", "--last", "continue from here"]
+            ),
+            (
+                "picker selector",
+                ["/usr/local/bin/codex", "fork"]
+            ),
+        ]
 
-        let sessionEnd = runProcess(
-            executablePath: cliPath,
-            arguments: ["hooks", "codex", "session-end"],
-            environment: environment,
-            standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#,
-            timeout: 5
-        )
+        for forkLaunch in forkLaunches {
+            var forkEnvironment = environment
+            forkEnvironment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(forkLaunch.arguments)
 
-        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
-        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
-        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
-        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+            let sessionStart = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "codex", "session-start"],
+                environment: forkEnvironment,
+                standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+                timeout: 5
+            )
+
+            let sessionEnd = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "codex", "session-end"],
+                environment: forkEnvironment,
+                standardInput: #"{"session_id":"\#(parentSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#,
+                timeout: 5
+            )
+
+            XCTAssertFalse(sessionStart.timedOut, "\(forkLaunch.label): \(sessionStart.stderr)")
+            XCTAssertEqual(sessionStart.status, 0, "\(forkLaunch.label): \(sessionStart.stderr)")
+            XCTAssertFalse(sessionEnd.timedOut, "\(forkLaunch.label): \(sessionEnd.stderr)")
+            XCTAssertEqual(sessionEnd.status, 0, "\(forkLaunch.label): \(sessionEnd.stderr)")
+        }
 
         let storeJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
         let sessions = try XCTUnwrap(storeJSON["sessions"] as? [String: Any])

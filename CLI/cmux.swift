@@ -26592,6 +26592,24 @@ struct CMUXCLI {
         guard let arguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
             return nil
         }
+        return codexForkSessionParentId(in: arguments)
+    }
+
+    private func codexLaunchIsForkSession(env: [String: String], fallbackPID: Int?) -> Bool {
+        guard let arguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
+            return false
+        }
+        return codexForkCommandIndex(in: arguments) != nil
+    }
+
+    private func codexForkSessionParentId(in arguments: [String]) -> String? {
+        guard let forkIndex = codexForkCommandIndex(in: arguments) else {
+            return nil
+        }
+        return codexForkSessionIdentifier(in: arguments, after: forkIndex)
+    }
+
+    private func codexForkCommandIndex(in arguments: [String]) -> Int? {
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
@@ -26599,7 +26617,7 @@ struct CMUXCLI {
                 return nil
             }
             if argument == "fork" {
-                return codexForkSessionIdentifier(in: arguments, after: index)
+                return index
             }
             index += 1
         }
@@ -26616,6 +26634,9 @@ struct CMUXCLI {
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
+                return nil
+            }
+            if argument == "--last" {
                 return nil
             }
             if !argument.hasPrefix("-") || argument == "-" {
@@ -26650,6 +26671,39 @@ struct CMUXCLI {
         default:
             return 1
         }
+    }
+
+    private func shouldSkipCodexForkParentLifecycle(
+        def: AgentHookDef,
+        subcommand: String,
+        input: ClaudeHookParsedInput,
+        sessionId: String,
+        store: ClaudeHookSessionStore,
+        env: [String: String],
+        fallbackPID: Int?
+    ) -> Bool {
+        guard def.name == "codex",
+              subcommand == "session-start" || subcommand == "active" || subcommand == "session-end" else {
+            return false
+        }
+
+        let payloadSessionId = normalizedHookValue(input.sessionId)
+        let resolvedSessionId = normalizedHookValue(sessionId)
+        if let parentSessionId = codexForkSessionParentId(env: env, fallbackPID: fallbackPID),
+           parentSessionId == payloadSessionId || parentSessionId == resolvedSessionId {
+            return true
+        }
+
+        guard codexLaunchIsForkSession(env: env, fallbackPID: fallbackPID) else {
+            return false
+        }
+        for candidate in [payloadSessionId, resolvedSessionId] {
+            guard let candidate else { continue }
+            if (try? store.lookup(sessionId: candidate)) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     private func agentLaunchCommandFromEnvironment(
@@ -29548,13 +29602,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? normalizedHookValue(env["PWD"])
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
-        let codexForkParentSessionId = codexForkSessionParentId(env: env, fallbackPID: inferredPID)
-        let payloadSessionId = normalizedHookValue(input.sessionId)
-        let isCodexLifecycleSubcommand = subcommand == "session-start" || subcommand == "active" || subcommand == "session-end"
-        let isCodexForkParentLifecycle = def.name == "codex"
-            && isCodexLifecycleSubcommand
-            && codexForkParentSessionId != nil
-            && (codexForkParentSessionId == payloadSessionId || codexForkParentSessionId == normalizedHookValue(sessionId))
+        let isCodexForkParentLifecycle = shouldSkipCodexForkParentLifecycle(
+            def: def,
+            subcommand: subcommand,
+            input: input,
+            sessionId: sessionId,
+            store: store,
+            env: env,
+            fallbackPID: inferredPID
+        )
         if isCodexForkParentLifecycle {
             telemetry.breadcrumb("codex-hook.\(subcommand).fork-parent-skipped")
             print("{}")
@@ -33895,7 +33951,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return nil
         }
         let inferredPID = agentPIDFromHookEnvironment(agentName: "codex", env: env) ?? inferredAgentPID()
-        guard let parentSessionId = codexForkSessionParentId(env: env, fallbackPID: inferredPID) else {
+        guard codexLaunchIsForkSession(env: env, fallbackPID: inferredPID) else {
             return nil
         }
         guard let codexDef = Self.agentDef(named: "codex") else {
@@ -33912,8 +33968,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             env: env,
             cwd: hookCwd
         )
-        let payloadSessionId = normalizedHookValue(input.sessionId)
-        let isParentLifecycle = parentSessionId == payloadSessionId || parentSessionId == normalizedHookValue(sessionId)
+        let store = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: codexDef.sessionStoreSuffix, env: env)],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+        let isParentLifecycle = shouldSkipCodexForkParentLifecycle(
+            def: codexDef,
+            subcommand: subcommand,
+            input: input,
+            sessionId: sessionId,
+            store: store,
+            env: env,
+            fallbackPID: inferredPID
+        )
         return HooksRawInputPreflight(handled: isParentLifecycle, rawInput: isParentLifecycle ? nil : rawInput)
     }
 
