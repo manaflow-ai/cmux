@@ -3520,36 +3520,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         let forkLaunches: [(label: String, arguments: [String], includeTTYBinding: Bool)] = [
-            (
-                "explicit parent id",
-                ["/usr/local/bin/codex", "fork", parentSessionId, "--model", "gpt-5.4"],
-                true
-            ),
-            (
-                "variadic image explicit parent id",
-                ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", parentSessionId, "--model", "gpt-5.4"],
-                true
-            ),
-            (
-                "codex teams wrapper",
-                ["/usr/local/bin/cmux", "codex-teams", "fork", parentSessionId, "--model", "gpt-5.4"],
-                true
-            ),
-            (
-                "--last selector with prompt",
-                ["/usr/local/bin/codex", "fork", "--last", "continue from here"],
-                true
-            ),
-            (
-                "picker selector",
-                ["/usr/local/bin/codex", "fork"],
-                true
-            ),
-            (
-                "picker selector ambient only",
-                ["/usr/local/bin/codex", "fork"],
-                false
-            ),
+            ("explicit parent id", ["/usr/local/bin/codex", "fork", parentSessionId, "--model", "gpt-5.4"], true),
+            ("variadic image explicit parent id", ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", parentSessionId, "--model", "gpt-5.4"], true),
+            ("variadic image --last selector", ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork", "--last", "continue from here"], true),
+            ("variadic image picker selector", ["/usr/local/bin/codex", "-i", "a.png", "b.png", "fork"], true),
+            ("codex teams wrapper", ["/usr/local/bin/cmux", "codex-teams", "fork", parentSessionId, "--model", "gpt-5.4"], true),
+            ("--last selector with prompt", ["/usr/local/bin/codex", "fork", "--last", "continue from here"], true),
+            ("picker selector", ["/usr/local/bin/codex", "fork"], true),
+            ("picker selector ambient only", ["/usr/local/bin/codex", "fork"], false),
         ]
 
         for forkLaunch in forkLaunches {
