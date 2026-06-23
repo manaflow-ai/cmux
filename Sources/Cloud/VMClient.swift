@@ -238,6 +238,7 @@ struct VMSSHEndpoint {
     let username: String
     let credential: Credential
     let publicKeyFingerprint: String?
+    let daemon: VMWebSocketDaemonEndpoint?
 
     enum Credential {
         case password(String)
@@ -660,7 +661,8 @@ actor VMClient {
             port: port,
             username: username,
             credential: credential,
-            publicKeyFingerprint: obj["publicKeyFingerprint"] as? String
+            publicKeyFingerprint: obj["publicKeyFingerprint"] as? String,
+            daemon: try decodeWebSocketDaemonEndpoint(obj["daemon"])
         )
     }
 

@@ -1,4 +1,4 @@
-internal import Foundation
+public import Foundation
 public import CmuxCore
 
 /// Synchronous JSON-RPC client for a cmuxd-remote daemon over one of three
@@ -78,6 +78,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let configuration: WorkspaceRemoteConfiguration
     let remotePath: String
     let strings: RemoteDaemonStrings
+    let cliRequestHandler: (@Sendable (Data) throws -> Data)?
     let onUnexpectedTermination: (String) -> Void
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
@@ -119,11 +120,13 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
         configuration: WorkspaceRemoteConfiguration,
         remotePath: String,
         strings: RemoteDaemonStrings,
+        cliRequestHandler: (@Sendable (Data) throws -> Data)? = nil,
         onUnexpectedTermination: @escaping (String) -> Void
     ) {
         self.configuration = configuration
         self.remotePath = remotePath
         self.strings = strings
+        self.cliRequestHandler = cliRequestHandler
         self.onUnexpectedTermination = onUnexpectedTermination
     }
 
@@ -133,7 +136,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     public func start() throws {
         pendingCalls.reset()
 
-        if configuration.transport == .websocket {
+        if configuration.daemonWebSocketEndpoint != nil {
             try startViaWebSocket()
         } else if Self.usesSocketForwardTransport(configuration: configuration) {
             try startViaBakedVMSocketForward()

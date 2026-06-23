@@ -177,6 +177,9 @@ doneFlags:
 		refreshAddr = readSocketAddrFile
 	}
 	if socketPath == "" {
+		socketPath = defaultCloudCLIBridgeSocketIfExists()
+	}
+	if socketPath == "" {
 		fmt.Fprintln(os.Stderr, "cmux: CMUX_SOCKET_PATH not set and --socket not provided")
 		return 1
 	}

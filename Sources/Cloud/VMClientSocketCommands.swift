@@ -184,7 +184,7 @@ extension TerminalController {
     }
 
     private nonisolated static func socketWorkerSSHInfoPayload(_ endpoint: VMSSHEndpoint) -> [String: Any] {
-        [
+        var payload: [String: Any] = [
             "transport": endpoint.transport,
             "host": endpoint.host,
             "port": endpoint.port,
@@ -192,6 +192,16 @@ extension TerminalController {
             "credential": socketWorkerCredentialPayload(endpoint.credential),
             "public_key_fingerprint": endpoint.publicKeyFingerprint ?? NSNull(),
         ]
+        if let daemon = endpoint.daemon {
+            payload["daemon"] = [
+                "url": daemon.url,
+                "headers": daemon.headers,
+                "token": daemon.token,
+                "session_id": daemon.sessionId,
+                "expires_at_unix": daemon.expiresAtUnix,
+            ]
+        }
+        return payload
     }
 
     private nonisolated static func socketWorkerAttachInfoPayload(_ endpoint: VMAttachEndpoint) -> [String: Any] {

@@ -728,6 +728,15 @@ function storeEndpointLeases(vm: CloudVmRow, endpoint: AttachEndpoint | SSHEndpo
         transport: "ssh",
         metadata: { credentialKind: endpoint.credential.kind },
       });
+      if (endpoint.daemon) {
+        yield* recordEndpointLease(vm, {
+          kind: "rpc",
+          token: endpoint.daemon.token,
+          expiresAt: new Date(endpoint.daemon.expiresAtUnix * 1000),
+          sessionId: endpoint.daemon.sessionId,
+          transport: "websocket",
+        });
+      }
       return;
     }
 

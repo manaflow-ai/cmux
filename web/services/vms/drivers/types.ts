@@ -26,6 +26,13 @@ export type SSHEndpoint = {
   // One-time credential for this attach session. Drivers decide whether that's a password,
   // a bearer over an SSH ProxyCommand, or an authorized_keys line the client pushes.
   credential: { kind: "password"; value: string } | { kind: "authorizedKey"; privateKeyPem: string };
+  daemon?: {
+    url: string;
+    headers: Record<string, string>;
+    token: string;
+    sessionId: string;
+    expiresAtUnix: number;
+  };
   /**
    * Opaque identity/token handle the driver needs later to revoke these credentials.
    * Freestyle uses its identity id; E2B returns an empty string (no identities there yet).

@@ -74,6 +74,7 @@ type rpcResponse struct {
 type rpcEvent struct {
 	Event           string `json:"event"`
 	StreamID        string `json:"stream_id,omitempty"`
+	RequestID       string `json:"request_id,omitempty"`
 	SessionID       string `json:"session_id,omitempty"`
 	AttachmentID    string `json:"attachment_id,omitempty"`
 	AttachmentToken string `json:"attachment_token,omitempty"`
@@ -107,6 +108,7 @@ type rpcServer struct {
 	ownsPTYHub     bool
 	ptyAttachments map[string]*wsPTYAttachment
 	frameWriter    rpcFrameWriter
+	cliBridge      *cloudCLIBridge
 }
 
 type sessionAttachment struct {
@@ -1313,6 +1315,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"pty.session.persistent_daemon",
 					"pty.write.notification",
 					"pty.resize.notification",
+					"cli.bridge",
 				},
 			},
 		}
@@ -1356,6 +1359,8 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handlePTYClose(req)
 	case "pty.list":
 		return s.handlePTYList(req)
+	case "cli.response":
+		return s.handleCLIResponse(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,

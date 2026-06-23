@@ -1,5 +1,6 @@
 public import CmuxCore
 public import CmuxRemoteDaemon
+internal import Darwin
 internal import Foundation
 import Network
 
@@ -82,7 +83,8 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 let client = RemoteDaemonRPCClient(
                     configuration: configuration,
                     remotePath: remotePath,
-                    strings: strings
+                    strings: strings,
+                    cliRequestHandler: Self.makeCLIRequestHandler(configuration: configuration)
                 ) { [weak self] detail in
                     guard let self else { return }
                     self.queue.async {
@@ -251,6 +253,103 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         }
         sessions[session.id] = session
         session.start()
+    }
+
+    private static func makeCLIRequestHandler(configuration: WorkspaceRemoteConfiguration) -> (@Sendable (Data) throws -> Data)? {
+        guard let localSocketPath = configuration.localSocketPath?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !localSocketPath.isEmpty else {
+            return nil
+        }
+        return { request in
+            try roundTripUnixSocket(socketPath: localSocketPath, request: request)
+        }
+    }
+
+    private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "failed to create local cmux socket",
+            ])
+        }
+        defer { Darwin.close(fd) }
+
+        var timeout = timeval(tv_sec: 15, tv_usec: 0)
+        withUnsafePointer(to: &timeout) { pointer in
+            _ = setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+            _ = setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, pointer, socklen_t(MemoryLayout<timeval>.size))
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= MemoryLayout.size(ofValue: address.sun_path) else {
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 2, userInfo: [
+                NSLocalizedDescriptionKey: "local cmux socket path is too long",
+            ])
+        }
+        let sunPathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        withUnsafeMutableBytes(of: &address) { rawBuffer in
+            let destination = rawBuffer.baseAddress!.advanced(by: sunPathOffset)
+            pathBytes.withUnsafeBytes { pathBuffer in
+                destination.copyMemory(from: pathBuffer.baseAddress!, byteCount: pathBytes.count)
+            }
+        }
+
+        let addressLength = socklen_t(MemoryLayout.size(ofValue: address.sun_family) + pathBytes.count)
+        let connectResult = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, addressLength)
+            }
+        }
+        guard connectResult == 0 else {
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 3, userInfo: [
+                NSLocalizedDescriptionKey: "failed to connect to local cmux socket",
+            ])
+        }
+
+        try request.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var bytesRemaining = rawBuffer.count
+            var pointer = baseAddress
+            while bytesRemaining > 0 {
+                let written = Darwin.write(fd, pointer, bytesRemaining)
+                if written <= 0 {
+                    throw NSError(domain: "cmux.remote.cli-bridge", code: 4, userInfo: [
+                        NSLocalizedDescriptionKey: "failed to write cloud CLI request",
+                    ])
+                }
+                bytesRemaining -= written
+                pointer = pointer.advanced(by: written)
+            }
+        }
+        _ = shutdown(fd, SHUT_WR)
+
+        var response = Data()
+        var scratch = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(fd, &scratch, scratch.count)
+            if count > 0 {
+                response.append(scratch, count: count)
+                continue
+            }
+            if count == 0 {
+                break
+            }
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                if !response.isEmpty {
+                    break
+                }
+                throw NSError(domain: "cmux.remote.cli-bridge", code: 5, userInfo: [
+                    NSLocalizedDescriptionKey: "timed out waiting for local cmux response",
+                ])
+            }
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "failed to read local cmux response",
+            ])
+        }
+        return response
     }
 
     private func failLocked(_ detail: String) {

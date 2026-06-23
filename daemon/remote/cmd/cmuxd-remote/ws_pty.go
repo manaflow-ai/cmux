@@ -28,13 +28,15 @@ import (
 )
 
 type wsPTYServerConfig struct {
-	ListenAddr       string
-	PTYAuthLeaseFile string
-	RPCAuthLeaseFile string
-	Shell            string
-	PTYHub           *wsPTYHub
-	ScrollbackLimit  int
-	SessionIdleTTL   time.Duration
+	ListenAddr          string
+	PTYAuthLeaseFile    string
+	RPCAuthLeaseFile    string
+	CLIBridgeSocketPath string
+	CLIBridge           *cloudCLIBridge
+	Shell               string
+	PTYHub              *wsPTYHub
+	ScrollbackLimit     int
+	SessionIdleTTL      time.Duration
 }
 
 type wsLease struct {
@@ -217,6 +219,14 @@ func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io
 		cfg.PTYHub = newWebSocketPTYHub(cfg, stderr)
 	}
 	defer cfg.PTYHub.closeAll()
+	if strings.TrimSpace(cfg.RPCAuthLeaseFile) != "" {
+		if cfg.CLIBridge == nil {
+			cfg.CLIBridge = newCloudCLIBridge()
+		}
+		if err := cfg.CLIBridge.start(ctx, cfg.CLIBridgeSocketPath, stderr); err != nil {
+			return fmt.Errorf("cloud CLI bridge: %w", err)
+		}
+	}
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -462,12 +472,18 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		sessions:      map[string]*sessionState{},
 		ptyHub:        cfg.PTYHub,
 		ownsPTYHub:    false,
+		cliBridge:     cfg.CLIBridge,
 		frameWriter: &wsRPCFrameWriter{
 			conn:    conn,
 			writeMu: writeMu,
 			ctx:     r.Context(),
 		},
 	}
+	unregisterCLI := func() {}
+	if cfg.CLIBridge != nil {
+		unregisterCLI = cfg.CLIBridge.register(server)
+	}
+	defer unregisterCLI()
 	defer server.closeAll()
 
 	for {

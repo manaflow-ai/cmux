@@ -8531,6 +8531,7 @@ struct CMUXCLI {
         let localSocketPath: String
         let remoteRelayPort: Int
         let pinWorkspaceToTop: Bool
+        let daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint?
         /// True when the remote is a cloud VM with cmuxd-remote pre-baked in the image.
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
@@ -8550,6 +8551,7 @@ struct CMUXCLI {
             localSocketPath: String,
             remoteRelayPort: Int,
             pinWorkspaceToTop: Bool = false,
+            daemonWebSocketEndpoint: VMDaemonWebSocketEndpoint? = nil,
             skipDaemonBootstrap: Bool = false
         ) {
             self.destination = destination
@@ -8566,6 +8568,7 @@ struct CMUXCLI {
             self.localSocketPath = localSocketPath
             self.remoteRelayPort = remoteRelayPort
             self.pinWorkspaceToTop = pinWorkspaceToTop
+            self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
             self.skipDaemonBootstrap = skipDaemonBootstrap
         }
     }
@@ -8579,7 +8582,7 @@ struct CMUXCLI {
         let daemon: VMDaemonWebSocketEndpoint?
     }
 
-    private struct VMDaemonWebSocketEndpoint {
+    struct VMDaemonWebSocketEndpoint {
         let url: String
         let headers: [String: String]
         let token: String
@@ -9151,6 +9154,14 @@ struct CMUXCLI {
                 configureParams["relay_port"] = sshOptions.remoteRelayPort
                 configureParams["relay_id"] = relayID
                 configureParams["relay_token"] = relayToken
+                configureParams["local_socket_path"] = sshOptions.localSocketPath
+            }
+            if let daemon = sshOptions.daemonWebSocketEndpoint {
+                configureParams["daemon_websocket_url"] = daemon.url
+                configureParams["daemon_websocket_headers"] = daemon.headers
+                configureParams["daemon_websocket_token"] = daemon.token
+                configureParams["daemon_websocket_session_id"] = daemon.sessionId
+                configureParams["daemon_websocket_expires_at_unix"] = daemon.expiresAtUnix
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
             configureParams["terminal_startup_command"] = reusableTerminalStartupCommand
@@ -10379,6 +10390,7 @@ struct CMUXCLI {
             localSocketPath: client.socketPath,
             remoteRelayPort: remoteRelayPort,
             pinWorkspaceToTop: pinWorkspaceToTop,
+            daemonWebSocketEndpoint: parseVMDaemonWebSocketEndpoint(response["daemon"]),
             skipDaemonBootstrap: true
         )
     }
@@ -10645,6 +10657,9 @@ struct CMUXCLI {
           if [ ! -e "$HOME/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$HOME/.zshrc" 2>/dev/null; then
             cat > "$HOME/.zshrc" <<'CMUX_USER_ZSHRC'
         # cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.
+        mkdir -p "$HOME/.cmux" 2>/dev/null || true
+        printf '%s' '/tmp/cmux-cloud-cli.sock' > "$HOME/.cmux/socket_addr" 2>/dev/null || true
+        export CMUX_SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}"
         if [ -r /etc/cmux/zshrc ]; then
           source /etc/cmux/zshrc
         else
@@ -10746,6 +10761,9 @@ struct CMUXCLI {
         # cmux default zsh profile. Put personal overrides in ~/.zshrc.local.
         export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
         export SHELL="$(command -v zsh)"
+        mkdir -p "$HOME/.cmux" 2>/dev/null || true
+        printf '%s' '/tmp/cmux-cloud-cli.sock' > "$HOME/.cmux/socket_addr" 2>/dev/null || true
+        export CMUX_SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}"
         autoload -Uz colors 2>/dev/null && colors
         setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
         PROMPT_EOL_MARK=''
@@ -10768,6 +10786,9 @@ struct CMUXCLI {
         if [ ! -e "$cmux_home/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$cmux_home/.zshrc" 2>/dev/null; then
           cat > "$cmux_home/.zshrc" <<'CMUX_USER_ZSHRC'
         # cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.
+        mkdir -p "$HOME/.cmux" 2>/dev/null || true
+        printf '%s' '/tmp/cmux-cloud-cli.sock' > "$HOME/.cmux/socket_addr" 2>/dev/null || true
+        export CMUX_SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}"
         [ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc
         [ -r "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
         if [ "${CMUX_CLOUD_WELCOME:-1}" != "0" ] && [ -z "${CMUX_CLOUD_WELCOME_SHOWN:-}" ] && [ -t 1 ]; then
@@ -10834,24 +10855,7 @@ struct CMUXCLI {
         let headers = parseHeaders(response["headers"])
         let expiresAtUnix = (response["expires_at_unix"] as? Int64)
             ?? Int64((response["expires_at_unix"] as? Double) ?? 0)
-        let daemon: VMDaemonWebSocketEndpoint?
-        if let daemonResponse = response["daemon"] as? [String: Any],
-           let daemonURL = daemonResponse["url"] as? String,
-           let daemonToken = daemonResponse["token"] as? String,
-           let daemonSessionID = daemonResponse["session_id"] as? String {
-            let daemonHeaders = parseHeaders(daemonResponse["headers"])
-            let daemonExpiresAtUnix = (daemonResponse["expires_at_unix"] as? Int64)
-                ?? Int64((daemonResponse["expires_at_unix"] as? Double) ?? 0)
-            daemon = VMDaemonWebSocketEndpoint(
-                url: daemonURL,
-                headers: daemonHeaders,
-                token: daemonToken,
-                sessionId: daemonSessionID,
-                expiresAtUnix: daemonExpiresAtUnix
-            )
-        } else {
-            daemon = nil
-        }
+        let daemon = parseVMDaemonWebSocketEndpoint(response["daemon"])
         return VMPtyWebSocketEndpoint(
             url: url,
             headers: headers,
@@ -10859,6 +10863,35 @@ struct CMUXCLI {
             sessionId: sessionId,
             expiresAtUnix: expiresAtUnix,
             daemon: daemon
+        )
+    }
+
+    private func parseVMDaemonWebSocketEndpoint(_ value: Any?) -> VMDaemonWebSocketEndpoint? {
+        func parseHeaders(_ value: Any?) -> [String: String] {
+            guard let raw = value as? [String: Any] else { return [:] }
+            return raw.reduce(into: [String: String]()) { result, pair in
+                if let headerValue = pair.value as? String {
+                    result[pair.key] = headerValue
+                }
+            }
+        }
+        guard let daemonResponse = value as? [String: Any],
+              let daemonURL = daemonResponse["url"] as? String,
+              let daemonToken = daemonResponse["token"] as? String,
+              let daemonSessionID = (daemonResponse["session_id"] as? String) ?? (daemonResponse["sessionId"] as? String) else {
+            return nil
+        }
+        let daemonHeaders = parseHeaders(daemonResponse["headers"])
+        let daemonExpiresAtUnix = (daemonResponse["expires_at_unix"] as? Int64)
+            ?? (daemonResponse["expiresAtUnix"] as? Int64)
+            ?? Int64((daemonResponse["expires_at_unix"] as? Double)
+                ?? ((daemonResponse["expiresAtUnix"] as? Double) ?? 0))
+        return VMDaemonWebSocketEndpoint(
+            url: daemonURL,
+            headers: daemonHeaders,
+            token: daemonToken,
+            sessionId: daemonSessionID,
+            expiresAtUnix: daemonExpiresAtUnix
         )
     }
 
@@ -10907,6 +10940,7 @@ struct CMUXCLI {
             "auto_connect": endpoint.daemon != nil,
             "terminal_startup_command": splitStartupCommand,
             "skip_daemon_bootstrap": true,
+            "local_socket_path": client.socketPath,
         ]
         if let daemon = endpoint.daemon {
             configureParams["daemon_websocket_url"] = daemon.url

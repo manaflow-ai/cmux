@@ -485,6 +485,12 @@ export class FreestyleProvider implements VMProvider {
             allowedUsers: [CMUX_LINUX_USER],
           });
           const { token } = await identity.tokens.create();
+          let daemon: WebSocketPtyEndpoint["daemon"] | undefined;
+          try {
+            daemon = (await this.openWebSocketPty(vmId)).daemon;
+          } catch (daemonErr) {
+            recordSpanError(span, daemonErr);
+          }
           return {
             transport: "ssh",
             host: SSH_HOST,
@@ -492,6 +498,7 @@ export class FreestyleProvider implements VMProvider {
             username: `${vmId}+${CMUX_LINUX_USER}`,
             publicKeyFingerprint: null,
             credential: { kind: "password", value: token },
+            daemon,
             identityHandle: identityId,
           };
         } catch (err) {
