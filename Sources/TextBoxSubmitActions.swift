@@ -70,11 +70,8 @@ extension TextBoxInputContainer {
         pendingProviderLaunchAction = nil
     }
 
-    func clearPendingProviderLaunchIfPromptIdleWithoutAgentContext() {
-        guard allowsCommandTemplateSubmit,
-              !TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) else {
-            return
-        }
+    func clearPendingProviderLaunchIfPromptIdle() {
+        guard allowsCommandTemplateSubmit else { return }
         clearPendingProviderLaunch()
     }
 

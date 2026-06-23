@@ -2579,7 +2579,7 @@ struct TextBoxInputContainer: View {
                 clearPendingProviderLaunch()
             }
         }
-        .onChange(of: allowsCommandTemplateSubmit) { _, _ in clearPendingProviderLaunchIfPromptIdleWithoutAgentContext() }
+        .onChange(of: allowsCommandTemplateSubmit) { _, _ in clearPendingProviderLaunchIfPromptIdle() }
         .onChange(of: defaultSubmitActionID) { _, _ in clearPendingProviderLaunch() }
     }
 
