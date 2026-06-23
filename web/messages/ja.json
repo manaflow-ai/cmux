@@ -24,6 +24,7 @@
     "howTitle": "仕組み",
     "howBody": "Mobile Connect ウィンドウから iPhone と Mac をペアリングし、任意のワークスペースにアタッチします。接続は自分の Tailscale やローカルネットワーク経由で行われるため、ターミナルが第三者のサーバーを経由することはありません。",
     "galleryTitle": "ターミナルで動くものは何でも",
+    "galleryItemAlt": "iPhone の cmux ターミナルで動作する {name}",
     "backToMac": "cmux for Mac"
   },
   "meta": {
