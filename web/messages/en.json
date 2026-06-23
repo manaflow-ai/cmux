@@ -24,6 +24,7 @@
     "howTitle": "How it works",
     "howBody": "Pair your iPhone with your Mac from the Mobile Connect window, then attach to any workspace. The connection runs over your own Tailscale or local network, so your terminals never touch a third-party server.",
     "galleryTitle": "Run anything in your terminal",
+    "galleryItemAlt": "{name} running in a cmux terminal on iPhone",
     "backToMac": "cmux for Mac"
   },
   "meta": {
