@@ -369,7 +369,7 @@ enum BrowserLinkOpenSettings {
     static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
         let rawPatterns = hostWhitelist(defaults: defaults)
         if rawPatterns.isEmpty { return true }
-        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
+        guard let normalizedHost = RemoteLoopbackProxyAlias.normalizeHost(host) else { return false }
         for rawPattern in rawPatterns {
             guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
             if hostMatchesPattern(normalizedHost, pattern: pattern) {
@@ -387,11 +387,11 @@ enum BrowserLinkOpenSettings {
 
         if trimmed.hasPrefix("*.") {
             let suffixRaw = String(trimmed.dropFirst(2))
-            guard let suffix = BrowserInsecureHTTPSettings.normalizeHost(suffixRaw) else { return nil }
+            guard let suffix = RemoteLoopbackProxyAlias.normalizeHost(suffixRaw) else { return nil }
             return "*.\(suffix)"
         }
 
-        return BrowserInsecureHTTPSettings.normalizeHost(trimmed)
+        return RemoteLoopbackProxyAlias.normalizeHost(trimmed)
     }
 
     private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
@@ -438,136 +438,6 @@ enum BrowserAvailabilitySettings {
         defaults.set(disabled, forKey: disabledKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
-}
-
-enum BrowserInsecureHTTPSettings {
-    static let allowlistKey = "browserInsecureHTTPAllowlist"
-    static let defaultAllowlistPatterns = [
-        "localhost",
-        "*.localhost",
-        "127.0.0.1",
-        "::1",
-        "0.0.0.0",
-        "*.localtest.me",
-    ]
-    static let defaultAllowlistText = defaultAllowlistPatterns.joined(separator: "\n")
-
-    static func normalizedAllowlistPatterns(defaults: UserDefaults = .standard) -> [String] {
-        normalizedAllowlistPatterns(rawValue: defaults.string(forKey: allowlistKey))
-    }
-
-    static func normalizedAllowlistPatterns(rawValue: String?) -> [String] {
-        let source: String
-        if let rawValue, !rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            source = rawValue
-        } else {
-            source = defaultAllowlistText
-        }
-        let parsed = parsePatterns(from: source)
-        return parsed.isEmpty ? defaultAllowlistPatterns : parsed
-    }
-
-    static func isHostAllowed(_ host: String, defaults: UserDefaults = .standard) -> Bool {
-        isHostAllowed(host, rawAllowlist: defaults.string(forKey: allowlistKey))
-    }
-
-    static func isHostAllowed(_ host: String, rawAllowlist: String?) -> Bool {
-        guard let normalizedHost = normalizeHost(host) else { return false }
-        return normalizedAllowlistPatterns(rawValue: rawAllowlist).contains { pattern in
-            hostMatchesPattern(normalizedHost, pattern: pattern)
-        }
-    }
-
-    static func addAllowedHost(_ host: String, defaults: UserDefaults = .standard) {
-        guard let normalizedHost = normalizeHost(host) else { return }
-        var patterns = normalizedAllowlistPatterns(defaults: defaults)
-        guard !patterns.contains(normalizedHost) else { return }
-        patterns.append(normalizedHost)
-        defaults.set(patterns.joined(separator: "\n"), forKey: allowlistKey)
-    }
-
-    // Single source of truth: the host normalizer moved to CmuxCore with the
-    // loopback alias lift; this forwards so allowlist semantics stay identical.
-    static func normalizeHost(_ rawHost: String) -> String? {
-        RemoteLoopbackProxyAlias.normalizeHost(rawHost)
-    }
-
-    private static func parsePatterns(from rawValue: String) -> [String] {
-        let separators = CharacterSet(charactersIn: ",;\n\r\t")
-        var out: [String] = []
-        var seen = Set<String>()
-        for token in rawValue.components(separatedBy: separators) {
-            guard let normalized = normalizePattern(token) else { continue }
-            guard seen.insert(normalized).inserted else { continue }
-            out.append(normalized)
-        }
-        return out
-    }
-
-    private static func normalizePattern(_ rawPattern: String) -> String? {
-        let trimmed = rawPattern
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.hasPrefix("*.") {
-            let suffixRaw = String(trimmed.dropFirst(2))
-            guard let suffix = normalizeHost(suffixRaw) else { return nil }
-            return "*.\(suffix)"
-        }
-
-        return normalizeHost(trimmed)
-    }
-
-    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
-        if pattern.hasPrefix("*.") {
-            let suffix = String(pattern.dropFirst(2))
-            return host == suffix || host.hasSuffix(".\(suffix)")
-        }
-        return host == pattern
-    }
-
-}
-
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    defaults: UserDefaults = .standard
-) -> Bool {
-    browserShouldBlockInsecureHTTPURL(
-        url,
-        rawAllowlist: defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
-    )
-}
-
-func browserShouldBlockInsecureHTTPURL(
-    _ url: URL,
-    rawAllowlist: String?
-) -> Bool {
-    guard url.scheme?.lowercased() == "http" else { return false }
-    guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return true }
-    return !BrowserInsecureHTTPSettings.isHostAllowed(host, rawAllowlist: rawAllowlist)
-}
-
-func browserShouldConsumeOneTimeInsecureHTTPBypass(
-    _ url: URL,
-    bypassHostOnce: inout String?
-) -> Bool {
-    guard let bypassHost = bypassHostOnce else { return false }
-    guard url.scheme?.lowercased() == "http",
-          let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
-        return false
-    }
-    guard host == bypassHost else { return false }
-    bypassHostOnce = nil
-    return true
-}
-
-func browserShouldPersistInsecureHTTPAllowlistSelection(
-    response: NSApplication.ModalResponse,
-    suppressionEnabled: Bool
-) -> Bool {
-    guard suppressionEnabled else { return false }
-    return response == .alertFirstButtonReturn || response == .alertSecondButtonReturn
 }
 
 func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
@@ -802,13 +672,6 @@ func browserHandleExternalNavigation(
         )
         return true
     }
-}
-
-enum BrowserUserAgentSettings {
-    // Force a Safari UA. Some WebKit builds return a minimal UA without Version/Safari tokens,
-    // and some installs may have legacy Chrome UA overrides. Both can cause Google to serve
-    // fallback/old UIs or trigger bot checks.
-    static let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.2 Safari/605.1.15"
 }
 
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
@@ -2663,7 +2526,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // websites must keep control of their own theme.
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         // Always present as Safari.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.customUserAgent = BrowserUserAgent.safari
         return webView
     }
 
@@ -2965,7 +2828,7 @@ final class BrowserPanel: Panel, ObservableObject {
             : BrowserProfileStore.shared.builtInDefaultProfileID
         self.profileID = resolvedProfileID
         self.historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
-        self.insecureHTTPBypassHostOnce = BrowserInsecureHTTPSettings.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
+        self.insecureHTTPBypassHostOnce = RemoteLoopbackProxyAlias.normalizeHost(bypassInsecureHTTPHostOnce ?? "")
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
@@ -4331,7 +4194,7 @@ final class BrowserPanel: Panel, ObservableObject {
             var req = URLRequest(url: iconURL)
             req.timeoutInterval = 2.0
             req.cachePolicy = .returnCacheDataElseLoad
-            req.setValue(BrowserUserAgentSettings.safariUserAgent, forHTTPHeaderField: "User-Agent")
+            req.setValue(BrowserUserAgent.safari, forHTTPHeaderField: "User-Agent")
             let effectiveRequest = remoteProxyPreparedRequest(from: req, logScope: "faviconRewrite")
 
             let data: Data
@@ -4642,7 +4505,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.customUserAgent = BrowserUserAgent.safari
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         navigationDelegate?.lastAttemptedURL = originalURL
         refreshBackgroundAppearance()
@@ -4694,7 +4557,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
         guard let url else { return nil }
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return url }
+        guard let host = RemoteLoopbackProxyAlias.normalizeHost(url.host ?? "") else { return url }
         guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
             forAliasHost: host,
             aliasHost: RemoteLoopbackProxyAlias.aliasHost
@@ -4707,7 +4570,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return nil }
+        guard let host = RemoteLoopbackProxyAlias.normalizeHost(url.host ?? "") else { return nil }
         guard RemoteLoopbackProxyAlias.isLoopbackHost(host) else { return nil }
 
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -4743,12 +4606,12 @@ final class BrowserPanel: Panel, ObservableObject {
         if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
             return false
         }
-        return browserShouldBlockInsecureHTTPURL(url)
+        return BrowserInsecureHTTPRepository().shouldBlock(url)
     }
 
     @discardableResult
     private func consumeOneTimeInsecureHTTPBypassIfNeeded(for url: URL) -> Bool {
-        browserShouldConsumeOneTimeInsecureHTTPBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce)
+        BrowserInsecureHTTPRepository().consumeOneTimeBypass(url, bypassHostOnce: &insecureHTTPBypassHostOnce)
     }
 
     private func requestNavigation(_ request: URLRequest, intent: BrowserInsecureHTTPNavigationIntent) {
@@ -4771,7 +4634,7 @@ final class BrowserPanel: Panel, ObservableObject {
         recordTypedNavigation: Bool
     ) {
         guard let url = request.url else { return }
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else { return }
+        guard let host = RemoteLoopbackProxyAlias.normalizeHost(url.host ?? "") else { return }
 
         let alert = insecureHTTPAlertFactory()
         alert.alertStyle = .warning
@@ -4817,11 +4680,12 @@ final class BrowserPanel: Panel, ObservableObject {
         intent: BrowserInsecureHTTPNavigationIntent,
         recordTypedNavigation: Bool
     ) {
-        if browserShouldPersistInsecureHTTPAllowlistSelection(
+        let insecureHTTPRepository = BrowserInsecureHTTPRepository()
+        if insecureHTTPRepository.shouldPersistAllowlistSelection(
             response: response,
             suppressionEnabled: alert?.suppressionButton?.state == .on
         ) {
-            BrowserInsecureHTTPSettings.addAllowedHost(host)
+            insecureHTTPRepository.addAllowedHost(host)
         }
         switch response {
         case .alertFirstButtonReturn:
@@ -5265,7 +5129,7 @@ extension BrowserPanel {
         if restoreDiscardedWebViewIfNeeded(reason: reason, cachePolicy: mode.recoveryCachePolicy) {
             return true
         }
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.customUserAgent = BrowserUserAgent.safari
         if Self.serializableSessionHistoryURLString(Self.remoteProxyDisplayURL(for: webView.url)) == nil {
             let fallbackURL = resolvedCurrentSessionHistoryURL()
                 ?? Self.remoteProxyDisplayURL(for: navigationDelegate?.lastAttemptedURL)
@@ -7437,8 +7301,8 @@ private func browserNavigationShouldRetargetSimpleUserGesturePopup(
           requestScheme == openerScheme,
           (requestURL.port ?? browserNavigationDefaultPort(for: requestScheme))
             == (openerURL.port ?? browserNavigationDefaultPort(for: openerScheme)),
-          let requestHost = BrowserInsecureHTTPSettings.normalizeHost(requestURL.host ?? ""),
-          let openerHost = BrowserInsecureHTTPSettings.normalizeHost(openerURL.host ?? "") else {
+          let requestHost = RemoteLoopbackProxyAlias.normalizeHost(requestURL.host ?? ""),
+          let openerHost = RemoteLoopbackProxyAlias.normalizeHost(openerURL.host ?? "") else {
         return false
     }
     for aliases in browserNavigationSimpleUserGesturePopupRetargetHostAliases {

@@ -9,58 +9,11 @@ import CmuxSettings
 @testable import cmux
 #endif
 
-final class BrowserInsecureHTTPSettingsTests: XCTestCase {
-    func testDefaultAllowlistPatternsArePresent() {
-        XCTAssertEqual(
-            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
-            ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
-        )
-    }
-
-    func testWildcardAndExactHostMatching() {
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("deep.a.localhost", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: nil))
-        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("a.127.0.0.1", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("::1", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("0.0.0.0", rawAllowlist: nil))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
-        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("neverssl.com", rawAllowlist: nil))
-    }
-
-    func testCustomAllowlistNormalizesAndDeduplicatesEntries() {
-        let raw = """
-        localhost
-        *.example.com
-        127.0.0.1
-        https://dev.internal:8080/path
-        *.example.com
-        """
-
-        XCTAssertEqual(
-            BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: raw),
-            ["localhost", "*.example.com", "127.0.0.1", "dev.internal"]
-        )
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("foo.example.com", rawAllowlist: raw))
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("dev.internal", rawAllowlist: raw))
-        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("example.net", rawAllowlist: raw))
-    }
-
-    func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
-        let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
-
-        let localhostSubdomainURL = try XCTUnwrap(URL(string: "http://a.localhost:3000"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
-
-        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
-
-        let httpsURL = try XCTUnwrap(URL(string: "https://neverssl.com"))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(httpsURL, rawAllowlist: nil))
-    }
-
+// The insecure-HTTP allowlist policy + the four `browserShould…` decisions moved
+// to `CmuxBrowser.BrowserInsecureHTTPRepository`; its behavior is covered by
+// `Packages/macOS/CmuxBrowser/Tests/CmuxBrowserTests/Navigation/BrowserInsecureHTTPRepositoryTests.swift`.
+// `browserPreparedNavigationRequest` stays in the app target, so its coverage stays here.
+final class BrowserPreparedNavigationRequestTests: XCTestCase {
     func testPreparedNavigationRequestPreservesOriginalMethodBodyAndHeaders() throws {
         let url = try XCTUnwrap(URL(string: "http://localtest.me:3000/submit"))
         var request = URLRequest(url: url)
@@ -76,61 +29,6 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
         XCTAssertEqual(prepared.httpBody, Data("token=abc123".utf8))
         XCTAssertEqual(prepared.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
         XCTAssertEqual(prepared.cachePolicy, .useProtocolCachePolicy)
-    }
-
-    func testOneTimeBypassIsConsumedAfterFirstNavigation() throws {
-        let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
-        var bypassHostOnce: String? = "neverssl.com"
-
-        XCTAssertTrue(browserShouldConsumeOneTimeInsecureHTTPBypass(
-            insecureURL,
-            bypassHostOnce: &bypassHostOnce
-        ))
-        XCTAssertNil(bypassHostOnce)
-
-        // Subsequent visits should prompt again unless host was saved.
-        XCTAssertFalse(browserShouldConsumeOneTimeInsecureHTTPBypass(
-            insecureURL,
-            bypassHostOnce: &bypassHostOnce
-        ))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
-    }
-
-    func testAddAllowedHostPersistsToDefaultsAndUnblocksHTTP() throws {
-        let suiteName = "BrowserInsecureHTTPSettingsTests.Persist.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let url = try XCTUnwrap(URL(string: "http://persist-me.test"))
-        XCTAssertTrue(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
-
-        BrowserInsecureHTTPSettings.addAllowedHost("persist-me.test", defaults: defaults)
-        let persisted = defaults.string(forKey: BrowserInsecureHTTPSettings.allowlistKey)
-        XCTAssertNotNil(persisted)
-        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("persist-me.test", defaults: defaults))
-        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(url, defaults: defaults))
-    }
-
-    func testAllowlistSelectionPersistsForProceedAndOpenExternal() {
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
-            response: .alertFirstButtonReturn,
-            suppressionEnabled: true
-        ))
-        XCTAssertTrue(browserShouldPersistInsecureHTTPAllowlistSelection(
-            response: .alertSecondButtonReturn,
-            suppressionEnabled: true
-        ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
-            response: .alertThirdButtonReturn,
-            suppressionEnabled: true
-        ))
-        XCTAssertFalse(browserShouldPersistInsecureHTTPAllowlistSelection(
-            response: .alertSecondButtonReturn,
-            suppressionEnabled: false
-        ))
     }
 }
 

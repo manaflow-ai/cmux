@@ -121,7 +121,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             webView.isInspectable = true
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
-        webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
+        webView.customUserAgent = BrowserUserAgent.safari
         (openerPanel?.currentBrowserThemeMode ?? BrowserThemeMode.mode()).apply(to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
@@ -367,7 +367,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
         guard let url = request.url else { return }
 
-        if browserShouldBlockInsecureHTTPURL(url) {
+        if BrowserInsecureHTTPRepository().shouldBlock(url) {
             presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
                 guard policy == .allow, let webView else { return }
                 browserLoadRequest(request, in: webView)
@@ -387,7 +387,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         in webView: WKWebView,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+        guard let host = BrowserInsecureHTTPRepository.normalizeHost(url.host ?? "") else {
             decisionHandler(.cancel)
             return
         }
@@ -403,11 +403,12 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         alert.suppressionButton?.title = String(localized: "browser.alwaysAllowHost", defaultValue: "Always allow this host in cmux")
 
         let handleResponse: (NSApplication.ModalResponse) -> Void = { [weak alert] response in
-            if browserShouldPersistInsecureHTTPAllowlistSelection(
+            let insecureHTTPRepository = BrowserInsecureHTTPRepository()
+            if insecureHTTPRepository.shouldPersistAllowlistSelection(
                 response: response,
                 suppressionEnabled: alert?.suppressionButton?.state == .on
             ) {
-                BrowserInsecureHTTPSettings.addAllowedHost(host)
+                insecureHTTPRepository.addAllowedHost(host)
             }
             switch response {
             case .alertFirstButtonReturn:
@@ -624,7 +625,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         // Insecure HTTP → show same prompt as main browser
-        if browserShouldBlockInsecureHTTPURL(url) {
+        if BrowserInsecureHTTPRepository().shouldBlock(url) {
             #if DEBUG
             cmuxDebugLog("popup.nav.insecureHTTP url=\(url.absoluteString)")
             #endif

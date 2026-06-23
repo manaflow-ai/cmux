@@ -9,7 +9,7 @@ import Foundation
 /// directly. Because the snapshot is a pure value, a row view can diff against
 /// the previous snapshot and re-render only on a real change, and it never
 /// observes the live store.
-public struct FeedItemSnapshot: Equatable {
+public struct FeedItemSnapshot: Equatable, Sendable {
     /// Stable identity of the source ``WorkstreamItem``.
     public let id: UUID
     /// ID grouping items that belong to the same agent session.

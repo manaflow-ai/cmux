@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import PDFKit
+import CmuxPanes
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

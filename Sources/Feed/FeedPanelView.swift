@@ -69,6 +69,16 @@ struct FeedPanelView: View {
             case .activity: return "checklist"
             }
         }
+
+        /// The pure projection discriminant for this filter, used to drive
+        /// `FeedItemProjection`. The package owns the snapshot transforms; this
+        /// app-side type owns only the localized label and SF Symbol.
+        var projectionMode: FeedFilterMode {
+            switch self {
+            case .actionable: return .actionable
+            case .activity: return .activity
+            }
+        }
     }
 
     @State private var filter: Filter = .actionable
@@ -174,9 +184,14 @@ private struct FeedListView: View {
     @State private var scrollRequestSequence = 0
     @State private var stopDrafts: [UUID: FeedStopDraft] = [:]
 
+    private var projection: FeedItemProjection {
+        FeedItemProjection(filter: filter.projectionMode)
+    }
+
     var body: some View {
-        let snapshots = visibleSnapshots(items)
-        let activityGroups = filter == .activity ? activitySnapshotGroups(snapshots) : nil
+        let projection = self.projection
+        let snapshots = projection.visibleSnapshots(items)
+        let activityGroups = filter == .activity ? projection.activitySnapshotGroups(snapshots) : nil
         let focusSnapshots = activityGroups?.ordered ?? snapshots
         let rowActions = FeedRowActions.bound()
         ScrollViewReader { proxy in
@@ -232,7 +247,7 @@ private struct FeedListView: View {
     @ViewBuilder
     private func contentBody(
         snapshots: [FeedItemSnapshot],
-        activityGroups: ActivitySnapshotGroups?,
+        activityGroups: FeedItemProjection.ActivitySnapshotGroups?,
         actions: FeedRowActions
     ) -> some View {
         switch filter {
@@ -243,7 +258,7 @@ private struct FeedListView: View {
             )
         case .activity:
             activityScrollSurface(
-                groups: activityGroups ?? activitySnapshotGroups(snapshots),
+                groups: activityGroups ?? projection.activitySnapshotGroups(snapshots),
                 actions: actions,
                 showsLoadMore: hasMorePersistedItems
             )
@@ -271,7 +286,7 @@ private struct FeedListView: View {
     }
 
     private func activityScrollSurface(
-        groups: ActivitySnapshotGroups,
+        groups: FeedItemProjection.ActivitySnapshotGroups,
         actions: FeedRowActions,
         showsLoadMore: Bool
     ) -> some View {
@@ -320,27 +335,6 @@ private struct FeedListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private struct ActivitySnapshotGroups {
-        let stable: [FeedItemSnapshot]
-        let history: [FeedItemSnapshot]
-        let ordered: [FeedItemSnapshot]
-    }
-
-    private func activitySnapshotGroups(_ snapshots: [FeedItemSnapshot]) -> ActivitySnapshotGroups {
-        var stable: [FeedItemSnapshot] = []
-        var history: [FeedItemSnapshot] = []
-        stable.reserveCapacity(snapshots.count)
-        history.reserveCapacity(snapshots.count)
-        for snapshot in snapshots {
-            if prefersStableSurface(snapshot) {
-                stable.append(snapshot)
-            } else {
-                history.append(snapshot)
-            }
-        }
-        return ActivitySnapshotGroups(stable: stable, history: history, ordered: stable + history)
-    }
-
     private func rowSurface(
         snapshot: FeedItemSnapshot,
         actions: FeedRowActions,
@@ -384,60 +378,6 @@ private struct FeedListView: View {
                 }
             }
         )
-    }
-
-    /// Walks the full items list (not just the filtered visible set),
-    /// ordered by createdAt, and records the most recent user-prompt
-    /// text per workstreamId. Rows consult this dict to show a
-    /// "You: …" echo line at the top of their card.
-    private static func lastPromptByWorkstream(_ items: [WorkstreamItem]) -> [String: String] {
-        var out: [String: String] = [:]
-        for item in items {
-            if case .userPrompt(let text) = item.payload, !text.isEmpty {
-                out[item.workstreamId] = text
-            }
-        }
-        return out
-    }
-
-    private func filtered(_ items: [WorkstreamItem]) -> [WorkstreamItem] {
-        let base: [WorkstreamItem]
-        switch filter {
-        case .actionable:
-            base = items.filter { $0.kind.isActionable }
-        case .activity:
-            // Actionable kinds + todos + stop. Tool use, user prompts,
-            // assistant messages, session markers, and raw
-            // notifications are intentionally excluded — they're too
-            // noisy for a sidebar and already visible in the agent's
-            // terminal or the cmux notification system. Stop events
-            // render a "reply to Claude" textbox so the user can
-            // nudge Claude without switching focus to the terminal.
-            base = items.filter { item in
-                item.kind.isActionable
-                    || item.kind == .todos
-                    || item.kind == .stop
-            }
-        }
-        // Newest first. Status isn't a sort key — resolved items stay
-        // in the chronological slot where they arrived so the user's
-        // mental map of "this was the second request I got" doesn't
-        // get shuffled when they answer it.
-        return Array(base.reversed())
-    }
-
-    private func visibleSnapshots(_ items: [WorkstreamItem]) -> [FeedItemSnapshot] {
-        let lastPromptByWorkstream = Self.lastPromptByWorkstream(items)
-        return filtered(items).map { item in
-            FeedItemSnapshot(
-                item: item,
-                userPromptEcho: lastPromptByWorkstream[item.workstreamId]
-            )
-        }
-    }
-
-    private func prefersStableSurface(_ snapshot: FeedItemSnapshot) -> Bool {
-        snapshot.status.isPending || snapshot.kind == .stop
     }
 
     private var shouldShowActivityHistoryLoader: Bool {

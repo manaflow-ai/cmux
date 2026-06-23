@@ -643,14 +643,7 @@ final class SessionIndexStore: ObservableObject {
         return combined.sorted { $0.modified > $1.modified }
     }
 
-    private struct ClaudeParsed {
-        var title: String = ""
-        var cwd: String?
-        var branch: String?
-        var pr: PullRequestLink?
-        var model: String?
-        var permissionMode: String?
-    }
+    // `ClaudeParsed` moved to CmuxFoundation as `TranscriptMetadataParser.ClaudeTranscriptMetadata`.
 
     private struct ClaudeSessionRoot: Hashable {
         let configDir: String
@@ -723,109 +716,12 @@ final class SessionIndexStore: ObservableObject {
         return roots
     }
 
-    nonisolated private static func extractClaudeMetadata(head: String, tail: String, projectDir: String) -> ClaudeParsed {
-        var out = ClaudeParsed()
-        out.cwd = decodeClaudeProjectDir(projectDir)
-
-        for line in head.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            let isMeta = (obj["isMeta"] as? Bool) ?? false
-            if let cwdField = obj["cwd"] as? String, !cwdField.isEmpty {
-                out.cwd = cwdField
-            }
-            if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
-                out.branch = branchField
-            }
-            if let mode = obj["permissionMode"] as? String, !mode.isEmpty {
-                out.permissionMode = mode
-            }
-            if (obj["type"] as? String) == "assistant",
-               let message = obj["message"] as? [String: Any],
-               let model = message["model"] as? String, !model.isEmpty {
-                out.model = model
-            }
-            if out.title.isEmpty,
-               (obj["type"] as? String) == "user",
-               let message = obj["message"] as? [String: Any],
-               (message["role"] as? String) == "user" {
-                if let content = message["content"] as? String,
-                   let title = SessionEntry.claudeDisplayTitle(from: content, isMeta: isMeta) {
-                    out.title = title
-                } else if let parts = message["content"] as? [[String: Any]] {
-                    for part in parts {
-                        if (part["type"] as? String) == "text",
-                           let text = part["text"] as? String,
-                           let title = SessionEntry.claudeDisplayTitle(from: text, isMeta: isMeta) {
-                            out.title = title
-                            break
-                        }
-                    }
-                }
-            }
-        }
-
-        for line in tail.split(separator: "\n", omittingEmptySubsequences: true) {
-            guard let data = line.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            let type = obj["type"] as? String
-            if type == "pr-link", let number = obj["prNumber"] as? Int,
-               let url = obj["prUrl"] as? String {
-                out.pr = PullRequestLink(
-                    number: number,
-                    url: url,
-                    repository: obj["prRepository"] as? String
-                )
-            }
-            if let branchField = obj["gitBranch"] as? String, !branchField.isEmpty {
-                out.branch = branchField
-            }
-            if let mode = obj["permissionMode"] as? String, !mode.isEmpty {
-                out.permissionMode = mode
-            }
-            if (obj["type"] as? String) == "assistant",
-               let message = obj["message"] as? [String: Any],
-               let model = message["model"] as? String, !model.isEmpty {
-                out.model = model
-            }
-        }
-        // Strip the [1m] suffix some Claude internal model IDs carry (claude-opus-4-7[1m]).
-        if let m = out.model, let bracket = m.firstIndex(of: "[") {
-            out.model = String(m[..<bracket])
-        }
-        return out
-    }
-
+    // `extractClaudeMetadata`, `decodeClaudeProjectDir`, and `claudeProjectDirName`
+    // moved to CmuxFoundation (`TranscriptMetadataParser`). The app-side
+    // `SessionEntry.claudeDisplayTitle` is passed in as the parser's `displayTitle`
+    // closure, and the parser-owned `TranscriptPullRequestLink` is mapped onto
+    // `PullRequestLink` at the call site.
     // `realCodexUserMessage(_:)` moved to CmuxFoundation (RipgrepFileScanner).
-
-    nonisolated private static func decodeClaudeProjectDir(_ raw: String) -> String? {
-        // Claude encodes cwd by replacing "/" with "-" and prefixing "-"
-        // e.g. "-Users-lawrence-fun-cmuxterm-hq" -> "/Users/lawrence/fun/cmuxterm-hq".
-        // The encoding is lossy: a real path segment containing "-"
-        // (e.g. "my-cool-project") collapses to multiple segments
-        // ("/my/cool/project") on decode, which is wrong. Only return the
-        // candidate if it actually exists on disk; otherwise let the caller
-        // fall back to the JSONL `cwd` field.
-        guard !raw.isEmpty else { return nil }
-        let stripped = raw.hasPrefix("-") ? String(raw.dropFirst()) : raw
-        let candidate = "/" + stripped.replacingOccurrences(of: "-", with: "/")
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDir),
-              isDir.boolValue else {
-            return nil
-        }
-        return candidate
-    }
-
-    nonisolated private static func claudeProjectDirName(for url: URL, projectsRoot: String) -> String {
-        let root = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
-        guard url.path.hasPrefix(root) else {
-            return url.deletingLastPathComponent().lastPathComponent
-        }
-        let relative = String(url.path.dropFirst(root.count))
-        return relative.split(separator: "/", maxSplits: 1).first.map(String.init)
-            ?? url.deletingLastPathComponent().lastPathComponent
-    }
 
     nonisolated private static func enumerateClaudeJSONLCandidates(
         root: ClaudeSessionRoot,
@@ -880,125 +776,14 @@ final class SessionIndexStore: ObservableObject {
 
     // MARK: Codex
 
-    private struct CodexParsed {
-        var sessionId: String = ""
-        /// First user message — used only if Codex never assigns a thread_name.
-        var firstUserMessage: String = ""
-        /// Codex-generated session title (`event_msg.thread_name_updated`). Wins over firstUserMessage.
-        var threadName: String = ""
-        var cwd: String?
-        var branch: String?
-        var model: String?
-        var approvalPolicy: String?
-        var sandboxMode: String?
-        var effort: String?
-
-        var title: String {
-            threadName.isEmpty ? firstUserMessage : threadName
-        }
-    }
-
-    /// Cheap cwd peek for Codex rollouts. `session_meta` is always the first line
-    /// of the file, but the line itself can be 30+ KB (it embeds the full system
-    /// prompt). Read up to 64 KB to cover that, parse the JSON, return cwd.
-    nonisolated private static func peekCodexSessionMetaCwd(url: URL) -> String? {
-        let head = ripgrepScanner.readFileHead(url: url, byteCap: headByteCap)
-        guard let nl = head.firstIndex(of: "\n") else { return nil }
-        let firstLine = head[..<nl]
-        guard let data = firstLine.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              (obj["type"] as? String) == "session_meta",
-              let payload = obj["payload"] as? [String: Any],
-              let cwd = payload["cwd"] as? String,
-              !cwd.isEmpty else {
-            return nil
-        }
-        return cwd
-    }
-
-    /// Stream lines from `url` until we have everything we need. The first user_message
-    /// can sit ~100 KB into a Codex rollout (after huge base_instructions + AGENTS.md),
-    /// so a fixed head buffer is unreliable.
-    nonisolated private static func extractCodexMetadata(url: URL) -> CodexParsed {
-        var out = CodexParsed()
-        let maxBytes = 4 * 1024 * 1024
-        ripgrepScanner.forEachJSONLine(url: url, maxBytes: maxBytes) { obj in
-            let type = obj["type"] as? String
-            let payload = obj["payload"] as? [String: Any]
-            if type == "session_meta", let p = payload {
-                if let c = p["cwd"] as? String, !c.isEmpty { out.cwd = c }
-                if let id = p["id"] as? String, !id.isEmpty { out.sessionId = id }
-                if let git = p["git"] as? [String: Any],
-                   let branch = git["branch"] as? String, !branch.isEmpty {
-                    out.branch = branch
-                }
-            }
-            if type == "turn_context", let p = payload {
-                if let m = p["model"] as? String, !m.isEmpty { out.model = m }
-                if let a = p["approval_policy"] as? String, !a.isEmpty { out.approvalPolicy = a }
-                if let sandbox = p["sandbox_policy"] as? [String: Any],
-                   let s = sandbox["type"] as? String, !s.isEmpty {
-                    out.sandboxMode = s
-                }
-                if let e = p["effort"] as? String, !e.isEmpty { out.effort = e }
-            }
-            if type == "event_msg", let p = payload,
-               (p["type"] as? String) == "thread_name_updated",
-               let name = p["thread_name"] as? String, !name.isEmpty {
-                out.threadName = name
-            }
-            if out.firstUserMessage.isEmpty, type == "event_msg", let p = payload,
-               (p["type"] as? String) == "user_message",
-               let msg = p["message"] as? String,
-               let real = ripgrepScanner.realCodexUserMessage(msg) {
-                out.firstUserMessage = real
-            }
-            if out.firstUserMessage.isEmpty, type == "response_item", let p = payload,
-               (p["type"] as? String) == "message",
-               (p["role"] as? String) == "user",
-               let content = p["content"] as? [[String: Any]] {
-                for part in content {
-                    guard (part["type"] as? String) == "input_text",
-                          let text = part["text"] as? String,
-                          let real = ripgrepScanner.realCodexUserMessage(text) else { continue }
-                    out.firstUserMessage = real
-                    break
-                }
-            }
-            // Stop early once we have a real thread name + the launch metadata. If no
-            // thread name appears we keep streaming until we at least have a user
-            // message — Codex emits thread_name_updated late in newer versions but it's
-            // still typically within the first few KB of events.
-            return !out.threadName.isEmpty
-                && out.cwd != nil
-                && out.branch != nil
-                && !out.sessionId.isEmpty
-                && out.model != nil
-        }
-        return out
-    }
-
-    // `forEachJSONLine(url:maxBytes:body:)` moved to CmuxFoundation (RipgrepFileScanner).
+    // `CodexParsed`, `peekCodexSessionMetaCwd`, and `extractCodexMetadata` moved to
+    // CmuxFoundation (`TranscriptMetadataParser`, result type
+    // `CodexTranscriptMetadata`). `forEachJSONLine(url:maxBytes:body:)` and
+    // `realCodexUserMessage(_:)` already live on CmuxFoundation's RipgrepFileScanner.
 
     // MARK: OpenCode
 
-    nonisolated private static func parseOpenCodeAssistant(_ raw: String?) -> (String?, String?) {
-        guard let raw, let data = raw.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return (nil, nil)
-        }
-        let modelID = obj["modelID"] as? String
-        let providerID = obj["providerID"] as? String
-        let agentName = obj["agent"] as? String
-        let providerModel: String? = {
-            switch (providerID, modelID) {
-            case let (p?, m?) where !p.isEmpty && !m.isEmpty: return "\(p)/\(m)"
-            case let (_, m?) where !m.isEmpty: return m
-            default: return nil
-            }
-        }()
-        return (providerModel, agentName?.isEmpty == false ? agentName : nil)
-    }
+    // `parseOpenCodeAssistant(_:)` moved to CmuxFoundation (`TranscriptMetadataParser`).
 
     nonisolated static func sqliteText(_ stmt: OpaquePointer, _ index: Int32) -> String? {
         guard let cString = sqlite3_column_text(stmt, index) else { return nil }
@@ -1236,6 +1021,14 @@ final class SessionIndexStore: ObservableObject {
         ripgrepPathResolver: { resolvedRipgrepPath() }
     )
 
+    /// Pure transcript-metadata parser (Claude/Codex/OpenCode), lifted to
+    /// CmuxFoundation. Shares the `ripgrepScanner` for the bounded Codex reads and
+    /// the same `headByteCap` so the Codex head-peek behavior is unchanged.
+    nonisolated static let transcriptParser = TranscriptMetadataParser(
+        scanner: ripgrepScanner,
+        headByteCap: headByteCap
+    )
+
     /// Returns Claude session entries paginated by mtime desc.
     /// - When `needle` is empty: fast path. Skips rg, enumerates configured Claude
     ///   roots, takes the top `offset+limit` by mtime, parses metadata, returns the slice.
@@ -1273,7 +1066,7 @@ final class SessionIndexStore: ObservableObject {
                 for url in rgPaths {
                     guard let attrs = try? fm.attributesOfItem(atPath: url.path),
                           let mtime = attrs[.modificationDate] as? Date else { continue }
-                    let dirName = claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
+                    let dirName = transcriptParser.claudeProjectDirName(for: url, projectsRoot: root.projectsRoot)
                     candidates.append(
                         ClaudeSessionCandidate(
                             url: url,
@@ -1355,9 +1148,19 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
-                    let parsed = extractClaudeMetadata(head: head, tail: tail, projectDir: candidate.dirName)
+                    let parsed = transcriptParser.extractClaudeMetadata(
+                        head: head,
+                        tail: tail,
+                        projectDir: candidate.dirName,
+                        displayTitle: { content, isMeta in
+                            SessionEntry.claudeDisplayTitle(from: content, isMeta: isMeta)
+                        }
+                    )
                     if let cwdFilter, parsed.cwd != cwdFilter { return (idx, nil, false) }
                     let sid = candidate.url.deletingPathExtension().lastPathComponent
+                    let pullRequest = parsed.pr.map {
+                        PullRequestLink(number: $0.number, url: $0.url, repository: $0.repository)
+                    }
                     let entry = SessionEntry(
                         id: "claude:" + candidate.url.path,
                         agent: .claude,
@@ -1365,7 +1168,7 @@ final class SessionIndexStore: ObservableObject {
                         title: parsed.title,
                         cwd: parsed.cwd,
                         gitBranch: parsed.branch,
-                        pullRequest: parsed.pr,
+                        pullRequest: pullRequest,
                         modified: candidate.mtime,
                         fileURL: candidate.url,
                         specifics: .claude(
@@ -1481,11 +1284,11 @@ final class SessionIndexStore: ObservableObject {
             // rollout. Pull just that line and bail before streaming the
             // (potentially MB-sized) rest of the file looking for title/branch.
             if let cwdFilter,
-               let firstLineCwd = peekCodexSessionMetaCwd(url: url),
+               let firstLineCwd = transcriptParser.peekCodexSessionMetaCwd(url: url),
                firstLineCwd != cwdFilter {
                 continue
             }
-            let parsed = extractCodexMetadata(url: url)
+            let parsed = transcriptParser.extractCodexMetadata(url: url)
             if let cwdFilter, parsed.cwd != cwdFilter { continue }
             matches.append(SessionEntry(
                 id: "codex:" + url.path,
@@ -1587,7 +1390,7 @@ final class SessionIndexStore: ObservableObject {
             let updatedMs = sqlite3_column_int64(stmt, 3)
             let modified = Date(timeIntervalSince1970: TimeInterval(updatedMs) / 1000.0)
             let lastJSON = sqliteText(stmt, 4)
-            let (providerModel, agentName) = parseOpenCodeAssistant(lastJSON)
+            let (providerModel, agentName) = transcriptParser.parseOpenCodeAssistant(lastJSON)
             results.append(SessionEntry(
                 id: "opencode:" + sid,
                 agent: .opencode,

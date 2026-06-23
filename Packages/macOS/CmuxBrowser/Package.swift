@@ -22,6 +22,10 @@ let package = Package(
         // CmuxAppKitSupportUI owns WindowChromeColorResolver, the chrome color math
         // BrowserChromeStyle routes compositing/readable-scheme selection through.
         .package(path: "../CmuxAppKitSupportUI"),
+        // CmuxCore owns RemoteLoopbackProxyAlias, the single source of truth for
+        // host normalization / loopback classification the insecure-HTTP allowlist
+        // policy delegates to (leaf, acyclic).
+        .package(path: "../CmuxCore"),
     ],
     targets: [
         .target(
@@ -31,6 +35,7 @@ let package = Package(
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
+                .product(name: "CmuxCore", package: "CmuxCore"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

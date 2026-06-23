@@ -143,152 +143,6 @@ private extension WKWebView {
     }
 }
 
-enum BrowserDevToolsIconOption: String, CaseIterable, Identifiable {
-    case wrenchAndScrewdriver = "wrench.and.screwdriver"
-    case wrenchAndScrewdriverFill = "wrench.and.screwdriver.fill"
-    case curlyBracesSquare = "curlybraces.square"
-    case curlyBraces = "curlybraces"
-    case terminalFill = "terminal.fill"
-    case terminal = "terminal"
-    case hammer = "hammer"
-    case hammerCircle = "hammer.circle"
-    case ladybug = "ladybug"
-    case ladybugFill = "ladybug.fill"
-    case scope = "scope"
-    case codeChevrons = "chevron.left.slash.chevron.right"
-    case gearshape = "gearshape"
-    case gearshapeFill = "gearshape.fill"
-    case globe = "globe"
-    case globeAmericas = "globe.americas.fill"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .wrenchAndScrewdriver: return "Wrench + Screwdriver"
-        case .wrenchAndScrewdriverFill: return "Wrench + Screwdriver (Fill)"
-        case .curlyBracesSquare: return "Curly Braces"
-        case .curlyBraces: return "Curly Braces (Plain)"
-        case .terminalFill: return "Terminal (Fill)"
-        case .terminal: return "Terminal"
-        case .hammer: return "Hammer"
-        case .hammerCircle: return "Hammer Circle"
-        case .ladybug: return "Bug"
-        case .ladybugFill: return "Bug (Fill)"
-        case .scope: return "Scope"
-        case .codeChevrons: return "Code Chevrons"
-        case .gearshape: return "Gear"
-        case .gearshapeFill: return "Gear (Fill)"
-        case .globe: return "Globe"
-        case .globeAmericas: return "Globe Americas (Fill)"
-        }
-    }
-}
-
-enum BrowserDevToolsIconColorOption: String, CaseIterable, Identifiable {
-    case bonsplitInactive
-    case bonsplitActive
-    case accent
-    case tertiary
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .bonsplitInactive: return "Bonsplit Inactive (Terminal/Globe)"
-        case .bonsplitActive: return "Bonsplit Active (Terminal/Globe)"
-        case .accent: return "Accent"
-        case .tertiary: return "Tertiary"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .bonsplitInactive:
-            // Matches Bonsplit tab icon tint for inactive tabs.
-            return Color(nsColor: .secondaryLabelColor)
-        case .bonsplitActive:
-            // Matches Bonsplit tab icon tint for active tabs.
-            return Color(nsColor: .labelColor)
-        case .accent:
-            return cmuxAccentColor()
-        case .tertiary:
-            return Color(nsColor: .tertiaryLabelColor)
-        }
-    }
-}
-
-enum BrowserDevToolsButtonDebugSettings {
-    static let iconNameKey = "browserDevToolsIconName"
-    static let iconColorKey = "browserDevToolsIconColor"
-    static let defaultIcon = BrowserDevToolsIconOption.wrenchAndScrewdriver
-    static let defaultColor = BrowserDevToolsIconColorOption.bonsplitInactive
-
-    static func iconOption(defaults: UserDefaults = .standard) -> BrowserDevToolsIconOption {
-        guard let raw = defaults.string(forKey: iconNameKey),
-              let option = BrowserDevToolsIconOption(rawValue: raw) else {
-            return defaultIcon
-        }
-        return option
-    }
-
-    static func colorOption(defaults: UserDefaults = .standard) -> BrowserDevToolsIconColorOption {
-        guard let raw = defaults.string(forKey: iconColorKey),
-              let option = BrowserDevToolsIconColorOption(rawValue: raw) else {
-            return defaultColor
-        }
-        return option
-    }
-
-    static func copyPayload(defaults: UserDefaults = .standard) -> String {
-        let icon = iconOption(defaults: defaults)
-        let color = colorOption(defaults: defaults)
-        return """
-        browserDevToolsIconName=\(icon.rawValue)
-        browserDevToolsIconColor=\(color.rawValue)
-        """
-    }
-}
-
-enum BrowserToolbarAccessorySpacingDebugSettings {
-    static let key = "browserToolbarAccessorySpacing"
-    static let defaultSpacing = 2
-    static let supportedValues = [0, 2, 4, 6, 8]
-
-    static func resolved(_ rawValue: Int) -> Int {
-        supportedValues.contains(rawValue) ? rawValue : defaultSpacing
-    }
-
-    static func current(defaults: UserDefaults = .standard) -> Int {
-        resolved(defaults.object(forKey: key) as? Int ?? defaultSpacing)
-    }
-}
-
-enum BrowserProfilePopoverDebugSettings {
-    static let horizontalPaddingKey = "browserProfilePopoverHorizontalPadding"
-    static let verticalPaddingKey = "browserProfilePopoverVerticalPadding"
-    static let defaultHorizontalPadding = 12.0
-    static let defaultVerticalPadding = 10.0
-    static let horizontalPaddingRange = 8.0...20.0
-    static let verticalPaddingRange = 4.0...14.0
-
-    static func resolvedHorizontalPadding(_ rawValue: Double) -> Double {
-        horizontalPaddingRange.contains(rawValue) ? rawValue : defaultHorizontalPadding
-    }
-
-    static func resolvedVerticalPadding(_ rawValue: Double) -> Double {
-        verticalPaddingRange.contains(rawValue) ? rawValue : defaultVerticalPadding
-    }
-
-    static func currentHorizontalPadding(defaults: UserDefaults = .standard) -> Double {
-        resolvedHorizontalPadding((defaults.object(forKey: horizontalPaddingKey) as? NSNumber)?.doubleValue ?? defaultHorizontalPadding)
-    }
-
-    static func currentVerticalPadding(defaults: UserDefaults = .standard) -> Double {
-        resolvedVerticalPadding((defaults.object(forKey: verticalPaddingKey) as? NSNumber)?.doubleValue ?? defaultVerticalPadding)
-    }
-}
-
 private struct OmnibarAddressButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         OmnibarAddressButtonStyleBody(configuration: configuration)
@@ -353,13 +207,13 @@ struct BrowserPanelView: View {
     @AppStorage(BrowserSearchSettingsStore.customSearchEngineNameKey) private var customSearchEngineName = BrowserSearchSettingsStore.defaultCustomSearchEngineName
     @AppStorage(BrowserSearchSettingsStore.customSearchEngineURLTemplateKey) private var customSearchEngineURLTemplate = BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate
     @AppStorage(BrowserSearchSettingsStore.searchSuggestionsEnabledKey) private var searchSuggestionsEnabledStorage = BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled
-    @AppStorage(BrowserDevToolsButtonDebugSettings.iconNameKey) private var devToolsIconNameRaw = BrowserDevToolsButtonDebugSettings.defaultIcon.rawValue
-    @AppStorage(BrowserDevToolsButtonDebugSettings.iconColorKey) private var devToolsIconColorRaw = BrowserDevToolsButtonDebugSettings.defaultColor.rawValue
-    @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
-    @AppStorage(BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-    private var browserProfilePopoverHorizontalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
-    @AppStorage(BrowserProfilePopoverDebugSettings.verticalPaddingKey)
-    private var browserProfilePopoverVerticalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultVerticalPadding
+    @AppStorage(CmuxBrowser.BrowserDevToolsButtonDebugRepository.iconNameKey) private var devToolsIconNameRaw = CmuxBrowser.BrowserDevToolsButtonDebugRepository.defaultIcon.rawValue
+    @AppStorage(CmuxBrowser.BrowserDevToolsButtonDebugRepository.iconColorKey) private var devToolsIconColorRaw = CmuxBrowser.BrowserDevToolsButtonDebugRepository.defaultColor.rawValue
+    @AppStorage(CmuxBrowser.BrowserToolbarAccessorySpacingDebugRepository.key) private var browserToolbarAccessorySpacingRaw = CmuxBrowser.BrowserToolbarAccessorySpacingDebugRepository.defaultSpacing
+    @AppStorage(CmuxBrowser.BrowserProfilePopoverDebugRepository.horizontalPaddingKey)
+    private var browserProfilePopoverHorizontalPaddingRaw = CmuxBrowser.BrowserProfilePopoverDebugRepository.defaultHorizontalPadding
+    @AppStorage(CmuxBrowser.BrowserProfilePopoverDebugRepository.verticalPaddingKey)
+    private var browserProfilePopoverVerticalPaddingRaw = CmuxBrowser.BrowserProfilePopoverDebugRepository.defaultVerticalPadding
     @AppStorage(BrowserThemeMode.modeKey) private var browserThemeModeRaw = BrowserThemeMode.defaultMode.rawValue
     @AppStorage(CmuxBrowser.BrowserImportHintRepository.variantKey) private var browserImportHintVariantRaw = CmuxBrowser.BrowserImportHintRepository.defaultVariant.rawValue
     @AppStorage(CmuxBrowser.BrowserImportHintRepository.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = CmuxBrowser.BrowserImportHintRepository.defaultShowOnBlankTabs
@@ -479,12 +333,18 @@ struct BrowserPanelView: View {
         !omnibarHasMarkedText && !omnibarState.suggestions.isEmpty
     }
 
-    private var devToolsIconOption: BrowserDevToolsIconOption {
-        BrowserDevToolsIconOption(rawValue: devToolsIconNameRaw) ?? BrowserDevToolsButtonDebugSettings.defaultIcon
+    private var devToolsIconOption: CmuxBrowser.BrowserDevToolsIconOption {
+        CmuxBrowser.BrowserDevToolsIconOption(rawValue: devToolsIconNameRaw) ?? CmuxBrowser.BrowserDevToolsButtonDebugRepository.defaultIcon
     }
 
-    private var devToolsColorOption: BrowserDevToolsIconColorOption {
-        BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? BrowserDevToolsButtonDebugSettings.defaultColor
+    private var devToolsColorOption: CmuxBrowser.BrowserDevToolsIconColorOption {
+        CmuxBrowser.BrowserDevToolsIconColorOption(rawValue: devToolsIconColorRaw) ?? CmuxBrowser.BrowserDevToolsButtonDebugRepository.defaultColor
+    }
+
+    /// The resolved tint for the current dev-tools color option. The app injects the
+    /// app-target-only accent color via `cmuxAccentColor()`; the package resolves the rest.
+    private var devToolsColor: Color {
+        devToolsColorOption.color(accent: cmuxAccentColor())
     }
 
     private var browserThemeMode: BrowserThemeMode {
@@ -504,15 +364,15 @@ struct BrowserPanelView: View {
     }
 
     private var browserToolbarAccessorySpacing: CGFloat {
-        CGFloat(BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw))
+        CGFloat(CmuxBrowser.BrowserToolbarAccessorySpacingDebugRepository().resolved(browserToolbarAccessorySpacingRaw))
     }
 
     private var browserProfilePopoverHorizontalPadding: CGFloat {
-        CGFloat(BrowserProfilePopoverDebugSettings.resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw))
+        CGFloat(CmuxBrowser.BrowserProfilePopoverDebugRepository().resolvedHorizontalPadding(browserProfilePopoverHorizontalPaddingRaw))
     }
 
     private var browserProfilePopoverVerticalPadding: CGFloat {
-        CGFloat(BrowserProfilePopoverDebugSettings.resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw))
+        CGFloat(CmuxBrowser.BrowserProfilePopoverDebugRepository().resolvedVerticalPadding(browserProfilePopoverVerticalPaddingRaw))
     }
 
     private var browserChromeBackground: Color {
@@ -1378,7 +1238,7 @@ struct BrowserPanelView: View {
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
                 }
             }
-            .foregroundStyle(panel.isBrowserFocusModeActive ? Color.orange : devToolsColorOption.color)
+            .foregroundStyle(panel.isBrowserFocusModeActive ? Color.orange : devToolsColor)
             .padding(.horizontal, panel.isBrowserFocusModeActive ? 7 : 0)
             .frame(
                 minWidth: panel.isBrowserFocusModeActive ? 0 : addressBarButtonSize,
@@ -1400,7 +1260,7 @@ struct BrowserPanelView: View {
         if screenshotPageCopied {
             return .green
         }
-        return panel.shouldRenderWebView ? devToolsColorOption.color : Color.secondary
+        return panel.shouldRenderWebView ? devToolsColor : Color.secondary
     }
 
     private var reactGrabButton: some View {
@@ -1429,7 +1289,7 @@ struct BrowserPanelView: View {
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
                 .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
-                .foregroundStyle(devToolsColorOption.color)
+                .foregroundStyle(devToolsColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
@@ -1446,7 +1306,7 @@ struct BrowserPanelView: View {
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
                 .cmuxSymbolRasterSize(devToolsButtonIconSize, weight: .medium)
-                .foregroundStyle(devToolsColorOption.color)
+                .foregroundStyle(devToolsColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .buttonStyle(OmnibarAddressButtonStyle())
@@ -1507,7 +1367,7 @@ struct BrowserPanelView: View {
                 .symbolRenderingMode(.monochrome)
                 .cmuxFlatSymbolColorRendering()
                 .font(.system(size: devToolsButtonIconSize, weight: .medium))
-                .foregroundStyle(devToolsColorOption.color)
+                .foregroundStyle(devToolsColor)
                 .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
         }
         .menuStyle(.borderlessButton)
@@ -1556,7 +1416,7 @@ struct BrowserPanelView: View {
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
             }
-            .foregroundStyle(devToolsColorOption.color)
+            .foregroundStyle(devToolsColor)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
         }
@@ -1668,7 +1528,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserThemeModeIconColor: Color {
-        devToolsColorOption.color
+        devToolsColor
     }
 
     private var omnibarField: some View {
@@ -2784,7 +2644,7 @@ struct BrowserPanelView: View {
         isLoadingRemoteSuggestions = true
         suggestionTask = Task {
             let suggestionService = BrowserSearchSuggestionService(
-                userAgent: BrowserUserAgentSettings.safariUserAgent
+                userAgent: BrowserUserAgent.safari
             )
             let remote = await suggestionService.suggestions(engine: engine, query: query)
             if Task.isCancelled { return }
