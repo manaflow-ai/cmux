@@ -1374,7 +1374,16 @@ struct RestorableAgentSessionIndex: Sendable {
         // it to the cwd's background agent would silently retarget restore/fork/hibernate at the
         // wrong conversation. The empty ghost's process has exited (its real conversation lives on
         // as the daemon background agent), so gating on "no live process" reconciles it without
-        // stealing live sessions. https://github.com/manaflow-ai/cmux/issues/6622
+        // stealing live sessions.
+        //
+        // Accepted residual: a genuinely-unrelated dead/empty Claude session in the same cwd as a
+        // single live background agent is indistinguishable from the ghost at this layer (cmux
+        // records no link between the wrapper-minted ghost id and the agent), so it is reconciled
+        // too. This is bounded (transcript-less + process-exited; the live-process gate protects
+        // every in-use session) and low-stakes (an already-empty panel reopens the user's own real
+        // conversation for that repo, not data loss), and is the intended best-effort behaviour —
+        // the alternative of never reconciling dead empties would defeat the fix entirely.
+        // https://github.com/manaflow-ai/cmux/issues/6622
         guard !recordHasLiveClaudeProcess(record, processArgumentsProvider: processArgumentsProvider) else {
             return record
         }
@@ -1450,16 +1459,17 @@ struct RestorableAgentSessionIndex: Sendable {
         roots: [String],
         lookup: ClaudeTranscriptLookupCache
     ) -> String? {
+        // Require the transcript under the MATCHED cwd's project dir only. Resume runs from
+        // `panelCwd`, and `claude --resume` resolves the transcript under `projects/<encode(cwd)>`,
+        // so accepting an any-project hit would heal to an id that resume cannot find from this
+        // cwd ("No conversation found"). https://github.com/manaflow-ai/cmux/issues/6622
+        guard let cwd else { return nil }
         for root in roots {
-            if let cwd,
-               let path = lookup.transcriptPath(
-                   configRoot: root,
-                   projectDirName: encodeClaudeProjectDir(cwd),
-                   sessionId: sessionId
-               ) {
-                return path
-            }
-            if let path = lookup.transcriptPathInAnyProject(configRoot: root, sessionId: sessionId) {
+            if let path = lookup.transcriptPath(
+                configRoot: root,
+                projectDirName: encodeClaudeProjectDir(cwd),
+                sessionId: sessionId
+            ) {
                 return path
             }
         }
