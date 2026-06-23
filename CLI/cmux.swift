@@ -23393,7 +23393,11 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+                summary = (
+                    subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    lifecycle: summary.lifecycle
+                )
             }
 
             let title = String(
@@ -23409,7 +23413,7 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: .needsInput,
+                    agentLifecycle: summary.lifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
@@ -23418,7 +23422,7 @@ struct CMUXCLI {
             setAgentLifecycle(
                 client: client,
                 key: Self.claudeCodeStatusKey,
-                lifecycle: .needsInput,
+                lifecycle: summary.lifecycle,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId
             )
@@ -25739,12 +25743,20 @@ struct CMUXCLI {
         return nil
     }
 
-    private func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {
+    private func summarizeClaudeHookNotification(
+        parsedInput: ClaudeHookParsedInput
+    ) -> (subtitle: String, body: String, lifecycle: AgentHibernationLifecycleState) {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
-                return classifyClaudeNotification(signal: fallback, message: fallback)
+                let classified = classifyClaudeNotification(signal: fallback, message: fallback)
+                return (
+                    classified.subtitle,
+                    classified.body,
+                    Self.claudeNotificationLifecycle(signal: fallback, message: fallback)
+                )
             }
-            return ("Waiting", "Claude is waiting for your input")
+            // A bare "waiting for input" reminder is an idle agent, not a blocking prompt.
+            return ("Waiting", "Claude is waiting for your input", .idle)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -25763,7 +25775,33 @@ struct CMUXCLI {
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
 
         classified.body = truncate(classified.body, maxLength: 180)
-        return classified
+        return (
+            classified.subtitle,
+            classified.body,
+            Self.claudeNotificationLifecycle(signal: signal, message: normalizedMessage)
+        )
+    }
+
+    /// Hibernation lifecycle implied by a Claude `Notification` hook.
+    ///
+    /// Claude fires the Notification hook both for genuine permission/approval
+    /// prompts and as a plain "waiting for your input" reminder once it has gone
+    /// idle after finishing a turn. The handler previously hard-set `.needsInput`
+    /// for every notification, which clobbered the `.idle` that the Stop hook had
+    /// just recorded, so a Claude pane never became hibernation-eligible (only
+    /// codex, which keeps reporting idle, ever hibernated). Only a permission /
+    /// approval prompt is a real blocking state; everything else is the idle agent
+    /// waiting, so it resolves to `.idle`. This affects hibernation eligibility
+    /// only: the user-facing notification, bell, and sidebar status are unchanged.
+    static func claudeNotificationLifecycle(
+        signal: String,
+        message: String
+    ) -> AgentHibernationLifecycleState {
+        let lower = "\(signal) \(message)".lowercased()
+        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
+            return .needsInput
+        }
+        return .idle
     }
 
     private func summarizeAgentHookNotification(
