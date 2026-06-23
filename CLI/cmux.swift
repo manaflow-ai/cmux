@@ -33546,6 +33546,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let actionArgs = Array(rest.dropFirst())
             switch action {
+            case "inject-args" where def.name == "codex":
+                // Hidden: emit the NUL-separated codex arg list the wrapper
+                // (Resources/bin/cmux-codex-wrapper) splices to inject cmux's
+                // fire-and-forget hooks for one invocation. No socket required.
+                try emitCodexWrapperInjectArgs()
+                return true
             case "install":
                 try installHooksForAgent(def, arguments: actionArgs)
                 return true

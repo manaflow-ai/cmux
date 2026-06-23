@@ -256,52 +256,44 @@ export CMUX_AGENT_LAUNCH_CWD="$PWD"
 # session id and made the handler mint a junk `fallback-*` record alongside the
 # real one (a phantom duplicate in the GUI), so it is intentionally omitted.
 
-# Build the per-invocation [hooks] injection. Each event runs the SAME gated
-# command cmux installs into ~/.codex when hooks are persisted: resolve the cmux
-# CLI, require CMUX_SURFACE_ID + a live socket + hooks not disabled, then run
-# `cmux hooks codex <event>`; otherwise emit `{}` (a valid empty hook result).
-# Carried as a TOML multi-line literal string ('''...''') so the embedded single
-# quotes in the gated command need no escaping (the command never contains ''').
-cmux_codex_hook_command() {
-    local sub="$1"
-    printf '%s' "cmux_cli=\"\${CMUX_CODEX_HOOK_CMUX_BIN:-\${CMUX_BUNDLED_CLI_PATH:-}}\"; if [ -z \"\$cmux_cli\" ] || [ ! -x \"\$cmux_cli\" ]; then cmux_cli=\"\$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"\$CMUX_SURFACE_ID\" ] && [ \"\$CMUX_CODEX_HOOKS_DISABLED\" != \"1\" ] && [ -n \"\$cmux_cli\" ]; then { if [ -n \"\${CMUX_SOCKET_PATH:-}\" ]; then \"\$cmux_cli\" --socket \"\$CMUX_SOCKET_PATH\" hooks codex $sub; else \"\$cmux_cli\" hooks codex $sub; fi; } || echo '{}'; else echo '{}'; fi"
+# Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
+# list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
+# command for each event. Fire-and-forget is critical: codex runs hooks
+# synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
+# <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
+# command captures codex's stdin payload to a temp file, nohup-backgrounds the
+# real cmux call with a 30s watchdog, and `echo '{}'` returns to codex instantly,
+# so detection still binds the real session id while codex never blocks.
+#
+# Resolving the args via the CLI (instead of re-deriving fragile shell here)
+# avoids quoting bugs in the fire-and-forget command (it contains single quotes
+# like `echo '{}'` and `sh -c '...'`). If the emit fails or yields nothing, we
+# fall back to plain passthrough so installing the wrapper can never break codex.
+CMUX_INJECT_CLI="$CMUX_CODEX_HOOK_CMUX_BIN"
+cmux_codex_injected_args=()
+cmux_codex_read_inject_args() {
+    [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
+    local arg
+    # Read the NUL-TERMINATED arg stream DIRECTLY via process substitution. A
+    # `raw="$(... )"` command substitution must NOT be used: bash discards every
+    # NUL byte from command-substitution output (with a warning), which would
+    # collapse the whole stream into one token and silently drop the injection.
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        while IFS= read -r -d '' arg; do
+            cmux_codex_injected_args+=("$arg")
+        done < <("$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" hooks codex inject-args 2>/dev/null)
+    else
+        while IFS= read -r -d '' arg; do
+            cmux_codex_injected_args+=("$arg")
+        done < <("$CMUX_INJECT_CLI" hooks codex inject-args 2>/dev/null)
+    fi
+    (( ${#cmux_codex_injected_args[@]} > 0 )) || return 1
+    return 0
 }
 
-cmux_codex_hook_toml() {
-    # $1 = codex event name (SessionStart, Stop, ...), $2 = cmux subcommand,
-    # $3 = timeout ms.
-    #
-    # The command is wrapped in a TOML multi-line literal string (three single
-    # quotes), which preserves bytes verbatim and may contain single quotes, so
-    # the gated command's `'{}'` and `'$(...)'` survive with no escaping. TOML
-    # forbids only a literal ''' inside; the gated command never contains one.
-    local event="$1" sub="$2" timeout="$3"
-    local cmd lit
-    cmd="$(cmux_codex_hook_command "$sub")"
-    lit="'''"
-    printf 'hooks.%s=[{hooks=[{type="command",command=%s%s%s,timeout=%s}]}]' \
-        "$event" "$lit" "$cmd" "$lit" "$timeout"
-}
+if cmux_codex_read_inject_args; then
+    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
+fi
 
-# Assemble the -c overrides. We pass each event as its own -c so a parse problem
-# in one cannot drop the others. Timeouts: lifecycle events short, feed
-# (PreToolUse/PermissionRequest) long because the user may take time to approve.
-cmux_codex_hook_args=()
-cmux_codex_add_hook() {
-    local event="$1" sub="$2" timeout="$3"
-    cmux_codex_hook_args+=(-c "$(cmux_codex_hook_toml "$event" "$sub" "$timeout")")
-}
-cmux_codex_add_hook "SessionStart"      "session-start" 10000
-cmux_codex_add_hook "UserPromptSubmit"  "prompt-submit" 10000
-cmux_codex_add_hook "Stop"              "stop"          10000
-cmux_codex_add_hook "PreToolUse"        "pre-tool-use"  120000
-cmux_codex_add_hook "PostToolUse"       "post-tool-use" 10000
-cmux_codex_add_hook "PermissionRequest" "notification"  120000
-
-# `--enable hooks` turns the feature on for this run; `--dangerously-bypass-hook-trust`
-# lets the injected hooks run without persisted trust (automation, our own hooks).
-exec "$REAL_CODEX" \
-    --enable hooks \
-    --dangerously-bypass-hook-trust \
-    "${cmux_codex_hook_args[@]}" \
-    "$@"
+# Emit failed or returned nothing: never break codex, just pass through.
+exec_real_codex_passthrough "$@"
