@@ -246,6 +246,7 @@ final class MobilePairingModel {
                     from: current,
                     activeConnectionCount: status.activeConnectionCount,
                     baselineConnectionCount: baseline,
+                    revokeManualGrant: { self.host.revokeManualPairingTicketMint() },
                     refreshReady: { self.refreshTrustedNetworkPairingSecret(for: $0) },
                     refreshManualOnly: { self.refreshTrustedNetworkPairingSecret(for: $0) }
                 )
@@ -265,16 +266,19 @@ final class MobilePairingModel {
         from current: State,
         activeConnectionCount: Int,
         baselineConnectionCount: Int,
+        revokeManualGrant: () -> Void = {},
         refreshReady: (MobilePairingReady) -> MobilePairingReady,
         refreshManualOnly: (MobilePairingManualOnly) -> MobilePairingManualOnly
     ) -> State {
         let connected = activeConnectionCount > baselineConnectionCount
         switch current {
         case let .ready(ready) where connected:
+            revokeManualGrant()
             return .connected(ready)
         case let .connected(ready) where !connected:
             return .ready(refreshReady(ready))
         case let .manualOnly(manual) where connected:
+            revokeManualGrant()
             return .connectedManual(manual)
         case let .connectedManual(manual) where !connected:
             return .manualOnly(refreshManualOnly(manual))

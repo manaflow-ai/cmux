@@ -68,6 +68,23 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .connected(ready))
     }
 
+    @Test("A phone attaching above the baseline revokes the displayed manual grant")
+    func readyToConnectedRevokesManualGrant() {
+        let ready = makeReady()
+        var revokeCount = 0
+        let next = MobilePairingModel.connectionTransition(
+            from: .ready(ready),
+            activeConnectionCount: 1,
+            baselineConnectionCount: 0,
+            revokeManualGrant: { revokeCount += 1 },
+            refreshReady: { $0 },
+            refreshManualOnly: { $0 }
+        )
+
+        #expect(next == .connected(ready))
+        #expect(revokeCount == 1)
+    }
+
     @Test("A ready ticket with no new connections stays in the waiting state")
     func readyStaysReadyWithoutConnections() {
         let ready = makeReady()
@@ -135,6 +152,23 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .connectedManual(manual))
+    }
+
+    @Test("Manual-only pairing revokes the displayed grant when it connects")
+    func manualOnlyToConnectedRevokesManualGrant() {
+        let manual = makeManualOnly()
+        var revokeCount = 0
+        let next = MobilePairingModel.connectionTransition(
+            from: .manualOnly(manual),
+            activeConnectionCount: 1,
+            baselineConnectionCount: 0,
+            revokeManualGrant: { revokeCount += 1 },
+            refreshReady: { $0 },
+            refreshManualOnly: { $0 }
+        )
+
+        #expect(next == .connectedManual(manual))
+        #expect(revokeCount == 1)
     }
 
     @Test("Manual connected flips back when the connection drops")

@@ -609,7 +609,9 @@ public final class AuthCoordinator {
 
     func clearAuthState(preservePendingCode: Bool = false) async {
         clearAuthStateBase(preservePendingCode: preservePendingCode)
+        let generation = sessionGeneration
         await onLocalAuthCleared()
+        guard generation == sessionGeneration else { return }
         apply(.cleared())
     }
 

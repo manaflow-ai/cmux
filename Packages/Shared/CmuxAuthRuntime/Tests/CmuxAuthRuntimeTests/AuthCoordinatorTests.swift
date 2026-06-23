@@ -224,6 +224,37 @@ import Testing
         #expect(coordinator.currentUser == nil)
     }
 
+    @Test func staleAuthClearDoesNotPublishOverNewerSignIn() async throws {
+        let oldUser = CMUXAuthUser(id: "u1", primaryEmail: "old@b.com", displayName: "Old")
+        let newUser = CMUXAuthUser(id: "u2", primaryEmail: "new@b.com", displayName: "New")
+        let client = FakeAuthClient(user: oldUser)
+        let hookStarted = TestPhaseSignal()
+        let hookBlocker = TestContinuationBlocker()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onLocalAuthCleared: {
+                await hookStarted.markStarted()
+                await hookBlocker.wait()
+            }
+        )
+        try await coordinator.signInWithPassword(email: "old@b.com", password: "pw")
+        await client.setTokens(access: nil, refresh: nil)
+
+        let staleTokenRead = Task {
+            try await coordinator.accessToken()
+        }
+        await hookStarted.waitUntilStarted()
+        await client.setUser(newUser)
+        try await coordinator.signInWithPassword(email: "new@b.com", password: "pw")
+
+        await hookBlocker.release()
+        await #expect(throws: AuthError.unauthorized) {
+            try await staleTokenRead.value
+        }
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == newUser)
+    }
+
     @Test func refreshOnlySignOutMintsAccessTokenForTeardown() async throws {
         // The SDK can hold a refresh token with no access token (refresh-only
         // starts; expired access tokens get dropped). The capture is a raw
