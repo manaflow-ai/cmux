@@ -40,17 +40,23 @@ enum RemoteTmuxAgentProbe {
         let trimmed = cwd.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let dir = encodeProjectDir(trimmed)
-        // Single-quote the dir for safe embedding; the whole script is one arg.
-        let q = "'" + dir.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let sep = fieldSeparator
+        // The project dir is passed as a positional arg ($1), NOT interpolated, so
+        // an odd cwd can't break the script. The glob is resolved with `ls`
+        // (stdout captured), and 2>/dev/null swallows the "no matches" diagnostic
+        // — and a non-glob `find`-free `ls "$d"/*.jsonl` would error under a
+        // login shell with `nullglob` off, so we list the directory and filter.
         let script = """
-        d="$HOME/.claude/projects/\(q)"; \
-        n=$(ls -t "$d"/*.jsonl 2>/dev/null | head -1); \
+        d="$HOME/.claude/projects/$1"; \
+        [ -d "$d" ] || exit 0; \
+        n=$(ls -1t "$d" 2>/dev/null | grep '\\.jsonl$' | head -1); \
         [ -z "$n" ] && exit 0; \
-        m=$(stat -c %Y "$n" 2>/dev/null || stat -f %m "$n" 2>/dev/null); \
-        printf '%s\(sep)%s\(sep)%s' "$(date +%s)" "$m" "$n"
+        f="$d/$n"; \
+        m=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null); \
+        printf '%s\(sep)%s\(sep)%s' "$(date +%s)" "$m" "$f"
         """
-        return ["sh", "-c", script]
+        // `sh -c <script> <arg0> <dir>`: $0 is a label, $1 is the project dir.
+        return ["sh", "-c", script, "cmux-agent-probe", dir]
     }
 
     /// Builds the remote argv that reads the model from a transcript's last
@@ -59,14 +65,14 @@ enum RemoteTmuxAgentProbe {
     static func modelProbeCommand(transcriptPath: String) -> [String]? {
         let trimmed = transcriptPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        let q = "'" + trimmed.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        // Last 40 lines, last occurrence of a model field; sed extracts the value.
+        // The path is passed as a positional arg ($1), not interpolated, so it
+        // can't break the script. Last 40 lines, last `"model":"…"`, value out.
         let script = """
-        tail -n 40 \(q) 2>/dev/null \
+        tail -n 40 "$1" 2>/dev/null \
         | grep -o '\"model\":\"[^\"]*\"' | tail -1 \
         | sed 's/.*\"model\":\"//; s/\"$//'
         """
-        return ["sh", "-c", script]
+        return ["sh", "-c", script, "cmux-agent-probe", trimmed]
     }
 
     /// Parsed result of the activity probe.

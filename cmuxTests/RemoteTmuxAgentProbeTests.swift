@@ -21,11 +21,18 @@ import Testing
         #expect(Probe.encodeProjectDir("/Users/x/repo/.claude") == "-Users-x-repo--claude")
     }
 
-    @Test func activityProbeCommandEmbedsTheProjectDir() {
-        let argv = Probe.activityProbeCommand(cwd: "/work/proj")
-        let script = try! #require(argv?.last)
-        #expect(argv?.first == "sh")
-        #expect(script.contains("-work-proj"))
+    @Test func activityProbeCommandPassesProjectDirAsPositionalArg() {
+        let argv = try! #require(Probe.activityProbeCommand(cwd: "/work/proj"))
+        #expect(argv.first == "sh")
+        #expect(argv[1] == "-c")
+        // The project dir is the LAST positional arg ($1), never interpolated into
+        // the script (so an odd cwd can't break it). Regression: an earlier version
+        // embedded a single-quoted dir inside a double-quoted assignment, which put
+        // literal quotes into the path and broke the glob.
+        #expect(argv.last == "-work-proj")
+        let script = argv[2]
+        #expect(script.contains("$1"))
+        #expect(!script.contains("-work-proj"))
         // Portable stat: must try GNU then BSD form.
         #expect(script.contains("stat -c %Y"))
         #expect(script.contains("stat -f %m"))
@@ -86,6 +93,10 @@ import Testing
 
     @Test func modelProbeCommandRejectsEmptyPath() {
         #expect(Probe.modelProbeCommand(transcriptPath: "") == nil)
-        #expect(Probe.modelProbeCommand(transcriptPath: "/p/x.jsonl")?.first == "sh")
+        let argv = try! #require(Probe.modelProbeCommand(transcriptPath: "/p/x.jsonl"))
+        #expect(argv.first == "sh")
+        // Path is the positional arg, not interpolated into the script.
+        #expect(argv.last == "/p/x.jsonl")
+        #expect(argv[2].contains("$1"))
     }
 }
