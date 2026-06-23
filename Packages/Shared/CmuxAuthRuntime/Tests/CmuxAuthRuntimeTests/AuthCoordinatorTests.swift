@@ -193,6 +193,37 @@ import Testing
         #expect(clearCount.count == 1)
     }
 
+    @Test func accessTokenAuthClearAwaitsLocalAuthClearedHookBeforePublishingCleared() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let hookStarted = TestPhaseSignal()
+        let hookBlocker = TestContinuationBlocker()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onLocalAuthCleared: {
+                await hookStarted.markStarted()
+                await hookBlocker.wait()
+            }
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        await client.setTokens(access: nil, refresh: nil)
+
+        let tokenRead = Task {
+            try await coordinator.accessToken()
+        }
+        await hookStarted.waitUntilStarted()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+
+        await hookBlocker.release()
+        await #expect(throws: AuthError.unauthorized) {
+            try await tokenRead.value
+        }
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.currentUser == nil)
+    }
+
     @Test func refreshOnlySignOutMintsAccessTokenForTeardown() async throws {
         // The SDK can hold a refresh token with no access token (refresh-only
         // starts; expired access tokens get dropped). The capture is a raw

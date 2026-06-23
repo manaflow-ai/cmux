@@ -31,7 +31,7 @@ extension AuthCoordinator {
             if let devToken = await devAuthAccessTokenFallback() {
                 return devToken
             }
-            clearAuthState(preservePendingCode: true)
+            await clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }
     }
@@ -123,7 +123,7 @@ extension AuthCoordinator {
                 try await self.forceRefreshAccessTokenWithoutStateClear()
             }
         } catch AuthError.unauthorized {
-            clearAuthState(preservePendingCode: true)
+            await clearAuthState(preservePendingCode: true)
             throw AuthError.unauthorized
         }
     }

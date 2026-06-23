@@ -73,7 +73,7 @@ public final class AuthCoordinator {
 
     private var pendingNonce: String?
     var debugCredentials: CMUXAuthAutoLoginCredentials?
-    private var bootstrapTask: Task<Void, Never>?
+    var bootstrapTask: Task<Void, Never>?
     var isRevalidatingSession = false
     /// Monotonic session epoch, advanced by every session transition: each
     /// ``clearAuthState()`` AND each published sign-in
@@ -607,16 +607,14 @@ public final class AuthCoordinator {
         return teams.first?.id
     }
 
-    func clearAuthState(preservePendingCode: Bool = false) {
+    func clearAuthState(preservePendingCode: Bool = false) async {
         clearAuthStateBase(preservePendingCode: preservePendingCode)
-        Task { await onLocalAuthCleared() }
+        await onLocalAuthCleared()
         apply(.cleared())
     }
 
     func clearAuthStateAwaitingLocalHook(preservePendingCode: Bool = false) async {
-        clearAuthStateBase(preservePendingCode: preservePendingCode)
-        await onLocalAuthCleared()
-        apply(.cleared())
+        await clearAuthState(preservePendingCode: preservePendingCode)
     }
 
     private func clearAuthStateBase(preservePendingCode: Bool) {
