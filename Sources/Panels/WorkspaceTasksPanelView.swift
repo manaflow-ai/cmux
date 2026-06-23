@@ -1,3 +1,4 @@
+import CmuxSettingsUI
 import SwiftUI
 
 struct WorkspaceTasksPanelView: View {
@@ -9,17 +10,24 @@ struct WorkspaceTasksPanelView: View {
     @State private var addDraft = ""
     @State private var insertionAfterTaskId: UUID?
     @State private var insertionDraft = ""
+    @LiveSetting(\.betaFeatures.workspaceTasks) private var workspaceTasksBetaEnabled
 
     var body: some View {
-        WorkspaceTasksView(
-            openTasks: workspace.openWorkspaceTasks,
-            archivedTasks: workspace.archivedWorkspaceTasks,
-            addDraft: $addDraft,
-            insertionAfterTaskId: $insertionAfterTaskId,
-            insertionDraft: $insertionDraft,
-            showsOpenAsTabButton: false,
-            actions: actions
-        )
+        Group {
+            if workspaceTasksBetaEnabled {
+                WorkspaceTasksView(
+                    openTasks: workspace.openWorkspaceTasks,
+                    archivedTasks: workspace.archivedWorkspaceTasks,
+                    addDraft: $addDraft,
+                    insertionAfterTaskId: $insertionAfterTaskId,
+                    insertionDraft: $insertionDraft,
+                    showsOpenAsTabButton: false,
+                    actions: actions
+                )
+            } else {
+                WorkspaceTasksDisabledView()
+            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: appearance.backgroundColor))
         .simultaneousGesture(TapGesture().onEnded { requestPanelFocusIfNeeded() })
@@ -64,17 +72,24 @@ struct WorkspaceTasksPopoverView: View {
     @State private var addDraft = ""
     @State private var insertionAfterTaskId: UUID?
     @State private var insertionDraft = ""
+    @LiveSetting(\.betaFeatures.workspaceTasks) private var workspaceTasksBetaEnabled
 
     var body: some View {
-        WorkspaceTasksView(
-            openTasks: workspace.openWorkspaceTasks,
-            archivedTasks: workspace.archivedWorkspaceTasks,
-            addDraft: $addDraft,
-            insertionAfterTaskId: $insertionAfterTaskId,
-            insertionDraft: $insertionDraft,
-            showsOpenAsTabButton: true,
-            actions: actions
-        )
+        Group {
+            if workspaceTasksBetaEnabled {
+                WorkspaceTasksView(
+                    openTasks: workspace.openWorkspaceTasks,
+                    archivedTasks: workspace.archivedWorkspaceTasks,
+                    addDraft: $addDraft,
+                    insertionAfterTaskId: $insertionAfterTaskId,
+                    insertionDraft: $insertionDraft,
+                    showsOpenAsTabButton: true,
+                    actions: actions
+                )
+            } else {
+                WorkspaceTasksDisabledView()
+            }
+        }
         .frame(width: 380, height: 460)
         .background(Color(nsColor: .windowBackgroundColor))
     }
@@ -103,6 +118,30 @@ struct WorkspaceTasksPopoverView: View {
             },
             openSurface: openSurface
         )
+    }
+}
+
+private struct WorkspaceTasksDisabledView: View {
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checklist")
+                .cmuxSymbolRasterSize(18)
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text(String(localized: "workspaceTasks.disabled.title", defaultValue: "Workspace Tasks is disabled"))
+                .cmuxFont(size: 14, weight: .semibold)
+            Text(String(
+                localized: "workspaceTasks.disabled.detail",
+                defaultValue: "Enable Workspace Tasks in Beta Features to manage this list."
+            ))
+            .cmuxFont(.caption)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }
 
