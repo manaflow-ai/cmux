@@ -93,23 +93,17 @@ struct WorkspaceShellView: View {
                 toggleGroupCollapsed: toggleGroupCollapsedClosure
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
-                workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
-                    // Only on the pushed compact stack (where a back button
-                    // exists): replace the system back button with a custom one
-                    // that folds the unread-workspace count INTO the same button
-                    // ("‹ 3"). Hiding the system button disables the interactive
-                    // swipe-back, so re-enable it via InteractiveSwipeBackEnabler.
-                    .navigationBarBackButtonHidden(true)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            WorkspaceBackButton(
-                                unreadCount: unreadWorkspaceCount(excluding: workspaceID),
-                                badgeContrast: .darkBackground,
-                                action: popCompactStack
-                            )
-                        }
-                    }
-                    .background(InteractiveSwipeBackEnabler())
+                workspaceDestination(
+                    for: workspaceID,
+                    createWorkspace: createWorkspaceInCompactStack,
+                    onBack: popCompactStack
+                )
+                // The detail pane hides the system nav bar and renders its own
+                // compact header (which owns the custom back button + folded
+                // unread count). Hiding the bar disables the interactive
+                // swipe-back, so re-enable it via InteractiveSwipeBackEnabler.
+                .navigationBarBackButtonHidden(true)
+                .background(InteractiveSwipeBackEnabler())
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
@@ -304,13 +298,16 @@ struct WorkspaceShellView: View {
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
         createWorkspace: @escaping () -> Void,
-        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth
+        safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
+        onBack: (() -> Void)? = nil
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
-            safeAreaContext: safeAreaContext
+            safeAreaContext: safeAreaContext,
+            onBack: onBack,
+            unreadWorkspaceCount: onBack == nil ? 0 : unreadWorkspaceCount(excluding: workspaceID)
         )
     }
 }

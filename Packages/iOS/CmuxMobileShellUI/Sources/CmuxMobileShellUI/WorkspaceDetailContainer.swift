@@ -14,6 +14,10 @@ struct WorkspaceDetailContainer: View {
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    /// Pop back to the workspace list, surfaced in the detail's compact header.
+    var onBack: (() -> Void)? = nil
+    /// Other-workspace unread count, folded into the compact header back button.
+    var unreadWorkspaceCount: Int = 0
 
     private var workspace: MobileWorkspacePreview? {
         if let workspaceID {
@@ -45,7 +49,9 @@ struct WorkspaceDetailContainer: View {
                 closeWorkspace: closeWorkspaceClosure,
                 reportTerminalViewport: store.reportTerminalViewport,
                 sendTerminalInput: store.sendTerminalRawInput,
-                safeAreaContext: safeAreaContext
+                safeAreaContext: safeAreaContext,
+                onBack: onBack,
+                unreadWorkspaceCount: unreadWorkspaceCount
             )
             .onAppear {
                 if store.selectedWorkspaceID != workspace.id {
