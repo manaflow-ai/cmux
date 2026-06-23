@@ -28,19 +28,24 @@ struct MobileConnectionRecoveryBanner: View {
                 )
             } else if connectionRecoveryFailed {
                 banner(
-                    text: L10n.string(
+                    title: L10n.string(
                         "mobile.recovery.lost",
                         defaultValue: "Connection lost"
+                    ),
+                    description: L10n.string(
+                        "mobile.recovery.lostDescription",
+                        defaultValue: "Retry to restore live terminal updates."
                     ),
                     showsRetry: true,
                     showsSpinner: false
                 )
             } else if isRecoveringConnection {
                 banner(
-                    text: L10n.string(
+                    title: L10n.string(
                         "mobile.recovery.reconnecting",
                         defaultValue: "Reconnecting…"
                     ),
+                    description: nil,
                     showsRetry: false,
                     showsSpinner: true
                 )
@@ -117,7 +122,7 @@ struct MobileConnectionRecoveryBanner: View {
     }
 
     @ViewBuilder
-    private func banner(text: String, showsRetry: Bool, showsSpinner: Bool) -> some View {
+    private func banner(title: String, description: String?, showsRetry: Bool, showsSpinner: Bool) -> some View {
         if rendersInline {
             HStack(spacing: 10) {
                 if showsSpinner {
@@ -132,9 +137,18 @@ struct MobileConnectionRecoveryBanner: View {
                         .frame(width: 24)
                 }
 
-                Text(text)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    if let description {
+                        Text(description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 Spacer(minLength: 8)
 
@@ -158,7 +172,7 @@ struct MobileConnectionRecoveryBanner: View {
                         .controlSize(.small)
                         .tint(.white)
                 }
-                Text(text)
+                Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                 if showsRetry {

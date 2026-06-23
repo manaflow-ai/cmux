@@ -3486,6 +3486,23 @@
         }
       }
     },
+    "mobile.recovery.lostDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry to restore live terminal updates."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブターミナルの更新を復元するには再試行してください。"
+          }
+        }
+      }
+    },
     "mobile.recovery.reconnecting": {
       "extractionState": "manual",
       "localizations": {
