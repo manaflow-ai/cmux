@@ -2588,6 +2588,10 @@ final class Workspace: Identifiable, ObservableObject {
             || lowered.contains("daemon transport")
     }
 
+    private static func isProxyOnlyRemoteLogEntry(_ entry: SidebarLogEntry) -> Bool {
+        entry.source == "remote-proxy" || isProxyOnlyRemoteError(entry.message)
+    }
+
     private var preservesProxyFailureWhileSSHTerminalIsAlive: Bool {
         remoteConfiguration?.transport == .ssh
             && activeRemoteTerminalSessionCount > 0
@@ -6590,6 +6594,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         if suppressProxyOnlySidebarError {
             statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+            logEntries.removeAll(where: Self.isProxyOnlyRemoteLogEntry)
             remoteLastErrorFingerprint = nil
             if proxyOnlyError || state == .connecting || state == .reconnecting {
                 return

@@ -3536,10 +3536,19 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             color: nil,
             timestamp: Date()
         )
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: .error,
+                source: "remote-proxy",
+                timestamp: Date()
+            )
+        )
         workspace.applyRemoteConnectionStateUpdate(.reconnecting, detail: "Reconnecting to cloud VM", target: "cloud VM")
 
         XCTAssertEqual(workspace.remoteConnectionState, .connected)
         XCTAssertNil(workspace.statusEntries["remote.error"])
+        XCTAssertNil(workspace.logEntries.last(where: { $0.source == "remote-proxy" }))
     }
 
     @MainActor
