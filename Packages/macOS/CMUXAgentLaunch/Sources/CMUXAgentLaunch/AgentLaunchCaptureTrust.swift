@@ -28,6 +28,7 @@ public enum AgentLaunchCaptureTrust {
         "factory": ["droid", "factory"],
         "gemini": ["gemini"],
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+        "hermes-agent": ["hermes-agent", "hermes"],
         "kiro": ["kiro", "kiro-cli"],
         "omp": ["omp"],
         "opencode": ["opencode", "omo", "omx", "omc"],
