@@ -25,15 +25,11 @@ ios/Config/AppStoreConnect.local.plist. Set IOS_DEVELOPMENT_TEAM or pass
 EOF
 }
 
-sanitize_tag() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="dev"
-  fi
-  echo "$cleaned"
-}
+# Tag -> slug. Delegates to the shared helper (scripts/lib/mobile-attach.sh,
+# sourced below) so the bundle id this builds/installs always matches the one
+# scripts/mobile-dev-launch.sh later signs in / pairs against, including for edge
+# tags that sanitize to empty. Do not reintroduce a local sanitizer here.
+sanitize_tag() { cmux_attach__slug "$1"; }
 
 require_option_value() {
   local option="$1"
@@ -155,6 +151,11 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
+# built bundle id matches the signed-launch bundle id. Sourced before any
+# sanitize_tag call below.
+# shellcheck source=../../scripts/lib/mobile-attach.sh
+source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 TAG_SLUG="$(sanitize_tag "$TAG")"
