@@ -9009,25 +9009,33 @@ struct CMUXCLI {
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
             let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
-            let splitAttachCommand = [
-                "env",
-                "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}",
-                "CMUX_SSH_RECONNECT_DELAY_SECONDS=${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}",
-                shellQuote(executablePath),
-                "vm",
-                "ssh-attach",
-                "--id",
-                shellQuote(vmIDForSplitAttach),
-                "--default-freestyle-sshd",
-            ].joined(separator: " ")
-            reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
-                sshCommand: splitAttachCommand,
-                shellFeatures: shellFeaturesValue,
-                remoteRelayPort: 0,
-                reconnectLimitDefault: 86400
-            ); reusableTerminalRecoveryCommand = "while true; do \(splitAttachCommand); s=$?; [ \"$s\" = 255 ] || exit \"$s\"; sleep 2; done"
             if usesPersistentFreestyleCloud {
+                let splitAttachCommand = defaultFreestyleCloudSSHAttachLoopCommand(
+                    vmID: vmIDForSplitAttach,
+                    executablePath: executablePath
+                )
+                reusableTerminalStartupCommand = splitAttachCommand
+                reusableTerminalRecoveryCommand = splitAttachCommand
                 initialSSHStartupCommand = reusableTerminalStartupCommand; remoteTerminalSSHStartupCommand = reusableTerminalStartupCommand
+            } else {
+                let splitAttachCommand = [
+                    "env",
+                    "CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}",
+                    "CMUX_SSH_RECONNECT_DELAY_SECONDS=${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}",
+                    shellQuote(executablePath),
+                    "vm",
+                    "ssh-attach",
+                    "--id",
+                    shellQuote(vmIDForSplitAttach),
+                    "--default-freestyle-sshd",
+                ].joined(separator: " ")
+                reusableTerminalStartupCommand = buildReusableSSHStartupCommand(
+                    sshCommand: splitAttachCommand,
+                    shellFeatures: shellFeaturesValue,
+                    remoteRelayPort: 0,
+                    reconnectLimitDefault: 86400
+                )
+                reusableTerminalRecoveryCommand = "while true; do \(splitAttachCommand); s=$?; [ \"$s\" = 255 ] || exit \"$s\"; sleep 2; done"
             }
         } else {
             reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand; reusableTerminalRecoveryCommand = remoteTerminalSSHStartupCommand
@@ -10434,7 +10442,9 @@ struct CMUXCLI {
         )
         let sshArguments = buildSSHCommandArguments(
             options,
-            remoteBootstrapScript: Self.freestyleInteractiveShellScript()
+            remoteBootstrapScript: Self.freestyleInteractiveShellScript(
+                suppressWelcome: ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
+            )
         )
         guard let launchPath = sshArguments.first else {
             throw CLIError(message: "vm ssh-attach could not construct an ssh command. Retry `cmux vm ssh <id>` from a normal cmux shell.")
@@ -10452,6 +10462,38 @@ struct CMUXCLI {
         )
     }
 
+    private func defaultFreestyleCloudSSHAttachLoopCommand(vmID: String, executablePath: String) -> String {
+        let quotedCLI = shellQuote(executablePath)
+        let quotedVMID = shellQuote(vmID)
+        let lines = [
+            "cmux_freestyle_cli=\(quotedCLI)",
+            "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
+            "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "export CMUX_SSH_RECONNECT_LIMIT CMUX_SSH_RECONNECT_DELAY_SECONDS",
+            "cmux_freestyle_retry=0",
+            "cmux_freestyle_notified=0",
+            "cmux_freestyle_notify_reconnect() {",
+            "  [ \"$cmux_freestyle_notified\" = 0 ] || return 0",
+            "  cmux_freestyle_notified=1",
+            "  \"$cmux_freestyle_cli\" notify --title 'Cloud VM reconnecting' --subtitle 'sshd' --body 'Reattaching to the same cloud session.' >/dev/null 2>&1 || true",
+            "}",
+            "while :; do",
+            "  if [ \"$cmux_freestyle_retry\" -gt 0 ]; then",
+            "    CMUX_CLOUD_RECONNECT_ATTEMPT=\"$cmux_freestyle_retry\" \"$cmux_freestyle_cli\" vm ssh-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "  else",
+            "    \"$cmux_freestyle_cli\" vm ssh-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "  fi",
+            "  cmux_freestyle_status=$?",
+            "  case \"$cmux_freestyle_status\" in 254|255) ;; *) exit \"$cmux_freestyle_status\" ;; esac",
+            "  if [ \"$cmux_freestyle_retry\" -ge \"$CMUX_SSH_RECONNECT_LIMIT\" ]; then exit \"$cmux_freestyle_status\"; fi",
+            "  cmux_freestyle_retry=$((cmux_freestyle_retry + 1))",
+            "  cmux_freestyle_notify_reconnect",
+            "  sleep \"$CMUX_SSH_RECONNECT_DELAY_SECONDS\"",
+            "done",
+        ]
+        return "/bin/sh -c \(shellQuote(lines.joined(separator: "\n")))"
+    }
+
     private static func isVMNotFoundError(_ error: Error) -> Bool {
         let message = String(describing: error).lowercased()
         return message.contains("vm_not_found") || message.contains("was not found")
@@ -10464,6 +10506,7 @@ struct CMUXCLI {
     ) throws -> [String: Any] {
         var attempt = 0
         var printedRetryNotice = false
+        let isReconnectAttach = ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
         let retryLimit = Self.defaultFreestyleAttachRetryLimit()
         while true {
             do {
@@ -10483,7 +10526,7 @@ struct CMUXCLI {
                       attempt < retryLimit else {
                     throw error
                 }
-                if !printedRetryNotice {
+                if !isReconnectAttach, !printedRetryNotice {
                     Self.writeStderrLine("[cmux] Cloud VM service is temporarily unavailable; retrying...")
                     printedRetryNotice = true
                 }
@@ -10553,13 +10596,14 @@ struct CMUXCLI {
         }
     }
 
-    private static func freestyleInteractiveShellScript() -> String {
+    private static func freestyleInteractiveShellScript(suppressWelcome: Bool = false) -> String {
         """
-        if ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
+        \(suppressWelcome ? "export CMUX_CLOUD_WELCOME=0" : ":")
+        if ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
           if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
             if command -v apt-get >/dev/null 2>&1; then
               sudo -n apt-get update >/dev/null 2>&1 || true
-              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop >/dev/null 2>&1 || true
+              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop tmux >/dev/null 2>&1 || true
             fi
           fi
         fi
@@ -10612,6 +10656,10 @@ struct CMUXCLI {
         #   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '
         CMUX_LOCAL_ZSHRC
           fi
+          if command -v tmux >/dev/null 2>&1; then
+            export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud}"
+            exec tmux new-session -A -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l"
+          fi
           exec zsh -l
         fi
         exec "${SHELL:-/bin/sh}" -l
@@ -10628,10 +10676,10 @@ struct CMUXCLI {
           cmux_home="/home/$cmux_user"
         fi
 
-        if [ ! -f /etc/cmux/zsh-bootstrap-v3 ] || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1; then
+        if [ ! -f /etc/cmux/zsh-bootstrap-v4 ] || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
           if command -v apt-get >/dev/null 2>&1; then
             apt-get update >/dev/null 2>&1 || true
-            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop >/dev/null 2>&1 || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop tmux >/dev/null 2>&1 || true
           fi
         fi
 
@@ -10690,7 +10738,7 @@ struct CMUXCLI {
 
         if command -v zsh >/dev/null 2>&1; then
           chsh -s "$(command -v zsh)" "$cmux_user" >/dev/null 2>&1 || true
-          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 /etc/cmux/zsh-bootstrap-v3 2>/dev/null || true
+          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 /etc/cmux/zsh-bootstrap-v3 /etc/cmux/zsh-bootstrap-v4 2>/dev/null || true
         fi
         touch "$cmux_home/.hushlogin" 2>/dev/null || true
         chown "$cmux_user:$cmux_user" "$cmux_home/.zshrc" "$cmux_home/.zshrc.local" 2>/dev/null || true

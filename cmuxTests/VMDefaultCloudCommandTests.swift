@@ -64,6 +64,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let decodedInitialCommand = self.decodedReusableShellStartupCommand(initialCommand)
                 XCTAssertTrue(decodedInitialCommand.contains("vm ssh-attach"), decodedInitialCommand)
                 XCTAssertTrue(decodedInitialCommand.contains("--default-freestyle-sshd"), decodedInitialCommand)
+                XCTAssertTrue(decodedInitialCommand.contains("CMUX_CLOUD_RECONNECT_ATTEMPT"), decodedInitialCommand)
+                XCTAssertFalse(decodedInitialCommand.contains("[cmux] ssh exited with status"), decodedInitialCommand)
                 XCTAssertFalse(decodedInitialCommand.contains(":lease-token@"), decodedInitialCommand)
                 return self.v2Response(
                     id: id,
@@ -96,10 +98,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertFalse(terminalStartupCommand.isEmpty, "\(params)")
                 XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
                 XCTAssertTrue(decodedStartupCommand.contains("--default-freestyle-sshd"), decodedStartupCommand)
-                XCTAssertTrue(
-                    decodedStartupCommand.contains("env CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}"),
-                    decodedStartupCommand
-                )
+                XCTAssertTrue(decodedStartupCommand.contains("CMUX_CLOUD_RECONNECT_ATTEMPT"), decodedStartupCommand)
+                XCTAssertTrue(decodedStartupCommand.contains("Cloud VM reconnecting"), decodedStartupCommand)
+                XCTAssertFalse(decodedStartupCommand.contains("[cmux] ssh exited with status"), decodedStartupCommand)
                 XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
                 XCTAssertEqual(params["preserve_after_terminal_exit"] as? Bool, true)
                 XCTAssertEqual(params["persistent_daemon_slot"] as? String, "cmux-default-freestyle-sshd-v1")
@@ -242,10 +243,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 XCTAssertFalse(terminalStartupCommand.isEmpty, "\(params)")
                 XCTAssertTrue(decodedStartupCommand.contains("vm ssh-attach"), decodedStartupCommand)
                 XCTAssertTrue(decodedStartupCommand.contains("--default-freestyle-sshd"), decodedStartupCommand)
-                XCTAssertTrue(
-                    decodedStartupCommand.contains("env CMUX_SSH_RECONNECT_LIMIT=${CMUX_SSH_RECONNECT_LIMIT:-86400}"),
-                    decodedStartupCommand
-                )
+                XCTAssertTrue(decodedStartupCommand.contains("CMUX_CLOUD_RECONNECT_ATTEMPT"), decodedStartupCommand)
+                XCTAssertTrue(decodedStartupCommand.contains("Cloud VM reconnecting"), decodedStartupCommand)
+                XCTAssertFalse(decodedStartupCommand.contains("[cmux] ssh exited with status"), decodedStartupCommand)
                 XCTAssertFalse(decodedStartupCommand.contains(":lease-token@"), decodedStartupCommand)
                 XCTAssertEqual(params["preserve_after_terminal_exit"] as? Bool, true)
                 XCTAssertEqual(params["persistent_daemon_slot"] as? String, "cmux-default-freestyle-sshd-v1")
@@ -333,6 +333,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 let decodedText = self.decodedReusableShellStartupCommand(text)
                 XCTAssertTrue(decodedText.contains("vm ssh-attach"), decodedText)
                 XCTAssertTrue(decodedText.contains("--default-freestyle-sshd"), decodedText)
+                XCTAssertTrue(decodedText.contains("CMUX_CLOUD_RECONNECT_ATTEMPT"), decodedText)
+                XCTAssertFalse(decodedText.contains("[cmux] ssh exited with status"), decodedText)
                 XCTAssertFalse(decodedText.contains(":lease-token@"), decodedText)
                 return self.v2Response(id: id, ok: true, result: ["surface_id": surfaceID])
             default:

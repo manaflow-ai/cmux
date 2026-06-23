@@ -32,17 +32,38 @@ enum TitlebarControlsHitRegions {
     static let buttonCount = MinimalModeSidebarControlActionSlot.allCases.count
 
     static func buttonXRanges(config: TitlebarControlsStyleConfig) -> [ClosedRange<CGFloat>] {
-        var ranges: [ClosedRange<CGFloat>] = []
-        ranges.reserveCapacity(buttonCount)
-
-        var minX = outerLeadingPadding + config.groupPadding.leading
-        for _ in 0..<buttonCount {
-            let maxX = minX + config.buttonSize
-            ranges.append(minX...maxX)
-            minX = maxX + config.spacing
+        MinimalModeSidebarControlActionSlot.allCases.compactMap {
+            buttonXRange(for: $0, config: config)
         }
+    }
 
-        return ranges
+    static func buttonXRange(
+        for slot: MinimalModeSidebarControlActionSlot,
+        config: TitlebarControlsStyleConfig
+    ) -> ClosedRange<CGFloat>? {
+        let startX = outerLeadingPadding + config.groupPadding.leading
+        let sidebarX = startX
+        let notificationsX = sidebarX + config.buttonSize + config.spacing
+        let newTabX = notificationsX + config.buttonSize + config.spacing
+        let cloudMenuX = newTabX + config.buttonSize
+        let focusBackX = cloudMenuX + config.buttonSize + config.spacing
+        let focusForwardX = focusBackX + config.buttonSize + config.spacing
+
+        let minX: CGFloat = switch slot {
+        case .toggleSidebar:
+            sidebarX
+        case .showNotifications:
+            notificationsX
+        case .newTab:
+            newTabX
+        case .cloudVM:
+            cloudMenuX
+        case .focusHistoryBack:
+            focusBackX
+        case .focusHistoryForward:
+            focusForwardX
+        }
+        return minX...(minX + config.buttonSize)
     }
 
     static func sidebarActionSlot(

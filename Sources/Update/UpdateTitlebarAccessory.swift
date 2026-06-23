@@ -460,7 +460,6 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
-    case cloudVM
     case focusHistoryBack
     case focusHistoryForward
 
@@ -472,8 +471,6 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
             return .showNotifications
         case .newTab:
             return .newTab
-        case .cloudVM:
-            return nil
         case .focusHistoryBack:
             return .focusHistoryBack
         case .focusHistoryForward:
@@ -499,19 +496,31 @@ enum TitlebarControlsLayoutMetrics {
     }
 
     static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
-        let gapCount = max(0, buttonCount - 1)
-        return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
+        let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
+        guard let first = ranges.first, let last = ranges.last else { return 0 }
+        return last.upperBound - first.lowerBound
     }
 
     static func buttonCenterX(
         for slot: TitlebarShortcutHintActionSlot,
         config: TitlebarControlsStyleConfig
     ) -> CGFloat {
-        let index = CGFloat(slot.rawValue)
-        return config.groupPadding.leading
-            + (index * (config.buttonSize + config.spacing))
-            + (config.buttonSize / 2.0)
+        let actionSlot: MinimalModeSidebarControlActionSlot = switch slot {
+        case .toggleSidebar:
+            .toggleSidebar
+        case .showNotifications:
+            .showNotifications
+        case .newTab:
+            .newTab
+        case .focusHistoryBack:
+            .focusHistoryBack
+        case .focusHistoryForward:
+            .focusHistoryForward
+        }
+        guard let range = TitlebarControlsHitRegions.buttonXRange(for: actionSlot, config: config) else {
+            return config.groupPadding.leading + (config.buttonSize / 2.0)
+        }
+        return (range.lowerBound + range.upperBound) / 2.0
     }
 
     static func hintInterval(
@@ -1003,24 +1012,16 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarControlButton(
+            TitlebarNewWorkspaceCloudSplitButton(
                 config: config,
                 foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.newTab",
-                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
-                action: {
-                #if DEBUG
-                cmuxDebugLog("titlebar.newTab")
-                #endif
-                onNewTab()
-            },
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
-                }) {
-                iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
-            }
-            .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
-            TitlebarCloudVMButton(config: config, foregroundColor: foregroundColor)
+                onNewTab: {
+                    #if DEBUG
+                    cmuxDebugLog("titlebar.newTab")
+                    #endif
+                    onNewTab()
+                }
+            )
             TitlebarControlButton(
                 config: config,
                 foregroundColor: foregroundColor,
@@ -1428,10 +1429,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 case .newTab:
                     onNewTab()
                 case .cloudVM:
-                    _ = AppDelegate.shared?.performCloudVMAction(
-                        preferredWindow: hostWindowForFocusHistoryNavigation,
-                        debugSource: "titlebar.minimalSidebarControl.cloudVM"
-                    )
+                    TitlebarCloudVMButton.showCloudVMMenu(anchorView: anchorView)
                 case .focusHistoryBack:
                     let availability = focusHistoryNavigationAvailability(
                         preferredWindow: hostWindowForFocusHistoryNavigation
