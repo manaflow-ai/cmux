@@ -89,11 +89,20 @@ export async function withAuthedVmApiRoute(
  * `Response.json(...)` misbehaves under Next.js 16's turbopack dev build (the handler's
  * promise settles but turbopack reports "No response is returned from route handler").
  * Use `new Response(JSON.stringify(...), { ... })` explicitly instead.
+ *
+ * Every consumer is dynamic and several return live credentials (VM SSH/attach
+ * endpoints hand out short-lived tokens and a long-lived cmuxd RPC lease), so
+ * responses are marked non-cacheable to keep shared/intermediary HTTP caches
+ * (CDN edge, reverse proxies) from persisting them. The one route that wants
+ * caching (github-stars, ISR) uses NextResponse directly and not this helper.
  */
 export function jsonResponse(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store, private",
+    },
   });
 }
 
