@@ -78,6 +78,60 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertEqual(rootLanePlan.indicatorScope, .topLevel)
     }
 
+    func testGapBetweenVisibleGroupChildrenUsesClosestGroupGap() throws {
+        let fixture = multiChildReorderFixture()
+
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 14, y: 116))
+        ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.childB, edge: .top))
+        XCTAssertEqual(plan.indicatorScope, .group(fixture.groupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 3)
+        XCTAssertFalse(usesTopLevelRows)
+        XCTAssertEqual(explicitGroupId, fixture.groupId)
+    }
+
+    func testSecondVisibleGroupChildCenterKeepsDropInsideGroup() throws {
+        let fixture = multiChildReorderFixture()
+
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 14, y: 136))
+        ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.childB, edge: .bottom))
+        XCTAssertEqual(plan.indicatorScope, .group(fixture.groupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 4)
+        XCTAssertFalse(usesTopLevelRows)
+        XCTAssertEqual(explicitGroupId, fixture.groupId)
+    }
+
+    func testCollapsedGroupHeaderGroupLanePlansFirstVisibleGroupSlot() throws {
+        let fixture = collapsedGroupReorderFixture()
+
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 14, y: 56))
+        ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .bottom))
+        XCTAssertEqual(plan.indicatorScope, .group(fixture.groupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 2)
+        XCTAssertFalse(usesTopLevelRows)
+        XCTAssertEqual(explicitGroupId, fixture.groupId)
+    }
+
     func testRootLaneOverExpandedGroupHeaderUsesGroupBlockBoundary() throws {
         let fixture = reorderFixture()
 
@@ -479,8 +533,136 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         }
     }
 
+    private struct MultiChildReorderFixture {
+        let rootBefore = UUID()
+        let anchor = UUID()
+        let childA = UUID()
+        let childB = UUID()
+        let rootAfter = UUID()
+        let dragged = UUID()
+        let groupId = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: dragged,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootBefore, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: anchor, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childA, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: childB, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAfter, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil)
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: groupId, anchorWorkspaceId: anchor, isPinned: false)
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootBefore,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: anchor,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: childA,
+                        groupId: groupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 12, y: 80, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: childB,
+                        groupId: groupId,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 12, y: 120, width: 168, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootAfter,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 160, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: dragged,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 200, width: 180, height: 32)
+                    )
+                ],
+                memberIndent: 12
+            )
+        }
+    }
+
+    private struct CollapsedGroupReorderFixture {
+        let rootBefore = UUID()
+        let anchor = UUID()
+        let hiddenChild = UUID()
+        let rootAfter = UUID()
+        let dragged = UUID()
+        let groupId = UUID()
+
+        func request(point: CGPoint) -> SidebarWorkspaceReorderDropRequest {
+            SidebarWorkspaceReorderDropRequest(
+                point: point,
+                draggedWorkspaceId: dragged,
+                workspaces: [
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootBefore, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: anchor, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: hiddenChild, isPinned: false, groupId: groupId),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: rootAfter, isPinned: false, groupId: nil),
+                    SidebarWorkspaceReorderWorkspaceSnapshot(id: dragged, isPinned: false, groupId: nil)
+                ],
+                groups: [
+                    SidebarWorkspaceReorderGroupSnapshot(id: groupId, anchorWorkspaceId: anchor, isPinned: false)
+                ],
+                targets: [
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootBefore,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 0, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: anchor,
+                        groupId: groupId,
+                        isGroupHeader: true,
+                        frame: CGRect(x: 0, y: 40, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: rootAfter,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 80, width: 180, height: 32)
+                    ),
+                    SidebarWorkspaceReorderDropTarget(
+                        workspaceId: dragged,
+                        groupId: nil,
+                        isGroupHeader: false,
+                        frame: CGRect(x: 0, y: 120, width: 180, height: 32)
+                    )
+                ],
+                memberIndent: 12
+            )
+        }
+    }
+
     private func reorderFixture() -> ReorderFixture {
         ReorderFixture()
+    }
+
+    private func multiChildReorderFixture() -> MultiChildReorderFixture {
+        MultiChildReorderFixture()
+    }
+
+    private func collapsedGroupReorderFixture() -> CollapsedGroupReorderFixture {
+        CollapsedGroupReorderFixture()
     }
 
     private func workspaceDropTargets(

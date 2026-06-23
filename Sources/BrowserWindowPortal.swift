@@ -274,10 +274,7 @@ enum HostedInspectorDockSide {
 }
 
 final class WindowBrowserHostView: NSView {
-    private struct DividerRegion {
-        let rectInWindow: NSRect
-        let isVertical: Bool
-    }
+    private typealias DividerRegion = PortalSplitDividerRegion
 
     private struct DividerHit {
         let kind: DividerCursorKind
@@ -322,12 +319,17 @@ final class WindowBrowserHostView: NSView {
     private static let minimumHostedInspectorWidth: CGFloat = 120
     private var cachedSidebarDividerX: CGFloat?
     private var sidebarDividerMissCount = 0
+    private var cachedSplitDividerRegions: [DividerRegion]?
+    private var cachedSplitDividerRootSubviewIds: [ObjectIdentifier]?
+    private let splitDividerCacheInvalidator = PortalSplitDividerCacheInvalidator()
+    private var splitDividerResizeObserver: NSObjectProtocol?
     private var trackingArea: NSTrackingArea?
     private var activeDividerCursorKind: DividerCursorKind?
     private var hostedInspectorDividerDrag: HostedInspectorDividerDragState?
     private var lastHostedInspectorLayoutBoundsSize: NSSize?
 
     deinit {
+        if let splitDividerResizeObserver { NotificationCenter.default.removeObserver(splitDividerResizeObserver) }
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -380,16 +382,20 @@ final class WindowBrowserHostView: NSView {
         if window == nil {
             clearActiveDividerCursor(restoreArrow: false)
         }
+        updateSplitDividerResizeObserver()
+        invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
+        invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
     override func setFrameOrigin(_ newOrigin: NSPoint) {
         super.setFrameOrigin(newOrigin)
+        invalidateSplitDividerRegionCache()
         window?.invalidateCursorRects(for: self)
     }
 
@@ -405,6 +411,8 @@ final class WindowBrowserHostView: NSView {
 
     override func didAddSubview(_ subview: NSView) {
         super.didAddSubview(subview)
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
         guard let slot = subview as? WindowBrowserSlotView else { return }
         slot.onHostedInspectorLayout = { [weak self] slotView in
             self?.reapplyHostedInspectorDividerIfNeeded(in: slotView, reason: "slot.layout")
@@ -412,6 +420,8 @@ final class WindowBrowserHostView: NSView {
     }
 
     override func willRemoveSubview(_ subview: NSView) {
+        invalidateSplitDividerRegionCache()
+        window?.invalidateCursorRects(for: self)
         if let slot = subview as? WindowBrowserSlotView {
             slot.onHostedInspectorLayout = nil
         }
@@ -420,9 +430,8 @@ final class WindowBrowserHostView: NSView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard let rootView = dividerSearchRootView() else { return }
-        var regions: [DividerRegion] = []
-        Self.collectSplitDividerRegions(in: rootView, into: &regions)
+        invalidateSplitDividerRegionCache()
+        let regions = splitDividerRegions()
         let expansion: CGFloat = 4
         for region in regions {
             var rectInHost = convert(region.rectInWindow, from: nil)
@@ -872,8 +881,7 @@ final class WindowBrowserHostView: NSView {
     private func splitDividerHit(at point: NSPoint) -> DividerHit? {
         guard window != nil else { return nil }
         let windowPoint = convert(point, to: nil)
-        guard let rootView = dividerSearchRootView() else { return nil }
-        return Self.dividerHit(at: windowPoint, in: rootView, hostView: self)
+        return Self.dividerHit(at: windowPoint, in: splitDividerRegions(), checkLiveness: false)
     }
 
     private func dividerSearchRootView() -> NSView? {
@@ -881,13 +889,6 @@ final class WindowBrowserHostView: NSView {
             return container
         }
         return window?.contentView
-    }
-
-    private func shouldPassThroughToSplitDivider(at point: NSPoint) -> Bool {
-        guard let dividerHit = splitDividerHit(at: point) else { return false }
-        // Portal host should pass split-divider events through to app layout splits,
-        // but keep WebKit inspector/internal split dividers interactive.
-        return !dividerHit.isInHostedContent
     }
 
     static func shouldPassThroughToDragTargets(
@@ -1113,63 +1114,59 @@ final class WindowBrowserHostView: NSView {
 #endif
         return (pageFrame, inspectorFrame)
     }
-    private static func dividerHit(
-        at windowPoint: NSPoint,
-        in view: NSView,
-        hostView: WindowBrowserHostView
-    ) -> DividerHit? {
-        guard !view.isHidden else { return nil }
+    private func splitDividerRegions() -> [DividerRegion] {
+        guard let rootView = dividerSearchRootView() else { cachedSplitDividerRegions = []; cachedSplitDividerRootSubviewIds = nil; return [] }
+        let rootSubviewIds = rootView.subviews.map { ObjectIdentifier($0) }
+        if let regions = cachedSplitDividerRegions, cachedSplitDividerRootSubviewIds == rootSubviewIds, PortalSplitDividerRegion.allLive(regions) { return regions }
+        let collected = PortalSplitDividerRegion.collect(in: rootView, hostView: self)
+        cachedSplitDividerRegions = collected.regions
+        cachedSplitDividerRootSubviewIds = rootSubviewIds
+        splitDividerCacheInvalidator.observe(
+            geometryViews: collected.geometryObservedViews,
+            structureViews: collected.structureObservedViews
+        ) { [weak self] in
+            guard let self else { return }
+            self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+        return collected.regions
+    }
 
-        if let splitView = view as? NSSplitView {
-            let pointInSplit = splitView.convert(windowPoint, from: nil)
-            if splitView.bounds.contains(pointInSplit) {
-                let expansion: CGFloat = 5
-                let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-                for dividerIndex in 0..<dividerCount {
-                    let first = splitView.arrangedSubviews[dividerIndex].frame
-                    let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                    let thickness = splitView.dividerThickness
-                    let dividerRect: NSRect
-                    if splitView.isVertical {
-                        // Keep divider hit-testing active even when one side is nearly collapsed,
-                        // so users can drag the divider back out from the border.
-                        // But ignore transient states where both panes are effectively 0-width.
-                        guard first.width > 1 || second.width > 1 else { continue }
-                        let x = max(0, first.maxX)
-                        dividerRect = NSRect(
-                            x: x,
-                            y: 0,
-                            width: thickness,
-                            height: splitView.bounds.height
-                        )
-                    } else {
-                        // Same behavior for horizontal splits with a near-zero-height pane.
-                        guard first.height > 1 || second.height > 1 else { continue }
-                        let y = max(0, first.maxY)
-                        dividerRect = NSRect(
-                            x: 0,
-                            y: y,
-                            width: splitView.bounds.width,
-                            height: thickness
-                        )
-                    }
-                    let expanded = dividerRect.insetBy(dx: -expansion, dy: -expansion)
-                    if expanded.contains(pointInSplit) {
-                        return DividerHit(
-                            kind: splitView.isVertical ? .vertical : .horizontal,
-                            isInHostedContent: splitView.isDescendant(of: hostView)
-                        )
-                    }
-                }
+    private func invalidateSplitDividerRegionCache() {
+        cachedSplitDividerRegions = nil
+        cachedSplitDividerRootSubviewIds = nil
+        splitDividerCacheInvalidator.invalidate()
+    }
+
+    private func updateSplitDividerResizeObserver() {
+        if let splitDividerResizeObserver {
+            NotificationCenter.default.removeObserver(splitDividerResizeObserver)
+            self.splitDividerResizeObserver = nil
+        }
+        guard let window else { return }
+        splitDividerResizeObserver = NotificationCenter.default.addObserver(forName: NSSplitView.didResizeSubviewsNotification, object: nil, queue: .main) { [weak self, weak window] notification in
+            guard let self,
+                  let window,
+                  let splitView = notification.object as? NSSplitView,
+                  splitView.window === window else { return }
+            self.invalidateSplitDividerRegionCache()
+            self.window?.invalidateCursorRects(for: self)
+        }
+    }
+
+    private static func dividerHit(at windowPoint: NSPoint, in regions: [DividerRegion], checkLiveness: Bool = true) -> DividerHit? {
+        let expansion: CGFloat = 5
+        for region in regions.reversed() {
+            if checkLiveness, !region.isLive { continue }
+            let hitRect = region.rectInWindow.insetBy(dx: -expansion, dy: -expansion)
+                .intersection(region.boundsInWindow)
+            if !hitRect.isNull, hitRect.contains(windowPoint) {
+                return DividerHit(
+                    kind: region.isVertical ? .vertical : .horizontal,
+                    isInHostedContent: region.isInHostedContent
+                )
             }
         }
-
-        for subview in view.subviews.reversed() {
-            if let hit = dividerHit(at: windowPoint, in: subview, hostView: hostView) {
-                return hit
-            }
-        }
-
         return nil
     }
 
@@ -1214,41 +1211,6 @@ final class WindowBrowserHostView: NSView {
         !view.isHidden &&
             view.alphaValue > 0 &&
             view.frame.height > 1
-    }
-
-    private static func collectSplitDividerRegions(in view: NSView, into result: inout [DividerRegion]) {
-        guard !view.isHidden else { return }
-
-        if let splitView = view as? NSSplitView {
-            let dividerCount = max(0, splitView.arrangedSubviews.count - 1)
-            for dividerIndex in 0..<dividerCount {
-                let first = splitView.arrangedSubviews[dividerIndex].frame
-                let second = splitView.arrangedSubviews[dividerIndex + 1].frame
-                let thickness = splitView.dividerThickness
-                let dividerRect: NSRect
-                if splitView.isVertical {
-                    guard first.width > 1 || second.width > 1 else { continue }
-                    let x = max(0, first.maxX)
-                    dividerRect = NSRect(x: x, y: 0, width: thickness, height: splitView.bounds.height)
-                } else {
-                    guard first.height > 1 || second.height > 1 else { continue }
-                    let y = max(0, first.maxY)
-                    dividerRect = NSRect(x: 0, y: y, width: splitView.bounds.width, height: thickness)
-                }
-                let dividerRectInWindow = splitView.convert(dividerRect, to: nil)
-                guard dividerRectInWindow.width > 0, dividerRectInWindow.height > 0 else { continue }
-                result.append(
-                    DividerRegion(
-                        rectInWindow: dividerRectInWindow,
-                        isVertical: splitView.isVertical
-                    )
-                )
-            }
-        }
-
-        for subview in view.subviews {
-            collectSplitDividerRegions(in: subview, into: &result)
-        }
     }
 
 }

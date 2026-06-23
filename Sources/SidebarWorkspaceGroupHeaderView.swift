@@ -21,6 +21,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             lhs.isAnchorActive == rhs.isAnchorActive &&
             lhs.memberCount == rhs.memberCount &&
             lhs.anchorUnreadCount == rhs.anchorUnreadCount &&
+            lhs.canMarkRead == rhs.canMarkRead &&
+            lhs.canMarkUnread == rhs.canMarkUnread &&
+            lhs.hasLatestNotifications == rhs.hasLatestNotifications &&
+            lhs.canMarkAllRead == rhs.canMarkAllRead &&
+            lhs.canMarkAllUnread == rhs.canMarkAllUnread &&
             lhs.shortcutDigit == rhs.shortcutDigit &&
             lhs.shortcutModifierSymbol == rhs.shortcutModifierSymbol &&
             lhs.showsShortcutHint == rhs.showsShortcutHint &&
@@ -46,6 +51,11 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let isAnchorActive: Bool
     let memberCount: Int
     let anchorUnreadCount: Int
+    let canMarkRead: Bool
+    let canMarkUnread: Bool
+    let hasLatestNotifications: Bool
+    let canMarkAllRead: Bool
+    let canMarkAllUnread: Bool
     let shortcutDigit: Int?
     let shortcutModifierSymbol: String?
     let showsShortcutHint: Bool
@@ -66,13 +76,17 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
     let onRename: () -> Void
     let onTogglePinned: () -> Void
+    let onMarkRead: () -> Void
+    let onMarkUnread: () -> Void
+    let onClearLatestNotifications: () -> Void
+    let onMarkAllRead: () -> Void
+    let onMarkAllUnread: () -> Void
     let onUngroup: () -> Void
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
 
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
-    @State private var rowHeight: CGFloat = 1
 
     private var metrics: SidebarWorkspaceGroupHeaderMetrics {
         SidebarWorkspaceGroupHeaderMetrics(fontScale: fontScale)
@@ -96,22 +110,10 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         return "\(shortcutModifierSymbol)\(shortcutDigit)"
     }
 
-    private var rowHeightProbe: some View {
-        GeometryReader { proxy in
-            Color.clear
-                .onAppear {
-                    rowHeight = max(proxy.size.height, 1)
-                }
-                .onChange(of: proxy.size.height) { _, newHeight in
-                    rowHeight = max(newHeight, 1)
-                }
-        }
-    }
-
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: metrics.chevronFontSize, weight: .semibold))
+                .cmuxFont(size: metrics.chevronFontSize, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
@@ -127,18 +129,18 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
             HStack(spacing: 6) {
                 Image(systemName: displayedIconSymbol)
-                    .font(.system(size: metrics.iconFontSize, weight: .semibold))
+                    .cmuxFont(size: metrics.iconFontSize, weight: .semibold)
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
-                    .font(.system(size: metrics.nameFontSize, weight: .semibold))
+                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
-                        .font(.system(size: metrics.unreadFontSize, weight: .semibold))
+                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
@@ -165,7 +167,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             )
             Button(action: onTapPlus) {
                 Image(systemName: "plus")
-                    .font(.system(size: metrics.plusFontSize, weight: .medium))
+                    .cmuxFont(size: metrics.plusFontSize, weight: .medium)
                     .foregroundStyle(.secondary)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())
@@ -233,7 +235,6 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             offsetY: shortcutHintYOffset
         )
         .padding(.horizontal, SidebarWorkspaceListMetrics.rowOuterHorizontalPadding)
-        .background { rowHeightProbe }
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay(alignment: .top) {
@@ -257,6 +258,14 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .contextMenu {
             Button(
                 String(
+                    localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                    defaultValue: "New Workspace in Group"
+                ),
+                action: onTapPlus
+            )
+            Divider()
+            Button(
+                String(
                     localized: "workspaceGroup.contextMenu.rename",
                     defaultValue: "Rename Group..."
                 ),
@@ -274,6 +283,48 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                     ),
                 action: onTogglePinned
             )
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markRead",
+                    defaultValue: "Mark Group as Read"
+                ),
+                action: onMarkRead
+            )
+            .disabled(!canMarkRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markUnread",
+                    defaultValue: "Mark Group as Unread"
+                ),
+                action: onMarkUnread
+            )
+            .disabled(!canMarkUnread)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.clearLatestNotifications",
+                    defaultValue: "Clear Latest Notifications"
+                ),
+                action: onClearLatestNotifications
+            )
+            .disabled(!hasLatestNotifications)
+            Divider()
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllRead",
+                    defaultValue: "Mark All Workspaces in Group as Read"
+                ),
+                action: onMarkAllRead
+            )
+            .disabled(!canMarkAllRead)
+            Button(
+                String(
+                    localized: "workspaceGroup.contextMenu.markAllUnread",
+                    defaultValue: "Mark All Workspaces in Group as Unread"
+                ),
+                action: onMarkAllUnread
+            )
+            .disabled(!canMarkAllUnread)
             Divider()
             Button(
                 String(

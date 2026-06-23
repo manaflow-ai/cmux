@@ -300,6 +300,22 @@ import Testing
         #expect(recorded == nil)
     }
 
+    @Test func devAuthAccessTokenFallbackDoesNotWaitOnItsOwnTokenPhase() async throws {
+        let user = CMUXAuthUser(id: "debug", primaryEmail: "l@l.com", displayName: "L")
+        let client = FakeAuthClient(user: user)
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            launch: .plain(includesDevAuth: true)
+        )
+        coordinator.debugCredentials = CMUXAuthAutoLoginCredentials(email: "l@l.com", password: "pw")
+
+        let token = try await coordinator.accessToken()
+
+        #expect(token == "access")
+        let recorded = await client.signedInWithCredential
+        #expect(recorded?.email == "l@l.com")
+    }
+
     @Test func accessTokenThrowsWhenSignedOut() async {
         let (coordinator, _) = makeCoordinator(client: FakeAuthClient())
         await #expect(throws: AuthError.unauthorized) {
