@@ -524,6 +524,20 @@ public enum TerminalInputAccessoryAction: Int, CaseIterable, Sendable {
     }
 }
 
+private final class TerminalScrollMechanicsView: UIScrollView {
+    override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        if gestureRecognizer === panGestureRecognizer,
+           let window {
+            let touchXInWindow = Double(gestureRecognizer.location(in: window).x)
+            if TerminalBackSwipeEdgeReservation.shouldReserveSystemBackSwipeEdge(touchXInWindow: touchXInWindow) {
+                return false
+            }
+        }
+
+        return super.gestureRecognizerShouldBegin(gestureRecognizer)
+    }
+}
+
 public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// The surface whose hidden text input is currently first responder, if any.
     ///
@@ -648,7 +662,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
     private lazy var scrollMechanicsView: UIScrollView = {
-        let view = UIScrollView()
+        let view = TerminalScrollMechanicsView()
         view.backgroundColor = .clear
         view.isOpaque = false
         view.showsVerticalScrollIndicator = false
