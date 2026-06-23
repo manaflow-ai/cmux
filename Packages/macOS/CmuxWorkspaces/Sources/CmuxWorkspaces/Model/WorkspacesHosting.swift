@@ -40,6 +40,8 @@ public protocol WorkspacesHosting<Tab>: AnyObject {
     func selectedWorkspaceIdDidChange(from oldValue: UUID?)
 }
 
+/// Default implementations for the optional post-change hooks, so conformers
+/// only override the ones they need.
 public extension WorkspacesHosting {
     /// Default no-op so conformers that do not need post-change work (and the
     /// legacy parity hooks) are unaffected.

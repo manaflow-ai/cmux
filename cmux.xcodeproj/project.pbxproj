@@ -869,6 +869,7 @@
 		A5001003 /* TabManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001013 /* TabManager.swift */; };
 		C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */; };
 		2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
+		5E2701050000000000000001 /* TabManagerShellActivityReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E2701050000000000000002 /* TabManagerShellActivityReplayTests.swift */; };
 		C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */; };
 		C06552020000000000000001 /* TabManagerTitleUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */; };
 		B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */; };
@@ -1930,6 +1931,7 @@
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		C0DE64160000000000000002 /* TabManagerNotificationFocusRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerNotificationFocusRegressionTests.swift; sourceTree = "<group>"; };
 		10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerSessionSnapshotTests.swift; sourceTree = "<group>"; };
+		5E2701050000000000000002 /* TabManagerShellActivityReplayTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TabManagerShellActivityReplayTests.swift; sourceTree = "<group>"; };
 		C06552030000000000000002 /* TabManagerTitleUpdateStalenessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateStalenessTests.swift; sourceTree = "<group>"; };
 		C06552020000000000000002 /* TabManagerTitleUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerTitleUpdateTests.swift; sourceTree = "<group>"; };
 		42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerUnitTests.swift; sourceTree = "<group>"; };
@@ -3302,6 +3304,7 @@
 				FE002003 /* FileSearchRipgrepParserTests.swift */,
 				9BD519CFE74530A46DF0925D /* MobileHostAuthorizationTests.swift */,
 				5E2701030000000000000002 /* SentryEventScrubberTests.swift */,
+				5E2701050000000000000002 /* TabManagerShellActivityReplayTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -4687,6 +4690,7 @@
 				FBE660ABA1854983B84368C6 /* SystemWideHotkeyShortcutPolicyTests.swift in Sources */,
 				C0DE64160000000000000001 /* TabManagerNotificationFocusRegressionTests.swift in Sources */,
 				2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */,
+				5E2701050000000000000001 /* TabManagerShellActivityReplayTests.swift in Sources */,
 				C06552030000000000000001 /* TabManagerTitleUpdateStalenessTests.swift in Sources */,
 				C06552020000000000000001 /* TabManagerTitleUpdateTests.swift in Sources */,
 				B6BF3DC98DB1495E57900199 /* TabManagerUnitTests.swift in Sources */,
