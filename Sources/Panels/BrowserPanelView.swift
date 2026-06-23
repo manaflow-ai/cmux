@@ -7708,6 +7708,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             BrowserWindowPortalRegistry.updateOmnibarSuggestions(for: webView, configuration: activeOmnibarSuggestions)
             coordinator.lastPortalHostId = ObjectIdentifier(host)
             coordinator.lastSynchronizedHostGeometryRevision = host.geometryRevision
+            browserPanel.noteDeveloperToolsHostAttached()
+            browserPanel.restoreDeveloperToolsAfterAttachIfNeeded()
         }
         host.onGeometryChanged = { [weak host, weak webView, weak coordinator, weak portalAnchorView, weak browserPanel = panel] in
             guard let host, let webView, let coordinator, let portalAnchorView, let browserPanel else { return }

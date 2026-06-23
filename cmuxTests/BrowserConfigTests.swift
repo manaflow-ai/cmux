@@ -3769,7 +3769,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         // every updateNSView.
         panel.noteDeveloperToolsHostAttached()
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
-
         XCTAssertFalse(
             panel.isDeveloperToolsVisible(),
             "A manually-closed Web Inspector must stay closed after navigating to another page"
@@ -3999,7 +3998,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
     }
 
-    func testDeferredRevealResetsRetryBudgetWhenHostReattaches() throws {
+    func testDeferredRevealResetsRetryBudgetWhenHostAttachIsNotified() throws {
         let (panel, inspector) = makePanelWithInspector(showFailuresAfterEligibility: 2)
         defer { closeBrowserPanel(panel) }
         panel.navigate(to: URL(string: "https://example.com")!)
@@ -4021,7 +4020,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         window.contentView?.addSubview(panel.webView)
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
-
+        panel.noteDeveloperToolsHostAttached()
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
 
