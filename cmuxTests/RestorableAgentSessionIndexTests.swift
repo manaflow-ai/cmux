@@ -681,6 +681,89 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    // #6622: cmux's `claude` wrapper mints a fresh `--session-id <uuid>` for every create-new
+    // launch. When such a launch was meant to resume a backgrounded agent, the empty session
+    // never receives a message and writes no transcript — an unrecoverable "ghost" id — while
+    // the real conversation stays alive as a separate background-agent session under a different
+    // id. Restore must reconcile the panel to the live background agent's real session id (from
+    // `claude agents --json`), so resume targets the real conversation (`--resume <real-id>`),
+    // never the empty ghost id and never a fresh `--session-id`.
+    func testClaudeGhostSessionReconcilesToLiveBackgroundAgent() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ghost-session-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        // The real conversation: the live background agent's transcript in the cwd project dir.
+        let realSessionId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        let realTranscriptURL = projectDir.appendingPathComponent("\(realSessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(sessionId: realSessionId, transcriptURL: realTranscriptURL, cwd: cwd)
+
+        // The ghost: a create-new `--session-id` id whose `<ghost>.jsonl` was never written.
+        let ghostSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                ghostSessionId: hookRecord(
+                    sessionId: ghostSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: false,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(sessionId: realSessionId, cwd: cwd.path, kind: "background")]
+            }
+        )
+        let snapshot = try XCTUnwrap(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "The ghost panel must reconcile to the live background agent instead of being dropped."
+        )
+
+        XCTAssertEqual(
+            snapshot.sessionId, realSessionId,
+            "tracked sessionId must reconcile from the empty ghost id to the live background agent id"
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(
+            resumeCommand.contains(realSessionId),
+            "resume must target the real conversation; got: \(resumeCommand)"
+        )
+        XCTAssertFalse(
+            resumeCommand.contains(ghostSessionId),
+            "resume must not target the empty ghost id; got: \(resumeCommand)"
+        )
+        XCTAssertTrue(
+            resumeCommand.contains("--resume"),
+            "resume must use --resume <real-id>; got: \(resumeCommand)"
+        )
+        XCTAssertFalse(
+            resumeCommand.contains("--session-id"),
+            "resume must never mint a fresh --session-id; got: \(resumeCommand)"
+        )
+    }
+
     /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.

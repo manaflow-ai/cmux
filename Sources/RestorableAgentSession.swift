@@ -1022,34 +1022,46 @@ struct RestorableAgentSessionIndex: Sendable {
     // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
     // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
     // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
+    /// Resolves the live Claude background agents for a given `CLAUDE_CONFIG_DIR` (via
+    /// `claude agents --json`) so a transcript-less ghost panel can be reconciled to its real
+    /// session id. `@Sendable` so it can cross into the off-main `Task.detached` loaders.
+    /// Defaults to none, which keeps synchronous/cold-cache load paths (and tests) free of any
+    /// subprocess. https://github.com/manaflow-ai/cmux/issues/6622
+    typealias ClaudeBackgroundAgentsProvider = @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot]
+
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: [:]
+            detectedSnapshots: [:],
+            backgroundAgentsProvider: backgroundAgentsProvider
         )
     }
 
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                backgroundAgentsProvider: backgroundAgentsProvider
             )
         }.value
     }
 
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
@@ -1060,7 +1072,8 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            backgroundAgentsProvider: backgroundAgentsProvider
         )
     }
 
@@ -1071,8 +1084,20 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-        }
+        },
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
+        // Resolve background agents at most once per config dir per load, only when a
+        // transcript-less Claude ghost actually needs reconciliation (the provider fires
+        // lazily from `resolvedClaudeWorkflowRecord`). https://github.com/manaflow-ai/cmux/issues/6622
+        var backgroundAgentsByConfigDir: [String: [ClaudeBackgroundAgentSnapshot]] = [:]
+        func backgroundAgents(forConfigDir configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
+            let key = configDir ?? ""
+            if let cached = backgroundAgentsByConfigDir[key] { return cached }
+            let resolved = backgroundAgentsProvider(configDir)
+            backgroundAgentsByConfigDir[key] = resolved
+            return resolved
+        }
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
@@ -1103,7 +1128,8 @@ struct RestorableAgentSessionIndex: Sendable {
                     ? resolvedClaudeWorkflowRecord(
                         record,
                         fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
+                        lookup: claudeTranscriptLookup,
+                        backgroundAgents: backgroundAgents(forConfigDir:)
                     )
                     : record
                 // Drop untrusted launch captures before ANY derivation: the
@@ -1271,7 +1297,8 @@ struct RestorableAgentSessionIndex: Sendable {
     private static func resolvedClaudeWorkflowRecord(
         _ record: RestorableAgentHookSessionRecord,
         fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
+        lookup: ClaudeTranscriptLookupCache,
+        backgroundAgents: (String?) -> [ClaudeBackgroundAgentSnapshot]
     ) -> RestorableAgentHookSessionRecord {
         guard let sessionId = normalizedNonEmptyValue(record.sessionId),
               claudeSessionIdIsSafeFilename(sessionId) else {
