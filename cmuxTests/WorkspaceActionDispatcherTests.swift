@@ -113,6 +113,12 @@ import Testing
                 WorkspaceActionDispatcher.pinState(in: manager, target: target)
         )
 
+        // `PinResolutionContext` captures the `Workspace` objects by reference
+        // (they are classes), so it observes live pin mutations without being
+        // rebuilt. `pinState` returns the *toggle* the action would apply, i.e.
+        // `pinned = !isPinned`. After pinning `second`, its `isPinned` is true,
+        // so the resolved action through the captured context is to unpin
+        // (`pinned == false`) — confirming the context reads live state.
         manager.setPinned(second, pinned: true)
         let updatedState = try #require(
             WorkspaceActionDispatcher.pinState(in: context, target: .single(second.id))
