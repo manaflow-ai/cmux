@@ -101,6 +101,28 @@ struct UserDefaultsSettingsStoreTests {
         #expect(value == .dark)
     }
 
+    @Test func migratesLegacyTitleCoalescingDelayKey() async {
+        let suiteName = "cmux.tests.\(UUID().uuidString)"
+        do {
+            let setup = UserDefaults(suiteName: suiteName)!
+            setup.set(250, forKey: "terminal.titleUpdates.coalescingMilliseconds")
+        }
+
+        let catalog = SettingCatalog()
+        let key = catalog.terminal.titleUpdateCoalescingMilliseconds
+        let store = UserDefaultsSettingsStore(
+            defaults: UserDefaults(suiteName: suiteName)!,
+            migrating: [AnySettingKey(key)]
+        )
+
+        let value = await store.value(for: key)
+        #expect(value == 250)
+
+        let verify = UserDefaults(suiteName: suiteName)!
+        #expect(verify.object(forKey: "terminal.titleUpdates.coalescing.delayMilliseconds") as? Int == 250)
+        #expect(verify.object(forKey: "terminal.titleUpdates.coalescingMilliseconds") == nil)
+    }
+
     @Test func skipsLegacyMigrationOnTypeMismatch() async {
         // Legacy value is a Bool, but the new key expects an enum (String).
         // Migration must NOT copy the Bool into the new key; otherwise reads

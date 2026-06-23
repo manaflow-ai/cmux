@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -23,9 +24,9 @@ struct AppIconPickerRow: View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(String(localized: "settings.app.appIcon", defaultValue: "App Icon"))
-                    .font(.system(size: 13, weight: .medium))
+                    .cmuxFont(size: 13, weight: .medium)
                 Text(String(localized: "settings.app.appIcon.subtitle", defaultValue: "Dock and app switcher"))
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -64,7 +65,7 @@ struct AppIconPickerRow: View {
                             }
 
                             Text(iconDisplayName(mode))
-                                .font(.system(size: 10))
+                                .cmuxFont(size: 10)
                                 .foregroundColor(isSelected ? .primary : .secondary)
                         }
                         .padding(.vertical, 8)
