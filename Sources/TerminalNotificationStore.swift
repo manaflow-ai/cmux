@@ -86,6 +86,10 @@ enum TaggedRunBadgeSettings {
 }
 
 enum NativeNotificationText {
+    static func textForBanner(_ text: String) -> String {
+        bodyForBanner(text)
+    }
+
     static func bodyForBanner(_ body: String) -> String {
         guard !body.isEmpty else { return body }
         guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
@@ -1803,7 +1807,9 @@ final class TerminalNotificationStore: ObservableObject {
         let nativeDeliveryHooks = nativeNotificationDeliveryHooks
         let notificationTitle = resolvedNotificationTitle(for: notification)
         let notificationSubtitle = notification.subtitle
-        let notificationBody = NativeNotificationText.bodyForBanner(notification.body)
+        let bannerTitle = NativeNotificationText.textForBanner(notificationTitle)
+        let bannerSubtitle = NativeNotificationText.textForBanner(notificationSubtitle)
+        let bannerBody = NativeNotificationText.textForBanner(notification.body)
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
@@ -1812,9 +1818,9 @@ final class TerminalNotificationStore: ObservableObject {
 
         let handleAuthorization: NativeNotificationDeliveryHooks.AuthorizationCompletion = { authorized, effectiveAuthorizationState in
             let content = UNMutableNotificationContent()
-            content.title = notificationTitle
-            content.subtitle = notificationSubtitle
-            content.body = notificationBody
+            content.title = bannerTitle
+            content.subtitle = bannerSubtitle
+            content.body = bannerBody
             guard authorized else {
                 NativeNotificationDeliveryHooks.playNativeUnavailableFeedback(
                     effects: Self.fallbackEffects(effects, authorizationState: effectiveAuthorizationState)
@@ -1839,8 +1845,8 @@ final class TerminalNotificationStore: ObservableObject {
                 content: content,
                 trigger: nil
             )
-            let commandTitle = content.title
-            let commandSubtitle = content.subtitle
+            let commandTitle = notificationTitle
+            let commandSubtitle = notificationSubtitle
             let commandBody = notification.body
 
             nativeDeliveryHooks.schedule(request) { error in

@@ -881,9 +881,9 @@ private extension FeedCoordinator {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.subtitle = subtitle
-        content.body = NativeNotificationText.bodyForBanner(body)
+        content.title = NativeNotificationText.textForBanner(title)
+        content.subtitle = NativeNotificationText.textForBanner(subtitle)
+        content.body = NativeNotificationText.textForBanner(body)
         content.sound = effects.sound ? NotificationSoundSettings.sound() : nil
         content.categoryIdentifier = categoryId
         content.userInfo = [
