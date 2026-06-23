@@ -18,6 +18,7 @@ export function HeroScreenshot() {
         src={landingImage}
         alt="cmux terminal app screenshot"
         priority
+        quality={100}
         onLoad={() => setLoaded(true)}
         className="w-full shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65)]"
       />

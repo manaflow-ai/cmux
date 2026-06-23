@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
     root: webRoot,
   },
   images: {
+    // AVIF first: for the detailed hero screenshot (crisp terminal text +
+    // transparent rounded window corners) it rings far less than WebP at the
+    // same size. Allow q100 so the hero can opt out of lossy degradation.
+    formats: ["image/avif", "image/webp"],
+    qualities: [75, 100],
     remotePatterns: [
       {
         protocol: "https",
