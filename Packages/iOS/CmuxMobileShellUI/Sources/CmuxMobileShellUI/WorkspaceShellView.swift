@@ -12,6 +12,10 @@ import AppKit
 struct WorkspaceShellView: View {
     @Bindable var store: CMUXMobileShellStore
     let signOut: () -> Void
+    var isInitialConnectionLoading = false
+    var initialConnectionTimedOut = false
+    var retryInitialConnection: (() -> Void)?
+    var showAddDevice: (() -> Void)?
     @Environment(MobileDisplaySettings.self) private var displaySettings
     @State private var compactNavigationPath: [MobileWorkspacePreview.ID] = []
     @State private var pendingCompactCreateNavigationWorkspaceIDs: Set<MobileWorkspacePreview.ID>?
@@ -31,6 +35,13 @@ struct WorkspaceShellView: View {
         #else
         false
         #endif
+    }
+
+    private var listConnectionStatus: MobileMacConnectionStatus {
+        if isInitialConnectionLoading || initialConnectionTimedOut {
+            return .reconnecting
+        }
+        return store.macConnectionStatus
     }
 
     var body: some View {
@@ -73,7 +84,7 @@ struct WorkspaceShellView: View {
                 groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
+                connectionStatus: listConnectionStatus,
                 navigationStyle: .push,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,
@@ -90,7 +101,11 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                isInitialConnectionLoading: isInitialConnectionLoading,
+                initialConnectionTimedOut: initialConnectionTimedOut,
+                retryInitialConnection: retryInitialConnection,
+                showAddDevice: showAddDevice
             )
             .navigationDestination(for: MobileWorkspacePreview.ID.self) { workspaceID in
                 workspaceDestination(for: workspaceID, createWorkspace: createWorkspaceInCompactStack)
@@ -155,7 +170,7 @@ struct WorkspaceShellView: View {
                 groups: store.workspaceGroups,
                 selectedWorkspaceID: store.selectedWorkspaceID,
                 host: store.connectedHostName,
-                connectionStatus: store.macConnectionStatus,
+                connectionStatus: listConnectionStatus,
                 navigationStyle: .sidebar,
                 wrapWorkspaceTitles: displaySettings.wrapWorkspaceTitles,
                 previewLineLimit: displaySettings.workspacePreviewLineCount,
@@ -172,7 +187,11 @@ struct WorkspaceShellView: View {
                 setPinned: setWorkspacePinnedClosure,
                 setUnread: setWorkspaceUnreadClosure,
                 closeWorkspace: closeWorkspaceClosure,
-                toggleGroupCollapsed: toggleGroupCollapsedClosure
+                toggleGroupCollapsed: toggleGroupCollapsedClosure,
+                isInitialConnectionLoading: isInitialConnectionLoading,
+                initialConnectionTimedOut: initialConnectionTimedOut,
+                retryInitialConnection: retryInitialConnection,
+                showAddDevice: showAddDevice
             )
             .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
         } detail: {

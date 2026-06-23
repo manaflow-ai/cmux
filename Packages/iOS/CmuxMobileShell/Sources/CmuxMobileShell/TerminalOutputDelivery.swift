@@ -29,6 +29,15 @@ struct TerminalOutputDelivery: Equatable, Sendable {
             frame.vtPatchBytes()
         }
     }
+
+    var debugSummary: String {
+        switch payload {
+        case .bytes(let bytes):
+            "bytes count=\(bytes.count)"
+        case .renderGrid(let frame):
+            "grid seq=\(frame.stateSeq) spans=\(frame.rowSpans.count) full=\(frame.full) bytes=\(bytes.count)"
+        }
+    }
 }
 
 /// Backpressure queue for one mounted mobile terminal output stream.
@@ -47,6 +56,10 @@ struct TerminalOutputDeliveryQueue: Sendable {
 
     var pendingCount: Int {
         pending.count - pendingHeadIndex
+    }
+
+    var debugSummary: String {
+        "inFlight=\(inFlight) pending=\(pendingCount)"
     }
 
     mutating func enqueue(_ delivery: TerminalOutputDelivery) -> TerminalOutputDelivery? {

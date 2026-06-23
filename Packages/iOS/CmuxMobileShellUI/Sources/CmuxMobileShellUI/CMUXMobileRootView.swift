@@ -12,6 +12,8 @@ import AppKit
 #endif
 
 struct CMUXMobileRootView: View {
+    private static let rootLoadingTimeout: Duration = .seconds(10)
+
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
@@ -31,6 +33,7 @@ struct CMUXMobileRootView: View {
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
+    @State private var rootLoadingTimedOut = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -106,8 +109,8 @@ struct CMUXMobileRootView: View {
             // If the view mounts already authenticated (cached session, or a
             // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
             // so kick off the stored-Mac reconnect here too. Without this the
-            // restoring gate could stay on RestoringSessionView forever because
-            // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
+            // workspace list's initial-connection status could never resolve
+            // because nothing updates `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
         #if os(iOS)
@@ -172,6 +175,9 @@ struct CMUXMobileRootView: View {
                 clearAttachTicketAuthenticationIfNeeded()
             }
         }
+        .task(id: isStoredMacLoadingGateActive) {
+            await updateRootLoadingDeadline(isActive: isStoredMacLoadingGateActive)
+        }
     }
 
     @ViewBuilder
@@ -180,20 +186,17 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
-        } else if shouldShowRestoringSession {
-            RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
-                // We know a Mac is being reconnected: it is honest to say so.
-                RestoringSessionView()
-            } else {
-                // Still determining whether a paired Mac exists (install predating
-                // the hint, or a fresh sign-in): a neutral spinner, since we do not
-                // yet know if there is a session to restore.
-                MobilePairedMacDeterminingView()
-            }
+            WorkspaceShellView(
+                store: store,
+                signOut: signOut,
+                isInitialConnectionLoading: !rootLoadingTimedOut,
+                initialConnectionTimedOut: rootLoadingTimedOut,
+                retryInitialConnection: retryRootLoading,
+                showAddDevice: showAddDevice
+            )
         } else if shouldShowOnboarding {
             // Placed after the reconnect-determining branch so `hasKnownPairedMac`
             // has resolved: a genuine first run (never onboarded, never paired)
@@ -314,14 +317,6 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    private var shouldShowRestoringSession: Bool {
-        MobileRootAuthGate.shouldShowRestoringSession(
-            stackAuthenticated: authManager.isAuthenticated,
-            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-            isRestoringSession: authManager.isRestoringSession
-        )
-    }
-
     private var shouldShowRestoringStoredMac: Bool {
         MobileRootAuthGate.shouldShowRestoringStoredMac(
             authenticated: isAuthenticated,
@@ -331,6 +326,10 @@ struct CMUXMobileRootView: View {
             pairedMacHintUndetermined: store.pairedMacHintUndetermined,
             didFinishStoredMacReconnectAttempt: store.didFinishStoredMacReconnectAttempt
         )
+    }
+
+    private var isStoredMacLoadingGateActive: Bool {
+        isAuthenticated && shouldShowRestoringStoredMac
     }
 
     private var hasActiveAttachTicketAuthentication: Bool {
@@ -444,6 +443,34 @@ struct CMUXMobileRootView: View {
         }
         didAuthenticateWithAttachTicket = false
         syncShellAuthentication(authManager.isAuthenticated)
+    }
+
+    private func updateRootLoadingDeadline(isActive: Bool) async {
+        guard isActive else {
+            rootLoadingTimedOut = false
+            return
+        }
+        rootLoadingTimedOut = false
+        // This is the user-visible loading gate deadline, not a repair delay:
+        // if auth restore or paired-Mac determination does not resolve, expose
+        // recovery actions instead of leaving the root on a spinner.
+        do {
+            try await ContinuousClock().sleep(for: Self.rootLoadingTimeout)
+        } catch {
+            return
+        }
+        guard isStoredMacLoadingGateActive else { return }
+        rootLoadingTimedOut = true
+    }
+
+    private func retryRootLoading() {
+        rootLoadingTimedOut = false
+        syncShellAuthentication(isAuthenticated)
+        store.resumeForegroundRefresh()
+        Task {
+            await authManager.revalidateSession()
+            reconnectStoredMacIfNeeded()
+        }
     }
 
     private func signOut() {
