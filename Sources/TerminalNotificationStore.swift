@@ -37,110 +37,6 @@ extension UNUserNotificationCenter {
     }
 }
 
-enum NotificationBadgeSettings {
-    static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
-    static let defaultDockBadgeEnabled = true
-
-    static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: dockBadgeEnabledKey) == nil {
-            return defaultDockBadgeEnabled
-        }
-        return defaults.bool(forKey: dockBadgeEnabledKey)
-    }
-}
-
-enum NotificationPaneRingSettings {
-    static let enabledKey = "notificationPaneRingEnabled"
-    static let defaultEnabled = true
-}
-
-enum NotificationPaneFlashSettings {
-    static let enabledKey = "notificationPaneFlashEnabled"
-    static let defaultEnabled = true
-
-    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
-        if defaults.object(forKey: enabledKey) == nil {
-            return defaultEnabled
-        }
-        return defaults.bool(forKey: enabledKey)
-    }
-}
-
-struct NotificationMuteMenuOption: Hashable, Identifiable {
-    enum Kind: Hashable {
-        case untilUnmuted
-        case duration(TimeInterval)
-    }
-
-    let id: String
-    let title: String
-    let kind: Kind
-
-    static var untilUnmuted: NotificationMuteMenuOption {
-        NotificationMuteMenuOption(
-            id: "until-unmuted",
-            title: String(localized: "notificationMute.duration.untilUnmuted", defaultValue: "Until Unmuted"),
-            kind: .untilUnmuted
-        )
-    }
-
-    static var defaultTimedOptions: [NotificationMuteMenuOption] {
-        [
-            .timed(
-                id: "15m",
-                title: String(localized: "notificationMute.duration.fifteenMinutes", defaultValue: "15 Minutes"),
-                interval: 15 * 60
-            ),
-            .timed(
-                id: "1h",
-                title: String(localized: "notificationMute.duration.oneHour", defaultValue: "1 Hour"),
-                interval: 60 * 60
-            ),
-            .timed(
-                id: "4h",
-                title: String(localized: "notificationMute.duration.fourHours", defaultValue: "4 Hours"),
-                interval: 4 * 60 * 60
-            ),
-            .timed(
-                id: "8h",
-                title: String(localized: "notificationMute.duration.eightHours", defaultValue: "8 Hours"),
-                interval: 8 * 60 * 60
-            ),
-        ]
-    }
-
-    static var defaultOptions: [NotificationMuteMenuOption] {
-        [untilUnmuted] + defaultTimedOptions
-    }
-
-    static func options(configuredDurations: [CmuxNotificationMuteDurationDefinition]?) -> [NotificationMuteMenuOption] {
-        guard let configuredDurations else {
-            return defaultOptions
-        }
-        let timedOptions = configuredDurations.enumerated().map { index, definition in
-            NotificationMuteMenuOption.timed(
-                id: "configured-\(index)-\(definition.label)-\(definition.interval)",
-                title: definition.label,
-                interval: definition.interval
-            )
-        }
-        return [untilUnmuted] + timedOptions
-    }
-
-    static func timed(id: String, title: String, interval: TimeInterval) -> NotificationMuteMenuOption {
-        NotificationMuteMenuOption(id: id, title: title, kind: .duration(interval))
-    }
-
-    func expiration(from date: Date = Date()) -> Date {
-        switch kind {
-        case .untilUnmuted:
-            return .distantFuture
-        case .duration(let interval):
-            return date.addingTimeInterval(interval)
-        }
-    }
-}
-
 enum TaggedRunBadgeSettings {
     static let environmentKey = "CMUX_TAG"
     private static let maxTagLength = 10
@@ -538,8 +434,8 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
-    @Published private(set) var notificationMuteExpirationsByWorkspaceId: [UUID: Date] = [:]
-    @Published private(set) var notificationMuteExpirationsBySurfaceId: [UUID: Date] = [:]
+    @Published var notificationMuteExpirationsByWorkspaceId: [UUID: Date] = [:]
+    @Published var notificationMuteExpirationsBySurfaceId: [UUID: Date] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
@@ -907,79 +803,6 @@ final class TerminalNotificationStore: ObservableObject {
 
     func workspaceIsUnread(forTabId tabId: UUID) -> Bool {
         unreadCount(forTabId: tabId) > 0
-    }
-
-    func activeWorkspaceNotificationMuteExpiration(forTabId tabId: UUID, now: Date = Date()) -> Date? {
-        activeMuteExpiration(notificationMuteExpirationsByWorkspaceId[tabId], now: now)
-    }
-
-    func activeSurfaceNotificationMuteExpiration(forSurfaceId surfaceId: UUID, now: Date = Date()) -> Date? {
-        activeMuteExpiration(notificationMuteExpirationsBySurfaceId[surfaceId], now: now)
-    }
-
-    func activeNotificationMuteExpiration(forTabId tabId: UUID, surfaceId: UUID?, now: Date = Date()) -> Date? {
-        let workspaceExpiration = activeWorkspaceNotificationMuteExpiration(forTabId: tabId, now: now)
-        let surfaceExpiration = surfaceId.flatMap {
-            activeSurfaceNotificationMuteExpiration(forSurfaceId: $0, now: now)
-        }
-        switch (workspaceExpiration, surfaceExpiration) {
-        case (.some(let workspace), .some(let surface)):
-            return max(workspace, surface)
-        case (.some(let workspace), .none):
-            return workspace
-        case (.none, .some(let surface)):
-            return surface
-        case (.none, .none):
-            return nil
-        }
-    }
-
-    func hasActiveWorkspaceNotificationMute(forTabIds tabIds: [UUID], now: Date = Date()) -> Bool {
-        tabIds.contains { activeWorkspaceNotificationMuteExpiration(forTabId: $0, now: now) != nil }
-    }
-
-    @discardableResult
-    func muteNotifications(forTabIds tabIds: [UUID], until expiration: Date) -> Bool {
-        let validIds = Set(tabIds)
-        guard !validIds.isEmpty else { return false }
-        var next = notificationMuteExpirationsByWorkspaceId
-        for tabId in validIds {
-            next[tabId] = expiration
-        }
-        guard next != notificationMuteExpirationsByWorkspaceId else { return false }
-        notificationMuteExpirationsByWorkspaceId = next
-        return true
-    }
-
-    @discardableResult
-    func unmuteNotifications(forTabIds tabIds: [UUID]) -> Bool {
-        let validIds = Set(tabIds)
-        guard !validIds.isEmpty else { return false }
-        var next = notificationMuteExpirationsByWorkspaceId
-        for tabId in validIds {
-            next.removeValue(forKey: tabId)
-        }
-        guard next != notificationMuteExpirationsByWorkspaceId else { return false }
-        notificationMuteExpirationsByWorkspaceId = next
-        return true
-    }
-
-    @discardableResult
-    func muteNotifications(forTabId tabId: UUID, surfaceId: UUID, until expiration: Date) -> Bool {
-        var next = notificationMuteExpirationsBySurfaceId
-        next[surfaceId] = expiration
-        guard next != notificationMuteExpirationsBySurfaceId else { return false }
-        notificationMuteExpirationsBySurfaceId = next
-        return true
-    }
-
-    @discardableResult
-    func unmuteNotifications(forSurfaceId surfaceId: UUID) -> Bool {
-        var next = notificationMuteExpirationsBySurfaceId
-        next.removeValue(forKey: surfaceId)
-        guard next != notificationMuteExpirationsBySurfaceId else { return false }
-        notificationMuteExpirationsBySurfaceId = next
-        return true
     }
 
     func canMarkWorkspaceRead(forTabIds tabIds: [UUID]) -> Bool {
@@ -1472,11 +1295,6 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func hasAnyNotificationEffect(_ effects: TerminalNotificationPolicyEffects) -> Bool {
         effects.record || effects.desktop || effects.sound || effects.command || effects.reorderWorkspace || effects.markUnread
-    }
-
-    private func activeMuteExpiration(_ expiration: Date?, now: Date) -> Date? {
-        guard let expiration, expiration > now else { return nil }
-        return expiration
     }
 
     func reportNotificationHookFailure(_ failure: TerminalNotificationPolicyFailure) {
@@ -2314,10 +2132,6 @@ final class TerminalNotificationStore: ObservableObject {
         focusedReadIndicatorByTabId.removeAll()
     }
 
-    func clearNotificationMutesForTesting() {
-        notificationMuteExpirationsByWorkspaceId = [:]
-        notificationMuteExpirationsBySurfaceId = [:]
-    }
 #endif
 
     private func refreshDockBadge() {

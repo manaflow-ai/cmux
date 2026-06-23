@@ -13892,17 +13892,6 @@ struct TabItemView: View, Equatable {
         contextMenuState.pendingWorkspaceSnapshot = nil
     }
 
-    private func contextMenuLabel(multi: String, single: String, isMulti: Bool) -> String {
-        isMulti ? multi : single
-    }
-
-    private func remoteContextMenuWorkspaces() -> [Workspace] {
-        guard !remoteContextMenuWorkspaceIds.isEmpty else { return [] }
-        return remoteContextMenuWorkspaceIds.compactMap { workspaceId in
-            tabManager.tabs.first(where: { $0.id == workspaceId })
-        }
-    }
-
     @ViewBuilder
     private var workspaceContextMenu: some View {
         let workspaceSnapshot = self.workspaceSnapshot
@@ -14147,38 +14136,12 @@ struct TabItemView: View, Equatable {
         }
         .disabled(!notificationStore.canMarkWorkspaceUnread(forTabIds: targetIds))
 
-        Menu(contextMenuLabel(
-            multi: String(localized: "contextMenu.muteWorkspacesNotifications", defaultValue: "Mute Workspaces Notifications"),
-            single: String(localized: "contextMenu.muteWorkspaceNotifications", defaultValue: "Mute Workspace Notifications"),
-            isMulti: isMulti
-        )) {
-            ForEach(notificationMuteMenuOptions) { option in
-                Button(option.title) {
-                    notificationStore.muteNotifications(
-                        forTabIds: targetIds,
-                        until: option.expiration()
-                    )
-                }
-            }
-        }
-        .disabled(targetIds.isEmpty)
-
-        if contextMenuWorkspaceMuteActive {
-            Button(contextMenuLabel(
-                multi: String(localized: "contextMenu.unmuteWorkspacesNotifications", defaultValue: "Unmute Workspaces Notifications"),
-                single: String(localized: "contextMenu.unmuteWorkspaceNotifications", defaultValue: "Unmute Workspace Notifications"),
-                isMulti: isMulti
-            )) {
-                notificationStore.unmuteNotifications(forTabIds: targetIds)
-            }
-            .disabled(targetIds.isEmpty)
-        }
+        workspaceNotificationMuteContextMenuItems(targetIds: targetIds, isMulti: isMulti)
 
         Button(clearLatestNotificationLabel) {
             clearLatestNotifications(targetIds)
         }
         .disabled(!hasLatestNotifications(in: targetIds))
-
         Divider()
 
         Button(copyWorkspaceIDLabel) {

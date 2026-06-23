@@ -22,7 +22,6 @@ import CMUXAgentLaunch
 import CMUXMobileCore
 import IOSurface
 import UniformTypeIdentifiers
-
 enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable {
     case realUserConfig
     case freshInstall
@@ -31,7 +30,6 @@ enum GhosttyStartupAppearancePreviewProfile: String, CaseIterable, Identifiable 
     case userExplicitColors
 
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .realUserConfig:
