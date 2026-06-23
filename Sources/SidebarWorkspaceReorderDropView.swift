@@ -11,6 +11,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
     private var isRequestingTargets = false
     private var targetRequestId: UInt64 = 0
     private var pendingDrop: SidebarWorkspaceReorderPendingDrop?
+    private var awaitsTargetsAfterDragTeardown = false
 
     override var isFlipped: Bool { true }
 
@@ -40,6 +41,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         guard pendingDrop == nil else {
+            completeOrClearPendingDropAfterDragTeardown()
             clearDropIndicator?()
             return
         }
@@ -52,6 +54,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
         let point = convert(sender.draggingLocation, from: nil)
         guard !targets.isEmpty else {
             setTargetCollectionActive(true)
+            awaitsTargetsAfterDragTeardown = false
             pendingDrop = SidebarWorkspaceReorderPendingDrop(requestId: targetRequestId, point: point)
             return true
         }
@@ -66,6 +69,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
 
     override func concludeDragOperation(_ sender: NSDraggingInfo?) {
         guard pendingDrop == nil else {
+            completeOrClearPendingDropAfterDragTeardown()
             clearDropIndicator?()
             return
         }
@@ -81,11 +85,32 @@ final class SidebarWorkspaceReorderDropView: NSView {
             return
         }
         self.pendingDrop = nil
+        awaitsTargetsAfterDragTeardown = false
         let performed = performDropAtPoint(pendingDrop.point, targets)
         setTargetCollectionActive(false)
         if !performed {
             clearDropIndicator?()
         }
+    }
+
+    func targetsDidUpdate() {
+        guard pendingDrop != nil else { return }
+        guard !targets.isEmpty else {
+            clearPendingDropAfterEmptyTargetCollectionIfNeeded()
+            return
+        }
+        performPendingDropIfPossible()
+    }
+
+    private func completeOrClearPendingDropAfterDragTeardown() {
+        awaitsTargetsAfterDragTeardown = pendingDrop != nil
+    }
+
+    private func clearPendingDropAfterEmptyTargetCollectionIfNeeded() {
+        guard awaitsTargetsAfterDragTeardown else { return }
+        awaitsTargetsAfterDragTeardown = false
+        setTargetCollectionActive(false)
+        clearDropIndicator?()
     }
 
     private func update(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -105,6 +130,7 @@ final class SidebarWorkspaceReorderDropView: NSView {
         }
         if !isActive {
             pendingDrop = nil
+            awaitsTargetsAfterDragTeardown = false
         }
         isRequestingTargets = isActive
         setWorkspaceDropTargetCollectionActive?(isActive)

@@ -13,7 +13,6 @@ final class SidebarWorkspaceReorderDropOverlayTargetBridge {
     func updateTargets(_ targets: [SidebarWorkspaceReorderDropOverlayTarget]) {
         self.targets = targets
         view?.targets = targets
-        guard !targets.isEmpty else { return }
-        view?.performPendingDropIfPossible()
+        view?.targetsDidUpdate()
     }
 }
