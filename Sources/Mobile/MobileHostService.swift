@@ -1400,11 +1400,9 @@ final class MobileHostService {
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
-        case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return nil
-        case "notification.settings.get", "notification.settings.set":
-            return nil
-        case "mobile.host.status":
+        case "mobile.events.subscribe", "mobile.events.unsubscribe",
+             "notification.settings.get", "notification.settings.set",
+             "mobile.host.status":
             return nil
         default:
             return scopedTicketError

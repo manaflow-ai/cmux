@@ -4,6 +4,22 @@ import Foundation
 /// `notification.dismiss` and `notification.reconcile` RPC handlers dispatched
 /// from `mobileHostHandleRPC(_:)`.
 extension TerminalController {
+    /// Dispatch notification-related mobile RPCs to their shared handlers.
+    func v2MobileNotificationDispatch(method: String, params: [String: Any]) -> V2CallResult {
+        switch method {
+        case "notification.dismiss":
+            v2MobileNotificationDismiss(params: params)
+        case "notification.reconcile":
+            v2MobileNotificationReconcile(params: params)
+        case "notification.settings.get":
+            v2MobileNotificationSettingsGet(params: params)
+        case "notification.settings.set":
+            v2MobileNotificationSettingsSet(params: params)
+        default:
+            .err(code: "method_not_found", message: "Unknown mobile method", data: ["method": method])
+        }
+    }
+
     /// Return the Mac's current phone-forwarding preferences for the paired
     /// phone settings UI. Uses the same `UserDefaults` keys as
     /// ``NotificationsPage`` so Mac and iOS surfaces stay in sync.
