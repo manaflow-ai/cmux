@@ -136,6 +136,10 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         return command.isEmpty ? nil : command
     }
 
+    var pendingTerminalAgentContext: String? {
+        launchCommand().map { "initialCommand:\($0)" }
+    }
+
     func command(forPrompt prompt: String) -> String? {
         guard kind == .commandTemplate,
               let commandTemplate,

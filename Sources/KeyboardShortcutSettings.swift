@@ -115,8 +115,7 @@ enum KeyboardShortcutSettings {
         case reopenClosedBrowserPanel
         case newSurface
         case toggleTerminalCopyMode
-        case focusTextBoxInput
-        case attachTextBoxFile
+        case focusTextBoxInput, cycleTextBoxSubmitAction, attachTextBoxFile
         case sendCtrlFToTerminal
         case clearScreenKeepScrollback
 
@@ -238,6 +237,7 @@ enum KeyboardShortcutSettings {
             case .newSurface: return String(localized: "shortcut.newSurface.label", defaultValue: "New Surface")
             case .toggleTerminalCopyMode: return String(localized: "shortcut.toggleTerminalCopyMode.label", defaultValue: "Toggle Terminal Copy Mode")
             case .focusTextBoxInput: return String(localized: "shortcut.focusTextBoxInput.label", defaultValue: "Focus TextBox Input")
+            case .cycleTextBoxSubmitAction: return String(localized: "shortcut.cycleTextBoxSubmitAction.label", defaultValue: "Cycle TextBox Submit Action")
             case .attachTextBoxFile: return String(localized: "shortcut.attachTextBoxFile.label", defaultValue: "Attach File to TextBox Input")
             case .sendCtrlFToTerminal: return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
             case .clearScreenKeepScrollback: return String(localized: "shortcut.clearScreenKeepScrollback.label", defaultValue: "Clear Screen (Keep Scrollback)")
@@ -471,10 +471,9 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
             case .toggleTerminalCopyMode:
                 return StoredShortcut(key: "m", command: true, shift: true, option: false, control: false)
-            case .focusTextBoxInput:
-                return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
-            case .attachTextBoxFile:
-                return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
+            case .focusTextBoxInput: return StoredShortcut(key: "a", command: true, shift: true, option: false, control: false)
+            case .cycleTextBoxSubmitAction: return StoredShortcut(key: "\t", command: false, shift: true, option: false, control: false)
+            case .attachTextBoxFile: return StoredShortcut(key: "a", command: true, shift: true, option: true, control: false)
             case .sendCtrlFToTerminal:
                 // Unbound by default: this is a deliberate escape hatch for forwarding a
                 // control chord (e.g. Claude Code's Ctrl-F force-stop) to the focused

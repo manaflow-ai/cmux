@@ -245,6 +245,25 @@ struct TextBoxSubmitActionTests {
         )
     }
 
+    @Test
+    func testTextBoxPendingClaudeLaunchPreservesSubmitContextWhilePromptIdle() throws {
+        let claude = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "claude" })
+        let context = TextBoxInputContainer.textEntryTerminalAgentContext(
+            allowsCommandTemplateSubmit: true,
+            terminalAgentContext: "",
+            pendingProviderLaunchAction: claude
+        )
+
+        XCTAssertTrue(TextBoxAgentDetection.isClaudeCode(context: context))
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("line one\nline two")],
+                terminalAgentContext: context
+            ).last,
+            .namedKey("ctrl+enter")
+        )
+    }
+
 
     @Test
     func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
@@ -294,6 +313,39 @@ struct TextBoxSubmitActionTests {
 
         XCTAssertEqual(cycleCount, 1)
         XCTAssertEqual(textView.string, "")
+    }
+
+    @Test
+    func testTextBoxCycleSubmitActionUsesConfiguredShortcut() {
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: .cycleTextBoxSubmitAction)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: .cycleTextBoxSubmitAction)
+        }
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        var cycleCount = 0
+        textView.onCycleSubmitAction = {
+            cycleCount += 1
+        }
+
+        KeyboardShortcutSettings.setShortcut(.unbound, for: .cycleTextBoxSubmitAction)
+        guard let shiftTabEvent = makeKeyDownEvent(key: "\t", modifiers: .shift, keyCode: UInt16(kVK_Tab)) else {
+            XCTFail("Failed to construct Shift-Tab event")
+            return
+        }
+        textView.keyDown(with: shiftTabEvent)
+        XCTAssertEqual(cycleCount, 0)
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "j", command: true, shift: true, option: false, control: false),
+            for: .cycleTextBoxSubmitAction
+        )
+        guard let customEvent = makeKeyDownEvent(key: "J", modifiers: [.command, .shift], keyCode: UInt16(kVK_ANSI_J)) else {
+            XCTFail("Failed to construct custom cycle event")
+            return
+        }
+        textView.keyDown(with: customEvent)
+        XCTAssertEqual(cycleCount, 1)
     }
 
 

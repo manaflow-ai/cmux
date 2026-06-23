@@ -2472,7 +2472,7 @@ struct TextBoxInputContainer: View {
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var hasMarkedText = false
-    @State var hasPendingProviderLaunch = false
+    @State var pendingProviderLaunchAction: TextBoxSubmitAction?
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
@@ -2600,9 +2600,9 @@ struct TextBoxInputContainer: View {
         .task(id: submitActionImagePathCacheKey) {
             await refreshSubmitActionImageCache(paths: submitActionImagePaths)
         }
-        .onChange(of: allowsCommandTemplateSubmit) { _, allowsCommandTemplateSubmit in
-            if allowsCommandTemplateSubmit {
-                hasPendingProviderLaunch = false
+        .onChange(of: terminalAgentContext) { _, terminalAgentContext in
+            if TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) {
+                pendingProviderLaunchAction = nil
             }
         }
     }
@@ -2753,14 +2753,15 @@ struct TextBoxInputContainer: View {
             NSSound.beep()
             return
         }
-        if let launchCommand = providerLaunchCommand(for: effectiveSubmitAction) {
-            hasPendingProviderLaunch = true
+        let launchAction = effectiveSubmitAction
+        if let launchCommand = providerLaunchCommand(for: launchAction) {
+            pendingProviderLaunchAction = launchAction
             TextBoxSubmit.sendEvents(
                 TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
                 via: surface
             ) { completionContext in
                 if !completionContext.didSubmit {
-                    hasPendingProviderLaunch = false
+                    pendingProviderLaunchAction = nil
                     NSSound.beep()
                 }
             }
@@ -4253,13 +4254,6 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
-        if event.keyCode == UInt16(kVK_Tab),
-           flags == NSEvent.ModifierFlags.shift,
-           !eventHasMarkedText {
-            onCycleSubmitAction()
-            return
-        }
-
         if shouldHandleTextBoxPlainArrowLocally(
             keyCode: event.keyCode,
             firstResponderHasMarkedText: eventHasMarkedText,
@@ -4995,6 +4989,11 @@ final class TextBoxInputTextView: NSTextView {
         }
         if textBoxShortcut(event, matches: .focusTextBoxInput) {
             onToggleFocus()
+            return true
+        }
+        if textBoxShortcut(event, matches: .cycleTextBoxSubmitAction) {
+            guard !hasMarkedText() else { return false }
+            onCycleSubmitAction()
             return true
         }
         if textBoxShortcut(event, matches: .attachTextBoxFile) {

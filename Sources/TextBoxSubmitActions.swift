@@ -46,7 +46,7 @@ extension TextBoxInputContainer {
     }
 
     var shouldForceTextEntrySubmit: Bool {
-        hasPendingProviderLaunch || Self.shouldForceTextEntrySubmit(
+        pendingProviderLaunchAction != nil || Self.shouldForceTextEntrySubmit(
             allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
             terminalAgentContext: terminalAgentContext
         )
@@ -61,8 +61,12 @@ extension TextBoxInputContainer {
 
     static func textEntryTerminalAgentContext(
         allowsCommandTemplateSubmit: Bool,
-        terminalAgentContext: String
+        terminalAgentContext: String,
+        pendingProviderLaunchAction: TextBoxSubmitAction? = nil
     ) -> String {
+        if let pendingContext = pendingProviderLaunchAction?.pendingTerminalAgentContext {
+            return pendingContext
+        }
         allowsCommandTemplateSubmit ? "" : terminalAgentContext
     }
 
@@ -215,7 +219,8 @@ extension TextBoxInputContainer {
         guard !shouldForceTextEntrySubmit else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-                terminalAgentContext: terminalAgentContext
+                terminalAgentContext: terminalAgentContext,
+                pendingProviderLaunchAction: pendingProviderLaunchAction
             )
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
@@ -226,7 +231,8 @@ extension TextBoxInputContainer {
         guard let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
             let textEntryContext = Self.textEntryTerminalAgentContext(
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-                terminalAgentContext: terminalAgentContext
+                terminalAgentContext: terminalAgentContext,
+                pendingProviderLaunchAction: pendingProviderLaunchAction
             )
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
@@ -237,7 +243,8 @@ extension TextBoxInputContainer {
             events: TextBoxSubmit.dispatchEvents(for: [.text(command)], terminalAgentContext: ""),
             cleanupTerminalAgentContext: Self.textEntryTerminalAgentContext(
                 allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
-                terminalAgentContext: terminalAgentContext
+                terminalAgentContext: terminalAgentContext,
+                pendingProviderLaunchAction: pendingProviderLaunchAction
             )
         )
     }
