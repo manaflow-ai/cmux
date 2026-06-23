@@ -13,7 +13,7 @@ Swift/Keychain, never inside Rust), and every fallible call reports a stable
 `CmuxIrohFFI.xcframework` symlinked at the repo root (macOS arm64+x86_64, iOS
 device arm64, iOS simulator arm64), content-hash cached under
 `~/.cache/cmux/cmux-iroh`, mirroring `scripts/ensure-ghosttykit.sh`. The
-xcframework is a pure binary (no headers); `Packages/CmuxIrohFFI` wraps it in
+xcframework is a pure binary (no headers); `Packages/Shared/CmuxIrohFFI` wraps it in
 a SwiftPM package that owns the C header and the `CmuxIrohFFI` module. The
 macOS app links that package product directly (`cmux.xcodeproj`); the iOS app
 links it through `Packages/CmuxMobileTransport`.
@@ -32,7 +32,7 @@ links it through `Packages/CmuxMobileTransport`.
 ## Header
 
 The C header is hand-maintained (the spike's approach) at
-`Packages/CmuxIrohFFI/Sources/CmuxIrohFFI/include/cmux_iroh_ffi.h`: the
+`Packages/Shared/CmuxIrohFFI/Sources/CmuxIrohFFI/include/cmux_iroh_ffi.h`: the
 surface is small and deliberate, and avoiding cbindgen keeps the build
 toolchain-free. Any change to the `extern "C"` surface in `src/lib.rs` must
 update that header in the same commit.

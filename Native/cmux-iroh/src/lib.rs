@@ -20,7 +20,7 @@
 //!   `CmxConnectFailureKind`) without parsing strings.
 //!
 //! The C header is hand-maintained at
-//! `Packages/CmuxIrohFFI/Sources/CmuxIrohFFI/include/cmux_iroh_ffi.h` (the
+//! `Packages/Shared/CmuxIrohFFI/Sources/CmuxIrohFFI/include/cmux_iroh_ffi.h` (the
 //! `SwiftPM` package that wraps the staticlib and exposes the `CmuxIrohFFI`
 //! module) and must stay in sync with this file.
 

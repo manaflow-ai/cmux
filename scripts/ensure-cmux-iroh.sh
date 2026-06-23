@@ -175,7 +175,7 @@ else
     -output "$TMP_DIR/macos-universal/$LIB_NAME"
 
   # No -headers: the xcframework is a pure binary. The hand-maintained C
-  # header (and the SwiftPM-generated module) live in Packages/CmuxIrohFFI;
+  # header (and the SwiftPM-generated module) live in Packages/Shared/CmuxIrohFFI;
   # shipping headers here would collide with GhosttyKit's module.modulemap in
   # the shared BUILT_PRODUCTS_DIR/include/ copy step.
   echo "==> xcodebuild -create-xcframework"

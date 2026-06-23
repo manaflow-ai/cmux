@@ -26,7 +26,7 @@ let package = Package(
     targets: [
         .binaryTarget(
             name: "CmuxIrohFFIBinary",
-            path: "../../CmuxIrohFFI.xcframework"
+            path: "../../../CmuxIrohFFI.xcframework"
         ),
         .target(
             name: "CmuxIrohFFI",

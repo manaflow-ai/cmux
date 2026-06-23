@@ -14,7 +14,7 @@ on:
       - "Packages/**"
       - "scripts/lint-ios-package-conventions.sh"
       - "Native/cmux-iroh/**"
-      - "Packages/CmuxIrohFFI/**"
+      - "Packages/Shared/CmuxIrohFFI/**"
       - "scripts/ensure-cmux-iroh.sh"
       - "scripts/install-rust-ci.sh"
       - "scripts/lint-namespace-types-baseline.txt"

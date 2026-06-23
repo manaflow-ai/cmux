@@ -16,7 +16,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Shared/CMUXMobileCore"),
-        .package(path: "../../CmuxIrohFFI"),
+        .package(path: "../../Shared/CmuxIrohFFI"),
     ],
     targets: [
         .target(

@@ -5133,7 +5133,7 @@
 		};
 		A51807FF0000000000000003 /* XCLocalSwiftPackageReference "CmuxIrohFFI" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/CmuxIrohFFI;
+			relativePath = Packages/Shared/CmuxIrohFFI;
 		};
 		28B798BB9086C8E6B60C3355 /* XCLocalSwiftPackageReference "stack-auth-swift-sdk-prerelease" */ = {
 			isa = XCLocalSwiftPackageReference;
