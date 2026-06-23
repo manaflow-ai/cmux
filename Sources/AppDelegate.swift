@@ -690,22 +690,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// a single workspace bucket.
     private var pendingShellActivityStates: [UUID: [UUID: PanelShellActivityState]] = [:]
     private let maxPendingShellActivityWorkspaces = 1024
+    private let maxPendingShellActivitySurfacesPerWorkspace = 256
 
     /// Cheap early-out so the per-tabs-change replay skips the workspace scan in
     /// the overwhelmingly common case where nothing is buffered.
     var hasPendingShellActivityReports: Bool { !pendingShellActivityStates.isEmpty }
 
     /// Shared apply-or-buffer entrypoint for every control-socket shell-activity
-    /// reporter. Applies the state immediately when the workspace is reachable,
-    /// otherwise buffers the latest report for replay by
-    /// `TabManager.workspaceTabsDidChange`.
+    /// reporter. We only buffer when the workspace is *not yet reachable* through a
+    /// `TabManager` — the session-restore race this fixes. When the workspace is
+    /// reachable we apply directly and never buffer: a missing panel there is a
+    /// stale/bogus surface that no future registration will resolve, so buffering
+    /// it would only leak. The buffer therefore holds at most the reports a
+    /// workspace receives in the brief window before it registers, and
+    /// `drainPendingShellActivity` consumes that bucket whole on registration.
     func recordReportedShellActivity(
         workspaceId: UUID,
         surfaceId: UUID,
         state: PanelShellActivityState
     ) {
-        if let tabManager = tabManagerFor(tabId: workspaceId),
-           tabManager.updateSurfaceShellActivity(tabId: workspaceId, surfaceId: surfaceId, state: state) {
+        if let tabManager = tabManagerFor(tabId: workspaceId) {
+            tabManager.updateSurfaceShellActivity(tabId: workspaceId, surfaceId: surfaceId, state: state)
             clearPendingShellActivity(workspaceId: workspaceId, surfaceId: surfaceId)
             return
         }
@@ -717,20 +722,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // one workspace bucket so a normal session restore never sheds others.
             pendingShellActivityStates[evictKey] = nil
         }
-        pendingShellActivityStates[workspaceId, default: [:]][surfaceId] = state
+        var bucket = pendingShellActivityStates[workspaceId] ?? [:]
+        if bucket[surfaceId] == nil,
+           bucket.count >= maxPendingShellActivitySurfacesPerWorkspace,
+           let evictSurface = bucket.keys.first {
+            // Defense-in-depth against a workspace that never registers while a
+            // shell streams reports for many distinct surface ids. Real workspaces
+            // hold far fewer panels than this cap.
+            bucket[evictSurface] = nil
+        }
+        bucket[surfaceId] = state
+        pendingShellActivityStates[workspaceId] = bucket
     }
 
-    /// Replays buffered reports for a workspace that just became reachable. `apply`
-    /// returns whether the report landed; only landed reports are cleared, so a
-    /// surface still missing its panel retries on the next registration.
+    /// Replays buffered reports for a workspace that just became reachable, then
+    /// drops the whole bucket: by now every valid panel exists (panels are created
+    /// synchronously before the workspace joins `tabs`), so any report that did not
+    /// apply is stale and must not be retained.
     func drainPendingShellActivity(
         forWorkspaceId workspaceId: UUID,
         apply: (UUID, PanelShellActivityState) -> Bool
     ) {
         guard let surfaces = pendingShellActivityStates[workspaceId] else { return }
-        for (surfaceId, state) in surfaces where apply(surfaceId, state) {
-            clearPendingShellActivity(workspaceId: workspaceId, surfaceId: surfaceId)
+        for (surfaceId, state) in surfaces {
+            _ = apply(surfaceId, state)
         }
+        pendingShellActivityStates[workspaceId] = nil
     }
 
     /// Drops every buffered report for a workspace (e.g. when it is gone for good,

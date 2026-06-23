@@ -3981,4 +3981,36 @@ final class TabManagerShellActivityReplayTests: XCTestCase {
             "Replayed reports must be cleared from the buffer"
         )
     }
+
+    // A buffered report for a surface that does not exist when the workspace
+    // registers (stale/post-close telemetry) must be discarded, not retained
+    // forever — otherwise a single workspace's bucket grows unbounded.
+    func testStaleBufferedReportsAreDiscardedOnRegistration() throws {
+        let appDelegate = try XCTUnwrap(AppDelegate.shared, "Test host AppDelegate expected")
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let bogusSurfaceId = UUID()
+        defer { appDelegate.discardPendingShellActivity(forWorkspaceId: workspace.id) }
+
+        XCTAssertNil(appDelegate.tabManagerFor(tabId: workspace.id))
+
+        // One real surface and one that will never exist, both buffered while the
+        // workspace is unreachable.
+        appDelegate.recordReportedShellActivity(workspaceId: workspace.id, surfaceId: panelId, state: .promptIdle)
+        appDelegate.recordReportedShellActivity(workspaceId: workspace.id, surfaceId: bogusSurfaceId, state: .promptIdle)
+        XCTAssertTrue(appDelegate.hasPendingShellActivityReports)
+
+        _ = manager.addTab(select: false)
+
+        XCTAssertEqual(
+            workspace.panelShellActivityStates[panelId],
+            .promptIdle,
+            "The real surface's buffered report must still apply"
+        )
+        XCTAssertFalse(
+            appDelegate.hasPendingShellActivityReports,
+            "The stale surface's report must be discarded on registration, not retained"
+        )
+    }
 }
