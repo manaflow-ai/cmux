@@ -4280,7 +4280,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false
     ) -> Bool {
-        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        // Synchronous (main-thread) save: reconcile Claude ghost panels from the warm cache
+        // the off-main loaders populate, never spawning `claude` here.
+        // https://github.com/manaflow-ai/cmux/issues/6622
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously(
+            backgroundAgentsProvider: { ClaudeBackgroundAgentsQuery.shared.cachedOnly(configDir: $0) }
+        )
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,

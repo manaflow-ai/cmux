@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import CMUXAgentLaunch
 
@@ -2003,13 +2004,21 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+            // Off-main: reconcile transcript-less Claude ghost panels to their real
+            // background-agent id so the persisted session snapshot records the real id, not
+            // the empty ghost. https://github.com/manaflow-ai/cmux/issues/6622
+            loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                backgroundAgentsProvider: { ClaudeBackgroundAgentsQuery.shared.live(configDir: $0) }
+            )
         }.value
     }
 
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        backgroundAgentsProvider: @escaping RestorableAgentSessionIndex.ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
@@ -2024,7 +2033,8 @@ struct ProcessDetectedResumeIndexes: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            backgroundAgentsProvider: backgroundAgentsProvider
         )
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
@@ -2057,7 +2067,9 @@ private extension CmuxTopProcessArguments {
 /// to its prior behaviour rather than blocking or surfacing a wrong session. Results are
 /// cached per `CLAUDE_CONFIG_DIR` for a short TTL so the event-driven, off-main index reload
 /// does not respawn `claude` on every refresh. `@unchecked Sendable`: the cache is guarded by
-/// a lock and `live(configDir:)` is invoked only from the off-main loaders.
+/// a lock. Use ``live(configDir:)`` from the off-main loaders (it may spawn the probe) and
+/// ``cachedOnly(configDir:)`` from synchronous main-thread save paths (it only reuses the
+/// cache the off-main loaders populate, never spawning a subprocess).
 final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     static let shared = ClaudeBackgroundAgentsQuery()
 
@@ -2065,7 +2077,10 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     private var cache: [String: (agents: [ClaudeBackgroundAgentSnapshot], fetchedAt: Date)] = [:]
     private static let cacheTTL: TimeInterval = 20
     private static let probeTimeout: TimeInterval = 5
+    private static let terminateGrace: TimeInterval = 1
 
+    /// Off-main: returns cached agents within the TTL, otherwise runs the bounded probe and
+    /// caches the result. Must not be called on the main thread.
     func live(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
         let key = configDir ?? ""
         lock.lock()
@@ -2082,9 +2097,33 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         return agents
     }
 
-    private final class ProcessBox: @unchecked Sendable {
+    /// Main-thread safe: returns whatever the off-main loaders have already cached for this
+    /// config dir (or none), never spawning `claude`. The synchronous session-save path uses
+    /// this so it reconciles from the warm cache without a subprocess on the main thread.
+    func cachedOnly(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
+        let key = configDir ?? ""
+        lock.lock()
+        defer { lock.unlock() }
+        return cache[key]?.agents ?? []
+    }
+
+    /// Holds the non-`Sendable` `Process`/`FileHandle` for use inside the background read and
+    /// the watchdog without tripping strict-concurrency capture checks; the objects are only
+    /// touched from this single probe.
+    private final class ProbeBox: @unchecked Sendable {
         let process: Process
-        init(_ process: Process) { self.process = process }
+        let readHandle: FileHandle
+        init(process: Process, readHandle: FileHandle) {
+            self.process = process
+            self.readHandle = readHandle
+        }
+    }
+
+    private final class DataBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = Data()
+        func set(_ data: Data) { lock.lock(); value = data; lock.unlock() }
+        func get() -> Data { lock.lock(); defer { lock.unlock() }; return value }
     }
 
     private static func fetch(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
@@ -2110,20 +2149,29 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
             return []
         }
 
-        // Bound the probe so a hung daemon never stalls the index reload: terminate the
-        // process after the timeout, which closes the pipe and unblocks the read below.
-        let box = ProcessBox(process)
-        let watchdog = DispatchWorkItem {
-            if box.process.isRunning { box.process.terminate() }
+        // Drain stdout on a background queue so the probe stays bounded even if the read would
+        // otherwise block: the main fetch thread waits on `readDone` with a deadline and
+        // escalates SIGTERM -> SIGKILL on expiry, which closes stdout and unblocks the drain.
+        let box = ProbeBox(process: process, readHandle: stdout.fileHandleForReading)
+        let output = DataBox()
+        let readDone = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            output.set(box.readHandle.readDataToEndOfFile())
+            readDone.signal()
         }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.probeTimeout, execute: watchdog)
 
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
+        if readDone.wait(timeout: .now() + Self.probeTimeout) == .timedOut {
+            if box.process.isRunning { box.process.terminate() }
+            if readDone.wait(timeout: .now() + Self.terminateGrace) == .timedOut {
+                if box.process.isRunning { kill(box.process.processIdentifier, SIGKILL) }
+                _ = readDone.wait(timeout: .now() + Self.terminateGrace)
+            }
+            return []
+        }
+
         process.waitUntilExit()
-        watchdog.cancel()
-
         guard process.terminationStatus == 0 else { return [] }
-        return ClaudeBackgroundAgentReconciler.parse(agentsJSON: data)
+        return ClaudeBackgroundAgentReconciler.parse(agentsJSON: output.get())
     }
 
     private static func resolvedClaudeExecutableURL() -> URL? {
