@@ -21,6 +21,10 @@ extension TerminalController: ControlWorkspaceGroupContext {
             workspaceIsOtherGroupAnchor: String(
                 localized: "workspaceGroup.error.workspaceIsOtherGroupAnchor",
                 defaultValue: "Workspace is the anchor of another group; ungroup it first"
+            ),
+            invalidReferenceWorkspace: String(
+                localized: "workspaceGroup.error.invalidReferenceWorkspace",
+                defaultValue: "Reference workspace must be a member of the target group"
             )
         )
     }

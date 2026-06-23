@@ -297,7 +297,7 @@ extension ControlCommandCoordinator {
         case .invalidReferenceWorkspace:
             return .err(
                 code: "invalid_params",
-                message: "reference_workspace_id must be a member of the target group",
+                message: workspaceGroupStrings().invalidReferenceWorkspace,
                 data: .object(["reference_workspace_id": .string(referenceWorkspaceID?.uuidString ?? "")])
             )
         case .workspaceIsOtherGroupAnchor:
@@ -462,7 +462,8 @@ extension ControlCommandCoordinator {
     private func workspaceGroupStrings() -> ControlWorkspaceGroupStrings {
         context?.controlWorkspaceGroupStrings() ?? ControlWorkspaceGroupStrings(
             allChildrenAreAnchors: "",
-            workspaceIsOtherGroupAnchor: ""
+            workspaceIsOtherGroupAnchor: "",
+            invalidReferenceWorkspace: ""
         )
     }
 

@@ -123,7 +123,7 @@ extension TerminalController {
             guard validation.referenceIsMember else {
                 return .err(
                     code: "invalid_params",
-                    message: "group_reference_workspace_id must be a member of the target group",
+                    message: controlWorkspaceGroupStrings().invalidReferenceWorkspace,
                     data: ["group_reference_workspace_id": groupReferenceWorkspaceId?.uuidString ?? ""]
                 )
             }

@@ -142,7 +142,7 @@ struct ControlCommandCoordinatorWorkspaceTests {
         }
 
         #expect(code == "invalid_params")
-        #expect(message == "reference_workspace_id must be a member of the target group")
+        #expect(message == "invalid reference workspace")
         #expect(data == .object(["reference_workspace_id": .string(referenceWorkspaceID.uuidString)]))
         #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == referenceWorkspaceID)
     }
