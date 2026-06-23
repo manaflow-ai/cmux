@@ -7987,7 +7987,14 @@ extension CMUXCLI {
         var hasher = SHA256()
         for relativePath in try diffViewerBundledAssetRelativePaths(in: directory).sorted() {
             hasher.update(data: Data(relativePath.utf8))
-            let fileURL = directory.appendingPathComponent(relativePath, isDirectory: false)
+            // Vendor chunks are reported under their logical name but stored as
+            // `<name>.deflate` (see `diffViewerBundledAssetRelativePaths`); hash
+            // the on-disk bytes, falling back to the compressed file when the
+            // raw asset is absent, so the cache key stays computable.
+            let rawURL = directory.appendingPathComponent(relativePath, isDirectory: false)
+            let fileURL = FileManager.default.fileExists(atPath: rawURL.path)
+                ? rawURL
+                : directory.appendingPathComponent(relativePath + ".deflate", isDirectory: false)
             hasher.update(data: try Data(contentsOf: fileURL, options: .mappedIfSafe))
         }
         let digest = hasher.finalize()
