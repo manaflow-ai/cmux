@@ -56,7 +56,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         let fixture = reorderFixture()
 
         let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
-            for: fixture.request(point: CGPoint(x: 14, y: 121))
+            for: fixture.request(point: CGPoint(x: 120, y: 121))
         ))
 
         expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.child, edge: .bottom))
@@ -92,7 +92,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         let fixture = reorderFixture()
 
         let groupLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
-            for: fixture.request(point: CGPoint(x: 14, y: 116))
+            for: fixture.request(point: CGPoint(x: 120, y: 116))
         ))
         let rootLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
             for: fixture.request(point: CGPoint(x: 2, y: 116))
@@ -303,11 +303,29 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         expectEqual(explicitGroupId, fixture.groupId)
     }
 
-    @Test func GroupHeaderEdgeGroupLanePlansTopLevelGroupBoundary() throws {
+    @Test func GroupHeaderBottomGroupLanePlansFirstSlotInGroup() throws {
         let fixture = reorderFixture()
 
         let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
             for: fixture.request(point: CGPoint(x: 14, y: 70))
+        ))
+
+        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .bottom))
+        expectEqual(plan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.group(fixture.groupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        expectEqual(targetIndex, 2)
+        expectFalse(usesTopLevelRows)
+        expectEqual(explicitGroupId, fixture.groupId)
+    }
+
+    @Test func GroupHeaderBottomRootLanePlansTopLevelGroupBoundary() throws {
+        let fixture = reorderFixture()
+
+        let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 2, y: 70))
         ))
 
         expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .top))
@@ -319,6 +337,27 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         expectEqual(targetIndex, 1)
         expectTrue(usesTopLevelRows)
         #expect(explicitGroupId == nil)
+    }
+
+    @Test func HeaderChildGapDraggingFirstChildStillShowsFirstGroupSlot() throws {
+        let fixture = reorderFixture()
+
+        let plan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(
+                point: CGPoint(x: 14, y: 76),
+                draggedWorkspaceId: fixture.child
+            )
+        ))
+
+        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.child, edge: .top))
+        expectEqual(plan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.group(fixture.groupId))
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            Issue.record("Expected local reorder plan")
+            return
+        }
+        expectEqual(targetIndex, 2)
+        expectFalse(usesTopLevelRows)
+        expectEqual(explicitGroupId, fixture.groupId)
     }
 
     @Test func WorkspaceDropCenterTargetsExistingWorkspace() {

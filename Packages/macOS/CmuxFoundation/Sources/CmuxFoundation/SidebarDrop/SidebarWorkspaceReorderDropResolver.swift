@@ -113,11 +113,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
     ) -> UUID? {
         guard !groupByAnchorId.keys.contains(draggedWorkspace.id) else { return nil }
-        guard SidebarWorkspaceGroupDropIntentPolicy(memberIndent: request.memberIndent)
-            .prefersGroupScope(
-                pointerX: request.point.x,
-                targetLeadingIndent: targetLeadingIndent(for: request, context: context)
-            ) else {
+        guard prefersGroupScope(request: request, context: context) else {
             return nil
         }
 
@@ -150,7 +146,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     ) -> CGFloat {
         if let target = context.target {
             if target.isGroupHeader {
-                return isGroupHeaderCenterDrop(context: context) ? request.memberIndent : 0
+                return context.edge == .bottom || isGroupHeaderCenterDrop(context: context) ? request.memberIndent : 0
             }
             if target.groupId != nil {
                 return max(0, target.frame.minX)
@@ -167,6 +163,43 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return max(0, previous.frame.minX)
         }
         return 0
+    }
+
+    private func prefersGroupScope(
+        request: SidebarWorkspaceReorderDropRequest,
+        context: SidebarWorkspaceReorderHitContext
+    ) -> Bool {
+        if isAmbiguousRootGroupBoundary(context: context) {
+            return request.point.x >= sidebarHorizontalMidpoint(targets: request.targets)
+        }
+        return SidebarWorkspaceGroupDropIntentPolicy(memberIndent: request.memberIndent)
+            .prefersGroupScope(
+                pointerX: request.point.x,
+                targetLeadingIndent: targetLeadingIndent(for: request, context: context)
+            )
+    }
+
+    private func isAmbiguousRootGroupBoundary(context: SidebarWorkspaceReorderHitContext) -> Bool {
+        if context.edge == .top,
+           context.previousTarget?.groupId != nil,
+           context.target?.groupId == nil {
+            return true
+        }
+        if context.target == nil,
+           context.previousTarget?.groupId != nil {
+            return true
+        }
+        return false
+    }
+
+    private func sidebarHorizontalMidpoint(
+        targets: [SidebarWorkspaceReorderDropTarget]
+    ) -> CGFloat {
+        let bounds = targets.reduce(CGRect.null) { partial, target in
+            partial.union(target.frame)
+        }
+        guard !bounds.isNull, bounds.width > 0 else { return 0 }
+        return bounds.minX + (bounds.width / 2)
     }
 
     private func isGroupHeaderCenterDrop(context: SidebarWorkspaceReorderHitContext) -> Bool {
@@ -214,11 +247,6 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
 
-        let isMembershipChange = draggedWorkspace.groupId != explicitGroupId
-        guard targetIndex != (tabIds.firstIndex(of: request.draggedWorkspaceId) ?? targetIndex) || isMembershipChange else {
-            return nil
-        }
-
         let renderedIndicator = SidebarDropPlanner().indicator(
             draggedTabId: request.draggedWorkspaceId,
             targetTabId: targetWorkspaceId,
@@ -228,7 +256,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             pointerY: pointerY(for: targetIndicator.edge, targetHeight: context.targetHeight),
             targetHeight: context.targetHeight,
             preserveTargetEdge: true
-        ) ?? (isMembershipChange ? targetIndicator : nil)
+        ) ?? targetIndicator
 
         return SidebarWorkspaceReorderDropPlan(
             draggedWorkspaceId: request.draggedWorkspaceId,
@@ -296,11 +324,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             targetHeight: rootTarget.targetHeight,
             preserveTargetEdge: true
         )
-        let isMembershipChange = usesTopLevelRows &&
-            draggedWorkspace.groupId != nil &&
-            groupByAnchorId[draggedWorkspace.id] == nil
-        let indicator = plannedIndicator ?? (isMembershipChange ? rootTarget.indicator ?? requestedIndicator : nil)
-        guard let indicator else { return nil }
+        let indicator = plannedIndicator ?? rootTarget.indicator ?? requestedIndicator
 
         return SidebarWorkspaceReorderDropPlan(
             draggedWorkspaceId: request.draggedWorkspaceId,
