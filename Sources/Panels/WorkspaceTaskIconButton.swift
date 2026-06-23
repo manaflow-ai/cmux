@@ -5,13 +5,15 @@ struct WorkspaceTaskIconButton: View {
     let label: String
     var role: ButtonRole? = nil
     var isDisabled = false
+    var foregroundStyle: Color = .secondary
     let action: () -> Void
 
     var body: some View {
         Button(role: role, action: action) {
             Image(systemName: systemName)
                 .cmuxSymbolRasterSize(12)
-                .frame(width: 22, height: 22)
+                .foregroundStyle(foregroundStyle)
+                .frame(width: 24, height: 24)
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)

@@ -11,16 +11,26 @@ struct WorkspaceTasksSectionView: View {
     let actions: WorkspaceTasksActions
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var isEmptyAddComposerActive = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .cmuxFont(size: 12, weight: .semibold)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title)
+                    .cmuxFont(size: 13, weight: .semibold)
+                    .foregroundStyle(.primary)
+                Text(tasks.count, format: .number)
+                    .cmuxFont(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 2)
+            .padding(.top, canArchive ? 0 : 4)
+
             if tasks.isEmpty {
                 emptyState
             } else {
-                VStack(spacing: 4) {
+                VStack(spacing: 0) {
                     dropDivider(beforeTaskId: tasks.first?.id, afterTaskId: nil, index: 0, style: .leadingDrop)
                     ForEach(Array(tasks.enumerated()), id: \.element.id) { index, task in
                         WorkspaceTaskRowView(
@@ -52,16 +62,31 @@ struct WorkspaceTasksSectionView: View {
     @ViewBuilder
     private var emptyState: some View {
         if canArchive {
-            WorkspaceTaskAddComposer(
+            WorkspaceTaskInsertionDividerView(
+                style: .append,
+                isActive: isEmptyAddComposerActive,
+                allowsAdd: true,
                 draft: $addDraft,
-                placeholder: String(localized: "workspaceTasks.add.placeholder", defaultValue: "Add a task"),
-                submitLabel: String(localized: "workspaceTasks.add.label", defaultValue: "Add task"),
-                submit: submitAddDraft
+                activate: {
+                    addDraft = ""
+                    isEmptyAddComposerActive = true
+                },
+                cancel: {
+                    addDraft = ""
+                    isEmptyAddComposerActive = false
+                },
+                submit: {
+                    guard submitAddDraft() else { return }
+                    isEmptyAddComposerActive = false
+                },
+                dropTask: { _ in false }
             )
+            .padding(.top, 4)
         } else {
             Text(emptyText)
                 .cmuxFont(.caption)
                 .foregroundStyle(.tertiary)
+                .padding(.horizontal, 2)
                 .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         }
     }
@@ -106,8 +131,10 @@ struct WorkspaceTasksSectionView: View {
         )
     }
 
-    private func submitAddDraft() {
-        guard actions.add(addDraft, nil) else { return }
+    @discardableResult
+    private func submitAddDraft() -> Bool {
+        guard actions.add(addDraft, nil) else { return false }
         addDraft = ""
+        return true
     }
 }

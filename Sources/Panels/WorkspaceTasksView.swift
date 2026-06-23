@@ -11,6 +11,10 @@ struct WorkspaceTasksView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Rectangle()
+                .fill(taskAccent)
+                .frame(height: 3)
+                .accessibilityHidden(true)
             WorkspaceTasksHeaderView(
                 openCount: openTasks.count,
                 archivedCount: archivedTasks.count,
@@ -18,8 +22,9 @@ struct WorkspaceTasksView: View {
                 openSurface: actions.openSurface
             )
             Divider()
+                .opacity(0.52)
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                LazyVStack(alignment: .leading, spacing: 22) {
                     WorkspaceTasksSectionView(
                         title: String(localized: "workspaceTasks.open.title", defaultValue: "Open"),
                         emptyText: String(localized: "workspaceTasks.empty.open", defaultValue: "No open tasks"),
@@ -41,8 +46,15 @@ struct WorkspaceTasksView: View {
                         actions: actions
                     )
                 }
-                .padding(16)
+                .padding(.horizontal, 22)
+                .padding(.top, 18)
+                .padding(.bottom, 24)
             }
         }
+        .background(Color(nsColor: .textBackgroundColor))
+    }
+
+    private var taskAccent: Color {
+        Color(red: 0.86, green: 0.25, blue: 0.19)
     }
 }

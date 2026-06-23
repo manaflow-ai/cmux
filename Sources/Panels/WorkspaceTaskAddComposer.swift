@@ -12,10 +12,10 @@ struct WorkspaceTaskAddComposer: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "plus.circle.fill")
-                .cmuxSymbolRasterSize(14)
-                .foregroundStyle(.secondary)
-                .frame(width: 22, height: 22)
+            Image(systemName: "plus")
+                .cmuxSymbolRasterSize(12, weight: .medium)
+                .foregroundStyle(taskAccent)
+                .frame(width: 18, height: 22)
                 .accessibilityHidden(true)
 
             TextField(placeholder, text: $draft)
@@ -24,26 +24,27 @@ struct WorkspaceTaskAddComposer: View {
                 .onSubmit(submit)
 
             Button(action: submit) {
-                Image(systemName: "plus")
-                    .cmuxSymbolRasterSize(13)
-                    .frame(width: 26, height: 24)
+                Image(systemName: "arrow.up")
+                    .cmuxSymbolRasterSize(11, weight: .semibold)
+                    .frame(width: 24, height: 24)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.plain)
+            .foregroundStyle(WorkspaceTask.isValidTitle(draft) ? taskAccent : Color.secondary.opacity(0.48))
             .disabled(!WorkspaceTask.isValidTitle(draft))
             .help(submitLabel)
             .accessibilityLabel(submitLabel)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(isFocused ? 0.92 : 0.68))
+            RoundedRectangle(cornerRadius: 9)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(isFocused ? 0.72 : 0.42))
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 9)
                 .stroke(
-                    isFocused ? Color.accentColor.opacity(0.55) : Color(nsColor: .separatorColor).opacity(0.3),
+                    isFocused ? taskAccent.opacity(0.52) : Color(nsColor: .separatorColor).opacity(0.26),
                     lineWidth: isFocused ? 1.25 : 1
                 )
         }
@@ -56,5 +57,9 @@ struct WorkspaceTaskAddComposer: View {
 
     private var focusAnimation: Animation? {
         reduceMotion ? nil : .easeOut(duration: 0.14)
+    }
+
+    private var taskAccent: Color {
+        Color(red: 0.86, green: 0.25, blue: 0.19)
     }
 }
