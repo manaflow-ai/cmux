@@ -117,6 +117,8 @@ public struct AppSection: View {
             UTType(filenameExtension: "wav"),
             UTType(filenameExtension: "caf"),
             UTType(filenameExtension: "m4a"),
+            UTType(filenameExtension: "m4r"),
+            UTType.mpeg4Audio,
             UTType(filenameExtension: "mp3"),
         ].compactMap { $0 }
     }

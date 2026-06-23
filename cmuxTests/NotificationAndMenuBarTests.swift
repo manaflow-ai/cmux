@@ -1030,6 +1030,10 @@ final class NotificationDockBadgeTests: XCTestCase {
             "caf"
         )
         XCTAssertEqual(
+            NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "m4r"),
+            "caf"
+        )
+        XCTAssertEqual(
             NotificationSoundSettings.stagedCustomSoundFileExtension(forSourceExtension: "wav"),
             "wav"
         )
