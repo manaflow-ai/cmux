@@ -229,9 +229,26 @@ Branch `feat-remote-tmux-agent-status`. Reuses the already-streamed
 - Unit tests: `agentProvider` classification (agent vs shell/tool/empty).
 - Fidelity: presence only (no busy/idle, no model). Effort: S. Zero UI changes.
 
-### Attempt 2 — remote `~/.claude` read for busy/idle + model (DESIGNED, validated, not yet built)
+### Attempt 2 — remote `~/.claude` read for busy/idle + model (IMPLEMENTED)
 
-Gate on Attempt 1's detection, then throttled `RemoteTmuxSSHTransport.run(["sh","-c", …])`:
-`stat` newest transcript mtime → busy/idle; `tail -1` → model; feed into the same
-`SidebarStatusEntry` + `Workspace.recordConversationMessage`. Empirically validated
-above. Effort: M. Deferred to a follow-up so Attempt 1 can ship as a clean increment.
+Gated on Attempt 1's detection (Claude only). When the agent's pane has a known
+cwd (`cmux_cwd_` subscription), a throttled one-shot
+`RemoteTmuxSSHTransport.run(["sh","-c", …])` over the shared master:
+- `RemoteTmuxAgentProbe.activityProbeCommand(cwd:)` derives the project-dir name
+  (same `/`+`.`→`-` rule as `encodeClaudeProjectDir`), finds the newest
+  `~/.claude/projects/<dir>/*.jsonl`, prints `now<US>mtime<US>path` (portable
+  GNU/BSD `stat`). `parseActivity` → busy iff `(now - mtime) ≤ 30s`.
+- `RemoteTmuxAgentProbe.modelProbeCommand(transcriptPath:)` tails the transcript
+  for the last `"model":"…"`; `parseModel` strips the `[1m]` suffix.
+- The chip upgrades from "Claude Code running" to "Claude Code working · <model>"
+  / "Claude Code idle · <model>", with a `sparkles`/`moon.zzz` icon.
+
+`RemoteTmuxAgentProbe` is a pure builder+parser with full unit coverage
+(`RemoteTmuxAgentProbeTests`); the async exec + 4s throttle + teardown
+cancellation live in `RemoteTmuxSessionMirror.scheduleAgentProbe`. Re-probes on
+foreground change, topology change, and cwd arrival. Effort: M.
+
+**Not yet done / follow-ups:** periodic refresh while busy (today it re-probes on
+events, not on a timer, so a long tool-call's busy→idle edge can lag until the
+next event); codex/opencode enrichment (only Claude reads transcripts);
+multi-session-per-cwd disambiguation (uses the newest transcript in the dir).

@@ -62,6 +62,14 @@ final class RemoteTmuxSessionMirror {
     /// workspace is first shown), so that retry alone could expire and leave the
     /// remote at ssh's default 80×24. Removed in ``detachObserver()``.
     private var surfaceReadyObservers: [NSObjectProtocol] = []
+    /// In-flight remote agent-activity probe (Attempt 2); cancelled on teardown or
+    /// when the agent goes away.
+    private var agentProbeTask: Task<Void, Never>?
+    /// Pane the last agent probe targeted + when it ran, for throttling.
+    private var activeAgentPaneId: Int?
+    private var lastAgentProbeAt: Date?
+    /// Minimum spacing between remote agent probes for the same pane.
+    private static let agentProbeThrottleSeconds: TimeInterval = 4
 
     init(
         host: RemoteTmuxHost,
@@ -162,6 +170,8 @@ final class RemoteTmuxSessionMirror {
     func detachObserver() {
         initialSizingTask?.cancel()
         initialSizingTask = nil
+        agentProbeTask?.cancel()
+        agentProbeTask = nil
         for observer in surfaceReadyObservers { NotificationCenter.default.removeObserver(observer) }
         surfaceReadyObservers.removeAll()
         if let observerToken {
@@ -372,7 +382,13 @@ final class RemoteTmuxSessionMirror {
         guard let workspace else { return }
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        let cwdChanged = cwdByPane[paneId] != trimmed
         cwdByPane[paneId] = trimmed
+        // The agent-activity probe (Attempt 2) keys off the pane cwd; when the cwd
+        // first arrives (or changes) for the pane running an agent, re-probe.
+        if cwdChanged, foregroundedAgent()?.paneId == paneId {
+            refreshAgentStatus()
+        }
         guard let panelId = tabPanelId(forPane: paneId) else { return }
         // Multi-pane window: only the active pane represents the tab.
         if let windowId = windowIdContaining(pane: paneId),
@@ -460,36 +476,94 @@ final class RemoteTmuxSessionMirror {
     /// over the shared SSH master.
     private func refreshAgentStatus() {
         guard let workspace else { return }
-        let provider = foregroundedAgentProvider()
-        let existing = workspace.statusEntries[Self.agentStatusKey]
-        guard let provider else {
-            if existing != nil { workspace.statusEntries[Self.agentStatusKey] = nil }
+        guard let detected = foregroundedAgent() else {
+            if workspace.statusEntries[Self.agentStatusKey] != nil {
+                workspace.statusEntries[Self.agentStatusKey] = nil
+            }
+            agentProbeTask?.cancel()
+            agentProbeTask = nil
+            activeAgentPaneId = nil
             return
         }
-        let value = String(
-            localized: "remoteTmux.agentStatus.running",
-            defaultValue: "\(provider.displayName) running"
-        )
-        // Replace only on a meaningful change so an unrelated foreground flap
-        // (e.g. a non-agent pane) doesn't churn the row's timestamp.
+        writeAgentStatusEntry(provider: detected.provider, activity: nil, model: nil)
+        // Layer (b): if the agent's pane has a known cwd, enrich the chip with
+        // busy/idle + model by reading the remote ~/.claude transcript over the
+        // shared SSH master. Best-effort and throttled; the coarse chip already
+        // shows regardless.
+        if detected.provider == .claude, let cwd = cwdByPane[detected.paneId] {
+            scheduleAgentProbe(provider: detected.provider, paneId: detected.paneId, cwd: cwd)
+        }
+    }
+
+    /// Writes (or replaces, only on a meaningful change) the agent status row.
+    /// `activity`/`model` enrich the coarse "running" label when known.
+    private func writeAgentStatusEntry(
+        provider: AgentSessionProviderID,
+        activity: RemoteTmuxAgentProbe.Activity?,
+        model: String?
+    ) {
+        guard let workspace else { return }
+        let base: String
+        if let activity {
+            base = activity.busy
+                ? String(localized: "remoteTmux.agentStatus.working", defaultValue: "\(provider.displayName) working")
+                : String(localized: "remoteTmux.agentStatus.idle", defaultValue: "\(provider.displayName) idle")
+        } else {
+            base = String(localized: "remoteTmux.agentStatus.running", defaultValue: "\(provider.displayName) running")
+        }
+        let value = model.map { "\(base) · \($0)" } ?? base
+        let existing = workspace.statusEntries[Self.agentStatusKey]
         if existing?.value == value, existing?.key == Self.agentStatusKey { return }
         workspace.statusEntries[Self.agentStatusKey] = SidebarStatusEntry(
             key: Self.agentStatusKey,
             value: value,
-            icon: "sparkles",
+            icon: activity?.busy == true ? "sparkles" : "moon.zzz",
             priority: 50,
             timestamp: Date()
         )
     }
 
-    /// The agent provider foregrounded in any of this session's panes (focused/
-    /// active panes are not privileged — any pane running an agent surfaces it),
-    /// or `nil` when no pane foregrounds a known agent.
-    private func foregroundedAgentProvider() -> AgentSessionProviderID? {
-        for state in connection.paneForegroundStates.values {
-            if let provider = state.agentProvider { return provider }
+    /// The agent + the pane it runs in for this session, or `nil` when no pane
+    /// foregrounds a known agent. The first matching pane (in dictionary order)
+    /// wins — a session rarely runs more than one agent.
+    private func foregroundedAgent() -> (provider: AgentSessionProviderID, paneId: Int)? {
+        for (paneId, state) in connection.paneForegroundStates {
+            if let provider = state.agentProvider { return (provider, paneId) }
         }
         return nil
+    }
+
+    /// Throttled one-shot remote probe (Attempt 2): reads the newest Claude
+    /// transcript's mtime (busy/idle) and model over the shared SSH master and
+    /// re-writes the status entry. Coalesced so rapid foreground flaps don't spam
+    /// the remote; superseded/cancelled on teardown or when the agent goes away.
+    private func scheduleAgentProbe(provider: AgentSessionProviderID, paneId: Int, cwd: String) {
+        // Throttle: skip if a probe ran for the same pane within the window.
+        if activeAgentPaneId == paneId,
+           let last = lastAgentProbeAt,
+           Date().timeIntervalSince(last) < Self.agentProbeThrottleSeconds {
+            return
+        }
+        activeAgentPaneId = paneId
+        lastAgentProbeAt = Date()
+        guard let activityArgv = RemoteTmuxAgentProbe.activityProbeCommand(cwd: cwd) else { return }
+        let host = self.host
+        agentProbeTask?.cancel()
+        agentProbeTask = Task { @MainActor [weak self] in
+            guard let controller = AppDelegate.shared?.remoteTmuxController else { return }
+            let transport = controller.transport(for: host)
+            guard let result = try? await transport.run(activityArgv), result.succeeded else { return }
+            guard let activity = RemoteTmuxAgentProbe.parseActivity(stdout: result.stdout) else { return }
+            var model: String?
+            if let modelArgv = RemoteTmuxAgentProbe.modelProbeCommand(transcriptPath: activity.transcriptPath),
+               let modelResult = try? await transport.run(modelArgv), modelResult.succeeded {
+                model = RemoteTmuxAgentProbe.parseModel(stdout: modelResult.stdout)
+            }
+            guard let self, !Task.isCancelled else { return }
+            // Only apply if this pane still foregrounds the same agent.
+            guard self.foregroundedAgent()?.paneId == paneId else { return }
+            self.writeAgentStatusEntry(provider: provider, activity: activity, model: model)
+        }
     }
 
     /// Routes a split of a mirror window-tab (by its panel id) to tmux
