@@ -1837,6 +1837,19 @@ final class MenuBarNotificationLineFormatterTests: XCTestCase {
 
 
 final class NativeNotificationTextTests: XCTestCase {
+    func testBannerTextBreaksSubtitleURLAutoLinking() {
+        let subtitle = "PR https://github.com/manaflow-ai/cmux/pull/6499 - Claude Code"
+
+        let formatted = NativeNotificationText.textForBanner(subtitle)
+
+        XCTAssertEqual(
+            formatted,
+            "PR github dot com/manaflow-ai/cmux/pull/6499 - Claude Code"
+        )
+        XCTAssertFalse(formatted.contains("https://"))
+        XCTAssertFalse(formatted.contains("github.com"))
+    }
+
     func testBannerBodyBreaksGitHubURLAutoLinking() {
         let body = "PR https://github.com/manaflow-ai/cmux/pull/6499 - Claude Code teammate opened split panes again."
 
