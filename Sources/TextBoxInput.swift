@@ -2744,7 +2744,6 @@ struct TextBoxInputContainer: View {
                     clearPendingProviderLaunch()
                     NSSound.beep()
                 }
-                }
             }
             return
         }
