@@ -20,7 +20,7 @@ ${o}
       --diffs-bg-context-override: transparent;
       --diffs-bg-context-gutter-override: transparent;
       --cmux-diff-surface-bg: transparent;
-      --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-bg) 18%, transparent);
+      --cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-bg) 42%, transparent);
       --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
@@ -41,8 +41,8 @@ ${o}
       container-name: sticky-header;
       min-height: 30px;
       background-color: var(--cmux-diff-header-bg) !important;
-      -webkit-backdrop-filter: blur(16px) saturate(1.15);
-      backdrop-filter: blur(16px) saturate(1.15);
+      -webkit-backdrop-filter: blur(8px) saturate(1.08);
+      backdrop-filter: blur(8px) saturate(1.08);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
       color: var(--diffs-addition-base);
