@@ -2138,7 +2138,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let scope = await currentScopeSnapshot()
         await connectManualHost(
             name: device.displayName ?? host, host: host, port: port,
-            pairedMacDeviceID: device.deviceId)
+            pairedMacDeviceID: device.deviceId,
+            trustedNetworkAuthConfirmed: true)
         // Persist as the active paired Mac only when the live connection is to
         // THIS route (a switch tapped while this connect was in flight could win
         // the connection; matching the live route avoids persisting a stale
@@ -2338,7 +2339,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         await connectManualHost(
             name: refreshedTarget.displayName ?? host, host: host, port: port,
-            pairedMacDeviceID: macDeviceID)
+            pairedMacDeviceID: macDeviceID,
+            trustedNetworkAuthConfirmed: true)
         // The switch succeeded only if the live connection is to THIS Mac's route.
         // A different switch tapped while this connect was in flight supersedes it
         // via `beginPairingAttempt`, leaving `connectionState` `.connected` for the
