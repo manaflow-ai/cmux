@@ -13929,6 +13929,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleDetachedInspectorCloseShortcutOutsideMainContext(event: NSEvent) -> Bool {
+        guard isCloseTabShortcutEventOrChordPrefix(event) else { return false }
         guard hasDetachedInspectorWindowForCloseShortcut(event: event) else { return false }
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            armConfiguredShortcutChordIfNeeded(event: event, actions: [.closeTab]) {
@@ -13938,6 +13939,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return closeDetachedInspectorWindowForCloseShortcut(event: event)
         }
         return false
+    }
+
+    private func isCloseTabShortcutEventOrChordPrefix(_ event: NSEvent) -> Bool {
+        if matchConfiguredShortcut(event: event, action: .closeTab) {
+            return true
+        }
+        guard activeConfiguredShortcutChordPrefixForCurrentEvent == nil else { return false }
+        let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
+        guard closeTabShortcut.hasChord else { return false }
+        return matchShortcutStroke(event: event, stroke: closeTabShortcut.firstStroke)
     }
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(
