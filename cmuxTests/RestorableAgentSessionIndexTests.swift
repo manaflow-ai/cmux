@@ -1575,6 +1575,36 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         XCTAssertEqual(calls.value, 1, "cachedOnly never spawns the probe")
     }
 
+    func testClaudeBackgroundAgentsQueryRateLimitsColdProbesButNotWarmHits() {
+        let clock = TestClock(Date(timeIntervalSince1970: 1000))
+        let calls = CallCounter()
+        let query = ClaudeBackgroundAgentsQuery(
+            cacheTTL: 60,
+            coldProbeWindow: 10,
+            maxColdProbesPerWindow: 2,
+            now: { clock.current },
+            probe: { _ in calls.increment(); return [] }
+        )
+
+        // Two distinct cold configs are allowed within the window.
+        _ = query.live(configDir: "/a")
+        _ = query.live(configDir: "/b")
+        XCTAssertEqual(calls.value, 2)
+
+        // A third distinct cold config exceeds the budget and does not spawn.
+        XCTAssertTrue(query.live(configDir: "/c").isEmpty)
+        XCTAssertEqual(calls.value, 2, "cold probes beyond the window budget must not spawn")
+
+        // A warm hit never reaches the cold path, so it neither spawns nor consumes the budget.
+        _ = query.live(configDir: "/a")
+        XCTAssertEqual(calls.value, 2, "a warm cache hit must not spawn")
+
+        // After the window elapses, cold probes resume.
+        clock.current = clock.current.addingTimeInterval(11)
+        _ = query.live(configDir: "/c")
+        XCTAssertEqual(calls.value, 3, "cold probes resume after the window elapses")
+    }
+
     private final class TestClock: @unchecked Sendable {
         private let lock = NSLock()
         private var value: Date

@@ -1089,25 +1089,15 @@ struct RestorableAgentSessionIndex: Sendable {
     ) -> RestorableAgentSessionIndex {
         // Resolve background agents at most once per config dir per load, only when a
         // transcript-less Claude ghost actually needs reconciliation (the provider fires
-        // lazily from `resolvedClaudeWorkflowRecord`). Cap the number of distinct config dirs
-        // probed per load: each miss can run `claude agents --json` (bounded, but serialized),
-        // so a hook store littered with transcript-less ghosts across many config dirs must not
-        // turn one index load into an unbounded chain of subprocess waits. Beyond the cap,
-        // reconciliation degrades to no-op for the extra configs.
-        // https://github.com/manaflow-ai/cmux/issues/6622
-        let maxProbedConfigDirs = 4
+        // lazily from `resolvedClaudeWorkflowRecord`). The provider (`ClaudeBackgroundAgentsQuery`)
+        // owns the cold-probe rate limit and cache eviction, so a hook store littered with
+        // transcript-less ghosts across many config dirs cannot turn one load into an unbounded
+        // chain of subprocess waits. https://github.com/manaflow-ai/cmux/issues/6622
         var backgroundAgentsByConfigDir: [String: [ClaudeBackgroundAgentSnapshot]] = [:]
-        var probedConfigDirCount = 0
         func backgroundAgents(forConfigDir configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
             let key = configDir ?? ""
             if let cached = backgroundAgentsByConfigDir[key] { return cached }
-            let resolved: [ClaudeBackgroundAgentSnapshot]
-            if probedConfigDirCount >= maxProbedConfigDirs {
-                resolved = []
-            } else {
-                probedConfigDirCount += 1
-                resolved = backgroundAgentsProvider(configDir)
-            }
+            let resolved = backgroundAgentsProvider(configDir)
             backgroundAgentsByConfigDir[key] = resolved
             return resolved
         }

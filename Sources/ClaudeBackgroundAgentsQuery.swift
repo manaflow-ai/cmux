@@ -22,20 +22,28 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     private let probe: @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot]
     private let now: @Sendable () -> Date
     private let cacheTTL: TimeInterval
+    private let coldProbeWindow: TimeInterval
+    private let maxColdProbesPerWindow: Int
 
     private let lock = NSLock()
     // Serializes the probe so a cache miss observed by two concurrent off-main loaders does
     // not spawn `claude agents --json` twice; the post-acquire re-check returns the first
-    // fetch's freshly cached result to the second caller.
+    // fetch's freshly cached result to the second caller. Also guards `coldProbeTimes`, which
+    // is only touched on the cold path while this lock is held.
     private let fetchLock = NSLock()
     private var cache: [String: (agents: [ClaudeBackgroundAgentSnapshot], fetchedAt: Date)] = [:]
+    private var coldProbeTimes: [Date] = []
 
     init(
         cacheTTL: TimeInterval = 20,
+        coldProbeWindow: TimeInterval = 10,
+        maxColdProbesPerWindow: Int = 6,
         now: @escaping @Sendable () -> Date = { Date() },
         probe: @escaping @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot] = claudeBackgroundAgentsProbe
     ) {
         self.cacheTTL = cacheTTL
+        self.coldProbeWindow = coldProbeWindow
+        self.maxColdProbesPerWindow = maxColdProbesPerWindow
         self.now = now
         self.probe = probe
     }
@@ -56,10 +64,17 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
             return fresh
         }
 
+        // Rate-limit COLD probes (cache misses that spawn `claude agents --json`). Warm hits
+        // returned above never reach here, so they never consume the budget. This bounds the
+        // serial subprocess waits one index load can trigger when a hook store holds
+        // transcript-less ghosts across many config dirs.
+        let probeAt = now()
+        coldProbeTimes = coldProbeTimes.filter { probeAt.timeIntervalSince($0) < coldProbeWindow }
+        guard coldProbeTimes.count < maxColdProbesPerWindow else { return [] }
+        coldProbeTimes.append(probeAt)
+
         let agents = probe(configDir)
-        lock.lock()
-        cache[key] = (agents, now())
-        lock.unlock()
+        storeAndEvictExpired(key: key, agents: agents)
         return agents
     }
 
@@ -80,6 +95,17 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
             return nil
         }
         return cached.agents
+    }
+
+    /// Writes the freshly probed result and drops every expired entry, so this process-wide
+    /// singleton's cache does not accumulate config-dir keys (which are unbounded user/session
+    /// data) over a long-running app. https://github.com/manaflow-ai/cmux/issues/6622
+    private func storeAndEvictExpired(key: String, agents: [ClaudeBackgroundAgentSnapshot]) {
+        lock.lock()
+        defer { lock.unlock() }
+        let writtenAt = now()
+        cache[key] = (agents, writtenAt)
+        cache = cache.filter { writtenAt.timeIntervalSince($0.value.fetchedAt) < cacheTTL }
     }
 }
 
