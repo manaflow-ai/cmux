@@ -34084,15 +34084,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         try uninstallAgentHooks(def)
     }
 
-    private struct HooksRawInputPreflight {
-        let handled: Bool
-        let rawInput: String?
-    }
-
     private func codexForkParentLifecycleHookPreflight(
         commandArgs: [String],
         env: [String: String]
-    ) -> HooksRawInputPreflight? {
+    ) -> (handled: Bool, rawInput: String?)? {
         guard commandArgs.count >= 2,
               commandArgs[0].lowercased() == "codex" else {
             return nil
@@ -34135,7 +34130,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             fallbackPID: inferredPID,
             failClosedForStoredSelectorSessions: false
         )
-        return HooksRawInputPreflight(handled: isParentLifecycle, rawInput: isParentLifecycle ? nil : rawInput)
+        return (handled: isParentLifecycle, rawInput: isParentLifecycle ? nil : rawInput)
     }
 
     private func runHooksSocketCommand(
