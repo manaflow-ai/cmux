@@ -16,7 +16,8 @@ struct MobilePairingConnectionTransitionTests {
             attachURL: "cmux-ios://attach?ticket=abc",
             macName: "Test Mac",
             tailscaleLines: ["100.64.0.1:7777"],
-            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777)
+            manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777),
+            trustedNetworkPairingSecret: "test-pairing-secret"
         )
     }
 

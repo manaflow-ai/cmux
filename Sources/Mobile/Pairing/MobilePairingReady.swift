@@ -11,6 +11,9 @@ struct MobilePairingReady: Equatable {
     /// The best route for manual phone entry, behind the "Copy IP" and "Copy Port"
     /// buttons. `nil` when no phone-dialable route exists.
     let manualEntry: CmxManualPairingEntry?
+    /// One-time key required when the user manually enters a trusted LAN/VPN
+    /// route instead of scanning the QR code.
+    let trustedNetworkPairingSecret: String
 
     /// Whether at least one Tailscale route resolved.
     var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }

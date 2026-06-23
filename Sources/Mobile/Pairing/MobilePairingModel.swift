@@ -173,7 +173,8 @@ final class MobilePairingModel {
                     attachURL: attachURL,
                     macName: Self.macDisplayName,
                     tailscaleLines: Self.tailscaleLines(status.routes),
-                    manualEntry: CmxManualPairingEntry.best(in: status.routes)
+                    manualEntry: CmxManualPairingEntry.best(in: status.routes),
+                    trustedNetworkPairingSecret: trustedNetworkPairingSecret
                 )
             )
             observeConnections()

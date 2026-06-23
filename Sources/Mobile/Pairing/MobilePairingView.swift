@@ -411,6 +411,20 @@ struct MobilePairingView: View {
                 }
                 .padding(.top, 2)
             }
+            Text(
+                String(
+                    format: String(localized: "mobile.pairing.manualOnly.keyFormat", defaultValue: "Pairing key: %@"),
+                    ready.trustedNetworkPairingSecret
+                )
+            )
+            .cmuxFont(.caption, design: .monospaced)
+            .textSelection(.enabled)
+            .foregroundStyle(.secondary)
+            copyButton(
+                label: String(localized: "mobile.pairing.manual.copyKey", defaultValue: "Copy Pairing Key"),
+                value: ready.trustedNetworkPairingSecret
+            )
+            .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
