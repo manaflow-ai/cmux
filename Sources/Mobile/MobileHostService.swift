@@ -1310,7 +1310,7 @@ final class MobileHostService {
             kSecValueData as String: key,
         ]
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemDelete(query as CFDictionary)
+        _ = SecItemDelete(query as CFDictionary)
         let status = SecItemAdd(insert as CFDictionary, nil)
         if status != errSecSuccess {
             mobileHostLog.error("failed to persist iroh secret key (status \(status, privacy: .public)); using ephemeral")
