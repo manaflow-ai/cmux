@@ -111,13 +111,8 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
   rootStyle.setProperty("--cmux-diff-line-height", `${metric(appearance.lineHeight, 20)}px`);
 }
 
-export function appearanceBackgroundColor(color: unknown, appearance?: DiffViewerAppearance) {
-  // Transparent terminal themes let the cmux window backdrop show through, so
-  // code surfaces paint no fill. Opaque themes get a solid fill.
-  if (normalizedOpacity(appearance?.backgroundOpacity) < 0.999) {
-    return "transparent";
-  }
-  return colorString(color, "#000000");
+export function appearanceBackgroundColor(_color: unknown, _appearance?: DiffViewerAppearance) {
+  return "transparent";
 }
 
 export function readableColor(value: unknown, background: unknown, fallback: string | undefined): string {

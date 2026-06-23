@@ -17,8 +17,8 @@
   --cmux-diff-bg: var(--cmux-diff-bg-light);
   --cmux-diff-fg: var(--cmux-diff-fg-light);
   --cmux-diff-border: color-mix(in lab, var(--cmux-diff-fg) 12%, transparent);
-  --cmux-diff-toolbar-bg: var(--cmux-diff-bg);
-  --cmux-diff-sidebar-bg: var(--cmux-diff-bg);
+  --cmux-diff-toolbar-bg: transparent;
+  --cmux-diff-sidebar-bg: transparent;
   --cmux-diff-muted-bg: color-mix(in lab, var(--cmux-diff-fg) 8%, transparent);
   --cmux-diff-hover-bg: color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   --cmux-diff-accent: light-dark(#0a84ff, #7ab7ff);

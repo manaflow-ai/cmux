@@ -20,12 +20,12 @@ describe("appearanceBackgroundColor", () => {
     expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 0.42 })).toBe("transparent");
   });
 
-  test("returns a solid fill for opaque themes", () => {
-    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 1 })).toBe("#102030");
+  test("returns transparent for opaque themes", () => {
+    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 1 })).toBe("transparent");
   });
 
-  test("clamps invalid opacity to opaque and paints a solid fill", () => {
-    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 2 })).toBe("#102030");
+  test("clamps invalid opacity to opaque but keeps surfaces transparent", () => {
+    expect(appearanceBackgroundColor("#102030", { backgroundOpacity: 2 })).toBe("transparent");
   });
 
   test("normalizes resolved opacity and metrics to rendered CSS values", () => {

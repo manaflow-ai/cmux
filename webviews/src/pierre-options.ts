@@ -55,15 +55,12 @@ export function workerHighlighterOptions(
 export function codeViewUnsafeCSS(): string {
   return `
     :host {
-      --diffs-light-bg: var(--cmux-diff-bg);
-      --diffs-dark-bg: var(--cmux-diff-bg);
+      --diffs-light-bg: transparent;
+      --diffs-dark-bg: transparent;
       --diffs-bg-buffer-override: color-mix(in srgb, var(--cmux-diff-fg) 12%, transparent);
-      --diffs-bg-context-override: var(--cmux-diff-bg);
-      --diffs-bg-context-gutter-override: var(--cmux-diff-bg);
-      --cmux-diff-surface-bg: light-dark(
-        color-mix(in srgb, var(--cmux-diff-bg) 96%, #f5f5f0),
-        color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)
-      );
+      --diffs-bg-context-override: transparent;
+      --diffs-bg-context-gutter-override: transparent;
+      --cmux-diff-surface-bg: transparent;
       --diffs-bg-separator-override: var(--cmux-diff-surface-bg);
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
@@ -77,7 +74,7 @@ export function codeViewUnsafeCSS(): string {
     :host,
     pre,
     code {
-      background-color: var(--cmux-diff-bg);
+      background-color: transparent;
     }
     [data-diffs-header] {
       container-type: scroll-state;
@@ -104,7 +101,7 @@ export function codeViewUnsafeCSS(): string {
       );
     }
     [data-separator='line-info'] {
-      background-color: var(--diffs-bg-separator);
+      background-color: transparent;
     }
     [data-utility-button] {
       display: inline-flex;
