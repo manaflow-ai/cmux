@@ -876,6 +876,28 @@ struct WorkspaceGroupTests {
         #expect(RenderableSystemSymbol.resolvedSurfaceTabIcon("   ") == "doc.text")
     }
 
+    @Test func moveToGroupContextMenuIsDisabledWhenThereAreNoGroups() {
+        let state = WorkspaceGroupMoveToMenuState(
+            groups: []
+        )
+
+        #expect(state.isDisabled)
+        #expect(!state.rendersSubmenu)
+    }
+
+    @Test func moveToGroupContextMenuUsesSubmenuWhenGroupsExist() {
+        let group = WorkspaceGroupMenuSnapshot.Item(
+            id: UUID(),
+            name: "Group"
+        )
+        let state = WorkspaceGroupMoveToMenuState(
+            groups: [group]
+        )
+
+        #expect(!state.isDisabled)
+        #expect(state.rendersSubmenu)
+    }
+
     // Regression for #5404: renaming a group must update the name shown in
     // window chrome (the custom title bar / NSWindow title / toolbar label),
     // not just the sidebar header. The chrome derives a grouped anchor's
