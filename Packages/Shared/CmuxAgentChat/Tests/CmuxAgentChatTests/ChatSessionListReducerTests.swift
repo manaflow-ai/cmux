@@ -100,4 +100,28 @@ struct ChatSessionListReducerTests {
         )
         #expect(reducer.applying(frame, to: seed).count == 1)
     }
+
+    @Test("a lower-version descriptorChanged is dropped; a higher one applies")
+    func versionGatedUpsert() {
+        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        func desc(_ state: ChatAgentState, _ version: Int) -> ChatSessionDescriptor {
+            ChatSessionDescriptor(
+                id: "s1", agentKind: .claude, workspaceID: "ws-1",
+                terminalID: "s1", state: state, version: version
+            )
+        }
+        // Seed at version 5 (working).
+        let seed = [desc(Self.working, 5)]
+        // A stale push (version 3, idle) arrives out of order and is dropped:
+        // the newer working state the client already holds must survive.
+        let stale = ChatSessionEventFrame(sessionID: "s1", event: .descriptorChanged(desc(.idle, 3)))
+        let afterStale = reducer.applying(stale, to: seed)
+        #expect(afterStale.first?.state == Self.working)
+        #expect(afterStale.first?.version == 5)
+        // A newer push (version 6, ended) applies.
+        let newer = ChatSessionEventFrame(sessionID: "s1", event: .descriptorChanged(desc(.ended, 6)))
+        let afterNewer = reducer.applying(newer, to: afterStale)
+        #expect(afterNewer.first?.state == .ended)
+        #expect(afterNewer.first?.version == 6)
+    }
 }

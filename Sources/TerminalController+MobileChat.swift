@@ -33,6 +33,8 @@ extension TerminalController {
         switch method {
         case "mobile.chat.sessions":
             return v2MobileChatSessions(params: params)
+        case "mobile.chat.session":
+            return v2MobileChatSession(params: params)
         case "mobile.chat.history":
             return await v2MobileChatHistory(params: params)
         case "mobile.chat.send":
@@ -77,6 +79,34 @@ extension TerminalController {
             .map(\.descriptor)
         let encoded = descriptors.compactMap { service.wirePayload($0) }
         return .ok(["sessions": encoded])
+    }
+
+    /// `mobile.chat.session`: authoritative snapshot of one session by id.
+    ///
+    /// The client's pull path: on (re)connect, foreground, a detected version
+    /// gap, or manual refresh, the phone fetches the current descriptor (with
+    /// its monotonic `version`) and reconciles wholesale, so a missed or
+    /// out-of-order best-effort push self-heals. `not_found` means the session
+    /// is unknown to the host (e.g. cleared); the client drops it.
+    func v2MobileChatSession(params: [String: Any]) -> V2CallResult {
+        guard let sessionID = v2String(params, "session_id"), !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "session_id required", data: nil)
+        }
+        guard let service = agentChatTranscriptService else {
+            return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
+        }
+        guard let record = service.sessionRecord(sessionID: sessionID),
+              let encoded = service.wirePayload(record.descriptor) else {
+            return .err(
+                code: "not_found",
+                message: String(
+                    localized: "mobile.chat.error.sessionNotFound",
+                    defaultValue: "That agent session is no longer available."
+                ),
+                data: ["session_id": sessionID]
+            )
+        }
+        return .ok(["session": encoded])
     }
 
     /// Scans a workspace's terminals for a running coding agent that has no

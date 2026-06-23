@@ -38,6 +38,19 @@ public struct ChatSessionListReducer: Sendable {
             }
             var updated = sessions
             if let index = updated.firstIndex(where: { $0.id == descriptor.id }) {
+                // Version-gated upsert: best-effort pushes can arrive out of
+                // order, be duplicated, or race an authoritative pull. The host
+                // stamps a strictly increasing `version` on every change, so a
+                // descriptor whose version is LOWER than the one already
+                // applied is stale (or out of order) and must not clobber newer
+                // state the client got from a later push or a snapshot pull.
+                // Equal version is allowed through (a no-op in practice: the
+                // monotonic counter guarantees equal version == identical
+                // content), which also keeps unversioned (version 0) payloads
+                // upserting as before.
+                guard descriptor.version >= updated[index].version else {
+                    return sessions
+                }
                 updated[index] = descriptor
             } else {
                 updated.append(descriptor)

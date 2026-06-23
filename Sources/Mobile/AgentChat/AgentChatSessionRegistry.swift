@@ -19,6 +19,22 @@ final class AgentChatSessionRegistry {
     /// main-actor disk reads during tool storms.
     private var hookStoreConsultedAt: [String: Date] = [:]
 
+    /// Per-session monotonic revision counter. Every stored record carries the
+    /// current value so clients reconcile best-effort pushes against
+    /// authoritative pulls: apply a push only when its version exceeds the last
+    /// applied, replace wholesale on a snapshot pull. A counter (not a hash)
+    /// guarantees strict monotonicity even when a change reverts a field.
+    private var versionBySessionID: [String: Int] = [:]
+
+    /// Stamps the next monotonic version onto a record before it is stored.
+    /// All write paths route through this so no externally visible change ever
+    /// ships with a stale or unchanged version.
+    private func stampVersion(_ record: inout AgentChatSessionRecord) {
+        let next = (versionBySessionID[record.sessionID] ?? 0) + 1
+        versionBySessionID[record.sessionID] = next
+        record.version = next
+    }
+
     /// Creates a registry.
     ///
     /// - Parameter hookStore: Reader for the per-agent hook session stores.
@@ -119,6 +135,7 @@ final class AgentChatSessionRegistry {
         guard let previous = records[sessionID] else { return }
         var record = previous
         mutate(&record)
+        stampVersion(&record)
         records[sessionID] = record
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
@@ -150,7 +167,7 @@ final class AgentChatSessionRegistry {
             for entry in hookStore.entries(agentSource: source) {
                 guard records[entry.sessionID] == nil else { continue }
                 let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
-                let record = AgentChatSessionRecord(
+                var record = AgentChatSessionRecord(
                     sessionID: entry.sessionID,
                     agentKind: kind,
                     workspaceID: entry.workspaceID,
@@ -162,6 +179,7 @@ final class AgentChatSessionRegistry {
                     title: nil,
                     pid: entry.pid
                 )
+                stampVersion(&record)
                 records[entry.sessionID] = record
                 updateLiveSessionIndex(previous: nil, current: record)
             }
@@ -196,7 +214,7 @@ final class AgentChatSessionRegistry {
         if let bound = liveSession(surfaceID: surfaceID) {
             return bound
         }
-        let record = AgentChatSessionRecord(
+        var record = AgentChatSessionRecord(
             sessionID: sessionID,
             agentKind: agentKind,
             workspaceID: workspaceID,
@@ -208,6 +226,7 @@ final class AgentChatSessionRegistry {
             title: nil,
             pid: nil
         )
+        stampVersion(&record)
         records[sessionID] = record
         updateLiveSessionIndex(previous: nil, current: record)
         onRecordChanged?(record, nil)
@@ -274,6 +293,7 @@ final class AgentChatSessionRegistry {
 
         let previous = records[sessionID]
         record.state = Self.nextState(previous: record.state, event: event)
+        stampVersion(&record)
         records[sessionID] = record
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
