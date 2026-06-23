@@ -345,6 +345,32 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .running)
     }
 
+    @MainActor
+    func testNewAgentRuntimePIDClearsStalePriorLifecycle() throws {
+        // The preservingDefinitive guard is correct within one runtime, but a stored
+        // `.idle` must not survive across a runtime boundary: a new agent process
+        // (new PID) for the same key must start from no evidence so it is not
+        // hibernated based on the dead process's idle.
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.recordAgentPID(key: "claude_code", pid: 100, panelId: panelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .idle)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
+
+        // Same runtime re-registers (same PID): the idle must survive.
+        workspace.recordAgentPID(key: "claude_code", pid: 100, panelId: panelId, refreshPorts: false)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
+
+        // A new runtime (different PID) replaces it: the stale idle must be cleared.
+        workspace.recordAgentPID(key: "claude_code", pid: 200, panelId: panelId, refreshPorts: false)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+
+        // The new runtime's own `.unknown` report stays unknown (not preserved as idle).
+        workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: .unknown)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+    }
+
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)

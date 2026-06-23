@@ -101,6 +101,16 @@ extension Workspace {
         if let panelId {
             didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
+        // A different PID for this key means a new agent runtime replaced the old one.
+        // The previous runtime's lifecycle (e.g. a stored `.idle`) is stale: it must
+        // not be preserved against the new runtime's reports, or the new process could
+        // be hibernated on the dead process's evidence. (`setAgentLifecycle` keeps a
+        // definitive state against an `.unknown` report; that is correct within one
+        // runtime, but wrong across a runtime boundary.) Clear it so the new process
+        // starts from no evidence and the idle countdown restarts.
+        if let panelId, let previousPID = agentPIDs[key], previousPID != pid {
+            _ = clearAgentLifecycle(key: agentStatusKey(forAgentPIDKey: key), panelId: panelId)
+        }
         agentPIDs[key] = pid
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
