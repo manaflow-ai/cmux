@@ -69,6 +69,16 @@ private enum TextBoxSubmitActionImageLoader {
 
 private enum TextBoxSubmitActionIconMetrics {
     static let size: CGFloat = 16
+
+    private static var nsSize: NSSize {
+        NSSize(width: size, height: size)
+    }
+
+    static func fixedSizeImage(_ image: NSImage) -> NSImage {
+        let copy = image.copy() as? NSImage ?? image
+        copy.size = nsSize
+        return copy
+    }
 }
 
 extension TextBoxInputContainer {
@@ -200,17 +210,8 @@ extension TextBoxInputContainer {
 
     @ViewBuilder
     func submitActionImage(_ action: TextBoxSubmitAction) -> some View {
-        if let path = action.imagePath,
-           let image = submitActionImageCache[expandedSubmitActionImagePath(path)] {
+        if let image = submitActionNSImage(for: action) {
             Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(
-                    width: TextBoxSubmitActionIconMetrics.size,
-                    height: TextBoxSubmitActionIconMetrics.size
-                )
-        } else if let assetName = action.assetName {
-            Image(assetName)
                 .resizable()
                 .scaledToFit()
                 .frame(
@@ -231,11 +232,25 @@ extension TextBoxInputContainer {
         let title = TextBoxSubmitActionPresentation.localizedTitle(for: action)
         if action.id == selectedSubmitAction.id {
             Label(title, systemImage: "checkmark")
-        } else if let assetName = action.assetName {
-            Label(title, image: assetName)
         } else {
-            Label(title, systemImage: action.systemImage)
+            Label {
+                Text(title)
+            } icon: {
+                submitActionImage(action)
+            }
         }
+    }
+
+    func submitActionNSImage(for action: TextBoxSubmitAction) -> NSImage? {
+        if let path = action.imagePath,
+           let image = submitActionImageCache[expandedSubmitActionImagePath(path)] {
+            return TextBoxSubmitActionIconMetrics.fixedSizeImage(image)
+        }
+        if let assetName = action.assetName,
+           let image = NSImage(named: assetName) {
+            return TextBoxSubmitActionIconMetrics.fixedSizeImage(image)
+        }
+        return nil
     }
 
     @MainActor
