@@ -356,13 +356,13 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
             )
         ))
 
-        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .top))
+        expectEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.rootBefore, edge: .top))
         expectEqual(plan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.topLevel)
         guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
             Issue.record("Expected local reorder plan")
             return
         }
-        expectEqual(targetIndex, 1)
+        expectEqual(targetIndex, 0)
         expectTrue(usesTopLevelRows)
         #expect(explicitGroupId == nil)
     }

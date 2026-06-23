@@ -381,6 +381,13 @@ struct WorkspaceGroupTests {
             targetWorkspaceId: rootAfterGroupId,
             usesTopLevelRows: true
         )
+        #expect(reorderIds == [
+            draggedId,
+            originalIds[0],
+            group.anchorWorkspaceId,
+            rootAfterGroupId,
+        ] + Array(originalIds.dropFirst(4)))
+        #expect(pinnedIds == [draggedId])
         let targetIndex = try #require(SidebarDropPlanner().targetIndex(
             draggedTabId: draggedId,
             targetTabId: rootAfterGroupId,
@@ -388,6 +395,7 @@ struct WorkspaceGroupTests {
             tabIds: reorderIds,
             pinnedTabIds: pinnedIds
         ))
+        #expect(targetIndex == 0)
 
         let moved = manager.reorderSidebarWorkspace(
             tabId: draggedId,
