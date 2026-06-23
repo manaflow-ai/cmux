@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+# cmux codex wrapper - per-invocation Codex hook injection + launch detection.
+#
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# makes `codex` carry cmux's hooks for THIS invocation only (nothing is written
+# to ~/.codex), so Codex's own SessionStart/UserPromptSubmit/Stop/PreToolUse/
+# PostToolUse/PermissionRequest fire back into cmux with Codex's real session_id.
+# It also fires a best-effort one-way `cmux hooks codex session-start` BEFORE
+# exec so a session is detected at launch even if Codex's own SessionStart is
+# delayed; the registry dedups by session id so the two are idempotent.
+#
+# Outside cmux (no CMUX_SURFACE_ID / live socket), or when the user opts out
+# (CMUX_CODEX_HOOKS_DISABLED=1), the wrapper does NOTHING but exec the real
+# codex. Every failure path below also execs the real codex, so installing the
+# wrapper can never break `codex`.
+
+# Deliberately NOT using `set -e`/`set -u`: a wrapper that aborts on any error
+# would break the user's `codex`. Each helper handles its own failures and the
+# script always reaches an `exec "$REAL_CODEX"`.
+
+cmux_codex_wrapper_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_CODEX_WRAPPER_SHIM:-}" &&
+          -e "$candidate" &&
+          -e "$CMUX_CODEX_WRAPPER_SHIM" &&
+          "$candidate" -ef "$CMUX_CODEX_WRAPPER_SHIM" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_CODEX_WRAPPER_SHIM_ROOT:-}" &&
+          "$candidate" == "${CMUX_CODEX_WRAPPER_SHIM_ROOT%/}/codex" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/codex|*/cmux-cli-shims/codex)
+            return 0
+            ;;
+        */Contents/Resources/bin/codex|*/Resources/bin/codex)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Find the real codex binary, skipping this wrapper and cmux's shell shims.
+find_real_codex() {
+    local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"  # trim leading whitespace
+    custom="${custom%"${custom##*[![:space:]]}"}"  # trim trailing whitespace
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        if ! cmux_codex_wrapper_is_self_or_shim "$custom"; then
+            printf '%s' "$custom"
+            return 0
+        fi
+    fi
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        local candidate="$d/codex"
+        cmux_codex_wrapper_is_self_or_shim "$candidate" && continue
+        [[ -x "$candidate" ]] && printf '%s' "$candidate" && return 0
+    done
+    return 1
+}
+
+# Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local cmux_bin
+    cmux_bin="$(resolve_hook_cmux_bin)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+resolve_hook_cmux_bin() {
+    local self_dir bundled_cli
+    bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$bundled_cli" && -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    bundled_cli="$self_dir/cmux"
+    if [[ -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    bundled_cli="$(command -v cmux 2>/dev/null || true)"
+    if [[ -n "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    printf '%s' "cmux"
+}
+
+# Only the interactive session and `exec`/`e` entrypoints start a Codex session;
+# everything else (resume, review, login, mcp, doctor, --help, --version, ...)
+# must pass through untouched so it never receives session/hook flags. Mirrors
+# should_inject_claude_hooks: a leading non-option token that is a known Codex
+# subcommand means "not a session" unless it is the exec alias.
+codex_subcommand_starts_session() {
+    case "$1" in
+        exec|e) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+codex_known_subcommand() {
+    case "$1" in
+        exec|e|review|login|logout|mcp|plugin|mcp-server|app-server|\
+        remote-control|app|completion|update|doctor|sandbox|debug|apply|a|\
+        resume|archive|delete|unarchive|fork|cloud|exec-server|features|help)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Options that take a value, so a following non-option token is the value and
+# not the subcommand. Conservative: unknown `--flag value` is handled by the
+# "first bare token decides" rule below, which is safe because Codex session
+# launches take an optional prompt, not a subcommand.
+codex_option_consumes_value() {
+    case "$1" in
+        -c|--config|-m|--model|-p|--profile|-C|--cd|--remote|-a|--ask-for-approval|\
+        -s|--sandbox|--output-last-message|--enable|--disable)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|-V|--version)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Decide whether this invocation is a Codex SESSION entrypoint we should inject
+# hooks into. Bare `codex` (no args) and `codex [prompt]` are interactive
+# sessions; `codex exec ...` is a non-interactive session; any other leading
+# subcommand is not.
+should_inject_codex_hooks() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            -*)
+                if codex_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                if codex_known_subcommand "$arg"; then
+                    codex_subcommand_starts_session "$arg" && return 0
+                    return 1
+                fi
+                # First bare token is a prompt -> interactive session.
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+# Whether the invocation uses the non-interactive `exec`/`e` subcommand, which
+# requires --skip-git-repo-check tolerance differently; we never add flags codex
+# would reject, so this only gates the best-effort wrapper-fired session-start
+# transcript hint. (Currently informational; kept for clarity/extension.)
+
+IN_CMUX=0
+if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
+    IN_CMUX=1
+fi
+
+# Resolve real codex up front; if it cannot be found we error like a missing
+# binary would (same as the claude wrapper) rather than silently succeeding.
+REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+
+exec_real_codex_passthrough() {
+    if [[ "$IN_CMUX" == "1" ]]; then
+        local cmux_key
+        for cmux_key in "${!CMUX_@}"; do
+            unset "$cmux_key"
+        done
+        unset TERMINFO
+    fi
+    exec "$REAL_CODEX" "$@"
+}
+
+# Opt-out, outside cmux, or stale/dead socket: pass straight through.
+if [[ "${CMUX_CODEX_HOOKS_DISABLED:-}" == "1" ]]; then
+    exec_real_codex_passthrough "$@"
+fi
+if [[ "$IN_CMUX" == "0" ]] || ! cmux_socket_available; then
+    exec_real_codex_passthrough "$@"
+fi
+
+# Not a session entrypoint (resume/doctor/--help/...): pass through unchanged.
+if ! should_inject_codex_hooks "$@"; then
+    exec_real_codex_passthrough "$@"
+fi
+
+# Export launch identity so the hook subprocesses and cmux's agent-pid /
+# ended-detection can bind this Codex to its surface and pid. Because we exec
+# codex below, $$ becomes the real codex pid.
+export CMUX_CODEX_PID=$$
+export CMUX_CODEX_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+export CMUX_AGENT_LAUNCH_KIND="codex"
+export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
+export CMUX_AGENT_LAUNCH_CWD="$PWD"
+{
+    cmux_codex_argv_b64="$(
+        {
+            printf '%s\0' "$REAL_CODEX"
+            if (( $# > 0 )); then
+                printf '%s\0' "$@"
+            fi
+        } | base64 | tr -d '\n'
+    )"
+    [[ -n "$cmux_codex_argv_b64" ]] && export CMUX_AGENT_LAUNCH_ARGV_B64="$cmux_codex_argv_b64"
+}
+
+# NOTE: no wrapper-fired launch session-start. Codex's own injected SessionStart
+# hook (below) fires within ~1s carrying Codex's REAL session_id, so it is the
+# single authoritative signal. A pre-exec wrapper-fired session-start has no
+# session id and made the handler mint a junk `fallback-*` record alongside the
+# real one (a phantom duplicate in the GUI), so it is intentionally omitted.
+
+# Build the per-invocation [hooks] injection. The cmux CLI emits the exact arg
+# list (NUL-separated) that enables hooks and injects cmux's FIRE-AND-FORGET hook
+# command for each event. Fire-and-forget is critical: codex runs hooks
+# synchronously and BLOCKS until they return, so a synchronous `cmux hooks codex
+# <sub>` made every launch hang ~35s on "Running SessionStart hook". The emitted
+# command captures codex's stdin payload to a temp file, nohup-backgrounds the
+# real cmux call with a 30s watchdog, and `echo '{}'` returns to codex instantly,
+# so detection still binds the real session id while codex never blocks.
+#
+# Resolving the args via the CLI (instead of re-deriving fragile shell here)
+# avoids quoting bugs in the fire-and-forget command (it contains single quotes
+# like `echo '{}'` and `sh -c '...'`). If the emit fails or yields nothing, we
+# fall back to plain passthrough so installing the wrapper can never break codex.
+CMUX_INJECT_CLI="$CMUX_CODEX_HOOK_CMUX_BIN"
+cmux_codex_injected_args=()
+cmux_codex_read_inject_args() {
+    [[ -n "$CMUX_INJECT_CLI" && -x "$CMUX_INJECT_CLI" ]] || return 1
+    local arg
+    # Read the NUL-TERMINATED arg stream DIRECTLY via process substitution. A
+    # `raw="$(... )"` command substitution must NOT be used: bash discards every
+    # NUL byte from command-substitution output (with a warning), which would
+    # collapse the whole stream into one token and silently drop the injection.
+    if [[ -n "${CMUX_SOCKET_PATH:-}" ]]; then
+        while IFS= read -r -d '' arg; do
+            cmux_codex_injected_args+=("$arg")
+        done < <("$CMUX_INJECT_CLI" --socket "$CMUX_SOCKET_PATH" hooks codex inject-args 2>/dev/null)
+    else
+        while IFS= read -r -d '' arg; do
+            cmux_codex_injected_args+=("$arg")
+        done < <("$CMUX_INJECT_CLI" hooks codex inject-args 2>/dev/null)
+    fi
+    (( ${#cmux_codex_injected_args[@]} > 0 )) || return 1
+    return 0
+}
+
+if cmux_codex_read_inject_args; then
+    exec "$REAL_CODEX" "${cmux_codex_injected_args[@]}" "$@"
+fi
+
+# Emit failed or returned nothing: never break codex, just pass through.
+exec_real_codex_passthrough "$@"
