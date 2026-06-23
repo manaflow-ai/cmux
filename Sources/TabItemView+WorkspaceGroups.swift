@@ -62,7 +62,7 @@ extension TabItemView {
                 }
             } else {
                 Button(moveToGroupLabel) {}
-                    .disabled(moveToGroupMenuState.isDisabled)
+                    .disabled(true)
             }
 
             if hasAnyGroupedTarget {
