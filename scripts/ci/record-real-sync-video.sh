@@ -12,6 +12,23 @@ phase() {
   echo "==> $*"
 }
 
+run_with_timeout() {
+  local seconds="$1"
+  shift
+  python3 - "$seconds" "$@" <<'PY'
+import subprocess
+import sys
+
+timeout = float(sys.argv[1])
+cmd = sys.argv[2:]
+try:
+    raise SystemExit(subprocess.run(cmd, timeout=timeout).returncode)
+except subprocess.TimeoutExpired:
+    print(f"command timed out after {timeout:g}s: {' '.join(cmd)}", file=sys.stderr)
+    raise SystemExit(124)
+PY
+}
+
 sanitize_tag() {
   local raw="$1"
   local cleaned
@@ -261,7 +278,7 @@ phase "booting simulator $SIMULATOR_NAME ($SIMULATOR_ID)"
 xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
 xcrun simctl erase "$SIMULATOR_ID"
 xcrun simctl boot "$SIMULATOR_ID" >/dev/null 2>&1 || true
-timeout 120s xcrun simctl bootstatus "$SIMULATOR_ID" -b
+run_with_timeout 120 xcrun simctl bootstatus "$SIMULATOR_ID" -b
 xcrun simctl ui "$SIMULATOR_ID" appearance dark || true
 
 phase "enabling macOS mobile pairing host"
@@ -270,13 +287,11 @@ defaults write "$MAC_BUNDLE_ID" mobile.iOSPairingHost.enabled -bool true
 
 MAC_RELOAD_LOG="$ARTIFACT_DIR/reload-macos.log"
 phase "building and launching tagged macOS cmux"
-timeout 600s ./scripts/reload.sh --tag "$BUILD_TAG" --swift-frontend-workaround --launch 2>&1 | tee "$MAC_RELOAD_LOG"
+run_with_timeout 600 bash -c './scripts/reload.sh --tag "$1" --swift-frontend-workaround --launch 2>&1 | tee "$2"' bash "$BUILD_TAG" "$MAC_RELOAD_LOG"
 wait_for_socket
 
 phase "activating tagged macOS cmux"
-timeout 15s osascript <<OSA >/dev/null 2>&1 || true
-tell application id "$MAC_BUNDLE_ID" to activate
-OSA
+run_with_timeout 15 osascript -e "tell application id \"$MAC_BUNDLE_ID\" to activate" >/dev/null 2>&1 || true
 
 phase "creating real cmux terminal workspace"
 WORKSPACE_JSON="$(cmux_tagged --json --id-format uuids new-workspace --name "iOS sync demo" --cwd "$PWD" --focus true)"
@@ -295,12 +310,12 @@ ATTACH_URL="$(mint_attach_url "$WORKSPACE_ID" "$SURFACE_ID")"
 [[ -n "$ATTACH_URL" ]] || { echo "Failed to mint attach URL" >&2; exit 1; }
 
 phase "building and installing real iOS app"
-timeout 600s ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
+run_with_timeout 600 ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
 phase "launching and attaching real iOS app"
 xcrun simctl terminate "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
 xcrun simctl launch "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null
 sleep 2
-timeout 30s xcrun simctl openurl "$SIMULATOR_ID" "$ATTACH_URL"
+run_with_timeout 30 xcrun simctl openurl "$SIMULATOR_ID" "$ATTACH_URL"
 sleep 5
 
 phase "starting macOS and iOS recordings"
