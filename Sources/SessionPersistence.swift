@@ -1260,15 +1260,18 @@ enum SurfaceResumeApprovalStore {
             kSecAttrAccount as String: keychainAccount,
             kSecUseDataProtectionKeychain as String: true,
         ]
-        let updateStatus = SecItemUpdate(
-            query as CFDictionary,
-            [kSecValueData as String: secret] as CFDictionary
-        )
-        if updateStatus == errSecSuccess { return true }
-        if updateStatus != errSecItemNotFound { return false }
+        // Delete-then-add: SecItemUpdate cannot reliably change
+        // kSecAttrAccessible on an existing item, so delete first and re-add to
+        // guarantee the device-only accessibility is applied (migrates items a
+        // prior build wrote with the syncable class).
+        SecItemDelete(query as CFDictionary)
         var insert = query
         insert[kSecValueData as String] = secret
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        // Device-only so the session HMAC secret is not eligible for iCloud
+        // Keychain restore. `AfterFirstUnlock` timing is preserved so session
+        // resume at cold launch (which may run before the first unlock of a
+        // freshly booted session) is unaffected.
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 #else

@@ -9,6 +9,13 @@ public import Foundation
 /// builds don't have). Atomic writes so a kill-during-reload can't drop the
 /// refresh token.
 ///
+/// Disk persistence is DEBUG-only. In Release builds the in-memory cache is
+/// still updated (so a Keychain failure does not drop the session mid-launch)
+/// but nothing is written to disk, so a live refresh token is never left in an
+/// unencrypted `credentials.json` on a real user's machine. A genuine Keychain
+/// failure in Release therefore surfaces as a re-auth on the next launch
+/// rather than a silent plaintext fallback.
+///
 /// ```swift
 /// let store = FileStackTokenStore(directory: appSupport
 ///     .appendingPathComponent("cmux", isDirectory: true)
@@ -93,6 +100,7 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
     private func readFromDisk() -> Snapshot {
+        #if DEBUG
         let fm = FileManager.default
         guard fm.fileExists(atPath: fileURL.path) else { return Snapshot() }
         do {
@@ -103,10 +111,19 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
             log.log("credentials read failed: \(error)")
             return Snapshot()
         }
+        #else
+        // Release never loads auth tokens from an unencrypted file. If a stale
+        // credentials.json is present (left by an older Debug build or a prior
+        // Release that wrote one), remove it so the plaintext does not persist
+        // and is not loaded later.
+        try? FileManager.default.removeItem(at: fileURL)
+        return Snapshot()
+        #endif
     }
 
     private func write(_ snapshot: Snapshot) {
         cache = snapshot
+        #if DEBUG
         let fm = FileManager.default
         let dir = fileURL.deletingLastPathComponent()
         do {
@@ -121,5 +138,11 @@ public actor FileStackTokenStore: StackAuthTokenStoreProtocol {
         } catch {
             log.log("credentials write failed: \(error)")
         }
+        #else
+        // Release: never persist auth tokens to an unencrypted file. The
+        // in-memory cache above keeps the current session working; the next
+        // launch re-uses Keychain (or surfaces the hard failure as re-auth).
+        log.log("file token write skipped in Release (no plaintext fallback)")
+        #endif
     }
 }

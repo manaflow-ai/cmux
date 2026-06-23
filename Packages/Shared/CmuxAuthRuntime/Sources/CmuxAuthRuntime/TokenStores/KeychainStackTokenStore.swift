@@ -147,17 +147,22 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private func keychainWrite(_ value: String, account: String) -> Bool {
         guard let data = value.data(using: .utf8) else { return false }
         let lookup = baseQuery(account: account)
-        let updateStatus = SecItemUpdate(
-            lookup as CFDictionary,
-            [kSecValueData as String: data] as CFDictionary
-        )
-        if updateStatus == errSecSuccess { return true }
-        if updateStatus != errSecItemNotFound {
-            log.log("keychain UPDATE status=\(updateStatus) account=\(account)")
-        }
+        // Delete any existing item first, then insert fresh. SecItemUpdate cannot
+        // reliably change `kSecAttrAccessible` on an existing item, so an item a
+        // prior build wrote with the syncable `AfterFirstUnlock` class would keep
+        // its old accessibility on update. Delete-then-add guarantees the
+        // device-only accessibility is applied on every write, migrating existing
+        // users on their next token refresh. Writes are infrequent, so the churn
+        // is acceptable.
+        SecItemDelete(lookup as CFDictionary)
         var insert = lookup
         insert[kSecValueData as String] = data
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        // Device-only: long-lived OAuth refresh tokens must not be eligible for
+        // iCloud Keychain restore onto another device. `AfterFirstUnlock` is kept
+        // (rather than `WhenUnlocked`) so background token refresh and session
+        // resume while the screen is locked keep working; only the `*ThisDeviceOnly`
+        // suffix changes from the previous setting, removing the sync vector.
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         let addStatus = SecItemAdd(insert as CFDictionary, nil)
         if addStatus != errSecSuccess {
             log.log("keychain ADD status=\(addStatus) account=\(account)")
