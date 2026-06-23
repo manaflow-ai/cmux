@@ -72,10 +72,8 @@ struct WorkspaceDetailView: View {
     }
 
     /// Extra blank top padding for the terminal/chat, on top of the safe area. The
-    /// grid already sits below the nav bar (inside the top safe area), so this is
-    /// pure blank space between the header and the first row. Keep it minimal — a
-    /// hairline so the first row is not jammed against the bar's bottom edge,
-    /// nothing more.
+    /// grid already sits below the nav bar (in the top safe area), so this is just
+    /// a hairline so the first row is not jammed against the bar's bottom edge.
     private var terminalTopPadding: CGFloat { 4 }
 
     /// The active browser surface for this workspace, when a browser pane is open.
