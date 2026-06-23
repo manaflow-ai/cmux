@@ -1972,6 +1972,23 @@
       "metaDescription": "cmuxと他のmacOSターミナルの比較、Ghostty上に構築されている仕組み、Claude Code・Codex・OpenCodeをcmuxで実行する方法のガイド。",
       "title": "ガイド",
       "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
+    },
+    "cta": {
+      "freeOpenSource": "cmuxはmacOS向けの無料・オープンソースです。",
+      "seeAlso": "関連項目"
+    },
+    "links": {
+      "bestTerminal": "Mac向けベストターミナル",
+      "builtOnGhostty": "cmuxがGhostty上に構築されている仕組み",
+      "claude": "Claude Code向けターミナル",
+      "codex": "Codex CLI向けターミナル",
+      "opencode": "OpenCode向けターミナル",
+      "getStarted": "cmuxを始める",
+      "configuration": "設定（Ghostty設定）",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "Claude Codeチーム",
+      "notifications": "通知"
     }
   }
 }

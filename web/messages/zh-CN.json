@@ -1678,6 +1678,23 @@
       "metaDescription": "对比 cmux 与其他 macOS 终端的指南，介绍它如何基于 Ghostty 构建，以及如何在 cmux 中运行 Claude Code、Codex 和 OpenCode。",
       "title": "指南",
       "intro": "cmux 的对比、背景与使用场景指南。产品文档请参阅文档。"
+    },
+    "cta": {
+      "freeOpenSource": "cmux 是面向 macOS 的免费开源软件。",
+      "seeAlso": "另请参阅"
+    },
+    "links": {
+      "bestTerminal": "Mac 上最佳终端",
+      "builtOnGhostty": "cmux 如何基于 Ghostty 构建",
+      "claude": "为 Claude Code 打造的终端",
+      "codex": "为 Codex CLI 打造的终端",
+      "opencode": "为 OpenCode 打造的终端",
+      "getStarted": "开始使用 cmux",
+      "configuration": "配置（Ghostty config）",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "Claude Code 团队",
+      "notifications": "通知"
     }
   }
 }

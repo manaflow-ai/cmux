@@ -1678,6 +1678,23 @@
       "metaDescription": "對比 cmux 與其他 macOS 終端機的指南，介紹它如何基於 Ghostty 構建，以及如何在 cmux 中執行 Claude Code、Codex 和 OpenCode。",
       "title": "指南",
       "intro": "cmux 的對比、背景與使用場景指南。產品文件請參閱文件。"
+    },
+    "cta": {
+      "freeOpenSource": "cmux 是專為 macOS 打造的免費開源軟體。",
+      "seeAlso": "另請參閱"
+    },
+    "links": {
+      "bestTerminal": "Mac 上最佳終端機",
+      "builtOnGhostty": "cmux 如何建立在 Ghostty 之上",
+      "claude": "為 Claude Code 打造的終端機",
+      "codex": "為 Codex CLI 打造的終端機",
+      "opencode": "為 OpenCode 打造的終端機",
+      "getStarted": "開始使用 cmux",
+      "configuration": "設定（Ghostty config）",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "Claude Code 團隊",
+      "notifications": "通知"
     }
   }
 }

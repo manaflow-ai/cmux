@@ -1678,6 +1678,23 @@
       "metaDescription": "أدلة تقارن cmux بطرفيات macOS الأخرى، وكيف بُني على Ghostty، وكيفية تشغيل Claude Code وCodex وOpenCode في cmux.",
       "title": "الأدلة",
       "intro": "مقارنات وخلفية وأدلة حالات الاستخدام لـ cmux. للاطّلاع على وثائق المنتج، راجع docs."
+    },
+    "cta": {
+      "freeOpenSource": "cmux مجاني ومفتوح المصدر لنظام macOS.",
+      "seeAlso": "انظر أيضًا"
+    },
+    "links": {
+      "bestTerminal": "أفضل طرفية لنظام Mac",
+      "builtOnGhostty": "كيف بُني cmux على Ghostty",
+      "claude": "طرفية لـ Claude Code",
+      "codex": "طرفية لـ Codex CLI",
+      "opencode": "طرفية لـ OpenCode",
+      "getStarted": "ابدأ مع cmux",
+      "configuration": "الإعدادات (Ghostty config)",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "فِرق Claude Code",
+      "notifications": "الإشعارات"
     }
   }
 }

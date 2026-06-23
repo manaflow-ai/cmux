@@ -1678,6 +1678,23 @@
       "metaDescription": "คู่มือที่เปรียบเทียบ cmux กับเทอร์มินัล macOS อื่น ๆ วิธีที่มันสร้างบน Ghostty และวิธีรัน Claude Code, Codex และ OpenCode ใน cmux",
       "title": "คู่มือ",
       "intro": "การเปรียบเทียบ ภูมิหลัง และคู่มือกรณีใช้งานสำหรับ cmux สำหรับเอกสารผลิตภัณฑ์ ดูได้ที่ docs"
+    },
+    "cta": {
+      "freeOpenSource": "cmux เป็นซอฟต์แวร์ฟรีและโอเพนซอร์สสำหรับ macOS",
+      "seeAlso": "ดูเพิ่มเติม"
+    },
+    "links": {
+      "bestTerminal": "เทอร์มินัลที่ดีที่สุดสำหรับ Mac",
+      "builtOnGhostty": "cmux สร้างบน Ghostty อย่างไร",
+      "claude": "เทอร์มินัลสำหรับ Claude Code",
+      "codex": "เทอร์มินัลสำหรับ Codex CLI",
+      "opencode": "เทอร์มินัลสำหรับ OpenCode",
+      "getStarted": "เริ่มต้นใช้งาน cmux",
+      "configuration": "การตั้งค่า (Ghostty config)",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "ทีม Claude Code",
+      "notifications": "การแจ้งเตือน"
     }
   }
 }

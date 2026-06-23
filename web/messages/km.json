@@ -1678,6 +1678,23 @@
       "metaDescription": "មគ្គុទ្ទេសក៍ប្រៀបធៀប cmux ជាមួយស្ថានីយ macOS ផ្សេងទៀត របៀបដែលវាត្រូវបានបង្កើតលើ Ghostty និងរបៀបដំណើរការ Claude Code, Codex និង OpenCode នៅក្នុង cmux។",
       "title": "មគ្គុទ្ទេសក៍",
       "intro": "ការប្រៀបធៀប ប្រវត្តិ និងមគ្គុទ្ទេសក៍ករណីប្រើប្រាស់សម្រាប់ cmux។ សម្រាប់ឯកសារផលិតផល សូមមើល docs។"
+    },
+    "cta": {
+      "freeOpenSource": "cmux គឺឥតគិតថ្លៃ និងជាប្រភពកូដបើកចំហសម្រាប់ macOS។",
+      "seeAlso": "មើលផងដែរ"
+    },
+    "links": {
+      "bestTerminal": "ទែមីណលល្អបំផុតសម្រាប់ Mac",
+      "builtOnGhostty": "របៀបដែល cmux ត្រូវបានបង្កើតនៅលើ Ghostty",
+      "claude": "ទែមីណលសម្រាប់ Claude Code",
+      "codex": "ទែមីណលសម្រាប់ Codex CLI",
+      "opencode": "ទែមីណលសម្រាប់ OpenCode",
+      "getStarted": "ចាប់ផ្តើមជាមួយ cmux",
+      "configuration": "ការកំណត់រចនាសម្ព័ន្ធ (Ghostty config)",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "ក្រុម Claude Code",
+      "notifications": "ការជូនដំណឹង"
     }
   }
 }

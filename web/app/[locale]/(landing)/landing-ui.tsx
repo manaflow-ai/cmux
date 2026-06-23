@@ -1,5 +1,7 @@
-import { Link } from "../../../i18n/navigation";
+import { useTranslations } from "next-intl";
 import { DownloadButton } from "../components/download-button";
+import { GitHubButton } from "../components/github-button";
+import { TrackedLink } from "./tracked-link";
 
 /** Comparison/spec table. First cell of each row is rendered bold. */
 export function CompareTable({
@@ -37,27 +39,23 @@ export function LandingCTA({
 }: {
   related?: { href: string; label: string }[];
 }) {
+  const t = useTranslations("landing.cta");
   return (
     <div className="not-prose mt-10 border-t border-border pt-8">
-      <p className="text-base font-medium mb-4">
-        cmux is free and open source for macOS.
-      </p>
+      <p className="text-base font-medium mb-4">{t("freeOpenSource")}</p>
       <div className="flex flex-wrap items-center gap-3">
         <DownloadButton location="landing" />
-        <a
-          href="https://github.com/manaflow-ai/cmux"
-          className="text-sm opacity-70 hover:opacity-100"
-        >
-          View on GitHub
-        </a>
+        <GitHubButton location="landing" />
       </div>
       {related && related.length > 0 ? (
         <div className="mt-8 text-sm">
-          <div className="opacity-60 mb-2">See also</div>
+          <div className="opacity-60 mb-2">{t("seeAlso")}</div>
           <ul className="flex flex-col gap-1">
             {related.map((r) => (
               <li key={r.href}>
-                <Link href={r.href}>{r.label}</Link>
+                <TrackedLink href={r.href} event="guide_link_clicked">
+                  {r.label}
+                </TrackedLink>
               </li>
             ))}
           </ul>

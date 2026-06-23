@@ -1,7 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
-import { Link } from "../../../../i18n/navigation";
 import { buildAlternates } from "../../../../i18n/seo";
+import { TrackedLink } from "../tracked-link";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -30,9 +30,13 @@ export default function GuidesPage() {
       <ul className="not-prose mt-6 flex flex-col gap-5">
         {ARTICLES.map((a) => (
           <li key={a.href}>
-            <Link href={a.href} className="text-base font-medium underline underline-offset-2">
+            <TrackedLink
+              href={a.href}
+              event="guide_link_clicked"
+              className="text-base font-medium underline underline-offset-2"
+            >
               {t(a.titleKey)}
-            </Link>
+            </TrackedLink>
             <p className="text-muted text-sm mt-1">{t(a.descKey)}</p>
           </li>
         ))}

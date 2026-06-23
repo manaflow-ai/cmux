@@ -16,6 +16,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 export default function CodexCliPage() {
   const t = useTranslations("landing.codex");
+  const tl = useTranslations("landing.links");
   const code = (chunks: React.ReactNode) => <code>{chunks}</code>;
   return (
     <>
@@ -48,10 +49,10 @@ export default function CodexCliPage() {
 
       <LandingCTA
         related={[
-          { href: "/claude-code-terminal", label: "A terminal for Claude Code" },
-          { href: "/opencode", label: "A terminal for OpenCode" },
-          { href: "/docs/agent-integrations/oh-my-codex", label: "oh-my-codex" },
-          { href: "/docs/getting-started", label: "Get started with cmux" },
+          { href: "/claude-code-terminal", label: tl("claude") },
+          { href: "/opencode", label: tl("opencode") },
+          { href: "/docs/agent-integrations/oh-my-codex", label: tl("ohMyCodex") },
+          { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />
     </>

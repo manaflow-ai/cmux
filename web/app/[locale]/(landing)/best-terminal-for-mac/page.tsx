@@ -15,6 +15,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 export default function BestTerminalForMacPage() {
   const t = useTranslations("landing.bestTerminal");
+  const tl = useTranslations("landing.links");
   return (
     <>
       <h1>{t("title")}</h1>
@@ -59,9 +60,9 @@ export default function BestTerminalForMacPage() {
 
       <LandingCTA
         related={[
-          { href: "/built-on-ghostty", label: "How cmux is built on Ghostty" },
-          { href: "/claude-code-terminal", label: "A terminal for Claude Code" },
-          { href: "/docs/getting-started", label: "Get started with cmux" },
+          { href: "/built-on-ghostty", label: tl("builtOnGhostty") },
+          { href: "/claude-code-terminal", label: tl("claude") },
+          { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />
     </>

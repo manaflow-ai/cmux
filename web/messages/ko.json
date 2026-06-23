@@ -1678,6 +1678,23 @@
       "metaDescription": "cmux를 다른 macOS 터미널과 비교하고, Ghostty 위에 어떻게 구축되었는지, 그리고 cmux에서 Claude Code, Codex, OpenCode를 실행하는 방법을 다루는 가이드입니다.",
       "title": "가이드",
       "intro": "cmux의 비교, 배경, 사용 사례 가이드입니다. 제품 문서는 문서를 참고하세요."
+    },
+    "cta": {
+      "freeOpenSource": "cmux는 macOS용 무료 오픈 소스입니다.",
+      "seeAlso": "함께 보기"
+    },
+    "links": {
+      "bestTerminal": "Mac을 위한 최고의 터미널",
+      "builtOnGhostty": "cmux가 Ghostty 위에 구축된 방식",
+      "claude": "Claude Code를 위한 터미널",
+      "codex": "Codex CLI를 위한 터미널",
+      "opencode": "OpenCode를 위한 터미널",
+      "getStarted": "cmux 시작하기",
+      "configuration": "구성(Ghostty config)",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "Claude Code 팀",
+      "notifications": "알림"
     }
   }
 }

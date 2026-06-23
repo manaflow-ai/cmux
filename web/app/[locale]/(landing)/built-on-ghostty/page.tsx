@@ -15,6 +15,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 
 export default function BuiltOnGhosttyPage() {
   const t = useTranslations("landing.ghostty");
+  const tl = useTranslations("landing.links");
   return (
     <>
       <h1>{t("title")}</h1>
@@ -42,9 +43,9 @@ export default function BuiltOnGhosttyPage() {
 
       <LandingCTA
         related={[
-          { href: "/best-terminal-for-mac", label: "Best terminal for Mac" },
-          { href: "/docs/configuration", label: "Configuration (Ghostty config)" },
-          { href: "/docs/getting-started", label: "Get started with cmux" },
+          { href: "/best-terminal-for-mac", label: tl("bestTerminal") },
+          { href: "/docs/configuration", label: tl("configuration") },
+          { href: "/docs/getting-started", label: tl("getStarted") },
         ]}
       />
     </>

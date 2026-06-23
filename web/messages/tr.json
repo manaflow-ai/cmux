@@ -1678,6 +1678,23 @@
       "metaDescription": "cmux'u diğer macOS terminalleriyle karşılaştıran, Ghostty üzerine nasıl inşa edildiğini ve cmux içinde Claude Code, Codex ve OpenCode'un nasıl çalıştırılacağını anlatan kılavuzlar.",
       "title": "Kılavuzlar",
       "intro": "cmux için karşılaştırmalar, arka plan ve kullanım senaryosu kılavuzları. Ürün belgeleri için docs bölümüne bakın."
+    },
+    "cta": {
+      "freeOpenSource": "cmux, macOS için ücretsiz ve açık kaynaktır.",
+      "seeAlso": "Ayrıca bakın"
+    },
+    "links": {
+      "bestTerminal": "Mac için en iyi terminal",
+      "builtOnGhostty": "cmux nasıl Ghostty üzerine kuruldu",
+      "claude": "Claude Code için bir terminal",
+      "codex": "Codex CLI için bir terminal",
+      "opencode": "OpenCode için bir terminal",
+      "getStarted": "cmux ile başlayın",
+      "configuration": "Yapılandırma (Ghostty config)",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "Claude Code ekipleri",
+      "notifications": "Bildirimler"
     }
   }
 }

@@ -1678,6 +1678,23 @@
       "metaDescription": "Vodiči koji porede cmux s drugim macOS terminalima, kako je izgrađen na Ghostty i kako pokrenuti Claude Code, Codex i OpenCode u cmux.",
       "title": "Vodiči",
       "intro": "Poređenja, pozadina i vodiči za slučajeve upotrebe za cmux. Za dokumentaciju proizvoda pogledajte docs."
+    },
+    "cta": {
+      "freeOpenSource": "cmux je besplatan i otvorenog koda za macOS.",
+      "seeAlso": "Pogledajte također"
+    },
+    "links": {
+      "bestTerminal": "Najbolji terminal za Mac",
+      "builtOnGhostty": "Kako je cmux izgrađen na Ghostty-ju",
+      "claude": "Terminal za Claude Code",
+      "codex": "Terminal za Codex CLI",
+      "opencode": "Terminal za OpenCode",
+      "getStarted": "Započnite s cmux-om",
+      "configuration": "Konfiguracija (Ghostty config)",
+      "ohMyCodex": "oh-my-codex",
+      "ohMyOpenCode": "oh-my-opencode",
+      "claudeTeams": "Claude Code timovi",
+      "notifications": "Notifikacije"
     }
   }
 }
