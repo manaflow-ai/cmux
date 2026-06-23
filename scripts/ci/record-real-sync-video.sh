@@ -63,16 +63,28 @@ IOS_RECORDER_PID=""
 SIMULATOR_ID=""
 SIMULATOR_CREATED="0"
 
+stop_pid_bounded() {
+  local pid="$1"
+  local signal="${2:-INT}"
+  if [[ -z "$pid" ]] || ! kill -0 "$pid" >/dev/null 2>&1; then
+    return 0
+  fi
+  kill "-$signal" "$pid" >/dev/null 2>&1 || true
+  for _ in $(seq 1 25); do
+    if ! kill -0 "$pid" >/dev/null 2>&1; then
+      wait "$pid" >/dev/null 2>&1 || true
+      return 0
+    fi
+    sleep 0.2
+  done
+  kill -KILL "$pid" >/dev/null 2>&1 || true
+  wait "$pid" >/dev/null 2>&1 || true
+}
+
 cleanup() {
   set +e
-  if [[ -n "$MAC_RECORDER_PID" ]] && kill -0 "$MAC_RECORDER_PID" >/dev/null 2>&1; then
-    kill -INT "$MAC_RECORDER_PID" >/dev/null 2>&1 || true
-    wait "$MAC_RECORDER_PID" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$IOS_RECORDER_PID" ]] && kill -0 "$IOS_RECORDER_PID" >/dev/null 2>&1; then
-    kill -INT "$IOS_RECORDER_PID" >/dev/null 2>&1 || true
-    wait "$IOS_RECORDER_PID" >/dev/null 2>&1 || true
-  fi
+  stop_pid_bounded "$MAC_RECORDER_PID" INT
+  stop_pid_bounded "$IOS_RECORDER_PID" INT
   if [[ -n "$SIMULATOR_ID" ]]; then
     xcrun simctl terminate "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
     xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
@@ -215,21 +227,46 @@ start_macos_recording() {
   (
     set +e
     i=0
+    failures=0
     while true; do
-      frame="$(printf "%s/frame-%05d.jpg" "$MAC_FRAME_DIR" "$i")"
-      screencapture -x -C -t jpg "$frame"
+      frame="$(printf "%s/frame-%05d.png" "$MAC_FRAME_DIR" "$i")"
+      label="$(printf "sync-%05d" "$i")"
+      params="$(python3 - "$SURFACE_ID" "$label" <<'PY'
+import json
+import sys
+print(json.dumps({"surface_id": sys.argv[1], "label": sys.argv[2]}, separators=(",", ":")))
+PY
+)"
+      payload="$(cmux_tagged rpc debug.panel_snapshot "$params" 2>>"$MAC_RECORD_LOG")"
+      snapshot_path="$(printf '%s\n' "$payload" | json_field path 2>/dev/null)"
+      if [[ -n "$snapshot_path" && -f "$snapshot_path" ]]; then
+        cp "$snapshot_path" "$frame"
+        failures=0
+      else
+        failures=$((failures + 1))
+        echo "debug.panel_snapshot failed payload=$payload" >&2
+        if [[ "$failures" -ge 10 ]]; then
+          exit 1
+        fi
+      fi
       i=$((i + 1))
-      sleep 0.12
+      sleep 0.25
     done
   ) >"$MAC_RECORD_LOG" 2>&1 &
   MAC_RECORDER_PID="$!"
   for _ in $(seq 1 40); do
-    if [[ "$(find "$MAC_FRAME_DIR" -name 'frame-*.jpg' -type f | wc -l | tr -d ' ')" -ge 2 ]]; then
+    if [[ "$(find "$MAC_FRAME_DIR" -name 'frame-*.png' -type f | wc -l | tr -d ' ')" -ge 2 ]]; then
       return 0
+    fi
+    if ! kill -0 "$MAC_RECORDER_PID" >/dev/null 2>&1; then
+      tail -80 "$MAC_RECORD_LOG" >&2 || true
+      return 1
     fi
     sleep 0.25
   done
-  cat "$MAC_RECORD_LOG" >&2 || true
+  stop_pid_bounded "$MAC_RECORDER_PID" TERM
+  MAC_RECORDER_PID=""
+  tail -80 "$MAC_RECORD_LOG" >&2 || true
   return 1
 }
 
@@ -240,25 +277,21 @@ start_ios_recording() {
     grep -q "Recording started" "$IOS_RECORD_LOG" 2>/dev/null && return 0
     sleep 0.25
   done
-  cat "$IOS_RECORD_LOG" >&2 || true
+  stop_pid_bounded "$IOS_RECORDER_PID" TERM
+  IOS_RECORDER_PID=""
+  tail -80 "$IOS_RECORD_LOG" >&2 || true
   return 1
 }
 
 stop_recorders() {
-  if [[ -n "$IOS_RECORDER_PID" ]] && kill -0 "$IOS_RECORDER_PID" >/dev/null 2>&1; then
-    kill -INT "$IOS_RECORDER_PID" >/dev/null 2>&1 || true
-    wait "$IOS_RECORDER_PID" >/dev/null 2>&1 || true
-  fi
+  stop_pid_bounded "$IOS_RECORDER_PID" INT
   IOS_RECORDER_PID=""
-  if [[ -n "$MAC_RECORDER_PID" ]] && kill -0 "$MAC_RECORDER_PID" >/dev/null 2>&1; then
-    kill -INT "$MAC_RECORDER_PID" >/dev/null 2>&1 || true
-    wait "$MAC_RECORDER_PID" >/dev/null 2>&1 || true
-  fi
+  stop_pid_bounded "$MAC_RECORDER_PID" INT
   MAC_RECORDER_PID=""
   local frame_count
-  frame_count="$(find "$MAC_FRAME_DIR" -name 'frame-*.jpg' -type f 2>/dev/null | wc -l | tr -d ' ')"
+  frame_count="$(find "$MAC_FRAME_DIR" -name 'frame-*.png' -type f 2>/dev/null | wc -l | tr -d ' ')"
   if [[ "$frame_count" -ge 2 && ! -s "$MAC_RAW_VIDEO" ]]; then
-    ffmpeg -hide_banner -y -framerate 8 -pattern_type glob -i "$MAC_FRAME_DIR/frame-*.jpg" \
+    ffmpeg -hide_banner -y -framerate 4 -pattern_type glob -i "$MAC_FRAME_DIR/frame-*.png" \
       -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" \
       -c:v libx264 -preset ultrafast -pix_fmt yuv420p "$MAC_RAW_VIDEO" >>"$MAC_RECORD_LOG" 2>&1
   fi
@@ -358,7 +391,9 @@ sleep 6
 
 cmux_tagged read-screen --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" --lines 20 > "$ARTIFACT_DIR/macos-read-screen.txt" || true
 xcrun simctl io "$SIMULATOR_ID" screenshot --type=png "$ARTIFACT_DIR/ios-final.png" || true
-screencapture -x "$ARTIFACT_DIR/macos-final.png" || true
+find "$MAC_FRAME_DIR" -name 'frame-*.png' -type f | sort | tail -1 | while read -r frame; do
+  cp "$frame" "$ARTIFACT_DIR/macos-final.png"
+done
 
 phase "stopping recorders"
 stop_recorders
