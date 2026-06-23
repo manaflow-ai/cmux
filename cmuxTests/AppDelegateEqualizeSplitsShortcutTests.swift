@@ -61,6 +61,43 @@ final class AppDelegateEqualizeSplitsShortcutTests: XCTestCase {
         }
     }
 
+    func testCmdShiftReturnInCanvasModeDoesNotToggleBonsplitSplitZoom() {
+        withTemporaryShortcut(action: .toggleSplitZoom) {
+            guard let appDelegate = AppDelegate.shared else {
+                XCTFail("Expected AppDelegate.shared")
+                return
+            }
+
+            let windowId = appDelegate.createMainWindow()
+            defer { closeWindow(withId: windowId) }
+
+            guard let window = window(withId: windowId),
+                  let manager = appDelegate.tabManagerFor(windowId: windowId),
+                  let workspace = manager.selectedWorkspace,
+                  let leftPanelId = workspace.focusedPanelId,
+                  workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) != nil,
+                  let event = makeKeyDownEvent(key: "\r", modifiers: [.command, .shift], keyCode: 36, windowNumber: window.windowNumber) else {
+                XCTFail("Expected split workspace and Cmd+Shift+Return event")
+                return
+            }
+
+            workspace.setLayoutMode(.canvas)
+            XCTAssertEqual(workspace.layoutMode, .canvas)
+            XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+            XCTAssertTrue(KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom).matches(event: event))
+
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            XCTAssertFalse(
+                workspace.bonsplitController.isSplitZoomed,
+                "In canvas mode, the split-zoom shortcut should drive canvas overview instead of Bonsplit zoom"
+            )
+        }
+    }
+
     func testConfiguredEqualizeSplitsShortcutBalancesWorkspaceDividers() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
