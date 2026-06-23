@@ -144,11 +144,15 @@ final class AgentChatSessionRegistry {
     /// - Parameter sessionID: The session to refresh.
     /// - Returns: The refreshed record, or `nil` when unknown.
     @discardableResult
-    func refreshBindingsFromHookStore(sessionID: String) -> AgentChatSessionRecord? {
+    func refreshBindingsFromHookStore(sessionID: String) async -> AgentChatSessionRecord? {
         guard let record = records[sessionID] else { return nil }
-        guard let entry = hookStore.entry(agentSource: record.agentKind.sourceName, sessionID: sessionID) else {
-            return record
-        }
+        let store = hookStore
+        let source = record.agentKind.sourceName
+        // Whole-file JSON read+parse off the main actor.
+        let entry = await Task.detached(priority: .utility) {
+            store.entry(agentSource: source, sessionID: sessionID)
+        }.value
+        guard let entry else { return records[sessionID] }
         update(sessionID: sessionID) { $0.adoptBindings(from: entry, includingPID: false) }
         return records[sessionID]
     }
@@ -189,14 +193,20 @@ final class AgentChatSessionRegistry {
     }
 
     /// Seeds the registry from the on-disk hook stores so sessions started
-    /// before app launch are listable immediately. Dead processes register
-    /// as ended.
+    /// before app launch are listable. The whole-file JSON read+parse runs off
+    /// the main actor; only the (cheap) record application touches main state.
+    /// Dead processes register as ended.
     ///
     /// - Parameter agentSources: The agent store files to read.
-    func seedFromHookStores(agentSources: [String] = ["claude", "codex"]) {
-        for source in agentSources {
+    func seedFromHookStores(agentSources: [String] = ["claude", "codex"]) async {
+        let store = hookStore
+        let parsed: [(source: String, entries: [AgentChatHookSessionStore.Entry])] =
+            await Task.detached(priority: .utility) {
+                agentSources.map { (source: $0, entries: store.entries(agentSource: $0)) }
+            }.value
+        for (source, entries) in parsed {
             let kind = ChatAgentKind(source: source)
-            for entry in hookStore.entries(agentSource: source) {
+            for entry in entries {
                 guard records[entry.sessionID] == nil else { continue }
                 let alive = entry.pid.map { kill(pid_t($0), 0) == 0 } ?? false
                 var record = AgentChatSessionRecord(
@@ -251,23 +261,19 @@ final class AgentChatSessionRegistry {
             record.pid = event.ppid
             hookStoreConsultedAt[sessionID] = event.receivedAt
         }
-        // The hook store is a whole-file JSON read on the main actor;
-        // consult it at most every 30s per session while fields are still
-        // missing (pid can legitimately stay absent), not on every
-        // pre/postToolUse during a tool storm. Consult BEFORE applying the
-        // event's own fields: the store lags the event by one write, so
-        // the live event must win any disagreement.
+        // The hook store is a whole-file JSON read+parse; never do it on the
+        // main actor. Consult it at most every 30s per session while bindings
+        // are still missing (pid can legitimately stay absent), not on every
+        // pre/postToolUse during a tool storm. The read is deferred off-main
+        // (see backfillBindingsFromStore) and applied later, filling only
+        // still-nil fields — so the live event below always wins a disagreement
+        // (the store lags the event by one write).
         let needsHookStore = record.surfaceID == nil || record.transcriptPath == nil || record.pid == nil
         let lastConsult = hookStoreConsultedAt[sessionID]
-        if needsHookStore,
-           lastConsult.map({ event.receivedAt.timeIntervalSince($0) > 30 }) ?? true {
+        let shouldConsultStore = needsHookStore
+            && (lastConsult.map { event.receivedAt.timeIntervalSince($0) > 30 } ?? true)
+        if shouldConsultStore {
             hookStoreConsultedAt[sessionID] = event.receivedAt
-            if let entry = hookStore.entry(agentSource: event.source, sessionID: sessionID) {
-                // Adopt the store pid only when the record has none: the
-                // record's pid comes from the event's own ppid and is
-                // fresher than a store entry that may predate a resume.
-                record.adoptBindings(from: entry, includingPID: record.pid == nil)
-            }
         }
         if let workspaceID = event.workspaceId, !workspaceID.isEmpty {
             record.workspaceID = workspaceID
@@ -284,7 +290,44 @@ final class AgentChatSessionRegistry {
         syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
+        if shouldConsultStore {
+            backfillBindingsFromStore(sessionID: sessionID, agentSource: event.source)
+        }
         return record
+    }
+
+    /// Reads one session's hook-store entry OFF the main actor and applies any
+    /// still-missing bindings on the main actor. The hot path (`noteHookEvent`)
+    /// returns immediately; bindings land a moment later via `update`, which
+    /// re-tails and pushes if the transcript path just became known. Filling
+    /// only nil fields keeps the live event authoritative over the lagging
+    /// store.
+    private func backfillBindingsFromStore(sessionID: String, agentSource: String) {
+        let store = hookStore
+        Task { [weak self] in
+            let entry = await Task.detached(priority: .utility) {
+                store.entry(agentSource: agentSource, sessionID: sessionID)
+            }.value
+            guard let self, let entry else { return }
+            self.applyStoreBackfill(sessionID: sessionID, entry: entry)
+        }
+    }
+
+    /// Applies a hook-store entry's non-nil bindings to a record, but only when
+    /// it actually changes something — so a backfill that learns nothing new
+    /// does not bump the version or emit a no-op descriptor push.
+    private func applyStoreBackfill(sessionID: String, entry: AgentChatHookSessionStore.Entry) {
+        guard let current = records[sessionID] else { return }
+        var candidate = current
+        candidate.adoptBindings(from: entry, includingPID: current.pid == nil)
+        guard candidate.surfaceID != current.surfaceID
+            || candidate.workspaceID != current.workspaceID
+            || candidate.transcriptPath != current.transcriptPath
+            || candidate.workingDirectory != current.workingDirectory
+            || candidate.pid != current.pid else { return }
+        update(sessionID: sessionID) { record in
+            record.adoptBindings(from: entry, includingPID: record.pid == nil)
+        }
     }
 
     private func updateLiveSessionIndex(

@@ -46,7 +46,10 @@ final class AgentChatTranscriptService {
     /// at app startup. Sessions are tracked only via the reliable hook-event
     /// path thereafter; cmux does not detect agents that never fire a hook.
     func start() {
-        registry.seedFromHookStores()
+        // Seeding reads+parses the hook-store JSON off the main actor; kick it
+        // off and return. Live hook events also populate the registry, and the
+        // seed converges within milliseconds.
+        Task { [weak self] in await self?.registry.seedFromHookStores() }
     }
 
     /// Ingests one hook event (called from the socket dispatch path).
@@ -100,8 +103,8 @@ final class AgentChatTranscriptService {
     /// Re-adopts one session's terminal bindings from the hook store; see
     /// ``AgentChatSessionRegistry/refreshBindingsFromHookStore(sessionID:)``.
     @discardableResult
-    func refreshSessionBindings(sessionID: String) -> AgentChatSessionRecord? {
-        registry.refreshBindingsFromHookStore(sessionID: sessionID)
+    func refreshSessionBindings(sessionID: String) async -> AgentChatSessionRecord? {
+        await registry.refreshBindingsFromHookStore(sessionID: sessionID)
     }
 
     /// Serves one history page, starting the session's tailer on demand.

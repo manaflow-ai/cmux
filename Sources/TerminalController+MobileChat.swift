@@ -38,11 +38,11 @@ extension TerminalController {
         case "mobile.chat.history":
             return await v2MobileChatHistory(params: params)
         case "mobile.chat.send":
-            return v2MobileChatSend(params: params)
+            return await v2MobileChatSend(params: params)
         case "mobile.chat.interrupt":
-            return v2MobileChatInterrupt(params: params)
+            return await v2MobileChatInterrupt(params: params)
         case "mobile.chat.answer":
-            return v2MobileChatAnswer(params: params)
+            return await v2MobileChatAnswer(params: params)
         default:
             return .err(code: "method_not_found", message: "Unknown mobile method", data: [
                 "method": method
@@ -122,7 +122,7 @@ extension TerminalController {
             #if DEBUG
             cmuxDebugLog("mobile.chat.history transcript unresolved session=\(sessionID.prefix(8)); refreshing bindings")
             #endif
-            let refreshed = service.refreshSessionBindings(sessionID: sessionID)
+            let refreshed = await service.refreshSessionBindings(sessionID: sessionID)
             if refreshed?.transcriptPath != staleRecord.transcriptPath
                 || refreshed?.workingDirectory != staleRecord.workingDirectory {
                 page = await service.history(sessionID: sessionID, beforeSeq: beforeSeq, limit: limit)
@@ -147,7 +147,7 @@ extension TerminalController {
 
     /// `mobile.chat.send`: deliver attachments then inject the prompt into
     /// the session's terminal (bracketed paste + submit key).
-    func v2MobileChatSend(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatSend(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
@@ -156,12 +156,12 @@ extension TerminalController {
         guard !text.isEmpty || !attachments.isEmpty else {
             return .err(code: "invalid_params", message: "Nothing to send", data: nil)
         }
-        guard let terminalParams = mobileChatTerminalParams(sessionID: sessionID) else {
+        guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
         }
-        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -227,12 +227,12 @@ extension TerminalController {
 
     /// `mobile.chat.interrupt`: polite (Esc) or hard (ctrl-C) interrupt of
     /// the session's agent.
-    func v2MobileChatInterrupt(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatInterrupt(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id") else {
             return .err(code: "invalid_params", message: "Missing session_id", data: nil)
         }
         let hard = (params["hard"] as? Bool) ?? false
-        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -250,12 +250,12 @@ extension TerminalController {
 
     /// `mobile.chat.answer`: answer an in-terminal choice by display index
     /// (agent TUIs accept the option's number key).
-    func v2MobileChatAnswer(params: [String: Any]) -> V2CallResult {
+    func v2MobileChatAnswer(params: [String: Any]) async -> V2CallResult {
         guard let sessionID = v2RawString(params, "session_id"),
               let optionIndex = v2Int(params, "option_index"), optionIndex >= 0, optionIndex < 9 else {
             return .err(code: "invalid_params", message: "Missing session_id or option_index", data: nil)
         }
-        guard let terminalPanel = mobileChatTerminalPanel(sessionID: sessionID) else {
+        guard let terminalPanel = await mobileChatTerminalPanel(sessionID: sessionID) else {
             return .err(code: "not_found", message: Self.chatTerminalBindingErrorMessage, data: [
                 "session_id": sessionID
             ])
@@ -283,7 +283,7 @@ extension TerminalController {
     /// hook store (every hook event rewrites it with the current panel) and
     /// retried. If it still doesn't resolve we fail with an actionable error
     /// rather than redirect the prompt to some other terminal.
-    private func mobileChatTerminalParams(sessionID: String) -> [String: Any]? {
+    private func mobileChatTerminalParams(sessionID: String) async -> [String: Any]? {
         guard let service = agentChatTranscriptService else { return nil }
         guard let record = service.sessionRecord(sessionID: sessionID),
               let workspaceID = record.workspaceID else {
@@ -297,7 +297,7 @@ extension TerminalController {
         #if DEBUG
         cmuxDebugLog("mobile.chat binding stale session=\(sessionID.prefix(8)) surface=\(record.surfaceID?.prefix(8) ?? "nil"); refreshing from hook store")
         #endif
-        if let refreshed = service.refreshSessionBindings(sessionID: sessionID),
+        if let refreshed = await service.refreshSessionBindings(sessionID: sessionID),
            let surfaceID = refreshed.surfaceID,
            mobileChatBindingResolves(workspaceID: workspaceID, surfaceID: surfaceID),
            mobileChatBindingIsCurrentAgent(refreshed) {
@@ -354,8 +354,8 @@ extension TerminalController {
         }
     }
 
-    private func mobileChatTerminalPanel(sessionID: String) -> TerminalPanel? {
-        guard let terminalParams = mobileChatTerminalParams(sessionID: sessionID),
+    private func mobileChatTerminalPanel(sessionID: String) async -> TerminalPanel? {
+        guard let terminalParams = await mobileChatTerminalParams(sessionID: sessionID),
               let resolved = mobileResolveWorkspaceAndSurface(params: terminalParams, requireTerminal: true),
               let surfaceId = resolved.surfaceId else {
             #if DEBUG
