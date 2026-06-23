@@ -4873,11 +4873,7 @@ final class BrowserPanel: Panel, ObservableObject {
         usesTransparentWindow: Bool
     ) -> Bool {
         if usesTransparentBackground {
-            return drawsWebViewBackground(
-                opacity: opacity,
-                usesGhosttyGlassStyle: usesGhosttyGlassStyle,
-                usesTransparentWindow: usesTransparentWindow
-            )
+            return false
         }
         guard isBlankPage else { return true }
         return drawsWebViewBackground(
