@@ -36,6 +36,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
+    /// Whether the Mac reports this surface is scrolled up into scrollback.
+    /// Drives the floating jump-to-bottom affordance inside the terminal view.
+    var scrolledUp: Bool = false
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -74,6 +77,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // seed the surface's composerActive flag to match. SwiftUI does call
         // `updateUIView` right after `makeUIView`, but the compose button's intent
         // math reads this flag, so it must never depend on that ordering contract.
+        view.setScrolledUp(scrolledUp)
         view.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         return view
@@ -88,6 +92,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.setScrolledUp(scrolledUp)
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // A width change (rotation) is not a text change, so the field-content trigger

@@ -41,6 +41,58 @@ import Testing
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
 }
 
+@MainActor
+@Test func renderGridDeliveryTracksScrolledUpState() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    let scrolledUpFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "scrolled",
+        atBottom: false
+    )
+    store.deliverAuthoritativeTerminalRenderGrid(scrolledUpFrame, source: "test")
+    _ = try #require(await iterator.next())
+
+    #expect(store.terminalScrolledUp(surfaceID: surfaceID))
+
+    let atBottomFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 2,
+        columns: 12,
+        rows: 2,
+        text: "bottom",
+        atBottom: true
+    )
+    store.deliverAuthoritativeTerminalRenderGrid(atBottomFrame, source: "test")
+
+    #expect(!store.terminalScrolledUp(surfaceID: surfaceID))
+}
+
+@MainActor
+@Test func replayRenderGridDeliveryTracksScrolledUpState() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+
+    let replayFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        text: "replay",
+        atBottom: false
+    )
+    store.deliverTerminalRenderGrid(replayFrame, surfaceID: surfaceID)
+    _ = try #require(await iterator.next())
+
+    #expect(store.terminalScrolledUp(surfaceID: surfaceID))
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

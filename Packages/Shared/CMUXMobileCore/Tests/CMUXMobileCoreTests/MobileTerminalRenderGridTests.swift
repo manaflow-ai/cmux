@@ -354,6 +354,84 @@ import Testing
     #expect(decoded.terminalForeground == "#010203")
 }
 
+@Test func renderGridHasRoomToScrollOnlyWhenProducerReportsScrolledUp() throws {
+    let atBottom = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        rowSpans: [],
+        atBottom: true
+    )
+    let scrolledUp = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 2,
+        columns: 8,
+        rows: 1,
+        rowSpans: [],
+        atBottom: false
+    )
+    let unknown = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 3,
+        columns: 8,
+        rows: 1,
+        rowSpans: []
+    )
+
+    #expect(!atBottom.hasRoomToScrollToBottom)
+    #expect(scrolledUp.hasRoomToScrollToBottom)
+    #expect(!unknown.hasRoomToScrollToBottom)
+}
+
+@Test func renderGridAtBottomSurvivesJSONRoundTrip() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 1,
+        rowSpans: [],
+        atBottom: false
+    )
+
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(frame.jsonObject())
+
+    #expect(decoded.atBottom == false)
+    #expect(decoded.hasRoomToScrollToBottom)
+}
+
+@Test func renderGridDecodesMissingAtBottomAsUnknown() throws {
+    let object: [String: Any] = [
+        "format": MobileTerminalRenderGridFrame.currentFormat,
+        "surface_id": "terminal-a",
+        "state_seq": NSNumber(value: 44),
+        "columns": 8,
+        "rows": 4,
+        "row_spans": [],
+    ]
+
+    let frame = try MobileTerminalRenderGridFrame.decodeJSONObject(object)
+
+    #expect(frame.atBottom == nil)
+    #expect(!frame.hasRoomToScrollToBottom)
+}
+
+@Test func renderGridDeltaFrameCarriesAtBottom() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 8,
+        rows: 2,
+        rowSpans: [.init(row: 1, column: 0, text: "hi")],
+        atBottom: false
+    )
+
+    let delta = try frame.filteredRows([1], full: false)
+
+    #expect(delta.atBottom == false)
+    #expect(delta.hasRoomToScrollToBottom)
+}
+
 @Test func renderGridDeltaDropsFullStateFields() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",

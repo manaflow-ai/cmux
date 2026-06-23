@@ -3537,6 +3537,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     // internal (not fileprivate): witnesses for TerminalSurfaceNativeViewing
     // must match the conforming class's access level.
     var isKeyboardCopyModeActive: Bool { keyboardCopyModeActive }
+    var mobileViewportAtBottom: Bool? {
+        _ = flushPendingScrollbarIfAvailable()
+        guard let scrollbar else { return nil }
+        return scrollbar.offset + scrollbar.len >= scrollbar.total
+    }
+
     var currentKeyStateIndicatorText: String? {
         if let name = keyTables.last {
             return terminalKeyTableIndicatorText(name)

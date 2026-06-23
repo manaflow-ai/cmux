@@ -9,14 +9,19 @@ import Foundation
 final class MobileTerminalRenderObserver {
     static let shared = MobileTerminalRenderObserver()
 
-    private struct RenderGridState {
+    struct RenderGridState {
         var columns: Int
         var rows: Int
         var stateSeq: UInt64
+        var atBottom: Bool?
         /// Per-row signatures of text *and* resolved styling, so a style-only
         /// change (e.g. typing over a dimmed shell autosuggestion) still marks
         /// the row dirty. See `MobileTerminalRenderGridFrame.rowSignatures()`.
         var rowSignatures: [String]
+
+        func shouldEmitEmptyDelta(nextStateSeq: UInt64, nextAtBottom: Bool?) -> Bool {
+            stateSeq != nextStateSeq || atBottom != nextAtBottom
+        }
     }
 
     private var releaseFrameDemand: (() -> Void)?
@@ -203,7 +208,10 @@ final class MobileTerminalRenderObserver {
             }
 
             if changedRows.isEmpty {
-                guard previous.stateSeq != snapshot.frame.stateSeq else { return }
+                guard previous.shouldEmitEmptyDelta(
+                    nextStateSeq: snapshot.frame.stateSeq,
+                    nextAtBottom: snapshot.frame.atBottom
+                ) else { return }
                 guard let emptyFrame = try? MobileTerminalRenderGridFrame(
                     surfaceID: snapshot.frame.surfaceID,
                     stateSeq: snapshot.frame.stateSeq,
@@ -212,7 +220,8 @@ final class MobileTerminalRenderObserver {
                     cursor: snapshot.frame.cursor,
                     full: false,
                     styles: snapshot.frame.styles,
-                    rowSpans: []
+                    rowSpans: [],
+                    atBottom: snapshot.frame.atBottom
                 ) else {
                     return
                 }
@@ -231,6 +240,7 @@ final class MobileTerminalRenderObserver {
             columns: frame.columns,
             rows: frame.rows,
             stateSeq: frame.stateSeq,
+            atBottom: frame.atBottom,
             rowSignatures: nextSignatures
         )
         guard let payload = try? frame.jsonObject() else { return }

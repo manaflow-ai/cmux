@@ -43,6 +43,15 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
     /// Styled spans for the scrollback lines, row index `0..<scrollbackRows`
     /// (oldest first). Reuses ``styles`` by `styleID`.
     public var scrollbackSpans: [RowSpan]
+    /// Whether the producing Mac surface is pinned to the live bottom. `nil`
+    /// means an older producer did not report the position, so clients should
+    /// keep jump-to-bottom UI hidden rather than guessing.
+    public var atBottom: Bool?
+
+    /// Whether a client can scroll toward newer terminal output.
+    public var hasRoomToScrollToBottom: Bool {
+        atBottom == false
+    }
 
     public init(
         format: String = Self.currentFormat,
@@ -61,7 +70,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         terminalBackground: String? = nil,
         terminalCursorColor: String? = nil,
         scrollbackRows: Int = 0,
-        scrollbackSpans: [RowSpan] = []
+        scrollbackSpans: [RowSpan] = [],
+        atBottom: Bool? = nil
     ) throws {
         guard format == Self.currentFormat else {
             throw MobileTerminalRenderGridError.invalidFormat(format)
@@ -138,6 +148,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         self.terminalCursorColor = terminalCursorColor
         self.scrollbackRows = full ? resolvedScrollbackRows : 0
         self.scrollbackSpans = full ? scrollbackSpans : []
+        self.atBottom = atBottom
     }
 
     public init(from decoder: Decoder) throws {
@@ -159,6 +170,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         let terminalCursorColor = try container.decodeIfPresent(String.self, forKey: .terminalCursorColor)
         let scrollbackRows = try container.decodeIfPresent(Int.self, forKey: .scrollbackRows) ?? 0
         let scrollbackSpans = try container.decodeIfPresent([RowSpan].self, forKey: .scrollbackSpans) ?? []
+        let atBottom = try container.decodeIfPresent(Bool.self, forKey: .atBottom)
         try self.init(
             format: format,
             surfaceID: surfaceID,
@@ -176,7 +188,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: terminalBackground,
             terminalCursorColor: terminalCursorColor,
             scrollbackRows: scrollbackRows,
-            scrollbackSpans: scrollbackSpans
+            scrollbackSpans: scrollbackSpans,
+            atBottom: atBottom
         )
     }
 
@@ -188,7 +201,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         text: String,
         cursor: Cursor? = nil,
         full: Bool = true,
-        changedRows: Set<Int>? = nil
+        changedRows: Set<Int>? = nil,
+        atBottom: Bool? = nil
     ) throws -> MobileTerminalRenderGridFrame {
         let lines = normalizedRows(from: text, maxRows: rows)
         let includedRows = changedRows ?? Set(0..<rows)
@@ -211,7 +225,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             cursor: cursor,
             full: full,
             clearedRows: full ? [] : Array(includedRows.sorted()),
-            rowSpans: spans
+            rowSpans: spans,
+            atBottom: atBottom
         )
     }
 
@@ -294,7 +309,8 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
             terminalBackground: full ? terminalBackground : nil,
             terminalCursorColor: full ? terminalCursorColor : nil,
             scrollbackRows: full ? scrollbackRows : 0,
-            scrollbackSpans: full ? scrollbackSpans : []
+            scrollbackSpans: full ? scrollbackSpans : [],
+            atBottom: atBottom
         )
     }
 
@@ -405,6 +421,7 @@ public struct MobileTerminalRenderGridFrame: Codable, Equatable, Sendable {
         case terminalCursorColor = "terminal_cursor_color"
         case scrollbackRows = "scrollback_rows"
         case scrollbackSpans = "scrollback_spans"
+        case atBottom = "at_bottom"
     }
 
     /// Which terminal screen a full snapshot represents.

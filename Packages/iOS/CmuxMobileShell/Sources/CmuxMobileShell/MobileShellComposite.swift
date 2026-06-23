@@ -598,6 +598,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     var terminalScrollQueueTokensBySurfaceID: [String: UUID]
     var terminalScrollQueuesBySurfaceID: [String: TerminalScrollDeliveryQueue]
     var terminalScrollbackPrefetchStatesBySurfaceID: [String: TerminalScrollbackPrefetchState]
+    /// Latest server-reported scroll position by terminal surface.
+    public private(set) var terminalScrolledUpBySurfaceID: [String: Bool]
     private var rawTerminalInputBuffer: MobileTerminalInputSendBuffer
     private var pairingAttemptID: UUID
 
@@ -727,6 +729,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.terminalScrollQueueTokensBySurfaceID = [:]
         self.terminalScrollQueuesBySurfaceID = [:]
         self.terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        self.terminalScrolledUpBySurfaceID = [:]
         self.rawTerminalInputBuffer = MobileTerminalInputSendBuffer()
         self.pairingAttemptID = UUID()
     }
@@ -3567,6 +3570,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID = [:]
         terminalScrollQueuesBySurfaceID = [:]
         terminalScrollbackPrefetchStatesBySurfaceID = [:]
+        terminalScrolledUpBySurfaceID = [:]
         terminalOutputTransport = .rawBytes
         supportedHostCapabilities = []
         terminalSubscriptionRefreshTask?.cancel()
@@ -4922,6 +4926,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
     }
 
+    /// Returns whether the terminal surface is currently scrolled away from the bottom.
+    public func terminalScrolledUp(surfaceID: String) -> Bool {
+        terminalScrolledUpBySurfaceID[surfaceID] ?? false
+    }
+
+    func updateTerminalScrolledUp(surfaceID: String, scrolledUp: Bool) {
+        guard terminalScrolledUpBySurfaceID[surfaceID] != scrolledUp else { return }
+        terminalScrolledUpBySurfaceID[surfaceID] = scrolledUp
+    }
+
     private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
         var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
         bytes.append(snapshotBytes)
@@ -4955,6 +4969,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollQueueTokensBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollQueuesBySurfaceID.removeValue(forKey: surfaceID)
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
+        terminalScrolledUpBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops

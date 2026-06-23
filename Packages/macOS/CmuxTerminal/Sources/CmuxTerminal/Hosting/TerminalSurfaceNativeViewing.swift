@@ -20,6 +20,10 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// Whether keyboard copy mode is active on this view.
     var isKeyboardCopyModeActive: Bool { get }
 
+    /// Whether the native viewport is currently pinned to the terminal's live
+    /// bottom. `nil` means the view has not received a scrollbar packet yet.
+    var mobileViewportAtBottom: Bool? { get }
+
     /// Toggles keyboard copy mode.
     ///
     /// - Returns: Whether the view handled the toggle.
@@ -34,4 +38,10 @@ public protocol TerminalSurfaceNativeViewing: NSView, TerminalSurfaceHosting {
     /// - Returns: Whether a refresh was performed.
     @discardableResult
     func forceRefreshSurface() -> Bool
+}
+
+/// Default mobile viewport metadata for native terminal view adapters.
+public extension TerminalSurfaceNativeViewing {
+    /// Whether the mobile mirror of this terminal is pinned to the live bottom.
+    var mobileViewportAtBottom: Bool? { nil }
 }

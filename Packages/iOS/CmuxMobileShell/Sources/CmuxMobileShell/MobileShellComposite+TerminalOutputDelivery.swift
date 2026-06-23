@@ -12,6 +12,10 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
+        updateTerminalScrolledUp(
+            surfaceID: surfaceID,
+            scrolledUp: frame.hasRoomToScrollToBottom
+        )
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,

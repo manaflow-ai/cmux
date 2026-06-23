@@ -944,6 +944,21 @@ struct MobileHostAuthorizationTests {
         #expect(!MobileHostService.debugHasEventSubscribersForTesting(topic: "terminal.updated"))
         #expect(!observer.debugIsRetainingNotificationDemandForTesting)
     }
+
+    @Test func testTerminalRenderObserverEmitsAtBottomOnlyDelta() {
+        let previous = MobileTerminalRenderObserver.RenderGridState(
+            columns: 80,
+            rows: 24,
+            stateSeq: 10,
+            atBottom: true,
+            rowSignatures: Array(repeating: "same", count: 24)
+        )
+
+        #expect(!previous.shouldEmitEmptyDelta(nextStateSeq: 10, nextAtBottom: true))
+        #expect(previous.shouldEmitEmptyDelta(nextStateSeq: 10, nextAtBottom: false))
+        #expect(previous.shouldEmitEmptyDelta(nextStateSeq: 11, nextAtBottom: true))
+    }
+
     @Test func testMobileWorkspaceListHashIncludesDisplayedDirectories() {
         let workspace = Workspace(
             title: "Mobile",
