@@ -29,6 +29,8 @@ struct DeviceTreeView: View {
 
     /// The computer pending a remove confirmation.
     @State private var pendingRemoval: MacComputerSnapshot?
+    /// Session-local search for narrowing the Computers management list.
+    @State private var searchText = ""
 
     /// The user's computers as immutable snapshots, sourced from the paired-Mac
     /// backup (`pairedMacs`) — this feature's source of truth, the same set that
@@ -64,14 +66,21 @@ struct DeviceTreeView: View {
         }
     }
 
+    private var filteredComputers: [MacComputerSnapshot] {
+        computers.filter { $0.matchesSearchQuery(searchText) }
+    }
+
     var body: some View {
         NavigationStack {
             List {
+                addComputerSection
                 if computers.isEmpty {
                     emptySection
+                } else if filteredComputers.isEmpty {
+                    noSearchResultsSection
                 } else {
                     Section {
-                        ForEach(computers) { computer in
+                        ForEach(filteredComputers) { computer in
                             NavigationLink(value: computer.deviceId) {
                                 MacComputerRow(computer: computer)
                             }
@@ -96,12 +105,15 @@ struct DeviceTreeView: View {
             }
             .navigationTitle(L10n.string("mobile.computers.title", defaultValue: "Computers"))
             .navigationBarTitleDisplayMode(.inline)
+            .searchable(
+                text: $searchText,
+                prompt: Text(L10n.string("mobile.computers.searchPrompt", defaultValue: "Search computers"))
+            )
             .toolbar {
                 if showAddDevice != nil {
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
                             showAddDevice?()
-                            dismiss()
                         } label: {
                             Image(systemName: "plus")
                         }
@@ -177,11 +189,39 @@ struct DeviceTreeView: View {
     }
 
     @ViewBuilder
+    private var addComputerSection: some View {
+        if showAddDevice != nil {
+            Section {
+                Button {
+                    showAddDevice?()
+                } label: {
+                    Label(
+                        L10n.string("mobile.computers.add", defaultValue: "Add Computer"),
+                        systemImage: "plus"
+                    )
+                }
+                .accessibilityIdentifier("MobileComputersAddRowButton")
+            }
+        }
+    }
+
+    @ViewBuilder
     private var emptySection: some View {
         Section {
             Text(L10n.string(
                 "mobile.computers.empty",
                 defaultValue: "No computers yet. Add one to see its workspaces here."
+            ))
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var noSearchResultsSection: some View {
+        Section {
+            Text(L10n.string(
+                "mobile.computers.searchEmpty",
+                defaultValue: "No computers match your search."
             ))
             .foregroundStyle(.secondary)
         }
