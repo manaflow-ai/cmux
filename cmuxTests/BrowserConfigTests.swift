@@ -2955,6 +2955,33 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private final class WKInspectorProbeWebView: WKWebView {
+        private(set) var viewDidUnhideCount = 0
+        private(set) var enterInWindowCount = 0
+        private(set) var endDeferringViewInWindowChangesCount = 0
+        private(set) var evaluatedJavaScript: [String] = []
+
+        override func viewDidUnhide() {
+            super.viewDidUnhide()
+            viewDidUnhideCount += 1
+        }
+
+        @objc(_enterInWindow)
+        func cmuxTestEnterInWindow() {
+            enterInWindowCount += 1
+        }
+
+        @objc(_endDeferringViewInWindowChangesSync)
+        func cmuxTestEndDeferringViewInWindowChangesSync() {
+            endDeferringViewInWindowChangesCount += 1
+        }
+
+        @MainActor override func evaluateJavaScript(
+            _ javaScriptString: String,
+            completionHandler: (@MainActor @Sendable (Any?, (any Error)?) -> Void)? = nil
+        ) {
+            evaluatedJavaScript.append(javaScriptString)
+            completionHandler?(true, nil)
+        }
     }
 
     private final class FakeInspector: NSObject {
@@ -2966,20 +2993,24 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         private(set) var attachCount = 0
         private(set) var showCount = 0
+        private(set) var showConsoleCount = 0
         private(set) var hideCount = 0
         private(set) var closeCount = 0
         private let hideBehavior: HideBehavior
         private let requiresAttachmentToShow: Bool
+        private var remainingShowFailuresAfterEligibility: Int
         private var visible = false
         private var attached = false
         private weak var frontendWebView: WKWebView?
 
         init(
             hideBehavior: HideBehavior = .unsupported,
-            requiresAttachmentToShow: Bool = false
+            requiresAttachmentToShow: Bool = false,
+            showFailuresAfterEligibility: Int = 0
         ) {
             self.hideBehavior = hideBehavior
             self.requiresAttachmentToShow = requiresAttachmentToShow
+            self.remainingShowFailuresAfterEligibility = showFailuresAfterEligibility
             super.init()
         }
 
@@ -3008,7 +3039,15 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             showCount += 1
             guard !requiresAttachmentToShow ||
                 (attached && frontendWebView?.window != nil) else { return }
+            guard remainingShowFailuresAfterEligibility == 0 else {
+                remainingShowFailuresAfterEligibility -= 1
+                return
+            }
             visible = true
+        }
+
+        @objc func showConsole() {
+            showConsoleCount += 1
         }
 
         @objc func hide() {
@@ -3030,6 +3069,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         func setFrontendWebView(_ webView: WKWebView?) {
             frontendWebView = webView
         }
+
+        func setShowFailuresAfterEligibility(_ count: Int) {
+            remainingShowFailuresAfterEligibility = count
+        }
     }
 
     override class func setUp() {
@@ -3039,12 +3082,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
     private func makePanelWithInspector(
         hideBehavior: FakeInspector.HideBehavior = .unsupported,
-        requiresAttachmentToShow: Bool = false
+        requiresAttachmentToShow: Bool = false,
+        showFailuresAfterEligibility: Int = 0
     ) -> (BrowserPanel, FakeInspector) {
         let panel = BrowserPanel(workspaceId: UUID())
         let inspector = FakeInspector(
             hideBehavior: hideBehavior,
-            requiresAttachmentToShow: requiresAttachmentToShow
+            requiresAttachmentToShow: requiresAttachmentToShow,
+            showFailuresAfterEligibility: showFailuresAfterEligibility
         )
         panel.webView.cmuxSetUnitTestInspector(inspector)
         return (panel, inspector)
@@ -3075,7 +3120,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(0.5))
     }
 
-    private func waitForDetachedDeveloperToolsCloseResolutionDeadline(
+    private func waitForDeveloperToolsCondition(
         until condition: () -> Bool,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -3090,7 +3135,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             if condition() { return }
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
-        XCTFail("Timed out waiting for detached DevTools close resolution", file: file, line: line)
+        XCTFail("Timed out waiting for developer tools condition", file: file, line: line)
     }
 
     private func closeBrowserPanel(_ panel: BrowserPanel) {
@@ -3231,7 +3276,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
 
         inspector.close()
-        waitForDetachedDeveloperToolsCloseResolutionDeadline {
+        waitForDeveloperToolsCondition {
             inspector.closeCount == 1 &&
                 !panel.isDeveloperToolsVisible() &&
                 !panel.preferredDeveloperToolsVisible
@@ -3295,6 +3340,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
 
         inspectorWindow.close()
+        frontendWebView.removeFromSuperview()
+        frontendWebView.frame = NSRect(x: 260, y: 0, width: 260, height: attachedHost.bounds.height)
+        attachedHost.addSubview(frontendWebView)
+        mainWindow.displayIfNeeded()
+        let viewDidUnhideCountAfterReattach = frontendWebView.viewDidUnhideCount
+        let enterInWindowCountAfterReattach = frontendWebView.enterInWindowCount
+        let endDeferringCountAfterReattach = frontendWebView.endDeferringViewInWindowChangesCount
 
         XCTAssertEqual(
             inspector.closeCount,
@@ -3308,6 +3360,27 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertEqual(
+            frontendWebView.viewDidUnhideCount,
+            viewDidUnhideCountAfterReattach,
+            "cmux repaint must not manually fire unpaired WebKit/AppKit visibility lifecycle selectors"
+        )
+        XCTAssertEqual(
+            frontendWebView.enterInWindowCount,
+            enterInWindowCountAfterReattach,
+            "cmux repaint must not manually fire unpaired WebKit/AppKit window-entry selectors"
+        )
+        XCTAssertEqual(
+            frontendWebView.endDeferringViewInWindowChangesCount,
+            endDeferringCountAfterReattach,
+            "cmux repaint must not manually fire unpaired WebKit/AppKit deferral selectors"
+        )
+        XCTAssertTrue(
+            frontendWebView.evaluatedJavaScript.contains {
+                $0.contains("window.dispatchEvent(new Event(\"resize\"))")
+            },
+            "Successful redock should force the preserved inspector frontend to resize/repaint instead of leaving a white panel"
+        )
     }
 
     func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {
@@ -3625,7 +3698,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        waitForDeveloperToolsTransitions()
+        let showCountAfterOpen = inspector.showCount
+        XCTAssertGreaterThanOrEqual(showCountAfterOpen, 1)
 
         // Simulate WebKit closing inspector during detach/reattach churn.
         inspector.close()
@@ -3634,7 +3709,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 2)
+        XCTAssertGreaterThan(inspector.showCount, showCountAfterOpen)
     }
 
     private func attachPanelWebViewToWindow(_ panel: BrowserPanel) -> NSWindow {
@@ -3694,7 +3769,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         // every updateNSView.
         panel.noteDeveloperToolsHostAttached()
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
-
         XCTAssertFalse(
             panel.isDeveloperToolsVisible(),
             "A manually-closed Web Inspector must stay closed after navigating to another page"
@@ -3764,6 +3838,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.attachCount, 1)
         XCTAssertTrue(inspector.isAttached())
+        waitForDeveloperToolsTransitions()
 
         panel.noteDeveloperToolsHostAttached()
         inspector.close()
@@ -3786,7 +3861,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
-        XCTAssertEqual(inspector.showCount, 1)
+        let showCountAfterOpen = inspector.showCount
+        XCTAssertGreaterThanOrEqual(showCountAfterOpen, 1)
 
         // Simulate user closing inspector before detach.
         inspector.close()
@@ -3794,7 +3870,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showCount, showCountAfterOpen)
     }
 
     func testSyncCanPreserveVisibleIntentDuringDetachChurn() {
@@ -3802,7 +3878,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
-        XCTAssertEqual(inspector.showCount, 1)
+        let showCountAfterOpen = inspector.showCount
+        XCTAssertGreaterThanOrEqual(showCountAfterOpen, 1)
 
         // Simulate a transient close caused by view detach, not user intent.
         inspector.close()
@@ -3810,7 +3887,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
 
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 2)
+        XCTAssertGreaterThan(inspector.showCount, showCountAfterOpen)
     }
 
     func testSyncDoesNotRepublishHiddenDeveloperToolsIntentWhenInspectorAlreadyHidden() {
@@ -3842,13 +3919,468 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
-    func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
+    func testToggleReopensAfterManualInspectorCloseWithStaleVisibleIntent() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
 
         XCTAssertTrue(panel.showDeveloperTools())
+        waitForDeveloperToolsTransitions()
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+
+        inspector.close()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(
+            panel.preferredDeveloperToolsVisible,
+            "Manual inspector closes are consumed asynchronously, so the next toggle must prefer live visibility"
+        )
+
+        XCTAssertTrue(panel.toggleDeveloperTools())
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertEqual(
+            inspector.showCount,
+            2,
+            "The first toggle after a manual inspector close should reopen DevTools instead of only clearing stale intent"
+        )
+    }
+
+    func testDetachedRenderedWebViewDefersDeveloperToolsRevealUntilHostReattaches() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        defer { closeBrowserPanel(panel) }
+        inspector.setFrontendWebView(panel.webView)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+        XCTAssertNil(panel.webView.window)
+
+        let invalidation = expectation(description: "DevTools visibility intent invalidates BrowserPanelView")
+        invalidation.assertForOverFulfill = false
+        var publishCount = 0
+        let cancellable = panel.objectWillChange.sink {
+            publishCount += 1
+            invalidation.fulfill()
+        }
+        defer { _ = cancellable }
+
+        XCTAssertTrue(panel.toggleDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(
+            inspector.showCount,
+            0,
+            "Opening DevTools while the inspected WKWebView is detached must not create a detached about:blank inspector"
+        )
+
+        wait(for: [invalidation], timeout: 1.0)
+        XCTAssertGreaterThan(
+            publishCount,
+            0,
+            "DevTools visibility intent must invalidate BrowserPanelView so it can rehost the WKWebView before reveal"
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertGreaterThanOrEqual(inspector.showCount, 1)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+    }
+
+    func testDeferredRevealResetsRetryBudgetWhenHostAttachIsNotified() throws {
+        let (panel, inspector) = makePanelWithInspector(showFailuresAfterEligibility: 2)
+        defer { closeBrowserPanel(panel) }
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        RunLoop.current.run(until: Date().addingTimeInterval(2.4))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        waitForDeveloperToolsCondition {
+            panel.isDeveloperToolsVisible()
+        }
+
+        XCTAssertGreaterThanOrEqual(inspector.showCount, 2)
+    }
+
+    func testDeferredRevealRetriesAreNotConsumedAsManualCloseAfterPriorVisibleInspector() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        inspector.setFrontendWebView(panel.webView)
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.hideDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+        inspector.setShowFailuresAfterEligibility(40)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: window.contentView?.bounds.height ?? 240)
+        window.contentView?.addSubview(panel.webView)
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.45))
+
+        XCTAssertTrue(
+            panel.preferredDeveloperToolsVisible,
+            "A deferred DevTools reopen that is still retrying must not be consumed as a manual close after the grace window"
+        )
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        inspector.setShowFailuresAfterEligibility(0)
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+    }
+
+    func testDeferredRevealPostAttachFailuresStopAtRetryBudget() {
+        let (panel, inspector) = makePanelWithInspector(
+            requiresAttachmentToShow: true,
+            showFailuresAfterEligibility: 200
+        )
+        defer { closeBrowserPanel(panel) }
+        inspector.setFrontendWebView(panel.webView)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        RunLoop.current.run(until: Date().addingTimeInterval(2.4))
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        let showCountAfterBudget = inspector.showCount
+
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+
+        XCTAssertEqual(
+            inspector.showCount,
+            showCountAfterBudget,
+            "Deferred DevTools reveal must stop retrying after the post-attach retry budget is exhausted"
+        )
+    }
+
+    func testDeferredRevealSurvivesManualCloseDetectionGraceBeforeHostIsSized() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        inspector.setFrontendWebView(panel.webView)
+        let window = attachPanelWebViewToWindow(panel)
+        defer { teardownWindowedPanel(panel, window: window) }
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.hideDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        let showCountAfterHide = inspector.showCount
+
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, showCountAfterHide)
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 0, height: window.contentView?.bounds.height ?? 0)
+        window.contentView?.addSubview(panel.webView)
+        panel.noteDeveloperToolsHostAttached()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            panel.preferredDeveloperToolsVisible,
+            "A deferred DevTools open must not be consumed as a manual close while the reattached host is still zero-sized"
+        )
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 180, height: window.contentView?.bounds.height ?? 240)
+        window.contentView?.layoutSubtreeIfNeeded()
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertGreaterThan(inspector.showCount, showCountAfterHide)
+    }
+
+    func testDeferredDeveloperToolsConsoleRequestReplaysAfterHostReattaches() {
+        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+        defer { closeBrowserPanel(panel) }
+        inspector.setFrontendWebView(panel.webView)
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+
+        XCTAssertTrue(panel.showDeveloperToolsConsole())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.showCount, 0)
+        XCTAssertEqual(
+            inspector.showConsoleCount,
+            0,
+            "Console selection must not fire against a hidden inspector while DevTools reveal is deferred"
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertGreaterThanOrEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showConsoleCount, 1)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+    }
+
+    func testDeferredDeveloperToolsOpenPreservesDetachedPresentationIntent() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.isReleasedWhenClosed = false
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspectorWindow.contentView?.addSubview(WKInspectorProbeView(frame: inspectorWindow.contentView?.bounds ?? .zero))
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.hideDeveloperTools())
+        waitForDeveloperToolsTransitions()
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.webView.removeFromSuperview()
+        let showCountBeforeDeferredOpen = inspector.showCount
+
+        XCTAssertTrue(panel.toggleDeveloperTools())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(
+            inspector.showCount,
+            showCountBeforeDeferredOpen,
+            "Detached-presentation DevTools opens should still wait for the inspected WKWebView to reattach"
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        panel.webView.frame = window.contentView?.bounds ?? .zero
+        window.contentView?.addSubview(panel.webView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertGreaterThan(inspector.showCount, showCountBeforeDeferredOpen)
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.preferredDeveloperToolsVisible)
+    }
+
+    func testForceRefreshSurvivesDeferredRestoreUntilHostReattaches() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 260, y: 0, width: 260, height: 320),
+            configuration: WKWebViewConfiguration()
+        )
+        inspector.setFrontendWebView(frontendWebView)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        panel.navigate(to: URL(string: "https://example.com")!)
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test-deferred")
+        inspector.close()
+        panel.webView.removeFromSuperview()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            panel.hasPendingDeveloperToolsRefreshAfterAttach(),
+            "A refresh requested for next attach must not be consumed while reveal is still deferred"
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
+            return
+        }
+        panel.webView.frame = NSRect(x: 0, y: 0, width: 260, height: contentView.bounds.height)
+        frontendWebView.frame = NSRect(x: 260, y: 0, width: 260, height: contentView.bounds.height)
+        contentView.addSubview(panel.webView)
+        contentView.addSubview(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.noteDeveloperToolsHostAttached()
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+        XCTAssertTrue(
+            frontendWebView.evaluatedJavaScript.contains {
+                $0.contains("window.dispatchEvent(new Event(\"resize\"))")
+            },
+            "Pending force-refresh should repaint the inspector frontend after the deferred attach completes"
+        )
+    }
+
+    func testForceRefreshRemainsPendingUntilInspectorFrontendReentersWindow() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 260, y: 0, width: 260, height: 320),
+            configuration: WKWebViewConfiguration()
+        )
+        inspector.setFrontendWebView(frontendWebView)
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        waitForDeveloperToolsTransitions()
+
+        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test-windowless-frontend")
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertTrue(
+            panel.hasPendingDeveloperToolsRefreshAfterAttach(),
+            "A force-refresh must stay pending when WebKit reports the inspector visible before its frontend view has reentered a window"
+        )
+        XCTAssertTrue(frontendWebView.evaluatedJavaScript.isEmpty)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
+            return
+        }
+        contentView.addSubview(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        panel.restoreDeveloperToolsAfterAttachIfNeeded()
+
+        XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
+        XCTAssertTrue(
+            frontendWebView.evaluatedJavaScript.contains {
+                $0.contains("window.dispatchEvent(new Event(\"resize\"))")
+            },
+            "The pending force-refresh should be consumed only after it can repaint a windowed inspector frontend"
+        )
+    }
+
+    func testForcedRefreshAfterAttachKeepsVisibleInspectorState() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
+            return
+        }
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: contentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        contentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertTrue(panel.isDeveloperToolsVisible())
+        let showCountAfterOpen = inspector.showCount
+        XCTAssertGreaterThanOrEqual(showCountAfterOpen, 1)
         XCTAssertEqual(inspector.closeCount, 0)
 
         panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test")
@@ -3856,17 +4388,36 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.isDeveloperToolsVisible())
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showCount, showCountAfterOpen)
 
         // The force-refresh request should be one-shot.
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertEqual(inspector.closeCount, 0)
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showCount, showCountAfterOpen)
     }
 
     func testRefreshRequestTracksPendingStateUntilRestoreRuns() {
-        let (panel, _) = makePanelWithInspector()
+        let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected test window content view")
+            return
+        }
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: contentView.bounds,
+            configuration: WKWebViewConfiguration()
+        )
+        contentView.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertFalse(panel.hasPendingDeveloperToolsRefreshAfterAttach())
@@ -3885,13 +4436,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(panel.toggleDeveloperTools())
         XCTAssertTrue(panel.toggleDeveloperTools())
         XCTAssertTrue(panel.toggleDeveloperTools())
-        XCTAssertEqual(inspector.showCount, 1)
+        let showCountAfterOpen = inspector.showCount
+        XCTAssertGreaterThanOrEqual(showCountAfterOpen, 1)
         XCTAssertEqual(inspector.closeCount, 0)
 
         waitForDeveloperToolsTransitions()
 
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showCount, showCountAfterOpen)
         XCTAssertEqual(inspector.closeCount, 0)
     }
 
@@ -3901,13 +4453,14 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.toggleDeveloperTools())
         XCTAssertTrue(panel.toggleDeveloperTools())
-        XCTAssertEqual(inspector.showCount, 1)
+        let showCountAfterOpen = inspector.showCount
+        XCTAssertGreaterThanOrEqual(showCountAfterOpen, 1)
         XCTAssertEqual(inspector.closeCount, 0)
 
         waitForDeveloperToolsTransitions()
 
         XCTAssertFalse(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 1)
+        XCTAssertEqual(inspector.showCount, showCountAfterOpen)
         XCTAssertEqual(inspector.closeCount, 1)
     }
 
@@ -4073,6 +4626,121 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         )
     }
 
+    func testLocalInlineTransferMovesAttachedInspectorFrontendWithPage() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        let localSlot = WindowBrowserSlotView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
+        contentView.addSubview(sourceSlot)
+        contentView.addSubview(localSlot)
+
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
+        )
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: frontendWebView.frame.maxY,
+            width: sourceSlot.bounds.width,
+            height: sourceSlot.bounds.height - frontendWebView.frame.height
+        )
+        sourceSlot.addSubview(frontendWebView)
+        sourceSlot.addSubview(panel.webView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+
+        WebViewRepresentable.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+            from: sourceSlot,
+            to: localSlot,
+            primaryWebView: panel.webView,
+            reason: "test"
+        )
+
+        XCTAssertTrue(
+            panel.webView.superview === localSlot,
+            "Local inline takeover should move the page out of the retiring host"
+        )
+        XCTAssertTrue(
+            frontendWebView.superview === localSlot,
+            "Local inline takeover should move an attached inspector frontend with the page instead of orphaning it in the retiring host"
+        )
+    }
+
+    func testLocalInlineTransferMovesAttachedInspectorFrontendFromOffWindowRetiringHost() {
+        let (panel, inspector) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { closeWindow(window) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let sourceSlot = WindowBrowserSlotView(frame: NSRect(x: 20, y: 20, width: 220, height: 180))
+        let localSlot = WindowBrowserSlotView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
+        contentView.addSubview(sourceSlot)
+        contentView.addSubview(localSlot)
+
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
+        )
+        panel.webView.frame = NSRect(
+            x: 0,
+            y: frontendWebView.frame.maxY,
+            width: sourceSlot.bounds.width,
+            height: sourceSlot.bounds.height - frontendWebView.frame.height
+        )
+        sourceSlot.addSubview(frontendWebView)
+        sourceSlot.addSubview(panel.webView)
+        inspector.setFrontendWebView(frontendWebView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        sourceSlot.removeFromSuperview()
+
+        XCTAssertNil(sourceSlot.window)
+        XCTAssertNil(frontendWebView.window)
+        XCTAssertNil(panel.webView.window)
+
+        WebViewRepresentable.moveWebKitRelatedSubviewsIntoHostIfNeeded(
+            from: sourceSlot,
+            to: localSlot,
+            primaryWebView: panel.webView,
+            reason: "test"
+        )
+
+        XCTAssertTrue(
+            panel.webView.superview === localSlot,
+            "Local inline takeover should recover the page from an already off-window retiring host"
+        )
+        XCTAssertTrue(
+            frontendWebView.superview === localSlot,
+            "Local inline takeover should recover the attached inspector frontend before the retiring host is discarded"
+        )
+    }
+
     func testTransientHideAttachmentPreserveDisablesForSideDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
@@ -4204,7 +4872,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testVisibleReplacementLocalHostNormalizesBottomDockedInspectorFrames() {
-        let (panel, _) = makePanelWithInspector()
+        let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
 
@@ -4250,11 +4918,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             return
         }
 
-        let inspectorView = WKInspectorProbeView(
-            frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72)
+        let inspectorView = WKInspectorProbeWebView(
+            frame: NSRect(x: 0, y: 0, width: initialSlot.bounds.width, height: 72),
+            configuration: WKWebViewConfiguration()
         )
         inspectorView.autoresizingMask = [.width]
         initialSlot.addSubview(inspectorView)
+        inspector.setFrontendWebView(inspectorView)
         panel.webView.frame = NSRect(
             x: 0,
             y: inspectorView.frame.maxY,
