@@ -370,6 +370,10 @@ phase "building and installing real iOS app"
 run_with_timeout 600 ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMULATOR_NAME" --no-launch
 phase "launching and auto-attaching real iOS app"
 SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA=0 \
+SIMCTL_CHILD_CMUX_UITEST_AUTH_FIXTURE=1 \
+SIMCTL_CHILD_CMUX_UITEST_AUTH_USER_ID=cloud-recording-user \
+SIMCTL_CHILD_CMUX_UITEST_AUTH_EMAIL=cloud-recording@cmux.local \
+SIMCTL_CHILD_CMUX_UITEST_AUTH_NAME="Cloud Recording" \
 SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
   run_with_timeout 30 xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" "$IOS_BUNDLE_ID"
 sleep 18
