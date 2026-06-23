@@ -699,7 +699,7 @@ func titlebarControlPassiveHoverBackgroundOpacity(
     isEnabled: Bool
 ) -> Double {
     guard isEnabled, isHovering, !isPressed else { return 0 }
-    return 0.025
+    return 0.016
 }
 
 struct TitlebarControlButton<Content: View>: View {

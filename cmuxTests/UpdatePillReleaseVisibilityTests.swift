@@ -411,15 +411,26 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     }
 
     func testStandaloneTitlebarHoverMatchesSplitButtonActiveSegment() {
+        let compactConfig = TitlebarControlsStyle.compact.config
+        let standaloneHoverOpacity = max(
+            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true)
+        )
+
         XCTAssertEqual(
             titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
-            0.09,
+            standaloneHoverOpacity,
             accuracy: 0.001
         )
         XCTAssertEqual(
             titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
-            0.025,
+            0.016,
             accuracy: 0.001
+        )
+        XCTAssertLessThan(
+            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            titlebarControlBackgroundOpacity(config: compactConfig, isHovering: true, isPressed: false),
+            "The inactive half of the compound plus/cloud control should be lighter than a normal hovered titlebar icon."
         )
         XCTAssertEqual(
             titlebarControlActiveHoverBackgroundOpacity(isHovering: false, isPressed: false, isEnabled: true),

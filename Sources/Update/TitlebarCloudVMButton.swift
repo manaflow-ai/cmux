@@ -31,10 +31,6 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
         titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: false, isEnabled: true)
     }
 
-    private var backgroundOpacity: Double {
-        titlebarControlBackgroundOpacity(config: config, isHovering: isHovering, isPressed: false, isEnabled: true)
-    }
-
     private var borderOpacity: Double {
         titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: false, isEnabled: true)
     }
@@ -97,10 +93,7 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
         .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
         .frame(width: TitlebarNewWorkspaceCloudSplitButtonMetrics.totalWidth(config: config), height: config.buttonSize)
         .background {
-            if backgroundOpacity > 0 {
-                RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                    .fill(foregroundColor.opacity(backgroundOpacity))
-            } else if config.buttonBackground {
+            if config.buttonBackground && !isHovering {
                 RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
                     .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
             }
