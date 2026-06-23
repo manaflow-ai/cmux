@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import GhosttyKit
 import UIKit
 
@@ -15,26 +16,57 @@ final class WeakGhosttySurfaceViewBox {
     }
 }
 
+private struct PendingGhosttyScrollbarUpdate {
+    let generation: UInt64
+    let total: UInt64
+    let offset: UInt64
+    let len: UInt64
+}
+
 extension GhosttySurfaceView {
     @MainActor
     static var registeredSurfaceViews: [UInt: WeakGhosttySurfaceViewBox] = [:]
+    @MainActor
+    private static var surfaceRegistrationGenerations: [UInt: UInt64] = [:]
+    @MainActor
+    private static var nextSurfaceRegistrationGeneration: UInt64 = 0
+    @MainActor
+    private static var pendingScrollbarUpdatesBySurface: [UInt: PendingGhosttyScrollbarUpdate] = [:]
+    @MainActor
+    private static var scheduledScrollbarUpdateSurfaces: Set<UInt> = []
 
     @MainActor
     static func register(surface: ghostty_surface_t, for view: GhosttySurfaceView) {
-        registeredSurfaceViews[surfaceIdentifier(for: surface)] = WeakGhosttySurfaceViewBox(view)
+        let identifier = surfaceIdentifier(for: surface)
+        nextSurfaceRegistrationGeneration &+= 1
+        pendingScrollbarUpdatesBySurface.removeValue(forKey: identifier)
+        scheduledScrollbarUpdateSurfaces.remove(identifier)
+        registeredSurfaceViews[identifier] = WeakGhosttySurfaceViewBox(view)
+        surfaceRegistrationGenerations[identifier] = nextSurfaceRegistrationGeneration
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
     }
 
     @MainActor
     static func unregister(surface: ghostty_surface_t) {
-        registeredSurfaceViews.removeValue(forKey: surfaceIdentifier(for: surface))
+        let identifier = surfaceIdentifier(for: surface)
+        registeredSurfaceViews.removeValue(forKey: identifier)
+        surfaceRegistrationGenerations.removeValue(forKey: identifier)
+        pendingScrollbarUpdatesBySurface.removeValue(forKey: identifier)
+        scheduledScrollbarUpdateSurfaces.remove(identifier)
     }
 
     @MainActor
     static func view(for surface: ghostty_surface_t) -> GhosttySurfaceView? {
-        let identifier = surfaceIdentifier(for: surface)
+        view(forSurfaceIdentifier: surfaceIdentifier(for: surface))
+    }
+
+    @MainActor
+    static func view(forSurfaceIdentifier identifier: UInt) -> GhosttySurfaceView? {
         guard let view = registeredSurfaceViews[identifier]?.value else {
             registeredSurfaceViews.removeValue(forKey: identifier)
+            surfaceRegistrationGenerations.removeValue(forKey: identifier)
+            pendingScrollbarUpdatesBySurface.removeValue(forKey: identifier)
+            scheduledScrollbarUpdateSurfaces.remove(identifier)
             return nil
         }
         return view
@@ -42,6 +74,55 @@ extension GhosttySurfaceView {
 
     static func surfaceIdentifier(for surface: ghostty_surface_t) -> UInt {
         UInt(bitPattern: UnsafeRawPointer(surface))
+    }
+
+    @MainActor
+    static func enqueueScrollbarUpdate(
+        total: UInt64,
+        offset: UInt64,
+        len: UInt64,
+        forSurfaceIdentifier identifier: UInt
+    ) {
+        guard let generation = surfaceRegistrationGenerations[identifier],
+              registeredSurfaceViews[identifier]?.value != nil else {
+            pendingScrollbarUpdatesBySurface.removeValue(forKey: identifier)
+            scheduledScrollbarUpdateSurfaces.remove(identifier)
+            return
+        }
+
+        pendingScrollbarUpdatesBySurface[identifier] = PendingGhosttyScrollbarUpdate(
+            generation: generation,
+            total: total,
+            offset: offset,
+            len: len
+        )
+
+        guard scheduledScrollbarUpdateSurfaces.insert(identifier).inserted else { return }
+        Task { @MainActor in
+            flushScrollbarUpdate(surfaceIdentifier: identifier, expectedGeneration: generation)
+        }
+    }
+
+    @MainActor
+    private static func flushScrollbarUpdate(surfaceIdentifier identifier: UInt, expectedGeneration: UInt64) {
+        guard let update = pendingScrollbarUpdatesBySurface[identifier],
+              update.generation == expectedGeneration else {
+            return
+        }
+        guard surfaceRegistrationGenerations[identifier] == expectedGeneration else {
+            pendingScrollbarUpdatesBySurface.removeValue(forKey: identifier)
+            scheduledScrollbarUpdateSurfaces.remove(identifier)
+            return
+        }
+
+        pendingScrollbarUpdatesBySurface.removeValue(forKey: identifier)
+        scheduledScrollbarUpdateSurfaces.remove(identifier)
+        updateScrollbar(
+            total: update.total,
+            offset: update.offset,
+            len: update.len,
+            forSurfaceIdentifier: identifier
+        )
     }
 
     /// Full-content capture for the "View as Text" copy sheet: the SCREEN
@@ -62,20 +143,22 @@ extension GhosttySurfaceView {
     /// later-enqueued `disposeSurface` free of the same pointer — the same
     /// lifetime argument `visibleTerminalSnapshot()` relies on.
     ///
-    /// The read is bounded at the source: iOS surfaces are created with
-    /// `scrollback-limit = 2000000` (see `GhosttyRuntime.applyiOSDefaults`),
-    /// so the SCREEN range can never materialize more than ~2MB of text no
-    /// matter how long the session ran. The sheet's 5000-line budget is then
-    /// applied off-main on top of that hard cap.
+    /// The read is bounded at the source: iOS surfaces are created with a
+    /// finite mirror scrollback byte budget derived from
+    /// `MobileTerminalScrollbackBudget.fullReplayRows`. The sheet's 5000-line
+    /// budget is then applied off-main on top of that hard cap.
     ///
     /// - Parameter surfaceID: The shell-level surface/terminal id the caller
     ///   wants text for (the same id the mounting representable stamped on the
     ///   view as ``hostSurfaceID``). The lookup is scoped to that id so a
     ///   second visible surface — another iPad scene, an in-flight transition —
     ///   can never leak a different workspace's terminal into the capture.
-    /// - Returns: The surface's screen text, or nil when that terminal has no
-    ///   mounted surface or the read fails.
-    public static func copyableTerminalText(surfaceID: String) async -> String? {
+    /// - Returns: The surface's capped screen text, or nil when that terminal
+    ///   has no mounted surface or the read fails.
+    public static func copyableTerminalText(
+        surfaceID: String,
+        lineBudget: Int
+    ) async -> MobileTerminalPlainTextCapture? {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Scoped pick: only views stamped with the requested id qualify, and
         // only while actually on screen (same visibility filter as
@@ -94,6 +177,11 @@ extension GhosttySurfaceView {
                     && candidate.window != nil && !candidate.isHidden
                     && candidate.alpha > 0.01
             }
+        if let snapshot = matchingView?.renderGridSnapshot {
+            return await Task.detached(priority: .userInitiated) {
+                snapshot.cappedPlainText(lineBudget: lineBudget)
+            }.value
+        }
         guard let surface = matchingView?.surface else { return nil }
         let handle = CopyableTextSurfaceHandle(surface: surface)
         return await withCheckedContinuation { continuation in
@@ -102,7 +190,10 @@ extension GhosttySurfaceView {
                 // viewport-only read if the screen read fails outright.
                 let text = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
                     ?? surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
-                continuation.resume(returning: text)
+                let capped = text.map {
+                    MobileTerminalPlainTextCapture.capped(fullText: $0, lineBudget: lineBudget)
+                }
+                continuation.resume(returning: capped)
             }
         }
     }

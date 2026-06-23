@@ -92,17 +92,43 @@ public struct MobileShellRouteAuthPolicy {
         }
     }
 
-    /// Whether a decoded pairing/attach ticket must be rejected because its
-    /// routes dial the device itself.
+    /// Returns supported ticket routes after removing candidates that would dial
+    /// the phone itself.
+    ///
+    /// Mac pairing tickets normally carry both a loopback route for simulator
+    /// dogfood and Tailscale routes for physical devices. A physical phone must
+    /// discard loopback candidates, but it should still use the safe routes that
+    /// ride in the same ticket.
+    public static func supportedTicketRoutes(
+        _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        isPhysicalDevice: Bool
+    ) -> [CmxAttachRoute] {
+        let supportedKinds = Set(supportedKinds)
+        return routes
+            .filter { route in
+                (supportedKinds.isEmpty || supportedKinds.contains(route.kind))
+                    && !(isPhysicalDevice && routeIsLoopback(route))
+            }
+            .sorted { left, right in
+                if left.priority == right.priority {
+                    return left.id < right.id
+                }
+                return left.priority < right.priority
+            }
+    }
+
+    /// Whether a decoded pairing/attach ticket must be rejected because every
+    /// otherwise-supported route dials the device itself.
     ///
     /// On a physical phone a loopback route can never name a legitimate Mac:
     /// dialing it reaches whatever process is listening on the phone's own
     /// localhost, and since loopback is in the Stack-auth-trusted set
     /// (``routeAllowsStackAuth(_:)``) the account bearer token would be
-    /// handed to that process. The v2 pairing-QR grammar rejects loopback in
-    /// the decoder; this policy closes the same hole for the legacy payload
-    /// grammars, which must keep decoding loopback for the simulator flow
-    /// (where 127.0.0.1 IS the host Mac and dev auto-pair depends on it).
+    /// handed to that process. This rejects tickets that have no non-loopback
+    /// route left for the current runtime. Mixed loopback+Tailscale tickets are
+    /// safe because ``supportedTicketRoutes(_:supportedKinds:isPhysicalDevice:)``
+    /// drops the loopback route before dialing.
     /// - Parameters:
     ///   - routes: The decoded ticket's routes.
     ///   - isPhysicalDevice: `true` on a physical iPhone/iPad, `false` in the
@@ -111,9 +137,16 @@ public struct MobileShellRouteAuthPolicy {
     ///   error instead of connecting.
     public static func ticketRejectsLoopbackRoutes(
         _ routes: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
         isPhysicalDevice: Bool
     ) -> Bool {
-        isPhysicalDevice && routes.contains(where: CmxLoopbackHost().matches)
+        isPhysicalDevice
+            && routes.contains(where: routeIsLoopback)
+            && supportedTicketRoutes(
+                routes,
+                supportedKinds: supportedKinds,
+                isPhysicalDevice: isPhysicalDevice
+            ).isEmpty
     }
 
     /// Whether the given route may carry Stack auth when reached via an implicit

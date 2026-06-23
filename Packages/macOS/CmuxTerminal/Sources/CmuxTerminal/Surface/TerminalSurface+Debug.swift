@@ -69,6 +69,13 @@ extension TerminalSurface {
         additionalEnvironment
     }
 
+    /// Test-only helper to drive Ghostty scrollback by fractional row offset.
+    @MainActor
+    public func debugScrollToRowOffsetForTesting(_ rowOffset: Double) -> Bool {
+        _ = rowOffset
+        return false
+    }
+
     /// How many force refreshes ran since the last reset.
     public func debugForceRefreshCount() -> Int {
         debugForceRefreshCountLock.lock()

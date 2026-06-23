@@ -2,6 +2,22 @@ import Foundation
 import Testing
 @testable import CMUXMobileCore
 
+@Test func mobileScrollbackBudgetsKeepReplayAndMirrorCapacityCoupled() {
+    let budget = MobileTerminalScrollbackBudget.localMirror
+    let scxLiveTailPhysicalRows = 2_600
+    let scxWrapScrollPhysicalRows = 2_600 * 3
+    let visibleRows: UInt64 = 48
+
+    #expect(MobileTerminalScrollbackBudget.fullReplayRows == budget.fullReplayRows)
+    #expect(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes == budget.localMirrorScrollbackLimitBytes)
+    #expect(budget.fullReplayRows >= scxLiveTailPhysicalRows)
+    #expect(budget.fullReplayRows >= scxWrapScrollPhysicalRows)
+    #expect(budget.expectedTotalRows(scrollbackRows: scxWrapScrollPhysicalRows, visibleRows: visibleRows) ==
+        UInt64(scxWrapScrollPhysicalRows) + visibleRows)
+    #expect(budget.localMirrorScrollbackLimitBytes >= budget.fullReplayRows * 12 * 1024)
+    #expect(budget.retentionAccountingSlackRows == 1)
+}
+
 @Test func renderGridFrameEncodesVisibleRowsAndCursor() throws {
     let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
         surfaceID: "terminal-a",
@@ -24,6 +40,7 @@ import Testing
     // the cursor.
     #expect(String(data: frame.vtReplacementBytes(), encoding: .utf8) ==
         "\u{1B}c\u{1B}[?2026h" +
+        "\u{1B}]110\u{1B}\\\u{1B}]111\u{1B}\\\u{1B}]112\u{1B}\\" +
         "\u{1B}[?7l\u{1B}[?25l\u{1B}[0m" +
         "\u{1B}[0m\u{1B}[1Galpha" +
         "\r\n\u{1B}[0m" +
@@ -32,6 +49,455 @@ import Testing
         "\u{1B}[0m\u{1B}[2 q\u{1B}[?25h\u{1B}[3;6H" +
         "\u{1B}[?2026l"
     )
+}
+
+@Test func renderGridSnapshotKeepsScrollbackAndStylesSemantic() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 12,
+        rows: 2,
+        styles: [
+            .init(id: 0, foreground: "#C0C0C0", background: "#101010"),
+            .init(id: 1, foreground: "#FF0000", bold: true),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "visible"),
+        ],
+        terminalForeground: "#C0C0C0",
+        terminalBackground: "#101010",
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, styleID: 0, text: "old-0"),
+            .init(row: 1, column: 0, styleID: 0, text: "old-1"),
+        ]
+    )
+
+    let snapshot = MobileTerminalRenderGridSnapshot(frame: frame)
+
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.visibleRowCount == 2)
+    #expect(snapshot.maxRowOffset == 2)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["old-0", "old-1"])
+    let bottom = snapshot.visibleRows(rowOffset: snapshot.maxRowOffset)
+    #expect(bottom.map(\.plainText) == ["visible", ""])
+    #expect(snapshot.plainText == "old-0\nold-1\nvisible\n")
+    #expect(bottom[0].spans.first?.style.foreground == "#FF0000")
+    #expect(bottom[0].spans.first?.style.bold == true)
+    #expect(snapshot.terminalBackground == "#101010")
+}
+
+@Test func renderGridSnapshotAppendsOverlappingLiveViewportDelta() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 1"),
+            .init(row: 1, column: 0, text: "line 2"),
+            .init(row: 2, column: 0, text: "line 3"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let deltaFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 3,
+        full: false,
+        clearedRows: [0, 1, 2],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 2"),
+            .init(row: 1, column: 0, text: "line 3"),
+            .init(row: 2, column: 0, text: "line 4"),
+        ]
+    )
+    let delta = try MobileTerminalRenderGridEnvelope.viewportDelta(deltaFrame)
+
+    snapshot.apply(delta)
+
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.maxRowOffset == 1)
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
+        "line 2", "line 3", "line 4",
+    ])
+}
+
+@Test func renderGridSnapshotDoesNotInventScrollbackForIdenticalFullViewportDelta() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "same"),
+            .init(row: 1, column: 0, text: "same"),
+            .init(row: 2, column: 0, text: "same"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let deltaFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 3,
+        full: false,
+        clearedRows: [0, 1, 2],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "same"),
+            .init(row: 1, column: 0, text: "same"),
+            .init(row: 2, column: 0, text: "same"),
+        ]
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(deltaFrame))
+
+    #expect(snapshot.totalRows == 3)
+    #expect(snapshot.maxRowOffset == 0)
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
+        "same", "same", "same",
+    ])
+}
+
+@Test func renderGridSnapshotShrinkViewportPreservesRowsThatBecomeScrollback() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 5,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 1"),
+            .init(row: 1, column: 0, text: "line 2"),
+            .init(row: 2, column: 0, text: "line 3"),
+            .init(row: 3, column: 0, text: "line 4"),
+            .init(row: 4, column: 0, text: "line 5"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let resized = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 3,
+        full: false,
+        clearedRows: [0, 1, 2],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 3"),
+            .init(row: 1, column: 0, text: "line 4"),
+            .init(row: 2, column: 0, text: "line 5"),
+        ]
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(resized))
+
+    #expect(snapshot.totalRows == 5)
+    #expect(snapshot.visibleRowCount == 3)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["line 1", "line 2", "line 3"])
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == ["line 3", "line 4", "line 5"])
+}
+
+@Test func renderGridSnapshotGrowViewportDoesNotDuplicateRevealedScrollbackRows() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 3"),
+            .init(row: 1, column: 0, text: "line 4"),
+            .init(row: 2, column: 0, text: "line 5"),
+        ],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "line 1"),
+            .init(row: 1, column: 0, text: "line 2"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let resized = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 5,
+        full: false,
+        clearedRows: [0, 1, 2, 3, 4],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 1"),
+            .init(row: 1, column: 0, text: "line 2"),
+            .init(row: 2, column: 0, text: "line 3"),
+            .init(row: 3, column: 0, text: "line 4"),
+            .init(row: 4, column: 0, text: "line 5"),
+        ]
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(resized))
+
+    #expect(snapshot.totalRows == 5)
+    #expect(snapshot.visibleRowCount == 5)
+    #expect(snapshot.maxRowOffset == 0)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["line 1", "line 2", "line 3", "line 4", "line 5"])
+}
+
+@Test func renderGridSnapshotPatchesPartialViewportDeltaInPlace() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 1"),
+            .init(row: 1, column: 0, text: "line 2"),
+            .init(row: 2, column: 0, text: "line 3"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let patchFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 3,
+        full: false,
+        clearedRows: [1],
+        rowSpans: [
+            .init(row: 1, column: 0, text: "patched"),
+        ]
+    )
+    let patch = try MobileTerminalRenderGridEnvelope.viewportDelta(patchFrame)
+
+    snapshot.apply(patch)
+
+    #expect(snapshot.totalRows == 3)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == [
+        "line 1", "patched", "line 3",
+    ])
+}
+
+@Test func renderGridSnapshotPreservesTerminalColorsWhenDeltaOmitsThem() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 1"),
+            .init(row: 1, column: 0, text: "line 2"),
+        ],
+        terminalForeground: "#E0E0E0",
+        terminalBackground: "#101010",
+        terminalCursorColor: "#FF00FF"
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let cursorOnly = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 2,
+        cursor: .init(row: 1, column: 3),
+        full: false,
+        rowSpans: []
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(cursorOnly))
+
+    #expect(snapshot.terminalForeground == "#E0E0E0")
+    #expect(snapshot.terminalBackground == "#101010")
+    #expect(snapshot.terminalCursorColor == "#FF00FF")
+    #expect(snapshot.cursor?.row == 1)
+    #expect(snapshot.cursor?.column == 3)
+}
+
+@Test func renderGridSnapshotKeepsStyledRowsAcrossCursorOnlyDelta() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        styles: [
+            .init(id: 0, foreground: "#E0E0E0", background: "#101010"),
+            .init(id: 1, foreground: "#FFAA00", background: "#202020", bold: true),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "colored"),
+            .init(row: 1, column: 0, styleID: 0, text: "plain"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+
+    let cursorOnly = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 2,
+        cursor: .init(row: 1, column: 3),
+        full: false,
+        rowSpans: []
+    )
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(cursorOnly))
+
+    let visible = snapshot.visibleRows(rowOffset: 0)
+    #expect(visible.map(\.plainText) == ["colored", "plain"])
+    #expect(visible[0].spans.first?.style.foreground == "#FFAA00")
+    #expect(visible[0].spans.first?.style.background == "#202020")
+    #expect(visible[0].spans.first?.style.bold == true)
+    #expect(snapshot.cursor?.row == 1)
+    #expect(snapshot.cursor?.column == 3)
+}
+
+@Test func renderGridSnapshotResetsTerminalColorsWhenDeltaCarriesNullState() throws {
+    let full = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "line 1"),
+            .init(row: 1, column: 0, text: "line 2"),
+        ],
+        terminalForeground: "#E0E0E0",
+        terminalBackground: "#101010",
+        terminalCursorColor: "#FF00FF"
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: full)
+    let reset = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 2,
+        full: false,
+        rowSpans: [],
+        terminalForegroundIsPresent: true,
+        terminalBackgroundIsPresent: true,
+        terminalCursorColorIsPresent: true
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(reset))
+
+    #expect(snapshot.terminalForeground == nil)
+    #expect(snapshot.terminalBackground == nil)
+    #expect(snapshot.terminalCursorColor == nil)
+}
+
+@Test func renderGridSnapshotFloorsFractionalOffsetsAndCanReturnExtraRow() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "row 2"),
+            .init(row: 1, column: 0, text: "row 3"),
+        ],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "row 0"),
+            .init(row: 1, column: 0, text: "row 1"),
+        ]
+    )
+    let snapshot = MobileTerminalRenderGridSnapshot(frame: frame)
+
+    #expect(snapshot.fractionalRowOffset(rowOffset: 1.75) == 0.75)
+    #expect(snapshot.visibleRows(rowOffset: 1.75).map(\.plainText) == ["row 1", "row 2"])
+    #expect(snapshot.visibleRows(rowOffset: 1.75, extraRows: 1).map(\.plainText) == [
+        "row 1", "row 2", "row 3",
+    ])
+}
+
+@Test func renderGridSnapshotKeepsPrimaryScrollbackAcrossAlternateScreenDeltas() throws {
+    let primary = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "shell 1"),
+            .init(row: 1, column: 0, text: "shell 2"),
+        ],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old 1"),
+            .init(row: 1, column: 0, text: "old 2"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: primary)
+
+    let alternate = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 2,
+        full: false,
+        clearedRows: [0, 1],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "vim 1"),
+            .init(row: 1, column: 0, text: "vim 2"),
+        ],
+        activeScreen: .alternate
+    )
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(alternate))
+    #expect(snapshot.activeScreen == .alternate)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["vim 1", "vim 2"])
+
+    let returnedPrimary = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 3,
+        columns: 20,
+        rows: 2,
+        full: false,
+        clearedRows: [0, 1],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "shell 3"),
+            .init(row: 1, column: 0, text: "shell 4"),
+        ]
+    )
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(returnedPrimary))
+
+    #expect(snapshot.activeScreen == .primary)
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["old 1", "old 2"])
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == ["shell 3", "shell 4"])
+}
+
+@Test func renderGridAlternateSnapshotPreservesPrimaryScrollbackForTUIExit() throws {
+    let alternateSnapshot = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 1,
+        columns: 20,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "vim 1"),
+            .init(row: 1, column: 0, text: "vim 2"),
+        ],
+        activeScreen: .alternate,
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old 1"),
+            .init(row: 1, column: 0, text: "old 2"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: alternateSnapshot)
+
+    #expect(snapshot.activeScreen == .alternate)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["vim 1", "vim 2"])
+
+    let returnedPrimary = try MobileTerminalRenderGridFrame(
+        surfaceID: "surface-a",
+        stateSeq: 2,
+        columns: 20,
+        rows: 2,
+        full: false,
+        clearedRows: [0, 1],
+        rowSpans: [
+            .init(row: 0, column: 0, text: "shell 1"),
+            .init(row: 1, column: 0, text: "shell 2"),
+        ]
+    )
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportDelta(returnedPrimary))
+
+    #expect(snapshot.activeScreen == .primary)
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["old 1", "old 2"])
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == ["shell 1", "shell 2"])
 }
 
 @Test func renderGridDeltaClearsOnlyChangedRows() throws {
@@ -82,6 +548,256 @@ import Testing
     // Erase the row, then repaint the shortened text.
     #expect(vt.contains("\u{1B}[1;1H\u{1B}[2K"))
     #expect(vt.contains("echo hell"))
+}
+
+@Test func renderGridEnvelopeSeparatesSnapshotOwnershipFromLiveDeltas() throws {
+    let snapshotFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 10,
+        columns: 8,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "alpha"),
+            .init(row: 1, column: 0, text: "beta"),
+        ],
+        scrollbackRows: 1,
+        scrollbackSpans: [.init(row: 0, column: 0, text: "old")]
+    )
+    let snapshot = try MobileTerminalRenderGridEnvelope.snapshot(snapshotFrame)
+
+    #expect(snapshot.ownsScrollback)
+    #expect(snapshot.scrollbackRowsForLocalMirror == 1)
+    #expect(snapshot.replayGrid?.columns == 8)
+    #expect(snapshot.replayGrid?.rows == 2)
+
+    let deltaFrame = try snapshotFrame.filteredRows([1], full: false)
+    let delta = try MobileTerminalRenderGridEnvelope.viewportDelta(deltaFrame)
+
+    #expect(!delta.ownsScrollback)
+    #expect(delta.scrollbackRowsForLocalMirror == nil)
+    #expect(delta.replayGrid == nil)
+
+    let replacementFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 11,
+        columns: 10,
+        rows: 2,
+        text: "gamma\ndelta"
+    )
+    let replacement = try MobileTerminalRenderGridEnvelope.viewportReplacement(replacementFrame)
+
+    #expect(!replacement.ownsScrollback)
+    #expect(replacement.scrollbackRowsForLocalMirror == nil)
+    #expect(replacement.replayGrid == nil)
+}
+
+@Test func alternateSnapshotExposesCarriedPrimaryScrollbackMetadata() throws {
+    let alternateFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 12,
+        columns: 8,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "vim"),
+            .init(row: 1, column: 0, text: "status"),
+        ],
+        activeScreen: .alternate,
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old 1"),
+            .init(row: 1, column: 0, text: "old 2"),
+        ]
+    )
+
+    let snapshot = try MobileTerminalRenderGridEnvelope.snapshot(alternateFrame)
+
+    #expect(snapshot.ownsScrollback)
+    #expect(snapshot.scrollbackRowsForLocalMirror == 2)
+}
+
+@Test func renderGridEnvelopeRejectsAmbiguousFrameRoles() throws {
+    let fullFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 11,
+        columns: 8,
+        rows: 1,
+        text: "live"
+    )
+    let deltaFrame = try fullFrame.filteredRows([0], full: false)
+
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.viewportDeltaRequiresDeltaFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.viewportDelta(fullFrame)
+    }
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.snapshotRequiresFullFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.snapshot(deltaFrame)
+    }
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.viewportReplacementRequiresFullFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.viewportReplacement(deltaFrame)
+    }
+}
+
+@Test func viewportReplacementReplacesViewportWhilePreservingRetainedScrollbackRows() throws {
+    let snapshotFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        columns: 12,
+        rows: 2,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "visible-1"),
+            .init(row: 1, column: 0, text: "visible-2"),
+        ],
+        scrollbackRows: 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old-1"),
+            .init(row: 1, column: 0, text: "old-2"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: snapshotFrame)
+    let replacementFrame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 21,
+        columns: 10,
+        rows: 2,
+        text: "new-1\nnew-2"
+    )
+
+    snapshot.apply(try .viewportReplacement(replacementFrame))
+
+    #expect(snapshot.totalRows == 4)
+    #expect(snapshot.plainText.contains("old-1"))
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == ["new-1", "new-2"])
+    #expect(snapshot.columns == 10)
+    #expect(snapshot.maxRowOffset == 2)
+}
+
+@Test func viewportReplacementClearsBlankRowsWithoutDiscardingRetainedScrollback() throws {
+    let snapshotFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        columns: 12,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "old-1"),
+            .init(row: 1, column: 0, text: "stale"),
+            .init(row: 2, column: 0, text: "old-3"),
+        ],
+        scrollbackRows: 1,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "history"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: snapshotFrame)
+    let replacementFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 21,
+        columns: 14,
+        rows: 3,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "new-1"),
+            .init(row: 2, column: 0, text: "new-3"),
+        ]
+    )
+
+    snapshot.apply(try .viewportReplacement(replacementFrame))
+
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
+        "new-1", "", "new-3",
+    ])
+    #expect(snapshot.plainText.contains("history"))
+    #expect(!snapshot.plainText.contains("stale"))
+}
+
+@Test func viewportReplacementCarriesFreshStyleAndTerminalColors() throws {
+    let initialFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 20,
+        columns: 12,
+        rows: 1,
+        styles: [
+            .default,
+            .init(id: 1, foreground: "#111111", background: "#222222"),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "old"),
+        ],
+        terminalForeground: "#eeeeee",
+        terminalBackground: "#000000",
+        terminalCursorColor: "#ff0000",
+        scrollbackRows: 1,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "past"),
+        ]
+    )
+    var snapshot = MobileTerminalRenderGridSnapshot(frame: initialFrame)
+    let replacementFrame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 21,
+        columns: 8,
+        rows: 1,
+        styles: [
+            .default,
+            .init(id: 1, foreground: "#00ff00", background: "#003300"),
+        ],
+        rowSpans: [
+            .init(row: 0, column: 0, styleID: 1, text: "new"),
+        ],
+        terminalForeground: "#f8f8f2",
+        terminalBackground: "#101010",
+        terminalCursorColor: "#f1fa8c"
+    )
+
+    snapshot.apply(try MobileTerminalRenderGridEnvelope.viewportReplacement(replacementFrame))
+
+    let retainedRow = try #require(snapshot.visibleRows(rowOffset: 0).first)
+    let retainedSpan = try #require(retainedRow.spans.first)
+    #expect(retainedSpan.text == "past")
+    #expect(retainedSpan.style.foreground == "#111111")
+    #expect(retainedSpan.style.background == "#222222")
+
+    let row = try #require(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).first)
+    let span = try #require(row.spans.first)
+    #expect(span.text == "new")
+    #expect(span.style.foreground == "#00ff00")
+    #expect(span.style.background == "#003300")
+    #expect(snapshot.terminalForeground == "#f8f8f2")
+    #expect(snapshot.terminalBackground == "#101010")
+    #expect(snapshot.terminalCursorColor == "#f1fa8c")
+}
+
+@Test func renderGridEnvelopeJSONRoundTripsRoleAndFrame() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 12,
+        columns: 8,
+        rows: 1,
+        text: "delta"
+    )
+    let envelope = try MobileTerminalRenderGridEnvelope.viewportDelta(
+        frame.filteredRows([0], full: false)
+    )
+    let object = try envelope.jsonObject()
+    let data = try JSONSerialization.data(withJSONObject: object)
+
+    #expect(try MobileTerminalRenderGridEnvelope.decode(data) == envelope)
+}
+
+@Test func renderGridEnvelopeDecodeRejectsFullLiveDeltaPayloads() throws {
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: "terminal-a",
+        stateSeq: 13,
+        columns: 8,
+        rows: 1,
+        text: "full"
+    )
+    let payload: [String: Any] = [
+        "role": MobileTerminalRenderGridEnvelope.Role.viewportDelta.rawValue,
+        "render_grid": try frame.jsonObject(),
+    ]
+    let data = try JSONSerialization.data(withJSONObject: payload)
+
+    #expect(throws: MobileTerminalRenderGridEnvelope.ValidationError.viewportDeltaRequiresDeltaFrame) {
+        _ = try MobileTerminalRenderGridEnvelope.decode(data)
+    }
 }
 
 @Test func renderGridDeltaClearsRowEmptiedByBackspace() throws {
@@ -325,6 +1041,38 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
 }
 
+@Test func renderGridDeltaEncodesNullDynamicColorAsReset() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 2,
+        columns: 4,
+        rows: 1,
+        full: false,
+        rowSpans: [],
+        terminalForegroundIsPresent: true,
+        terminalBackgroundIsPresent: true,
+        terminalCursorColorIsPresent: true
+    )
+
+    let object = try frame.jsonObject()
+    #expect(object["terminal_foreground"] is NSNull)
+    #expect(object["terminal_background"] is NSNull)
+    #expect(object["terminal_cursor_color"] is NSNull)
+
+    let decoded = try MobileTerminalRenderGridFrame.decodeJSONObject(object)
+    #expect(decoded.terminalForeground == nil)
+    #expect(decoded.terminalBackground == nil)
+    #expect(decoded.terminalCursorColor == nil)
+    #expect(decoded.terminalForegroundIsPresent)
+    #expect(decoded.terminalBackgroundIsPresent)
+    #expect(decoded.terminalCursorColorIsPresent)
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.contains("\u{1B}]110\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]111\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]112\u{1B}\\"))
+}
+
 @Test func renderGridEncodesFullStateFields() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
@@ -354,7 +1102,7 @@ import Testing
     #expect(decoded.terminalForeground == "#010203")
 }
 
-@Test func renderGridDeltaDropsFullStateFields() throws {
+@Test func renderGridDeltaDropsHistoryAndModesButPreservesColors() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",
         stateSeq: 1,
@@ -365,18 +1113,83 @@ import Testing
         rowSpans: [.init(row: 1, column: 0, text: "x")],
         activeScreen: .alternate,
         modes: [.init(code: 1000, ansi: false, on: true)],
+        terminalForeground: "#010203",
+        terminalBackground: "#040506",
+        terminalCursorColor: "#070809",
         scrollbackRows: 3,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
 
     // A delta frame carries no scrollback and does not enter the alt screen or
-    // replay modes; it only clears and repaints its changed rows.
+    // replay modes; it only updates render state, then clears and repaints its
+    // changed rows.
     #expect(frame.scrollbackRows == 0)
     #expect(frame.scrollbackSpans.isEmpty)
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
     #expect(!vt.contains("\u{1B}c"))
     #expect(!vt.contains("\u{1B}[?1049h"))
     #expect(!vt.contains("\u{1B}[?1000h"))
+    #expect(vt.contains("\u{1B}]10;rgb:01/02/03\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]11;rgb:04/05/06\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]12;rgb:07/08/09\u{1B}\\"))
+}
+
+@Test func renderGridPlainTextCaptureCapsRowsBeforeFlatteningScrollback() throws {
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 80,
+        rows: 2,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "visible-1"),
+            .init(row: 1, column: 0, text: "visible-2"),
+        ],
+        scrollbackRows: 4,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "old-1"),
+            .init(row: 1, column: 0, text: "old-2"),
+            .init(row: 2, column: 0, text: "old-3"),
+            .init(row: 3, column: 0, text: "old-4"),
+        ]
+    )
+    let snapshot = MobileTerminalRenderGridSnapshot(frame: frame)
+
+    let capture = snapshot.cappedPlainText(lineBudget: 3)
+
+    #expect(capture.text == "old-4\nvisible-1\nvisible-2")
+    #expect(capture.isTruncated)
+    #expect(capture.lineBudget == 3)
+}
+
+@Test func renderGridSnapshotCapsReplayScrollbackBeforeMaterializingRows() throws {
+    let retainedRows = MobileTerminalScrollbackBudget.fullReplayRows
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 80,
+        rows: 2,
+        full: true,
+        rowSpans: [
+            .init(row: 0, column: 0, text: "visible-1"),
+            .init(row: 1, column: 0, text: "visible-2"),
+        ],
+        scrollbackRows: retainedRows + 2,
+        scrollbackSpans: [
+            .init(row: 0, column: 0, text: "dropped"),
+            .init(row: 2, column: 0, text: "kept-first"),
+            .init(row: retainedRows + 1, column: 0, text: "kept-last"),
+        ]
+    )
+
+    let snapshot = MobileTerminalRenderGridSnapshot(frame: frame)
+
+    #expect(snapshot.totalRows == retainedRows + 2)
+    #expect(snapshot.visibleRows(rowOffset: 0).map(\.plainText) == ["kept-first", ""])
+    #expect(snapshot.visibleRows(rowOffset: snapshot.maxRowOffset).map(\.plainText) == [
+        "visible-1", "visible-2",
+    ])
+    #expect(snapshot.cappedPlainText(lineBudget: 1).text == "visible-2")
 }
 
 @Test func replaySynthesizerMatchesFrameForwardersAcrossFrameShapes() throws {

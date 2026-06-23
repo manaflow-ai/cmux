@@ -80,32 +80,49 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
     }
 
-    @Test func physicalDeviceRejectsLoopbackTicketsInEveryGrammar() throws {
-        // The v2 QR decoder rejects loopback itself; this policy is what stops
-        // the LEGACY payload grammars from being a bypass on a physical phone,
-        // where a loopback route dials the phone itself and loopback's
-        // Stack-auth trust would hand the bearer token to a local listener.
-        let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56577)
-        let loopbackUnderTailscaleKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: 56577)
-        let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 56577)
+    @Test func physicalDeviceDropsLoopbackAndUsesSafeRoutesFromMixedTickets() throws {
+        // The Mac's normal attach ticket carries loopback for simulator dogfood
+        // and Tailscale for physical devices. A phone must never dial loopback,
+        // but a loopback route should not poison a ticket that also has a safe
+        // Tailscale route.
+        let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: 56577, priority: 0)
+        let loopbackUnderTailscaleKind = try hostPortRoute(kind: .tailscale, host: "127.0.0.1", port: 56577, priority: 0)
+        let tailscale = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: 56577, priority: 10)
 
         #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
-            [loopback], isPhysicalDevice: true
+            [loopback], supportedKinds: [.debugLoopback, .tailscale], isPhysicalDevice: true
         ))
         #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
-            [loopbackUnderTailscaleKind], isPhysicalDevice: true
+            [loopbackUnderTailscaleKind], supportedKinds: [.tailscale], isPhysicalDevice: true
         ))
-        // One loopback route poisons the ticket even when a real route rides along.
         #expect(MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
-            [tailscale, loopback], isPhysicalDevice: true
+            [tailscale, loopback], supportedKinds: [.debugLoopback], isPhysicalDevice: true
         ))
         #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
-            [tailscale], isPhysicalDevice: true
+            [tailscale, loopback], supportedKinds: [.tailscale], isPhysicalDevice: true
         ))
+        #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
+            [tailscale], supportedKinds: [.tailscale], isPhysicalDevice: true
+        ))
+
+        let physicalRoutes = MobileShellRouteAuthPolicy.supportedTicketRoutes(
+            [loopback, loopbackUnderTailscaleKind, tailscale],
+            supportedKinds: [.debugLoopback, .tailscale],
+            isPhysicalDevice: true
+        )
+        #expect(physicalRoutes.map(\.endpoint) == [tailscale.endpoint])
+
+        let simulatorRoutes = MobileShellRouteAuthPolicy.supportedTicketRoutes(
+            [loopback, tailscale],
+            supportedKinds: [.debugLoopback, .tailscale],
+            isPhysicalDevice: false
+        )
+        #expect(simulatorRoutes.map(\.endpoint) == [loopback.endpoint, tailscale.endpoint])
+
         // The simulator flow legitimately pairs over loopback (127.0.0.1 IS
         // the host Mac there), so the policy never fires off-device.
         #expect(!MobileShellRouteAuthPolicy.ticketRejectsLoopbackRoutes(
-            [loopback], isPhysicalDevice: false
+            [loopback], supportedKinds: [.debugLoopback], isPhysicalDevice: false
         ))
     }
 }

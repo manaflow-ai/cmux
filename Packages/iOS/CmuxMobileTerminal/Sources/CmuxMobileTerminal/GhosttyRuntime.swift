@@ -182,15 +182,13 @@ public final class GhosttyRuntime {
     }
 
     private static func applyiOSDefaults(_ config: ghostty_config_t) {
-        // scrollback-limit: bound the mirror surface's local scrollback page
-        // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
-        // scroll path forwards to the Mac's real surface, so local scrollback
-        // exists only to feed local reads (the "View as Text" copy sheet's
-        // GHOSTTY_POINT_SCREEN read). 2MB comfortably covers that sheet's
-        // 5000-line budget while keeping the worst-case read (which runs on
-        // the serial output queue) and per-surface memory phone-sized.
+        // scrollback-limit bounds Ghostty's retained scrollback bytes for each
+        // local iOS mirror surface. The Mac remains the source of truth, but
+        // primary-screen scrolling is phone-local after a render-grid replay is
+        // hydrated, so this budget must be large enough to retain the Mac's
+        // replay window instead of silently chopping off older rows.
         let monokai = """
-        scrollback-limit = 2000000
+        scrollback-limit = \(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes)
         font-family = Menlo
         font-size = 10
         window-padding-balance = false
@@ -234,6 +232,15 @@ public final class GhosttyRuntime {
         let bgKey2 = "background"
         let hasBg = ghostty_config_get(config, &bgColor, bgKey2, UInt(bgKey2.lengthOfBytes(using: .utf8)))
         log.debug("applyiOSDefaults: bg get=\(hasBg, privacy: .public) r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
+
+        var scrollbackLimit = UInt(0)
+        let scrollbackKey = "scrollback-limit"
+        let hasScrollback = ghostty_config_get(config, &scrollbackLimit, scrollbackKey, UInt(scrollbackKey.lengthOfBytes(using: .utf8)))
+        log.debug("applyiOSDefaults: scrollback-limit get=\(hasScrollback, privacy: .public) value=\(scrollbackLimit, privacy: .public)")
+        MobileDebugLog.anchormux(
+            "ghostty.config.scrollback-limit get=\(hasScrollback) "
+            + "value=\(scrollbackLimit) expected=\(MobileTerminalScrollbackBudget.localMirrorScrollbackLimitBytes)"
+        )
     }
 
     private static func ensureDefaultiOSConfig() {
@@ -383,21 +390,36 @@ public final class GhosttyRuntime {
             return true
         }
 
-        #if DEBUG
-        // TEMP bug-2 (scrollback) diagnostic probe. `total` = scrollback rows
-        // available, `offset` = current viewport position from the top, `len` =
-        // visible rows. If `total` stays ~= `len`, there is nothing to scroll
-        // into (replay budget / no accumulated history); if `total` > `len` but
-        // `offset` never changes on a pan, ghostty is not moving the viewport.
-        // Remove before merge.
         if action.tag == GHOSTTY_ACTION_SCROLLBAR {
             let sb = action.action.scrollbar
+            if target.tag == GHOSTTY_TARGET_SURFACE,
+               let surface = target.target.surface {
+                enqueueScrollbarUpdate(total: sb.total, offset: sb.offset, len: sb.len, for: surface)
+            }
+            #if DEBUG
             MobileDebugLog.anchormux("scroll.bar total=\(sb.total) offset=\(sb.offset) len=\(sb.len)")
+            #endif
             return true
         }
-        #endif
 
         return false
+    }
+
+    nonisolated private static func enqueueScrollbarUpdate(
+        total: UInt64,
+        offset: UInt64,
+        len: UInt64,
+        for surface: ghostty_surface_t
+    ) {
+        let surfaceIdentifier = UInt(bitPattern: UnsafeRawPointer(surface))
+        Task { @MainActor in
+            GhosttySurfaceView.enqueueScrollbarUpdate(
+                total: total,
+                offset: offset,
+                len: len,
+                forSurfaceIdentifier: surfaceIdentifier
+            )
+        }
     }
 
     nonisolated fileprivate static func handleReadClipboard(

@@ -98,7 +98,10 @@ struct CMUXMobileRootView: View {
         .animation(.snappy(duration: 0.18), value: isAuthenticated)
         .animation(.snappy(duration: 0.18), value: store.phase)
         .onAppear {
-            syncShellAuthentication(isAuthenticated)
+            let startedLaunchAttachURL = connectLaunchAttachURLIfNeeded()
+            if !startedLaunchAttachURL {
+                syncShellAuthentication(isAuthenticated)
+            }
             store.resumeForegroundRefresh()
             #if os(iOS)
             pushCoordinator.bind(store: store)
@@ -108,7 +111,9 @@ struct CMUXMobileRootView: View {
             // so kick off the stored-Mac reconnect here too. Without this the
             // restoring gate could stay on RestoringSessionView forever because
             // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
-            reconnectStoredMacIfNeeded()
+            if !startedLaunchAttachURL {
+                reconnectStoredMacIfNeeded()
+            }
         }
         #if os(iOS)
         // A notification tap can arrive before the workspace (or terminal) it
@@ -148,6 +153,7 @@ struct CMUXMobileRootView: View {
         .onChange(of: isAuthenticated) { _, isAuthenticated in
             syncShellAuthentication(isAuthenticated)
             guard isAuthenticated else {
+                _ = connectLaunchAttachURLIfNeeded()
                 return
             }
             if consumePendingURLIfReady() {
@@ -354,10 +360,9 @@ struct CMUXMobileRootView: View {
     /// sign-in that completes after mount) so the restoring gate always resolves
     /// even when the auth state never transitions while this view is mounted.
     private func reconnectStoredMacIfNeeded() {
+        if connectLaunchAttachURLIfNeeded() { return }
         guard isAuthenticated else { return }
-        let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
-        guard !startedUITestAttachURL,
-              MobileRootAuthGate.shouldReconnectStoredMac(
+        guard MobileRootAuthGate.shouldReconnectStoredMac(
                 stackAuthenticated: authManager.isAuthenticated,
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
                 connectionState: store.connectionState
@@ -384,6 +389,16 @@ struct CMUXMobileRootView: View {
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
+            #if os(iOS)
+            if result.didConnect,
+               let target = store.activeAttachTerminalTarget {
+                pushCoordinator.terminalTargets.openTarget(
+                    workspaceId: target.workspaceId,
+                    surfaceId: target.surfaceId,
+                    source: .attachURL
+                )
+            }
+            #endif
             if result == .needsUserApproval {
                 isShowingAddDeviceSheet = true
             }
@@ -472,7 +487,7 @@ struct CMUXMobileRootView: View {
     }
 
     @discardableResult
-    private func connectUITestAttachURLIfNeeded() -> Bool {
+    private func connectLaunchAttachURLIfNeeded() -> Bool {
         #if DEBUG
         // Auto-pair when an attach URL is supplied at launch. Two sources:
         //   - CMUX_DOGFOOD_ATTACH_URL (UITestConfig.dogfoodAttachURL): NOT gated on
@@ -487,14 +502,11 @@ struct CMUXMobileRootView: View {
         // No-op unless one of those env vars is set, so normal launches are
         // unaffected.
         guard !didConsumeUITestAttachURL,
-              isAuthenticated,
               let attachURL = UITestConfig.dogfoodAttachURL ?? UITestConfig.attachURL else {
             return false
         }
         didConsumeUITestAttachURL = true
-        Task {
-            await store.connectPairingURL(attachURL)
-        }
+        connectAttachURL(attachURL)
         return true
         #else
         return false

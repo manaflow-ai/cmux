@@ -47,6 +47,9 @@ import Testing
     collector.mount(store: store, surfaceID: "live-terminal")
     let sawReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
     #expect(sawReplay, "mounting a sink must arm the cold-attach replay")
+    let replayParams = await router.replayRequestParams(at: 0)
+    #expect(replayParams?.maxScrollbackRows == MobileTerminalScrollbackBudget.fullReplayRows)
+    #expect(replayParams?.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope)
 
     // The Mac pushes a live render-grid event while the subscribe ack is
     // still pending (the server-side subscription from a previous generation
@@ -56,12 +59,11 @@ import Testing
     let transport = try #require(box.get())
     await transport.deliver(event)
 
-    let delivered = try await pollUntil { collector.lines.isEmpty == false }
+    let delivered = try await pollUntil { collector.lines.contains { $0.contains("live") } }
     #expect(
         delivered,
         "render-grid events must be consumed while the start-subscribe ack is in flight; buffering them unconsumed is what made a healthy stream look silent to the liveness watchdog"
     )
-    #expect(collector.lines.first?.contains("live") == true)
 
     await router.releaseAllHeld()
     collector.unmount()
@@ -176,6 +178,90 @@ import Testing
     collector.unmount()
 }
 
+/// A surface remount must not inherit a cancelled view's in-flight replay
+/// guard. The first replay below is deliberately held forever; after unmount
+/// and remount the second sink still needs its own cold-attach replay so the
+/// phone cannot stay pinned to an old history boundary.
+@MainActor
+@Test func remountWhileReplayIsInFlightRequestsFreshReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.holdReplayRequest(number: 1)
+    await router.setReplaySnapshot(number: 1, seq: 1, text: "old replay")
+    await router.setReplaySnapshot(number: 2, seq: 2, text: "new replay")
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let firstCollector = OutputCollector()
+    firstCollector.mount(store: store, surfaceID: "live-terminal")
+    let sawFirstReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawFirstReplay, "the first mount must request a cold-attach replay")
+
+    firstCollector.unmount()
+    let secondCollector = OutputCollector()
+    secondCollector.mount(store: store, surfaceID: "live-terminal")
+    let sawSecondReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(
+        sawSecondReplay,
+        "unmounting must clear the in-flight replay guard; otherwise the remounted surface can stay stuck behind the old replay"
+    )
+    let sawFreshReplay = try await pollUntil { secondCollector.lines.contains { $0.contains("new replay") } }
+    #expect(sawFreshReplay, "the remounted surface must receive its own replay")
+
+    await router.releaseAllHeld()
+    let sawStaleReplay = try await pollUntil(attempts: 10) {
+        secondCollector.lines.contains { $0.contains("old replay") }
+    }
+    #expect(!sawStaleReplay, "the first mount's stale replay must not deliver into the remounted stream")
+    secondCollector.unmount()
+}
+
+/// If a new sink registers for the same surface while an old replay is still
+/// held, the old completion must clear the in-flight marker and allow the
+/// pending fresh replay to run. Otherwise the surface can stay permanently
+/// stuck without a base snapshot.
+@MainActor
+@Test func staleReplayCompletionStartsPendingFreshReplay() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.holdReplayRequest(number: 1)
+    await router.setReplaySnapshot(number: 1, seq: 1, text: "stale replay")
+    await router.setReplaySnapshot(number: 2, seq: 2, text: "fresh replay")
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let firstCollector = OutputCollector()
+    firstCollector.mount(store: store, surfaceID: "live-terminal")
+    let sawFirstReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 1 }
+    #expect(sawFirstReplay)
+
+    let secondCollector = OutputCollector()
+    secondCollector.mount(store: store, surfaceID: "live-terminal")
+    let startedConcurrently = try await pollUntil(attempts: 10) {
+        await router.count(of: "mobile.terminal.replay") >= 2
+    }
+    #expect(!startedConcurrently, "the second registration should queue behind the held replay, not start concurrently")
+
+    await router.releaseAllHeld()
+    let sawPendingReplay = try await pollUntil { await router.count(of: "mobile.terminal.replay") >= 2 }
+    #expect(sawPendingReplay, "stale completion must clear in-flight and start the pending fresh replay")
+    let sawFreshReplay = try await pollUntil { secondCollector.lines.contains { $0.contains("fresh replay") } }
+    #expect(sawFreshReplay)
+    let sawStaleReplay = try await pollUntil(attempts: 10) {
+        secondCollector.lines.contains { $0.contains("stale replay") }
+    }
+    #expect(!sawStaleReplay, "the stale replay must not deliver into the newer stream")
+
+    firstCollector.unmount()
+    secondCollector.unmount()
+}
+
 /// The watchdog's original purpose (the ~85s silent-death hang) must keep
 /// working: silence past the threshold plus a host that stops answering the
 /// probe must still tear down and re-subscribe.
@@ -282,4 +368,22 @@ import Testing
     #expect(currentMacStore.supportsWorkspaceActions)
     #expect(currentMacStore.supportsWorkspaceReadStateActions)
     #expect(currentMacStore.supportsWorkspaceCloseActions)
+}
+
+@MainActor
+@Test func unsupportedTerminalFidelityDisconnectsBeforeTerminalSubscription() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    await router.setCapabilities(["events.v1", "terminal.bytes.v1", "terminal.replay.v1"])
+    await router.setTerminalFidelity("ghostty_bytes")
+
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+
+    let disconnected = try await pollUntil { store.connectionState == .disconnected }
+    #expect(disconnected)
+    #expect(store.macConnectionStatus == .unavailable)
+    #expect(store.connectionRecoveryFailed)
+    #expect(store.connectionError?.contains("newer cmux build") == true)
+    #expect(await router.count(of: "mobile.events.subscribe") == 0)
 }

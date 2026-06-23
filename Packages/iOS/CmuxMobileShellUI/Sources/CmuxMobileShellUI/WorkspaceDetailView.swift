@@ -31,6 +31,7 @@ struct WorkspaceDetailView: View {
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
     @Environment(BrowserSurfaceStore.self) private var browserStore
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     /// Drives the destructive close-workspace confirmation dialog launched from
     /// the top-bar menu. Owned here (not in the menu builder) so the dialog stays
     /// attached to the detail view across menu open/close cycles.
@@ -319,7 +320,8 @@ struct WorkspaceDetailView: View {
                     // field).
                     autoFocusOnWindowAttach: store.shouldAutoFocusTerminalSurface(terminalID)
                         && !store.isComposerPresented,
-                    isComposerActive: store.isComposerPresented
+                    isComposerActive: store.isComposerPresented,
+                    decouplePrimaryScreenScroll: displaySettings.decouplePrimaryScreenScroll
                 )
                 // Identity must track the selected terminal. The representable's
                 // coordinator binds its byte sink to the surfaceID at make time and

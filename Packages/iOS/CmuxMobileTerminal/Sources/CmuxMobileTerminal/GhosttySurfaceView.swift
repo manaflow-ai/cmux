@@ -8,37 +8,6 @@ import UIKit
 
 private let log = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.surface")
 
-// lint:allow namespace-enum — file-local DEBUG input-trace logger on the off-limits typing-latency render path; type reshape deferred to the GhosttySurfaceView UI-god-object split wave.
-enum TerminalInputDebugLog {
-    private static let isEnabled = ProcessInfo.processInfo.environment["CMUX_INPUT_DEBUG"] == "1"
-    private static let logger = Logger(subsystem: "ai.manaflow.cmux.ios", category: "ghostty.input")
-
-    static func log(_ message: String) {
-        #if DEBUG
-        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil {
-            return
-        }
-        #endif
-        guard isEnabled else { return }
-        logger.debug("input: \(message, privacy: .public)")
-    }
-
-    static func textSummary(_ text: String) -> String {
-        let summary = String(reflecting: text)
-        guard summary.count > 96 else { return summary }
-        return "\(summary.prefix(96))..."
-    }
-
-    static func dataSummary(_ data: Data) -> String {
-        let prefix = data.prefix(32)
-        let prefixData = Data(prefix)
-        let hex = prefix.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let utf8 = String(data: prefixData, encoding: .utf8) ?? "<non-utf8>"
-        let suffix = data.count > prefix.count ? " ..." : ""
-        return "len=\(data.count) hex=\(hex)\(suffix) utf8=\(textSummary(utf8))"
-    }
-}
-
 @MainActor
 public protocol GhosttySurfaceViewDelegate: AnyObject {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data)
@@ -47,6 +16,15 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
     /// (sign = direction), `col`/`row` is the grid cell under the finger (so
     /// alt-screen mouse-wheel reports at the right cell). Optional.
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int)
+    /// Forward a scroll gesture that also needs a full primary-screen history
+    /// replay before the phone can safely resume local scrollback.
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didScrollLines lines: Double,
+        atCol col: Int,
+        row: Int,
+        requestingScrollbackHydration: Bool
+    )
     /// Forward a tap to the Mac's real surface as a left click at the given grid
     /// cell, so TUIs with mouse reporting (lazygit/htop/fzf) receive the click.
     /// The Mac's libghostty self-gates: a normal screen treats it as a harmless
@@ -78,6 +56,15 @@ public protocol GhosttySurfaceViewDelegate: AnyObject {
 
 public extension GhosttySurfaceViewDelegate {
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didScrollLines lines: Double, atCol col: Int, row: Int) {}
+    func ghosttySurfaceView(
+        _ surfaceView: GhosttySurfaceView,
+        didScrollLines lines: Double,
+        atCol col: Int,
+        row: Int,
+        requestingScrollbackHydration: Bool
+    ) {
+        ghosttySurfaceView(surfaceView, didScrollLines: lines, atCol: col, row: row)
+    }
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didTapAtCol col: Int, row: Int) {}
     func ghosttySurfaceViewDidRequestToolbarSettings(_ surfaceView: GhosttySurfaceView) {}
     func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didPasteImage data: Data, format: String) {}
@@ -633,6 +620,33 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var lastAppliedContentScale: CGFloat = 0
     private var surfaceHasReceivedOutput: Bool = false
     private var shouldScrollInitialOutputToBottom = true
+    var activeScreen: MobileTerminalRenderGridFrame.Screen = .primary
+    var localScrollbackModel = MobileTerminalLocalScrollbackModel()
+    var renderGridSnapshot: MobileTerminalRenderGridSnapshot?
+    private var isUsingSemanticRenderGrid: Bool {
+        renderGridSnapshot != nil
+    }
+    private struct SemanticRenderCacheKey: Equatable {
+        let stateSeq: UInt64
+        let totalRows: Int
+        let visibleRowCount: Int
+        let columns: Int
+        let integerRowOffset: Int
+        let extraRows: Int
+        let activeScreen: MobileTerminalRenderGridFrame.Screen
+        let terminalForeground: String?
+        let terminalBackground: String?
+        let terminalCursorColor: String?
+        let visibleRectX: Int
+        let visibleRectY: Int
+        let visibleRectWidth: Int
+        let visibleRectHeight: Int
+        let lineHeightPixels: Int
+        let fontSizeTenths: Int
+    }
+    private var semanticRenderCacheKey: SemanticRenderCacheKey?
+    private let scrollForwardingPolicy = MobileTerminalScrollForwardingPolicy()
+    public var decouplePrimaryScreenScroll: Bool = true
     /// Serial background queue for `ghostty_surface_process_output`, which
     /// blocks on libghostty's internal renderer/IO futex. Running it on the
     /// main thread hangs the app until the scene-update watchdog kills it.
@@ -647,10 +661,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var scrollMechanicsIsRecentering = false
     private var lastScrollMechanicsOffsetY: CGFloat?
     private var lastScrollMechanicsTouchPoint: CGPoint = .zero
+    private var scrollPanLastTranslationY: CGFloat?
+    private var scrollInertiaVelocityY: CGFloat = 0
+    private var scrollInertiaLastTimestamp: CFTimeInterval?
     private lazy var scrollMechanicsView: UIScrollView = {
         let view = UIScrollView()
         view.backgroundColor = .clear
         view.isOpaque = false
+        view.isScrollEnabled = false
         view.showsVerticalScrollIndicator = false
         view.showsHorizontalScrollIndicator = false
         view.alwaysBounceVertical = true
@@ -665,9 +683,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         view.delegate = self
         return view
     }()
+    private lazy var scrollPanGesture: UIPanGestureRecognizer = {
+        let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleScrollPan(_:)))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
     #if DEBUG
     private var lastInputTimestamp: CFTimeInterval = 0
     private var latencySamples: [Double] = []
+    private var lastScrollDecisionLogTime: CFTimeInterval = 0
     var onOutputProcessedForTesting: (() -> Void)?
     /// DEBUG/UI-test accessibility carrier for the rendered terminal text.
     ///
@@ -795,6 +820,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// so a transient drop self-heals; a confirmed result resets the count.
     private var viewportReportRetries = 0
     private static let maxViewportReportRetries = 3
+    private var geometryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
     /// Frames of "no zoom in progress" required before the natural grid is
     /// reported to the Mac. Active zoom is already gated separately
     /// (`zoomSettleFrames != nil` holds the report during a pinch), so this is
@@ -814,7 +840,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
     /// Ghostty. Zero until the first layout has measured.
-    private var cellPixelSize: CGSize = .zero
+    var cellPixelSize: CGSize = .zero
     /// 1 px separator stroke drawn around the pinned surface rect when the
     /// container is larger than the render target (i.e., this device is
     /// not the smallest). Added lazily on first letterbox.
@@ -823,6 +849,20 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// coordinate space. Kept so the border layer can match it without a
     /// second set_size round-trip.
     private var lastRenderRect: CGRect = .zero
+    /// The visible portion of ``lastRenderRect``. The renderer may keep a
+    /// hidden spare row below this rect so bottom-row newlines do not flash the
+    /// last visible line; dock placement, hit-testing, and cursor overlay use
+    /// this visible rect.
+    private var lastVisibleRenderRect: CGRect = .zero
+    private let bottomOverscanCoverView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .black
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        view.layer.zPosition = 1002
+        return view
+    }()
+    private var lastTerminalContainerSize: CGSize?
 
     #if DEBUG
     struct DebugGeometrySnapshot {
@@ -875,6 +915,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// property does not exist in release builds — every reader is inside a
     /// `#if DEBUG` block.
     public var diagnosticLog: DiagnosticLog?
+    var lastLocalScrollViewportLogTime: CFTimeInterval = 0
     #endif
 
     private lazy var inputProxy: TerminalInputTextView = {
@@ -995,6 +1036,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         addSubview(snapshotFallbackView)
         addSubview(scrollMechanicsView)
+        scrollMechanicsView.addGestureRecognizer(scrollPanGesture)
+        addSubview(bottomOverscanCoverView)
         addSubview(inputProxy)
         #if DEBUG
         addSubview(debugAccessibilityProxy)
@@ -1711,55 +1754,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///
     /// The toolbar's button row is bottom-pinned inside its container (see
     /// `TerminalInputTextView.dockedButtonRowHeight`), so the controls always hug the
-    /// band's bottom no matter how tall the container is — the round-6 fix for "toolbar
-    /// rides up off the keyboard on a letterbox/resize", kept for free because the
-    /// toolbar never leaves the surface. When there is no composer band, the toolbar's
-    /// TOP floats up to the rendered terminal's bottom (`lastRenderRect.maxY`) to
-    /// absorb the sub-cell remainder (no terminal-background gap above the bar). When
-    /// the composer band is open, the toolbar is exactly its button band and the
-    /// composer below absorbs the layout.
+    /// band's bottom no matter how tall the container is. When there is no composer
+    /// band, the toolbar's TOP floats up to the visible terminal bottom
+    /// (`lastVisibleRenderRect.maxY`) to absorb the sub-cell remainder without exposing
+    /// the hidden backing row. When the composer band is open, the toolbar is exactly
+    /// its button band and the composer below absorbs the layout.
     ///
     /// While the HIDE button has suppressed the chrome (``chromeHidden``) the dock is
     /// off screen (both frames `.zero`); the grid reservation matches (it reserves 0),
     /// so the terminal reclaims the whole height.
     private func bottomDockFrames() -> (composer: CGRect, toolbar: CGRect) {
-        let occupied = keyboardOccupancyInBounds
-        // While the HIDE button has suppressed the chrome, collapse the dock to a
-        // zero-height strip pinned at the bottom edge (NOT `CGRect.zero` at the origin,
-        // which would make the next show animate the bar growing out of the top-left
-        // corner). The toolbar is also `isHidden`, so this is purely about leaving a
-        // sane frame to animate from/to.
-        let bottomEdge = chromeHidden ? bounds.height : bounds.height - occupied
-        let width = bounds.width
-        let effectiveComposerHeight = chromeHidden ? 0 : composerBandHeight
-        // Composer band sits directly above the keyboard (or the safe-area inset),
-        // pinned to the bottom edge; the toolbar's button band reserves
-        // `persistentToolbarHeight` directly above the composer. At height 0 the band
-        // frame is a zero-height strip AT `bottomEdge` (composerTop == bottomEdge), so a
-        // close animates a smooth downward height-collapse into the toolbar/keyboard
-        // edge rather than flying to the origin (item 3).
-        let composerTop = bottomEdge - effectiveComposerHeight
-        let composerFrame = CGRect(x: 0, y: max(0, composerTop), width: width, height: effectiveComposerHeight)
-        // Toolbar's reserved bottom is the composer's top (or the bottom edge with no
-        // composer), and its reserved top is one button-row band above that.
-        let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
-        let toolbarReservedTop = toolbarBottom - Self.persistentToolbarHeight
-        // Toolbar top: with a composer band below, the toolbar container is exactly its
-        // button band (no slack to absorb — the composer owns the space below). Without
-        // a composer, let the top float up to the rendered terminal's bottom so the
-        // container's background fills the sub-cell remainder (libghostty floors the
-        // grid to whole cells and top-anchors the render, so `lastRenderRect.maxY` is at
-        // or above `toolbarReservedTop`). Never drop below `toolbarReservedTop` (that
-        // would re-open the gap) and never go negative.
-        let toolbarTop: CGFloat
-        if effectiveComposerHeight > 0 {
-            toolbarTop = max(0, toolbarReservedTop)
-        } else {
-            let renderBottom = lastRenderRect.isEmpty ? toolbarReservedTop : lastRenderRect.maxY
-            toolbarTop = max(0, min(renderBottom, toolbarReservedTop))
-        }
-        let toolbarFrame = CGRect(x: 0, y: toolbarTop, width: width, height: toolbarBottom - toolbarTop)
-        return (composerFrame, toolbarFrame)
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        return TerminalLetterboxGeometry.bottomDockFrames(
+            bounds: bounds.size,
+            keyboardOccupancy: keyboardOccupancyInBounds,
+            chromeHidden: chromeHidden,
+            composerBandHeight: composerBandHeight,
+            toolbarHeight: Self.persistentToolbarHeight,
+            visibleRenderRect: visibleRenderRect
+        )
     }
 
     /// Position the composer band and the docked toolbar from ``bottomDockFrames()``.
@@ -1830,19 +1843,82 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         scrollMechanicsIsRecentering = false
     }
 
+    @objc private func handleScrollPan(_ gesture: UIPanGestureRecognizer) {
+        let translationY = gesture.translation(in: self).y
+        switch gesture.state {
+        case .began:
+            scrollInertiaVelocityY = 0
+            scrollInertiaLastTimestamp = nil
+            scrollPanLastTranslationY = translationY
+            let point = gesture.location(in: self)
+            if bounds.contains(point) {
+                lastScrollMechanicsTouchPoint = point
+            }
+        case .changed:
+            let previous = scrollPanLastTranslationY ?? translationY
+            scrollPanLastTranslationY = translationY
+            let fingerDeltaY = translationY - previous
+            let point = gesture.location(in: self)
+            if bounds.contains(point) {
+                lastScrollMechanicsTouchPoint = point
+            }
+            enqueueScrollMechanicsDelta(-fingerDeltaY, touchPoint: point)
+        case .ended, .cancelled, .failed:
+            scrollPanLastTranslationY = nil
+            let velocityY = gesture.velocity(in: self).y
+            if abs(velocityY) >= 20 {
+                scrollInertiaVelocityY = velocityY
+                scrollInertiaLastTimestamp = CACurrentMediaTime()
+            } else {
+                scrollInertiaVelocityY = 0
+                scrollInertiaLastTimestamp = nil
+            }
+        default:
+            break
+        }
+    }
+
+    private func applyScrollInertia(now: CFTimeInterval) {
+        guard scrollInertiaVelocityY != 0 else { return }
+        let previous = scrollInertiaLastTimestamp ?? now
+        let dt = max(0, min(now - previous, 1.0 / 20.0))
+        scrollInertiaLastTimestamp = now
+        guard dt > 0 else { return }
+
+        let fingerDeltaY = scrollInertiaVelocityY * CGFloat(dt)
+        let fallbackPoint = CGPoint(x: bounds.midX, y: bounds.midY)
+        let touchPoint = bounds.contains(lastScrollMechanicsTouchPoint)
+            ? lastScrollMechanicsTouchPoint
+            : fallbackPoint
+        enqueueScrollMechanicsDelta(-fingerDeltaY, touchPoint: touchPoint)
+
+        // Matches UIScrollView.DecelerationRate.normal: approximately 0.998
+        // velocity retention per millisecond, integrated on the display link.
+        let retention = pow(0.998, dt * 1000)
+        scrollInertiaVelocityY *= CGFloat(retention)
+        if abs(scrollInertiaVelocityY) < 8 {
+            scrollInertiaVelocityY = 0
+            scrollInertiaLastTimestamp = nil
+        }
+    }
+
     private func enqueueScrollMechanicsDelta(_ deltaY: CGFloat, touchPoint: CGPoint) {
-        // The transparent UIScrollView supplies native iOS tracking,
-        // deceleration, and momentum. The Mac still owns terminal semantics:
-        // normal-screen scrollback and alt-screen mouse-wheel delivery.
+        // The transparent gesture layer supplies unbounded pan deltas plus
+        // display-link deceleration. Primary scrollback can be consumed by the
+        // local Ghostty mirror; alt-screen mouse-wheel delivery still belongs
+        // to the Mac.
         guard deltaY != 0 else { return }
+        let scale = max(preferredScreenScale, 1)
         let cellHeightPt = cellPixelSize.height / max(preferredScreenScale, 1)
         let divisor = cellHeightPt > 1 ? Double(cellHeightPt) * 3 : 42
         pendingScrollLines += -Double(deltaY) / divisor
+        pendingLocalScrollPixels += -Double(deltaY) * Double(scale)
         pendingScrollCell = scrollCell(at: touchPoint)
     }
 
     /// Coalesced native scroll forwarded to the Mac once per display-link frame.
     private var pendingScrollLines: Double = 0
+    private var pendingLocalScrollPixels: Double = 0
     private var pendingScrollCell: (col: Int, row: Int) = (0, 0)
 
     /// Map a touch point to a grid cell (shared effective grid with the Mac), so
@@ -1851,18 +1927,57 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let scale = max(preferredScreenScale, 1)
         let cellW = max(cellPixelSize.width / scale, 1)
         let cellH = max(cellPixelSize.height / scale, 1)
-        let col = max(0, Int((point.x - lastRenderRect.minX) / cellW))
-        let row = max(0, Int((point.y - lastRenderRect.minY) / cellH))
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        let col = max(0, Int((point.x - visibleRenderRect.minX) / cellW))
+        let row = max(0, Int((point.y - visibleRenderRect.minY) / cellH))
         return (col, row)
     }
 
     private func flushPendingScrollIfNeeded() {
-        guard pendingScrollLines != 0 else { return }
+        guard pendingScrollLines != 0 || pendingLocalScrollPixels != 0 else { return }
         let lines = pendingScrollLines
+        let pixelDeltaY = pendingLocalScrollPixels
         let cell = pendingScrollCell
         pendingScrollLines = 0
-        applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
-        delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+        pendingLocalScrollPixels = 0
+        let cellHeightPx = max(Double(cellPixelSize.height), 1)
+        let rowDelta = pixelDeltaY / cellHeightPx
+        let localMirrorRequestsMoreScrollback = localScrollbackModel.requestsHostHydrationForGesture(rowDelta: rowDelta)
+        let scrollDecision = scrollForwardingPolicy.decision(
+            activeScreen: activeScreen,
+            decouplePrimaryScreenScroll: decouplePrimaryScreenScroll,
+            localMirrorCanServePrimaryScroll: localScrollbackModel.canServePrimaryScrollLocally,
+            localMirrorRequiresHydration: localScrollbackModel.requiresHostScrollHydration,
+            localMirrorRequestsMoreScrollback: localMirrorRequestsMoreScrollback
+        )
+        #if DEBUG
+        let now = CACurrentMediaTime()
+        if now - lastScrollDecisionLogTime >= 0.12 {
+            lastScrollDecisionLogTime = now
+            MobileDebugLog.anchormux(
+                "mobile.scroll.decision screen=\(activeScreen.rawValue) decouple=\(decouplePrimaryScreenScroll) "
+                + "local=\(scrollDecision.appliesLocally) host=\(scrollDecision.forwardsToHost) "
+                + "hydrate=\(scrollDecision.requestsScrollbackHydration) "
+                + "mirror=\(localScrollbackModel.mirrorHydration) "
+                + "px=\(String(format: "%.1f", pixelDeltaY)) lines=\(String(format: "%.2f", lines)) "
+                + "cell=\(cell.col),\(cell.row)"
+            )
+        }
+        #endif
+        if scrollDecision.appliesLocally {
+            applyLocalScrollbackScroll(pixelDeltaY: pixelDeltaY, col: cell.col, row: cell.row)
+        }
+        guard scrollDecision.forwardsToHost else {
+            return
+        }
+        guard let hostLines = scrollDecision.hostScrollLines(forGestureLines: lines) else { return }
+        delegate?.ghosttySurfaceView(
+            self,
+            didScrollLines: hostLines,
+            atCol: cell.col,
+            row: cell.row,
+            requestingScrollbackHydration: scrollDecision.requestsScrollbackHydration
+        )
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2160,6 +2275,97 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         processOutput(data, completion: nil)
     }
 
+    /// Applies metadata attached to the next terminal output chunk.
+    ///
+    /// Render-grid output carries the authoritative active screen, which lets
+    /// local scrollback stay phone-local on the primary screen while alternate
+    /// screen TUIs still receive host mouse-wheel events.
+    /// - Parameter activeScreen: The active screen from the render-grid frame,
+    ///   or `nil` for raw byte fallback chunks.
+    public func applyTerminalOutputMetadata(
+        activeScreen: MobileTerminalRenderGridFrame.Screen?,
+        scrollbackRows: Int? = nil
+    ) {
+        if let activeScreen {
+            self.activeScreen = activeScreen
+        }
+        let result = localScrollbackModel.applyMetadata(
+            activeScreen: activeScreen,
+            scrollbackRows: scrollbackRows
+        )
+        updateCursorOverlay()
+        guard let scrollbackRows, let result else { return }
+        MobileDebugLog.anchormux(
+            "replay.metadata screen=\(activeScreen?.rawValue ?? "nil") "
+            + "scrollbackRows=\(scrollbackRows) maxOffset=\(String(format: "%.2f", result.maxRowOffset)) "
+            + "rowOffset=\(String(format: "%.2f", result.rowOffset)) wasAtBottom=\(result.wasAtBottom) "
+            + "awaitingScrollbar=true"
+        )
+    }
+
+    /// Ensure the local Ghostty mirror is sized to the replay grid before a full
+    /// render-grid snapshot is fed into it. Full replay constructs scrollback by
+    /// flowing lines through Ghostty; applying it before the final effective grid
+    /// lets the later resize collapse the mirror back to a viewport-only screen.
+    public func prepareForReplayViewport(columns: Int?, rows: Int?) async {
+        guard let columns, let rows, columns > 0, rows > 0 else { return }
+        MobileDebugLog.anchormux(
+            "replay.prepare.begin grid=\(columns)x\(rows) "
+            + "ready=\(replayViewportReady(columns: columns, rows: rows)) "
+            + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+            + "cell=\(Int(cellPixelSize.width))x\(Int(cellPixelSize.height)) "
+            + "render=\(Int(lastRenderRect.width))x\(Int(lastRenderRect.height)) window=\(window != nil)"
+        )
+        if replayViewportReady(columns: columns, rows: rows) {
+            MobileDebugLog.anchormux("replay.prepare.ready grid=\(columns)x\(rows) mode=already")
+            return
+        }
+        applyViewSize(cols: columns, rows: rows)
+        if replayViewportReady(columns: columns, rows: rows) {
+            MobileDebugLog.anchormux("replay.prepare.ready grid=\(columns)x\(rows) mode=sync")
+            return
+        }
+        guard window != nil else {
+            MobileDebugLog.anchormux("replay.prepare.skip grid=\(columns)x\(rows) reason=no_window")
+            return
+        }
+        let waiterID = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                geometryWaiters[waiterID] = continuation
+                MobileDebugLog.anchormux(
+                    "replay.prepare.wait grid=\(columns)x\(rows) waiter=\(waiterID.uuidString.prefix(8))"
+                )
+                setNeedsGeometrySync(reassertNaturalSize: false)
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.cancelGeometryWaiter(id: waiterID)
+            }
+        }
+        MobileDebugLog.anchormux(
+            "replay.prepare.ready grid=\(columns)x\(rows) mode=wait "
+            + "ready=\(replayViewportReady(columns: columns, rows: rows)) "
+            + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+            + "cell=\(Int(cellPixelSize.width))x\(Int(cellPixelSize.height)) "
+            + "render=\(Int(lastRenderRect.width))x\(Int(lastRenderRect.height))"
+        )
+    }
+
+    private func replayViewportReady(columns: Int, rows: Int) -> Bool {
+        effectiveGrid?.cols == columns &&
+            effectiveGrid?.rows == rows &&
+            cellPixelSize.width > 0 &&
+            cellPixelSize.height > 0 &&
+            !lastRenderRect.isEmpty
+    }
+
+    private func cancelGeometryWaiter(id: UUID) {
+        guard let waiter = geometryWaiters.removeValue(forKey: id) else { return }
+        MobileDebugLog.anchormux("replay.prepare.cancel waiter=\(id.uuidString.prefix(8))")
+        waiter.resume()
+    }
+
     /// Process terminal output and return after the output has been applied.
     ///
     /// The call still performs libghostty output processing on the serial
@@ -2175,6 +2381,126 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
+    /// Applies a typed render-grid envelope as one surface transaction.
+    ///
+    /// The shell keeps render-grid semantic until this boundary, because this
+    /// view owns the local mirror geometry, scrollback metadata, cursor overlay,
+    /// and semantic UIKit render pass.
+    public func processRenderGridEnvelopeAndWait(_ envelope: MobileTerminalRenderGridEnvelope) async {
+        let grid = envelope.replayGrid
+        await prepareForReplayViewport(columns: grid?.columns, rows: grid?.rows)
+        applyTerminalOutputMetadata(
+            activeScreen: envelope.frame.activeScreen,
+            scrollbackRows: envelope.scrollbackRowsForLocalMirror
+        )
+        await applyRenderGridEnvelope(envelope)
+    }
+
+    /// Keep render-grid delivery backpressure aligned with the actual display
+    /// transaction, not just the synchronous state mutation above. The shell's
+    /// output queue only collapses replaceable viewport deltas while a prior
+    /// chunk is in flight, so returning in the same main-actor turn made fast
+    /// live output repaint every intermediate semantic frame. A single queued
+    /// main turn is bounded, yields to newly arrived stream events, and preserves
+    /// the existing coalescing contract without delaying raw byte fallback.
+    private func waitForSemanticRenderDisplayTransaction() async {
+        guard !isDismantled else { return }
+        await Task.yield()
+    }
+
+    private func applyRenderGridEnvelope(_ envelope: MobileTerminalRenderGridEnvelope) async {
+        if var snapshot = renderGridSnapshot {
+            snapshot.apply(envelope)
+            renderGridSnapshot = snapshot
+        } else {
+            renderGridSnapshot = MobileTerminalRenderGridSnapshot(frame: envelope.frame)
+        }
+        if let snapshot = renderGridSnapshot {
+            updateLocalScrollbackBounds(
+                total: UInt64(max(0, snapshot.totalRows)),
+                offset: UInt64(max(0, localScrollbackModel.rowOffset.rounded())),
+                len: UInt64(max(0, snapshot.visibleRowCount))
+            )
+        }
+        semanticRenderCacheKey = nil
+        await processRenderGridReplayOutput(
+            envelope.frame.vtPatchBytes(),
+            rowOffsetAfterReplay: localScrollbackModel.rowOffset
+        )
+    }
+
+    private func processRenderGridReplayOutput(
+        _ data: Data,
+        rowOffsetAfterReplay: Double
+    ) async {
+        await withCheckedContinuation { continuation in
+            processRenderGridReplayOutput(data, rowOffsetAfterReplay: rowOffsetAfterReplay) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func processRenderGridReplayOutput(
+        _ data: Data,
+        rowOffsetAfterReplay: Double,
+        completion: (@MainActor @Sendable () -> Void)?
+    ) {
+        guard let surface, !isDismantled else {
+            completion?()
+            return
+        }
+
+        setGhosttyRendererLayersHidden(false)
+        snapshotFallbackView.isHidden = true
+        snapshotFallbackView.attributedText = nil
+        let cursorVisibilityDelta = Self.lastCursorVisibility(in: data)
+
+        Self.outputQueue.async { [weak self] in
+            data.withUnsafeBytes { buffer in
+                guard let baseAddress = buffer.baseAddress else { return }
+                let pointer = baseAddress.assumingMemoryBound(to: CChar.self)
+                ghostty_surface_process_output(surface, pointer, UInt(buffer.count))
+            }
+            ghostty_surface_scroll_to_offset(surface, rowOffsetAfterReplay)
+            #if DEBUG
+            var accessibilityText: String?
+            let a11yNow = CACurrentMediaTime()
+            if a11yNow - Self.lastAccessibilityTextTime > 0.5 {
+                Self.lastAccessibilityTextTime = a11yNow
+                accessibilityText = Self.accessibilitySurfaceText(surface)
+            }
+            #endif
+            DispatchQueue.main.async {
+                guard let self, !self.isDismantled else {
+                    completion?()
+                    return
+                }
+                self.needsDraw = true
+                self.surfaceHasReceivedOutput = true
+                if let cursorVisibilityDelta, cursorVisibilityDelta != self.hostCursorVisible {
+                    self.hostCursorVisible = cursorVisibilityDelta
+                    self.updateCursorOverlay()
+                }
+                self.updateCursorOverlay()
+                let now = CACurrentMediaTime()
+                if now - self.lastProcessOutputLogTime > 1.0 {
+                    self.lastProcessOutputLogTime = now
+                    if self.window != nil {
+                        self.logLayerTree(reason: "renderGridReplay")
+                    }
+                }
+                #if DEBUG
+                self.lastOutputAppliedTime = CACurrentMediaTime()
+                if let accessibilityText, !accessibilityText.isEmpty {
+                    self.debugAccessibilityProxy.accessibilityLabel = accessibilityText
+                }
+                self.onOutputProcessedForTesting?()
+                #endif
+                completion?()
+            }
+        }
+    }
+
     private func processOutput(
         _ data: Data,
         completion: (@MainActor @Sendable () -> Void)?
@@ -2183,6 +2509,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             completion?()
             return
         }
+        renderGridSnapshot = nil
+        semanticRenderCacheKey = nil
+        setGhosttyRendererLayersHidden(false)
+        snapshotFallbackView.isHidden = true
+        snapshotFallbackView.attributedText = nil
         #if DEBUG
         if lastInputTimestamp > 0 {
             let elapsed = (CACurrentMediaTime() - lastInputTimestamp) * 1000.0
@@ -2668,7 +2999,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
 
-        // Flush coalesced scroll to the Mac at most once per frame.
+        // Flush coalesced scroll at most once per frame.
+        applyScrollInertia(now: now)
         flushPendingScrollIfNeeded()
 
         // Fade the zoom HUD once interaction has been quiet. Uses real elapsed
@@ -2703,6 +3035,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // skipped frame the display link re-drives), but we still gate on
         // suspension; `resumeRendering` clears it on the next active transition.
         guard !renderingSuspended, let surface, !isDismantled else { return }
+        guard !isUsingSemanticRenderGrid else {
+            needsDraw = false
+            needsAnotherRender = false
+            pendingRenderFrames = 0
+            return
+        }
         // Coalesce: never let more than one render_now sit on the serial queue.
         // (Called on main from the display link.)
         if renderInFlight {
@@ -2722,6 +3060,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 self.renderInFlight = false
                 guard !self.isDismantled else {
                     self.needsAnotherRender = false
+                    return
+                }
+                guard !self.isUsingSemanticRenderGrid else {
+                    self.setGhosttyRendererLayersHidden(true)
+                    self.needsDraw = false
+                    self.needsAnotherRender = false
+                    self.pendingRenderFrames = 0
                     return
                 }
                 if self.needsAnotherRender {
@@ -2751,9 +3096,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
     }
 
-    private func updateCursorOverlay() {
+    func updateCursorOverlay() {
+        if let snapshot = renderGridSnapshot {
+            updateRenderGridCursorOverlay(snapshot)
+            return
+        }
         guard let surface,
               hostCursorVisible,
+              isViewingLiveBottom,
               window != nil,
               !isHidden,
               alpha > 0.01,
@@ -2775,17 +3125,96 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cellWidth = max(cellPixelSize.width / scale, 1)
         let cellHeight = max(CGFloat(height), cellPixelSize.height / scale, 1)
         let cursorWidth = max(1.0 / scale, min(CGFloat(1.5), cellWidth))
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
         let cursorX = lastRenderRect.minX + CGFloat(x) - (cellWidth / 2)
         let cursorY = lastRenderRect.minY + CGFloat(y) - cellHeight
-        overlay.frame = CGRect(
+        let frame = CGRect(
             x: floor(cursorX),
             y: floor(cursorY),
             width: cursorWidth,
             height: ceil(cellHeight)
         )
+        let bottomClipTop = TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: bounds.size,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        ).minY
+        guard frame.minY + 0.5 < bottomClipTop else {
+            overlay.isHidden = true
+            return
+        }
+        overlay.frame = frame
         overlay.backgroundColor = cursorBlinkState.isVisible
             ? (configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
             : (configBackgroundColor ?? backgroundColor ?? .black).cgColor
+        overlay.borderWidth = 0
+        overlay.isHidden = false
+    }
+
+    private func updateRenderGridCursorOverlay(_ snapshot: MobileTerminalRenderGridSnapshot) {
+        guard let cursor = snapshot.cursor,
+              cursor.visible,
+              isViewingLiveBottom,
+              window != nil,
+              !isHidden,
+              alpha > 0.01,
+              !lastRenderRect.isEmpty else {
+            cursorOverlayLayer?.isHidden = true
+            return
+        }
+        let scale = max(preferredScreenScale, 1)
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        let cellWidth = cellPixelSize.width > 0
+            ? max(cellPixelSize.width / scale, 1)
+            : max(visibleRenderRect.width / CGFloat(max(snapshot.columns, 1)), 1)
+        let cellHeight = cellPixelSize.height > 0
+            ? max(cellPixelSize.height / scale, 1)
+            : max(visibleRenderRect.height / CGFloat(max(snapshot.visibleRowCount, 1)), 1)
+        let cursorRow = min(max(cursor.row, 0), max(snapshot.visibleRowCount - 1, 0))
+        let cursorColumn = min(max(cursor.column, 0), max(snapshot.columns - 1, 0))
+        let overlay = ensureCursorOverlayLayer()
+        overlay.contentsScale = scale
+        let cursorFrame: CGRect
+        switch cursor.style {
+        case .bar:
+            cursorFrame = CGRect(
+                x: visibleRenderRect.minX + CGFloat(cursorColumn) * cellWidth,
+                y: visibleRenderRect.minY + CGFloat(cursorRow) * cellHeight,
+                width: max(1.0 / scale, min(CGFloat(1.5), cellWidth)),
+                height: cellHeight
+            )
+        case .underline:
+            cursorFrame = CGRect(
+                x: visibleRenderRect.minX + CGFloat(cursorColumn) * cellWidth,
+                y: visibleRenderRect.minY + CGFloat(cursorRow + 1) * cellHeight - max(1.0 / scale, 2),
+                width: cellWidth,
+                height: max(1.0 / scale, 2)
+            )
+        case .block, .blockHollow:
+            cursorFrame = CGRect(
+                x: visibleRenderRect.minX + CGFloat(cursorColumn) * cellWidth,
+                y: visibleRenderRect.minY + CGFloat(cursorRow) * cellHeight,
+                width: cellWidth,
+                height: cellHeight
+            )
+        }
+        let bottomClipTop = TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: bounds.size,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        ).minY
+        guard cursorFrame.minY + 0.5 < bottomClipTop else {
+            overlay.isHidden = true
+            return
+        }
+        overlay.frame = cursorFrame.integral
+        overlay.backgroundColor = cursorBlinkState.isVisible
+            ? (color(from: snapshot.terminalCursorColor) ?? configCursorColor ?? UIColor(red: 0xc0/255.0, green: 0xc1/255.0, blue: 0xb5/255.0, alpha: 1.0)).cgColor
+            : (color(from: snapshot.terminalBackground) ?? configBackgroundColor ?? backgroundColor ?? .black).cgColor
+        overlay.borderWidth = cursor.style == .blockHollow ? max(1.0 / scale, 1) : 0
+        overlay.borderColor = overlay.backgroundColor
         overlay.isHidden = false
     }
 
@@ -2817,6 +3246,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             let bg = UIColor(red: CGFloat(bgColor.r) / 255.0, green: CGFloat(bgColor.g) / 255.0, blue: CGFloat(bgColor.b) / 255.0, alpha: 1.0)
             backgroundColor = bg
             snapshotFallbackView.backgroundColor = bg
+            bottomOverscanCoverView.backgroundColor = bg
             configBackgroundColor = bg
             #if DEBUG
             log.debug("applyBg: config r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public) -> UIColor(\(bg.debugDescription, privacy: .public)), hardcoded Monokai=#272822 r=39 g=40 b=34")
@@ -2938,7 +3368,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Result of an off-main geometry pass, handed back to the main actor.
     private struct GeometryResult: Sendable {
         let cellPixelSize: CGSize
-        let naturalSize: TerminalGridSize
+        let reportedSize: TerminalGridSize
+        let backingSize: TerminalGridSize
+        let visibleRenderSize: CGSize?
         /// Pinned render size in points when letterboxed to an effective
         /// grid; nil means fill the container.
         let pinnedSize: CGSize?
@@ -3007,30 +3439,62 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 )
             }
 
-            var pinnedSize: CGSize?
-            if let eff, eff.cols > 0, eff.rows > 0, cell.width > 0, cell.height > 0 {
-                let fillsNaturalGrid = eff.cols >= Int(measured.columns) && eff.rows >= Int(measured.rows)
-                let withinOneCell = (Int(measured.columns) - eff.cols) <= 1 && (Int(measured.rows) - eff.rows) <= 1
-                let pinnedW = CGFloat(eff.cols) * cell.width / scale
-                let pinnedH = CGFloat(eff.rows) * cell.height / scale
-                if !fillsNaturalGrid, !withinOneCell, pinnedW + 0.5 < containerW || pinnedH + 0.5 < containerH {
-                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: eff.rows, cellPixelSize: cell)
-                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
-                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
-                    pinnedSize = CGSize(
-                        width: min(CGFloat(aw) / scale, containerW),
-                        height: min(CGFloat(ah) / scale, containerH)
-                    )
-                }
-            }
-
-            let natural = TerminalGridSize(
+            let reported = TerminalGridSize(
                 columns: Int(measured.columns),
                 rows: Int(measured.rows),
                 pixelWidth: Int(measured.width_px),
                 pixelHeight: Int(measured.height_px)
             )
-            let result = GeometryResult(cellPixelSize: cell, naturalSize: natural, pinnedSize: pinnedSize)
+            var backingMeasured = measured
+            var pinnedSize: CGSize?
+            var visibleRenderSize: CGSize?
+            if cell.width > 0, cell.height > 0 {
+                if let eff, eff.cols > 0, eff.rows > 0 {
+                    let backingRows = TerminalLetterboxGeometry.backingRows(visibleRows: eff.rows)
+                    let fitted = Self.fitSurfaceToGrid(surface, cols: eff.cols, rows: backingRows, cellPixelSize: cell)
+                    backingMeasured = fitted.actual
+                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
+                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
+                    let backingPointSize = TerminalLetterboxGeometry.clampPinnedSize(
+                        actualWidthPx: CGFloat(aw),
+                        actualHeightPx: CGFloat(ah),
+                        scale: scale,
+                        container: CGSize(width: containerW, height: containerH + cell.height / max(scale, 1))
+                    )
+                    pinnedSize = backingPointSize
+                    visibleRenderSize = TerminalLetterboxGeometry.visibleRenderSize(
+                        backingSize: backingPointSize,
+                        cellPixelSize: cell,
+                        scale: scale
+                    )
+                } else if measured.columns > 0, measured.rows > 0 {
+                    let visibleRows = max(1, Int(measured.rows))
+                    let backingRows = TerminalLetterboxGeometry.backingRows(visibleRows: visibleRows)
+                    let fitted = Self.fitSurfaceToGrid(surface, cols: Int(measured.columns), rows: backingRows, cellPixelSize: cell)
+                    backingMeasured = fitted.actual
+                    let aw = fitted.actual.width_px > 0 ? fitted.actual.width_px : fitted.requestedW
+                    let ah = fitted.actual.height_px > 0 ? fitted.actual.height_px : fitted.requestedH
+                    let backingPointSize = CGSize(width: CGFloat(aw) / scale, height: CGFloat(ah) / scale)
+                    visibleRenderSize = TerminalLetterboxGeometry.visibleRenderSize(
+                        backingSize: backingPointSize,
+                        cellPixelSize: cell,
+                        scale: scale
+                    )
+                }
+            }
+            let backing = TerminalGridSize(
+                columns: Int(backingMeasured.columns),
+                rows: Int(backingMeasured.rows),
+                pixelWidth: Int(backingMeasured.width_px),
+                pixelHeight: Int(backingMeasured.height_px)
+            )
+            let result = GeometryResult(
+                cellPixelSize: cell,
+                reportedSize: reported,
+                backingSize: backing,
+                visibleRenderSize: visibleRenderSize,
+                pinnedSize: pinnedSize
+            )
             DispatchQueue.main.async {
                 self?.applyGeometryResult(
                     result,
@@ -3065,14 +3529,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // them match so frames present. Pinned (letterboxed) sizes are already
         // derived from the fitted surface px. Left-align + top-anchor either
         // way; any leftover container space is the letterbox margin.
-        let naturalRenderSize = CGSize(
-            width: max(1, CGFloat(result.naturalSize.pixelWidth) / scale),
-            height: max(1, CGFloat(result.naturalSize.pixelHeight) / scale)
+        let backingRenderSize = CGSize(
+            width: max(1, CGFloat(result.backingSize.pixelWidth) / scale),
+            height: max(1, CGFloat(result.backingSize.pixelHeight) / scale)
         )
         let renderRect = result.pinnedSize.map { CGRect(origin: .zero, size: $0) }
-            ?? CGRect(origin: .zero, size: naturalRenderSize)
+            ?? CGRect(origin: .zero, size: backingRenderSize)
         lastRenderRect = renderRect
-        // The docked toolbar's top hugs `lastRenderRect.maxY` (see
+        let visibleSize = result.visibleRenderSize ?? renderRect.size
+        lastVisibleRenderRect = CGRect(origin: renderRect.origin, size: visibleSize)
+        // The docked toolbar's top hugs `lastVisibleRenderRect.maxY` (see
         // ``bottomDockFrames()``), so re-seat the whole bottom dock now that the
         // rendered terminal bottom has moved; otherwise the bar keeps the pre-geometry
         // position and the sub-cell gap above it reappears.
@@ -3080,15 +3546,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         MobileDebugLog.anchormux(
             "geom container=\(Int(containerW))x\(Int(containerH)) scale=\(scale) "
             + "cellPx=\(Int(result.cellPixelSize.width))x\(Int(result.cellPixelSize.height)) "
-            + "natural=\(result.naturalSize.columns)x\(result.naturalSize.rows) "
+            + "natural=\(result.reportedSize.columns)x\(result.reportedSize.rows) "
+            + "backing=\(result.backingSize.columns)x\(result.backingSize.rows) "
             + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
             + "pinned=\(result.pinnedSize.map { "\(Int($0.width))x\(Int($0.height))" } ?? "nil") "
-            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height))"
+            + "renderRect=\(Int(renderRect.width))x\(Int(renderRect.height)) "
+            + "visibleRect=\(Int(lastVisibleRenderRect.width))x\(Int(lastVisibleRenderRect.height))"
         )
         syncRendererLayerFrame(scale: scale, renderRect: renderRect)
+        updateBottomOverscanCover(scale: scale)
         updateLetterboxBorder(
-            renderRect: renderRect,
-            isLetterboxed: renderRect.width + 0.5 < containerW || renderRect.height + 0.5 < containerH
+            renderRect: lastVisibleRenderRect,
+            isLetterboxed: lastVisibleRenderRect.width + 0.5 < containerW || lastVisibleRenderRect.height + 0.5 < containerH
         )
         updateCursorOverlay()
         needsDraw = true
@@ -3101,8 +3570,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // behind (see display link).
         pendingRenderFrames = 6
         syncSnapshotFallback()
+        let waiters = Array(geometryWaiters.values)
+        geometryWaiters.removeAll(keepingCapacity: true)
+        for waiter in waiters {
+            waiter.resume()
+        }
+        if !waiters.isEmpty {
+            MobileDebugLog.anchormux(
+                "replay.geometry.resume waiters=\(waiters.count) "
+                + "natural=\(result.reportedSize.columns)x\(result.reportedSize.rows) "
+                + "eff=\(effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "nil") "
+                + "render=\(Int(renderRect.width))x\(Int(renderRect.height))"
+            )
+        }
 
-        let naturalSize = result.naturalSize
+        let naturalSize = result.reportedSize
+        let currentContainerSize = CGSize(width: containerW, height: containerH)
+        let containerShrank = lastTerminalContainerSize.map {
+            currentContainerSize.width + 0.5 < $0.width || currentContainerSize.height + 0.5 < $0.height
+        } ?? false
+        lastTerminalContainerSize = currentContainerSize
         let effectiveMatchesNatural = effectiveGrid.map { grid in
             grid.cols == naturalSize.columns && grid.rows == naturalSize.rows
         } ?? true
@@ -3110,6 +3597,13 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             (shouldReassertNaturalSize && !effectiveMatchesNatural)
         guard shouldReportNaturalSize, naturalSize.columns > 0, naturalSize.rows > 0 else { return }
         lastReportedSize = naturalSize
+        if containerShrank {
+            pendingViewportReport = nil
+            viewportReportSettleFrames = 0
+            MobileDebugLog.anchormux("zoom.report.immediate grid=\(naturalSize.columns)x\(naturalSize.rows) reason=container_shrink")
+            delegate?.ghosttySurfaceView(self, didResize: naturalSize)
+            return
+        }
         // Debounce the actual report (a PTY resize on the Mac) until the grid
         // settles; the display link fires it once it stops changing.
         pendingViewportReport = naturalSize
@@ -3133,7 +3627,17 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer.contentsScale = scale
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? renderRect : lastVisibleRenderRect
+        let maskRect = TerminalLetterboxGeometry.visibleRendererMaskRect(
+            renderRect: renderRect,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        )
+        let hideRenderer = isUsingSemanticRenderGrid
         for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = hideRenderer
+            guard !hideRenderer else { continue }
             if sublayer.frame != renderRect {
                 sublayer.frame = renderRect
             }
@@ -3141,8 +3645,63 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 sublayer.bounds = CGRect(origin: .zero, size: renderRect.size)
             }
             sublayer.contentsScale = scale
+            let mask = sublayer.mask ?? {
+                let mask = CALayer()
+                mask.name = "cmux.visibleRendererMask"
+                mask.backgroundColor = UIColor.black.cgColor
+                mask.actions = [
+                    "backgroundColor": NSNull(),
+                    "bounds": NSNull(),
+                    "frame": NSNull(),
+                    "position": NSNull(),
+                ]
+                return mask
+            }()
+            if mask.frame != maskRect {
+                mask.frame = maskRect
+            }
+            if mask.bounds.size != maskRect.size {
+                mask.bounds = CGRect(origin: .zero, size: maskRect.size)
+            }
+            if sublayer.mask !== mask {
+                sublayer.mask = mask
+            }
         }
         CATransaction.commit()
+    }
+
+    private func setGhosttyRendererLayersHidden(_ hidden: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for sublayer in layer.sublayers ?? [] where isGhosttyRendererLayer(sublayer) {
+            sublayer.isHidden = hidden
+        }
+        CATransaction.commit()
+    }
+
+    private func updateBottomOverscanCover(scale: CGFloat) {
+        let visibleRenderRect = lastVisibleRenderRect.isEmpty ? lastRenderRect : lastVisibleRenderRect
+        let coverFrame = TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: bounds.size,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: cellPixelSize,
+            scale: scale
+        )
+        let dockTop = bottomDockFrames().toolbar.minY
+        let boundedCoverFrame = CGRect(
+            x: coverFrame.minX,
+            y: coverFrame.minY,
+            width: coverFrame.width,
+            height: max(0, min(coverFrame.maxY, dockTop) - coverFrame.minY)
+        )
+        bottomOverscanCoverView.backgroundColor = semanticRenderGridBackgroundColor()
+            ?? configBackgroundColor
+            ?? backgroundColor
+            ?? .black
+        bottomOverscanCoverView.isHidden = boundedCoverFrame.isEmpty
+        if bottomOverscanCoverView.frame != boundedCoverFrame {
+            bottomOverscanCoverView.frame = boundedCoverFrame
+        }
     }
 
     /// Add / update a 1-pixel separator border around the pinned surface
@@ -3255,6 +3814,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     func drawForWakeup() {
         guard surface != nil, window != nil, !isDismantled else { return }
+        guard !isUsingSemanticRenderGrid else {
+            needsDraw = false
+            return
+        }
         // Don't call `ghostty_surface_refresh` here: that wakes the renderer
         // thread to present asynchronously (`setSurface` → `dispatch_async` to
         // main → size-guard discard), which both blanks frames and competes
@@ -3277,6 +3840,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func syncSnapshotFallback() {
+        if renderGridSnapshot != nil {
+            setGhosttyRendererLayersHidden(true)
+            renderSemanticRenderGridSnapshot()
+            return
+        }
+
         // Once the Metal renderer is active (surface has received output),
         // keep the fallback hidden so the IOSurfaceLayer is visible.
         if surfaceHasReceivedOutput {
@@ -3323,6 +3892,234 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         snapshotFallbackView.isHidden = false
         flushSnapshotFallbackPresentation()
+    }
+
+    func renderSemanticRenderGridSnapshot() {
+        guard let snapshot = renderGridSnapshot else {
+            return
+        }
+        setGhosttyRendererLayersHidden(true)
+
+        let fractionalOffset = snapshot.fractionalRowOffset(rowOffset: localScrollbackModel.rowOffset)
+        let visibleRect = lastVisibleRenderRect.isEmpty ? bounds : lastVisibleRenderRect
+        let background = color(from: snapshot.terminalBackground)
+            ?? configBackgroundColor
+            ?? backgroundColor
+            ?? .black
+        let foreground = color(from: snapshot.terminalForeground)
+            ?? snapshotFallbackView.textColor
+            ?? .white
+        let lineHeight = semanticRenderGridLineHeight()
+
+        snapshotFallbackView.frame = visibleRect
+        snapshotFallbackView.textContainerInset = .zero
+        snapshotFallbackView.textContainer.lineFragmentPadding = 0
+        snapshotFallbackView.isScrollEnabled = true
+        snapshotFallbackView.backgroundColor = background
+        bottomOverscanCoverView.backgroundColor = background
+
+        let integerRowOffset = Int(min(max(localScrollbackModel.rowOffset, 0), snapshot.maxRowOffset).rounded(.down))
+        let extraRows = fractionalOffset > 0 ? 1 : 0
+        let cacheKey = SemanticRenderCacheKey(
+            stateSeq: snapshot.stateSeq,
+            totalRows: snapshot.totalRows,
+            visibleRowCount: snapshot.visibleRowCount,
+            columns: snapshot.columns,
+            integerRowOffset: integerRowOffset,
+            extraRows: extraRows,
+            activeScreen: snapshot.activeScreen,
+            terminalForeground: snapshot.terminalForeground,
+            terminalBackground: snapshot.terminalBackground,
+            terminalCursorColor: snapshot.terminalCursorColor,
+            visibleRectX: Int((visibleRect.minX * preferredScreenScale).rounded()),
+            visibleRectY: Int((visibleRect.minY * preferredScreenScale).rounded()),
+            visibleRectWidth: Int((visibleRect.width * preferredScreenScale).rounded()),
+            visibleRectHeight: Int((visibleRect.height * preferredScreenScale).rounded()),
+            lineHeightPixels: Int((lineHeight * preferredScreenScale).rounded()),
+            fontSizeTenths: Int((liveFontSize * 10).rounded())
+        )
+        if semanticRenderCacheKey == cacheKey, snapshotFallbackView.attributedText != nil {
+            snapshotFallbackView.isHidden = false
+            applySemanticRenderGridFractionalOffset(fractionalOffset, lineHeight: lineHeight)
+            updateCursorOverlay()
+            return
+        }
+
+        let visibleRows = snapshot.visibleRows(
+            rowOffset: localScrollbackModel.rowOffset,
+            extraRows: extraRows
+        )
+        let attributed = NSMutableAttributedString()
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = lineHeight
+        paragraph.maximumLineHeight = lineHeight
+        paragraph.lineBreakMode = .byClipping
+
+        for (rowIndex, row) in visibleRows.enumerated() {
+            appendSemanticRenderGridRow(
+                row,
+                columns: snapshot.columns,
+                foreground: foreground,
+                background: background,
+                paragraph: paragraph,
+                to: attributed
+            )
+            if rowIndex + 1 < visibleRows.count {
+                attributed.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: paragraph]))
+            }
+        }
+
+        snapshotFallbackView.attributedText = attributed
+        semanticRenderCacheKey = cacheKey
+        snapshotFallbackView.isHidden = false
+        flushSnapshotFallbackPresentation()
+        applySemanticRenderGridFractionalOffset(fractionalOffset, lineHeight: lineHeight)
+        updateCursorOverlay()
+        #if DEBUG
+        debugAccessibilityProxy.accessibilityLabel = attributed.string
+        #endif
+    }
+
+    private func applySemanticRenderGridFractionalOffset(_ fractionalOffset: Double, lineHeight: CGFloat) {
+        let offsetY = CGFloat(fractionalOffset) * lineHeight
+        if abs(snapshotFallbackView.contentOffset.y - offsetY) > 0.25 || snapshotFallbackView.contentOffset.x != 0 {
+            snapshotFallbackView.setContentOffset(CGPoint(x: 0, y: offsetY), animated: false)
+        }
+    }
+
+    private func appendSemanticRenderGridRow(
+        _ row: MobileTerminalRenderGridSnapshotRow,
+        columns: Int,
+        foreground: UIColor,
+        background: UIColor,
+        paragraph: NSParagraphStyle,
+        to attributed: NSMutableAttributedString
+    ) {
+        var cellColumn = 0
+        let sortedSpans = row.spans.sorted { $0.column < $1.column }
+        for span in sortedSpans {
+            if cellColumn < span.column {
+                attributed.append(NSAttributedString(
+                    string: String(repeating: " ", count: span.column - cellColumn),
+                    attributes: semanticAttributes(
+                        style: .default,
+                        foreground: foreground,
+                        background: background,
+                        paragraph: paragraph
+                    )
+                ))
+                cellColumn = span.column
+            }
+            let paddedText = span.text + String(repeating: " ", count: max(0, span.cellWidth - span.text.count))
+            attributed.append(NSAttributedString(
+                string: paddedText,
+                attributes: semanticAttributes(
+                    style: span.style,
+                    foreground: foreground,
+                    background: background,
+                    paragraph: paragraph
+                )
+            ))
+            cellColumn += max(span.cellWidth, span.text.count)
+        }
+        if cellColumn < columns {
+            attributed.append(NSAttributedString(
+                string: String(repeating: " ", count: columns - cellColumn),
+                attributes: semanticAttributes(
+                    style: .default,
+                    foreground: foreground,
+                    background: background,
+                    paragraph: paragraph
+                )
+            ))
+        }
+    }
+
+    private func semanticAttributes(
+        style: MobileTerminalRenderGridFrame.Style,
+        foreground: UIColor,
+        background: UIColor,
+        paragraph: NSParagraphStyle
+    ) -> [NSAttributedString.Key: Any] {
+        var fg = color(from: style.foreground) ?? foreground
+        var bg = color(from: style.background)
+        if style.inverse {
+            let originalForeground = fg
+            fg = bg ?? background
+            bg = originalForeground
+        }
+        if style.invisible {
+            fg = bg ?? background
+        } else if style.faint {
+            fg = fg.withAlphaComponent(0.65)
+        }
+
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: semanticFont(style: style),
+            .foregroundColor: fg,
+            .paragraphStyle: paragraph,
+        ]
+        if let bg {
+            attributes[.backgroundColor] = bg
+        }
+        if style.underline || style.overline {
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+        }
+        if style.strikethrough {
+            attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+        }
+        return attributes
+    }
+
+    private func semanticFont(style: MobileTerminalRenderGridFrame.Style) -> UIFont {
+        var traits: UIFontDescriptor.SymbolicTraits = []
+        if style.bold {
+            traits.insert(.traitBold)
+        }
+        if style.italic {
+            traits.insert(.traitItalic)
+        }
+        let base = UIFont.monospacedSystemFont(ofSize: CGFloat(liveFontSize) * 1.35, weight: style.bold ? .bold : .regular)
+        guard !traits.isEmpty,
+              let descriptor = base.fontDescriptor.withSymbolicTraits(traits) else {
+            return base
+        }
+        return UIFont(descriptor: descriptor, size: base.pointSize)
+    }
+
+    private func semanticRenderGridLineHeight() -> CGFloat {
+        let scale = max(preferredScreenScale, 1)
+        if cellPixelSize.height > 0 {
+            return max(1, cellPixelSize.height / scale)
+        }
+        if let snapshot = renderGridSnapshot, snapshot.visibleRowCount > 0 {
+            let visibleRect = lastVisibleRenderRect.isEmpty ? bounds : lastVisibleRenderRect
+            return max(1, visibleRect.height / CGFloat(snapshot.visibleRowCount))
+        }
+        return max(1, snapshotFallbackView.font?.lineHeight ?? 16)
+    }
+
+    private func color(from hex: String?) -> UIColor? {
+        guard var value = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("#") {
+            value.removeFirst()
+        }
+        guard value.count == 6, let rgb = UInt32(value, radix: 16) else {
+            return nil
+        }
+        return UIColor(
+            red: CGFloat((rgb >> 16) & 0xff) / 255.0,
+            green: CGFloat((rgb >> 8) & 0xff) / 255.0,
+            blue: CGFloat(rgb & 0xff) / 255.0,
+            alpha: 1.0
+        )
+    }
+
+    private func semanticRenderGridBackgroundColor() -> UIColor? {
+        guard let snapshot = renderGridSnapshot else { return nil }
+        return color(from: snapshot.terminalBackground)
     }
 
     private func flushSnapshotFallbackPresentation() {
@@ -3386,7 +4183,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func isGhosttyRendererLayerVisible(_ layer: CALayer) -> Bool {
-        isGhosttyRendererLayer(layer) && layer.contents != nil
+        isGhosttyRendererLayer(layer) && !layer.isHidden && layer.contents != nil
     }
 
     nonisolated private static func handleWrite(
@@ -3429,6 +4226,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     @MainActor
+    static func updateScrollbar(total: UInt64, offset: UInt64, len: UInt64, for surface: ghostty_surface_t) {
+        view(for: surface)?.updateLocalScrollbackBounds(total: total, offset: offset, len: len)
+    }
+
+    @MainActor
+    static func updateScrollbar(total: UInt64, offset: UInt64, len: UInt64, forSurfaceIdentifier identifier: UInt) {
+        view(forSurfaceIdentifier: identifier)?.updateLocalScrollbackBounds(total: total, offset: offset, len: len)
+    }
+
+    @MainActor
     static func title(for surface: ghostty_surface_t) -> String? {
         view(for: surface)?.surfaceTitle
     }
@@ -3455,15 +4262,26 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // blank the terminal. The output queue is never concurrent with
         // `process_output`, so the read can't wedge. No `main.sync` runs on that
         // queue, so this `.sync` cannot deadlock.
+        var built: [String] = []
         var pending: [VisibleSnapshotRequest] = []
         for view in registeredSurfaceViews.values.compactMap(\.value) {
             guard view.window != nil, !view.isHidden, view.alpha > 0.01,
                   let surface = view.surface else { continue }
             let grid = view.effectiveGrid.map { "\($0.cols)x\($0.rows)" } ?? "?"
+            if view.renderGridSnapshot != nil {
+                built.append(
+                    "===== visible terminal · grid=\(grid) · font=\(Int(view.liveFontSize)) =====\n"
+                    + view.visibleSnapshotTextForTesting()
+                )
+                continue
+            }
             pending.append(VisibleSnapshotRequest(grid: grid, font: Int(view.liveFontSize), surface: surface))
         }
-        if pending.isEmpty {
+        if built.isEmpty, pending.isEmpty {
             return "===== visible terminal: (no on-screen surface) ====="
+        }
+        if pending.isEmpty {
+            return built.joined(separator: "\n\n")
         }
         // Read on the output queue, but bound the wait. If a render wedge has the
         // queue stuck mid-`process_output`, a plain `.sync` here would freeze the
@@ -3478,21 +4296,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // bounded wait, not a lock guarding shared state.
         let done = DispatchSemaphore(value: 0)
         outputQueue.async {
-            var built: [String] = []
+            var ghosttySections: [String] = []
             for item in pending {
                 let text = surfaceText(item.surface, pointTag: GHOSTTY_POINT_VIEWPORT) ?? "(unavailable)"
-                built.append(
+                ghosttySections.append(
                     "===== visible terminal · grid=\(item.grid) · font=\(item.font) =====\n"
                     + text
                 )
             }
-            holder.sections = built
+            holder.sections = ghosttySections
             done.signal()
         }
         if done.wait(timeout: .now() + 0.6) == .timedOut {
+            if !built.isEmpty {
+                return built.joined(separator: "\n\n")
+            }
             return "===== visible terminal: (snapshot skipped — render busy) ====="
         }
-        return holder.sections.joined(separator: "\n\n")
+        return (built + holder.sections).joined(separator: "\n\n")
     }
 
     private func handleBell() {
@@ -3505,9 +4326,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 }
 
 extension GhosttySurfaceView: UIGestureRecognizerDelegate {
-    /// Keep a tap that lands on the visible zoom HUD from also focusing the
-    /// terminal (which would pop the keyboard). Only the focus tap carries this
-    /// delegate, so scroll/pinch are unaffected.
+    /// Keep gestures that land on surface-owned controls from also focusing or
+    /// scrolling the terminal.
     public func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
@@ -3525,6 +4345,13 @@ extension GhosttySurfaceView: UIGestureRecognizerDelegate {
             return false
         }
         return true
+    }
+
+    public func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }
 

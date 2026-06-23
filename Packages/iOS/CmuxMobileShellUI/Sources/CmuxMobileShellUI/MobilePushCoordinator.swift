@@ -12,7 +12,7 @@ import UserNotifications
 /// store: drives opt-in registration, hands device tokens to the injected
 /// ``CmuxAuthRuntime/PushRegistrationService``, and routes foreground
 /// presentation + taps to the active ``CMUXMobileShellStore`` for "mirror macOS"
-/// suppression and deep-link.
+/// suppression and terminal-target navigation.
 ///
 /// The coordinator is the seam between the `UIApplicationDelegate` (which must
 /// own `UNUserNotificationCenterDelegate`) and the per-scene store. Constructed
@@ -32,6 +32,7 @@ public final class MobilePushCoordinator {
     /// the same `UserDefaults` key the store's own queue uses, so the store's
     /// flush-on-subscribe delivers these too.
     @ObservationIgnored private let pendingDismissQueue: PendingNotificationDismissQueue
+    public let terminalTargets: MobileTerminalTargetCoordinator
     // UserDefaults is Apple-documented thread-safe; a synchronous read mirrors
     // the opt-in flag for the menu UI without awaiting the actor service.
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -47,25 +48,6 @@ public final class MobilePushCoordinator {
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
 
-    /// A tap whose navigation could not complete yet. On a cold launch the
-    /// notification-center delegate delivers the tap before the root view has
-    /// mounted (no store bound yet), and even once bound the tapped workspace
-    /// is not in the store until the Mac attach finishes. The tap is parked
-    /// here and re-applied from ``bind(store:)`` and ``workspacesDidChange()``
-    /// until the target exists or the request expires.
-    private struct PendingDeeplink {
-        let workspaceId: String?
-        let surfaceId: String?
-        let createdAt: Date
-    }
-
-    @ObservationIgnored private var pendingDeeplink: PendingDeeplink?
-    /// Bounded so a tap from long ago cannot yank the user out of whatever
-    /// they navigated to in the meantime, but generous enough to cover cold
-    /// launch plus sign-in plus a slow attach.
-    private static let pendingDeeplinkLifetime: TimeInterval = 120
-    @ObservationIgnored private let now: () -> Date
-
     /// Creates a push coordinator.
     /// - Parameters:
     ///   - registration: The injected push-registration service.
@@ -79,22 +61,22 @@ public final class MobilePushCoordinator {
     ///   - pendingDismissQueue: The durable phone→Mac dismiss outbox shared (via
     ///     `UserDefaults`) with the shell store, used when a swipe arrives before
     ///     any store exists. Defaults to the standard-defaults-backed queue.
-    ///   - now: Clock seam for the pending-deeplink expiry. Defaults to
-    ///     `Date.init`.
+    ///   - terminalTargets: Shared coordinator for external terminal-target
+    ///     navigation. Defaults to a fresh coordinator using the same analytics.
     public init(
         registration: any PushRegistering,
         analytics: any AnalyticsEmitting = NoopAnalytics(),
         defaults: UserDefaults = .standard,
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
-        now: @escaping () -> Date = Date.init
+        terminalTargets: MobileTerminalTargetCoordinator? = nil
     ) {
         self.registration = registration
         self.analytics = analytics
         self.defaults = defaults
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
-        self.now = now
+        self.terminalTargets = terminalTargets ?? MobileTerminalTargetCoordinator(analytics: analytics)
     }
 
     /// Whether the user has opted into phone notifications (synchronous mirror).
@@ -103,14 +85,14 @@ public final class MobilePushCoordinator {
     /// Point routing at the active store (called by the root view on appear).
     public func bind(store: CMUXMobileShellStore) {
         self.store = store
-        applyPendingDeeplinkIfReady()
+        terminalTargets.bind(store: store)
     }
 
-    /// Re-apply a parked notification tap once its target can exist. Called by
+    /// Re-apply a parked terminal target once its target can exist. Called by
     /// the root view whenever the store's workspace list changes (the list is
     /// empty until the Mac attach completes).
     public func workspacesDidChange() {
-        applyPendingDeeplinkIfReady()
+        terminalTargets.workspacesDidChange()
     }
 
     /// Install the notification-center delegate, register the dismiss-sync
@@ -201,7 +183,7 @@ public final class MobilePushCoordinator {
         return false
     }
 
-    /// Deep-link to the workspace/terminal a tapped notification refers to.
+    /// Show the workspace/terminal a tapped notification refers to.
     ///
     /// The tap is parked first and applied through one path: a cold launch
     /// delivers the tap before the root view has bound a store, and a
@@ -209,66 +191,11 @@ public final class MobilePushCoordinator {
     /// immediately in those states is what stranded users on the workspaces
     /// home screen.
     public func handleTap(workspaceId: String?, surfaceId: String?) {
-        pendingDeeplink = PendingDeeplink(
+        terminalTargets.openTarget(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
-            createdAt: now()
+            source: .notification
         )
-        applyPendingDeeplinkIfReady()
-    }
-
-    /// Apply the parked tap if its target can be navigated to right now;
-    /// otherwise keep it parked for the next ``bind(store:)`` or
-    /// ``workspacesDidChange()``.
-    private func applyPendingDeeplinkIfReady() {
-        guard let pending = pendingDeeplink else { return }
-        guard now().timeIntervalSince(pending.createdAt) < Self.pendingDeeplinkLifetime else {
-            pendingDeeplink = nil
-            analytics.capture("ios_push_deeplink_failed", ["reason": .string("expired")])
-            return
-        }
-        guard let store else { return }
-
-        // Resolve the workspace to navigate to: the explicit target, or for a
-        // surface-only tap the workspace that owns the terminal. Unresolvable
-        // means "not loaded yet": stay parked for the next topology change so
-        // the tap is never spent on a selection that cannot navigate.
-        let workspaceTarget: MobileWorkspacePreview.ID
-        if let workspaceId = pending.workspaceId {
-            workspaceTarget = MobileWorkspacePreview.ID(rawValue: workspaceId)
-            guard store.workspaces.contains(where: { $0.id == workspaceTarget }) else { return }
-        } else if let surfaceId = pending.surfaceId {
-            guard let owner = store.workspaceID(containingSurfaceID: surfaceId) else { return }
-            workspaceTarget = owner
-        } else {
-            pendingDeeplink = nil
-            return
-        }
-
-        if let surfaceId = pending.surfaceId,
-           !store.workspace(workspaceTarget, containsSurfaceID: surfaceId) {
-            // The workspace is here but its terminal snapshot is not (still
-            // loading, or the terminal was closed). Land the user in the right
-            // workspace now and keep only the surface part parked so it can
-            // resolve if the terminal arrives, bounded by the same expiry.
-            store.navigateToWorkspaceForDeeplink(workspaceTarget)
-            pendingDeeplink = PendingDeeplink(
-                workspaceId: nil,
-                surfaceId: surfaceId,
-                createdAt: pending.createdAt
-            )
-            return
-        }
-
-        store.navigateToWorkspaceForDeeplink(workspaceTarget)
-        if let surfaceId = pending.surfaceId {
-            store.selectTerminal(MobileTerminalPreview.ID(rawValue: surfaceId))
-        }
-        pendingDeeplink = nil
-        analytics.capture("ios_push_deeplink_resolved", [
-            "resolved_workspace": .bool(pending.workspaceId != nil),
-            "resolved_surface": .bool(pending.surfaceId != nil),
-        ])
     }
 
     /// Forward a phone-side notification dismissal to the paired Mac so it marks

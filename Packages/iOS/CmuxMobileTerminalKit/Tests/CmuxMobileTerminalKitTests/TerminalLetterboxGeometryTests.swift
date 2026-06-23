@@ -289,4 +289,92 @@ struct TerminalLetterboxGeometryTests {
         )
         #expect(clamped == CGSize(width: 402, height: 700))
     }
+
+    @Test("bottom spare row separates backing grid from visible viewport")
+    func bottomSpareRowPolicy() {
+        #expect(TerminalLetterboxGeometry.backingRows(visibleRows: 48) == 49)
+        #expect(TerminalLetterboxGeometry.visibleRows(backingRows: 49) == 48)
+        #expect(TerminalLetterboxGeometry.visibleRows(backingRows: 1) == 1)
+
+        let visible = TerminalLetterboxGeometry.visibleRenderSize(
+            backingSize: CGSize(width: 402, height: 490),
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        )
+        #expect(visible == CGSize(width: 402, height: 480))
+    }
+
+    @Test("renderer mask uses the already-visible viewport rect")
+    func rendererMaskUsesAlreadyVisibleViewportRect() {
+        let renderRect = CGRect(x: 0, y: 0, width: 402, height: 490)
+        let visibleRenderRect = CGRect(x: 0, y: 0, width: 402, height: 480)
+
+        #expect(TerminalLetterboxGeometry.visibleRendererMaskRect(
+            renderRect: renderRect,
+            visibleRenderRect: visibleRenderRect,
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        ) == CGRect(x: 0, y: 0, width: 402, height: 480))
+
+        let shiftedRenderRect = CGRect(x: 4, y: 8, width: 402, height: 490)
+        let shiftedVisibleRect = CGRect(x: 4, y: 8, width: 402, height: 480)
+        #expect(TerminalLetterboxGeometry.visibleRendererMaskRect(
+            renderRect: shiftedRenderRect,
+            visibleRenderRect: shiftedVisibleRect,
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        ) == CGRect(x: 0, y: 0, width: 402, height: 480))
+    }
+
+    @Test("bottom overscan cover starts below the visible viewport")
+    func bottomOverscanCoverStartsBelowVisibleViewport() {
+        #expect(TerminalLetterboxGeometry.bottomOverscanCoverRect(
+            bounds: CGSize(width: 402, height: 700),
+            visibleRenderRect: CGRect(x: 0, y: 0, width: 402, height: 480),
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3
+        ) == CGRect(x: 0, y: 480, width: 402, height: 220))
+    }
+
+    @Test("bottom dock anchors to visible terminal rect instead of hidden spare row")
+    func bottomDockUsesVisibleRenderRect() {
+        let frames = TerminalLetterboxGeometry.bottomDockFrames(
+            bounds: CGSize(width: 402, height: 700),
+            keyboardOccupancy: 34,
+            chromeHidden: false,
+            composerBandHeight: 0,
+            toolbarHeight: 44,
+            visibleRenderRect: CGRect(x: 0, y: 0, width: 402, height: 608)
+        )
+
+        #expect(frames.composer == CGRect(x: 0, y: 666, width: 402, height: 0))
+        #expect(frames.toolbar == CGRect(x: 0, y: 608, width: 402, height: 58))
+    }
+
+    @Test("composer band owns bottom slack when open")
+    func bottomDockWithComposerUsesButtonBand() {
+        let frames = TerminalLetterboxGeometry.bottomDockFrames(
+            bounds: CGSize(width: 402, height: 700),
+            keyboardOccupancy: 34,
+            chromeHidden: false,
+            composerBandHeight: 120,
+            toolbarHeight: 44,
+            visibleRenderRect: CGRect(x: 0, y: 0, width: 402, height: 608)
+        )
+
+        #expect(frames.composer == CGRect(x: 0, y: 546, width: 402, height: 120))
+        #expect(frames.toolbar == CGRect(x: 0, y: 502, width: 402, height: 44))
+    }
+
+    @Test("visible render size keeps a stable viewport when spare rows exceed the backing box")
+    func visibleRenderSizeAlwaysLeavesViewport() {
+        let visible = TerminalLetterboxGeometry.visibleRenderSize(
+            backingSize: CGSize(width: 402, height: 8),
+            cellPixelSize: CGSize(width: 18, height: 30),
+            scale: 3,
+            spareRows: 2
+        )
+
+        #expect(visible == CGSize(width: 402, height: 1))
+    }
 }

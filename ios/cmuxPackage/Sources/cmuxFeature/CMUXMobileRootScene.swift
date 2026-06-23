@@ -189,7 +189,9 @@ public struct CMUXMobileRootScene: View {
     private var content: some View {
         #if os(iOS)
         #if DEBUG
-        if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
+        if Self.mobileDemoMode == "science" {
+            ScienceDemoTerminalView()
+        } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else {
             CMUXMobileAppView(store: makeStore(), onboardingStore: onboardingStore)
@@ -201,6 +203,25 @@ public struct CMUXMobileRootScene: View {
         CMUXMobileAppView(store: makeStore())
         #endif
     }
+
+    #if os(iOS) && DEBUG
+    private static var mobileDemoMode: String {
+        let infoValue = Bundle.main.object(forInfoDictionaryKey: "CMUXMobileDemoMode") as? String
+        let envValue = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_MODE"]
+        return normalizedMobileDemoMode(infoValue)
+            ?? normalizedMobileDemoMode(envValue)
+            ?? ""
+    }
+
+    private static func normalizedMobileDemoMode(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard !normalized.isEmpty, !normalized.hasPrefix("$(") else { return nil }
+        return normalized
+    }
+    #endif
 
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {

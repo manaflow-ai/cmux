@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxMobileRPC
 import Foundation
 import OSLog
@@ -18,22 +19,37 @@ extension MobileShellComposite {
     /// continue through deceleration after the finger lifts; while one RPC is
     /// in flight, newer deltas are summed into the next request instead of
     /// piling up stale scroll packets.
-    public func scrollTerminal(surfaceID: String, lines: Double, col: Int, row: Int) async {
+    public func scrollTerminal(
+        surfaceID: String,
+        lines: Double,
+        col: Int,
+        row: Int,
+        hydrateScrollback: Bool = false
+    ) async {
         var prefetchState = terminalScrollbackPrefetchStatesBySurfaceID[surfaceID]
             ?? TerminalScrollbackPrefetchState()
-        let maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
+        let maxScrollbackRows: Int?
+        let scrollbackScope: String?
+        if hydrateScrollback {
+            maxScrollbackRows = MobileTerminalScrollbackBudget.fullReplayRows
+            scrollbackScope = MobileTerminalScrollbackReplayRequest.fullScope
+        } else {
+            maxScrollbackRows = prefetchState.rowsToPrefetch(forScrollLines: lines)
+            scrollbackScope = nil
+        }
         terminalScrollbackPrefetchStatesBySurfaceID[surfaceID] = prefetchState
         enqueueTerminalScroll(TerminalScrollDelivery(
             surfaceID: surfaceID,
             lines: lines,
             col: col,
             row: row,
-            maxScrollbackRows: maxScrollbackRows
+            maxScrollbackRows: maxScrollbackRows,
+            scrollbackScope: scrollbackScope
         ))
     }
 
     private func enqueueTerminalScroll(_ delivery: TerminalScrollDelivery) {
-        guard delivery.lines != 0 else { return }
+        guard delivery.lines != 0 || delivery.maxScrollbackRows != nil else { return }
         let queueToken = terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] ?? UUID()
         terminalScrollQueueTokensBySurfaceID[delivery.surfaceID] = queueToken
         var queue = terminalScrollQueuesBySurfaceID[delivery.surfaceID] ?? TerminalScrollDeliveryQueue()
@@ -79,6 +95,9 @@ extension MobileShellComposite {
             if let maxScrollbackRows = delivery.maxScrollbackRows {
                 params["max_scrollback_rows"] = maxScrollbackRows
             }
+            if let scrollbackScope = delivery.scrollbackScope {
+                params[MobileTerminalScrollbackReplayRequest.scopeParameter] = scrollbackScope
+            }
             let request = try MobileCoreRPCClient.requestData(
                 method: "mobile.terminal.scroll",
                 params: params
@@ -89,13 +108,22 @@ extension MobileShellComposite {
                   remoteClient === client else {
                 return
             }
-            guard let payload = try? MobileTerminalReplayResponse.decode(data),
-                  let renderGrid = payload.renderGrid,
-                  renderGrid.surfaceID == delivery.surfaceID else {
+            guard let payload = try? MobileTerminalReplayResponse.decode(data) else {
                 return
             }
+            let decodedEnvelope = payload.renderGridEnvelope.flatMap { envelope -> MobileTerminalRenderGridEnvelope? in
+                guard envelope.role == .snapshot,
+                      envelope.frame.surfaceID == delivery.surfaceID else { return nil }
+                return envelope
+            }
+            let envelope = decodedEnvelope ??
+                payload.renderGrid.flatMap { renderGrid in
+                    guard renderGrid.surfaceID == delivery.surfaceID else { return nil }
+                    return try? MobileTerminalRenderGridEnvelope.snapshot(renderGrid)
+                }
+            guard let envelope else { return }
             deliverAuthoritativeTerminalRenderGrid(
-                renderGrid,
+                envelope,
                 expectedSurfaceID: delivery.surfaceID,
                 source: "scroll_prefetch"
             )

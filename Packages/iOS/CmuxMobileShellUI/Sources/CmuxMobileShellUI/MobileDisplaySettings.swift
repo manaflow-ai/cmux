@@ -22,6 +22,7 @@ public final class MobileDisplaySettings {
     private nonisolated(unsafe) let defaults: UserDefaults
     private static let wrapWorkspaceTitlesKey = "cmux.mobile.wrapWorkspaceTitles"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
+    private static let decouplePrimaryScreenScrollKey = "cmux.mobile.decouplePrimaryScreenScroll"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let profilePictureLeftShiftKey = "cmux.mobile.debug.profilePictureLeftShift"
     private static let profilePictureSizeKey = "cmux.mobile.debug.profilePictureSize"
@@ -31,6 +32,9 @@ public final class MobileDisplaySettings {
     /// Default preview line count when nothing is stored (iMessage-style two
     /// lines).
     public static let defaultWorkspacePreviewLineCount = 2
+    /// Default scroll mode: primary scrollback stays on the phone and only
+    /// alternate-screen wheel input is sent to the Mac.
+    public static let defaultDecouplePrimaryScreenScroll = true
     /// Debug slider range for moving the unread dot left, in points.
     public static let unreadIndicatorLeftShiftRange: ClosedRange<Double> = 0...24
     /// Debug slider range for moving the workspace profile picture left, in points.
@@ -60,6 +64,13 @@ public final class MobileDisplaySettings {
             if clamped != workspacePreviewLineCount { workspacePreviewLineCount = clamped }
             defaults.set(clamped, forKey: Self.workspacePreviewLineCountKey)
         }
+    }
+
+    /// Whether normal-screen terminal scrollback moves locally on the phone.
+    /// Turning this off restores the older host round-trip path, useful for
+    /// comparing latency while dogfooding.
+    public var decouplePrimaryScreenScroll: Bool {
+        didSet { defaults.set(decouplePrimaryScreenScroll, forKey: Self.decouplePrimaryScreenScrollKey) }
     }
 
     /// DEBUG-only layout tuning value, exposed in Settings > Developer. Positive
@@ -103,6 +114,11 @@ public final class MobileDisplaySettings {
         self.workspacePreviewLineCount = Self.clampedWorkspacePreviewLineCount(
             storedPreviewLines ?? Self.defaultWorkspacePreviewLineCount
         )
+        if let storedDecoupledScroll = defaults.object(forKey: Self.decouplePrimaryScreenScrollKey) as? Bool {
+            self.decouplePrimaryScreenScroll = storedDecoupledScroll
+        } else {
+            self.decouplePrimaryScreenScroll = Self.defaultDecouplePrimaryScreenScroll
+        }
         let storedUnreadLeftShift = defaults.object(forKey: Self.unreadIndicatorLeftShiftKey) as? Double
         self.unreadIndicatorLeftShift = Self.clamped(
             storedUnreadLeftShift ?? Self.defaultUnreadIndicatorLeftShift,

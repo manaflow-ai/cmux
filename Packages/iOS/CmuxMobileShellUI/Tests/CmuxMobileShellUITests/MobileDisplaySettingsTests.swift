@@ -20,6 +20,20 @@ import Testing
         #expect(defaults.object(forKey: "cmux.mobile.workspacePreviewLineCount") == nil)
     }
 
+    @Test func primaryScreenScrollDecouplingDefaultsOnWithoutAWrite() throws {
+        let defaults = try makeDefaults("scrollDefault")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        #expect(settings.decouplePrimaryScreenScroll)
+        #expect(defaults.object(forKey: "cmux.mobile.decouplePrimaryScreenScroll") == nil)
+    }
+
+    @Test func primaryScreenScrollDecouplingPersistsAcrossInstances() throws {
+        let defaults = try makeDefaults("scrollPersists")
+        let settings = MobileDisplaySettings(defaults: defaults)
+        settings.decouplePrimaryScreenScroll = false
+        #expect(MobileDisplaySettings(defaults: defaults).decouplePrimaryScreenScroll == false)
+    }
+
     @Test func previewLineCountPersistsAcrossInstances() throws {
         let defaults = try makeDefaults("persists")
         let settings = MobileDisplaySettings(defaults: defaults)

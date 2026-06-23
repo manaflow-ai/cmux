@@ -1,0 +1,247 @@
+import CMUXMobileCore
+import Testing
+@testable import CmuxMobileTerminalKit
+
+@Test func retainedReplayWindowCanScrollToOldestRow() {
+    var model = MobileTerminalLocalScrollbackModel()
+
+    let metadata = model.applyMetadata(activeScreen: .primary, scrollbackRows: 2306)
+    #expect(metadata?.wasAtBottom == true)
+
+    let bounds = model.updateBounds(total: 2358, len: 52)
+    #expect(bounds.maxRowOffset == 2306)
+    #expect(bounds.rowOffset == 2306)
+    #expect(bounds.mirrorTruncated == false)
+    #expect(model.isViewingLiveBottom)
+
+    let scroll = model.applyGesture(rowDelta: 2600)
+    #expect(scroll.previousOffset == 2306)
+    #expect(scroll.rowOffset == 0)
+    #expect(!model.isViewingLiveBottom)
+}
+
+@Test func freshLiveViewportWithoutReplayRequiresHostHydrationBeforeLocalScroll() {
+    var model = MobileTerminalLocalScrollbackModel()
+
+    let bounds = model.updateBounds(total: 52, len: 52)
+
+    #expect(bounds.maxRowOffset == 0)
+    #expect(model.mirrorHydration == .unhydrated)
+    #expect(model.canServePrimaryScrollLocally == false)
+    #expect(model.requiresHostScrollHydration)
+}
+
+@Test func completeReplayHydratesLocalPrimaryScroll() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 2306)
+
+    let bounds = model.updateBounds(total: 2358, len: 52)
+
+    #expect(bounds.mirrorRetention == .complete)
+    #expect(model.mirrorHydration == .hydrated(retainedRows: 2358))
+    #expect(model.canServePrimaryScrollLocally)
+    #expect(model.requiresHostScrollHydration == false)
+}
+
+@Test func truncatedMirrorDoesNotPretendItCanServeReplayRows() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 2306)
+
+    let bounds = model.updateBounds(total: 1755, len: 52)
+
+    #expect(bounds.expectedTotalRows == 2358)
+    #expect(bounds.mirrorTruncated)
+    #expect(model.mirrorHydration == .incomplete(missingRows: 603))
+    #expect(model.canServePrimaryScrollLocally == false)
+    #expect(model.requiresHostScrollHydration)
+    #expect(bounds.maxRowOffset == 1703)
+    #expect(bounds.rowOffset == 1703)
+}
+
+@Test func liveBottomAnchorsAfterReplayMetadataThenBoundsArrive() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.updateBounds(total: 52, len: 52)
+
+    let metadata = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+    #expect(metadata?.wasAtBottom == true)
+    #expect(metadata?.rowOffset == 0)
+
+    let bounds = model.updateBounds(total: 5202, len: 48)
+    #expect(bounds.maxRowOffset == 5154)
+    #expect(bounds.rowOffset == 5154)
+    #expect(model.isViewingLiveBottom)
+}
+
+@Test func replayBoundsNeedMetadataBeforeMirrorObservation() {
+    var model = MobileTerminalLocalScrollbackModel()
+
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+    let bounds = model.updateBounds(total: 5202, len: 48)
+
+    #expect(bounds.expectedTotalRows == 5202)
+    #expect(bounds.mirrorRetention == .complete)
+    #expect(bounds.maxRowOffset == 5154)
+}
+
+@Test func scxWrappedReplayCanReachOldestRetainedPhysicalRow() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+
+    let bounds = model.updateBounds(total: 5202, len: 48)
+    #expect(bounds.maxRowOffset == 5154)
+    #expect(bounds.rowOffset == 5154)
+    #expect(bounds.mirrorTruncated == false)
+
+    let scroll = model.applyGesture(rowDelta: 6000)
+    #expect(scroll.rowOffset == 0)
+    #expect(!model.isViewingLiveBottom)
+}
+
+@Test func scxWrappedReplayReportsOldTenMegabyteMirrorAsTruncated() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+
+    let bounds = model.updateBounds(total: 1682, len: 48)
+    #expect(bounds.expectedTotalRows == 5202)
+    #expect(bounds.mirrorTruncated)
+    #expect(bounds.mirrorRetention == .truncated(missingRows: 3520))
+    #expect(bounds.maxRowOffset == 1634)
+    #expect(bounds.rowOffset == 1634)
+}
+
+@Test func gestureOffsetNeverExceedsRetainedMirrorRange() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 5154)
+    let bounds = model.updateBounds(total: 1682, len: 48)
+    #expect(bounds.maxRowOffset == 1634)
+
+    let scroll = model.applyGesture(rowDelta: -10_000)
+
+    #expect(scroll.maxRowOffset == 1634)
+    #expect(scroll.rowOffset == 1634)
+}
+
+@Test func topEdgeOfDefaultReplayWindowRequestsHostHydration() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: MobileTerminalScrollbackBudget.defaultReplayRows)
+    _ = model.updateBounds(
+        total: UInt64(MobileTerminalScrollbackBudget.defaultReplayRows + 48),
+        len: 48
+    )
+
+    _ = model.applyGesture(rowDelta: Double(MobileTerminalScrollbackBudget.defaultReplayRows) - 2)
+
+    let requestsHydration = model.requestsHostHydrationForGesture(rowDelta: 3)
+    #expect(requestsHydration)
+}
+
+@Test func defaultReplayWindowRequestsHostHydrationOnlyOnceAtTop() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: MobileTerminalScrollbackBudget.defaultReplayRows)
+    _ = model.updateBounds(
+        total: UInt64(MobileTerminalScrollbackBudget.defaultReplayRows + 48),
+        len: 48
+    )
+
+    _ = model.applyGesture(rowDelta: Double(MobileTerminalScrollbackBudget.defaultReplayRows))
+
+    let firstRequest = model.requestsHostHydrationForGesture(rowDelta: 1)
+    let secondRequest = model.requestsHostHydrationForGesture(rowDelta: 1)
+    #expect(firstRequest)
+    #expect(secondRequest == false)
+}
+
+@Test func fullReplayWindowDoesNotRequestRepeatedHostHydrationAtTop() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: MobileTerminalScrollbackBudget.fullReplayRows)
+    _ = model.updateBounds(
+        total: UInt64(MobileTerminalScrollbackBudget.fullReplayRows + 48),
+        len: 48
+    )
+
+    _ = model.applyGesture(rowDelta: Double(MobileTerminalScrollbackBudget.fullReplayRows))
+
+    let requestsHydration = model.requestsHostHydrationForGesture(rowDelta: 1)
+    #expect(requestsHydration == false)
+}
+
+@Test func smallCompleteReplayWindowDoesNotRequestMoreHostHistoryAtTop() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 12)
+    _ = model.updateBounds(total: 60, len: 48)
+
+    _ = model.applyGesture(rowDelta: 12)
+
+    let requestsHydration = model.requestsHostHydrationForGesture(rowDelta: 1)
+    #expect(requestsHydration == false)
+}
+
+@Test func oneRowMirrorAccountingSlackDoesNotMarkReplayTruncated() {
+    var model = MobileTerminalLocalScrollbackModel(
+        mirrorRetentionPolicy: .init(accountingSlackRows: 1)
+    )
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)
+
+    let bounds = model.updateBounds(total: 151, len: 52)
+
+    #expect(bounds.expectedTotalRows == 152)
+    #expect(bounds.mirrorRetention == .complete)
+    #expect(bounds.maxRowOffset == 99)
+    #expect(bounds.rowOffset == 99)
+}
+
+@Test func retentionPolicyWithoutSlackTreatsOneMissingRowAsTruncated() {
+    var model = MobileTerminalLocalScrollbackModel(
+        mirrorRetentionPolicy: .init(accountingSlackRows: 0)
+    )
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)
+
+    let bounds = model.updateBounds(total: 151, len: 52)
+
+    #expect(bounds.expectedTotalRows == 152)
+    #expect(bounds.mirrorRetention == .truncated(missingRows: 1))
+    #expect(bounds.maxRowOffset == 99)
+    #expect(bounds.rowOffset == 99)
+}
+
+@Test func replayWindowClampsNegativeMetadataRows() {
+    let replay = MobileTerminalLocalScrollbackModel.ReplayWindow(scrollbackRows: -200)
+
+    #expect(replay.scrollbackRows == 0)
+    #expect(replay.expectedTotalRows(visibleRows: 48) == 48)
+}
+
+@Test func mirrorObservationReportsScrollableRange() {
+    let observation = MobileTerminalLocalScrollbackModel.MirrorObservation(totalRows: 1682, visibleRows: 48, scrollbarOffset: 1634)
+
+    #expect(observation.maxScrollableOffset == 1634)
+}
+
+@Test func alternateScreenDisablesLocalScrollWithoutForgettingPrimaryReplayMetadata() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: 100)
+    _ = model.updateBounds(total: 152, len: 52)
+    _ = model.applyGesture(rowDelta: 10)
+
+    _ = model.applyMetadata(activeScreen: .alternate, scrollbackRows: 0)
+    let alternateBounds = model.updateBounds(total: 52, len: 52)
+
+    #expect(alternateBounds.maxRowOffset == 0)
+    #expect(alternateBounds.rowOffset == 0)
+    #expect(model.replayScrollbackRows == 0)
+    #expect(model.canServePrimaryScrollLocally == false)
+}
+
+@Test func alternateSnapshotMetadataHydratesRetainedPrimaryMirrorAfterTUIExit() {
+    var model = MobileTerminalLocalScrollbackModel()
+    _ = model.applyMetadata(activeScreen: .alternate, scrollbackRows: 100)
+    _ = model.updateBounds(total: 52, len: 52)
+
+    _ = model.applyMetadata(activeScreen: .primary, scrollbackRows: nil)
+    let primaryBounds = model.updateBounds(total: 152, len: 52)
+
+    #expect(primaryBounds.maxRowOffset == 100)
+    #expect(model.replayScrollbackRows == 100)
+    #expect(model.mirrorHydration == .hydrated(retainedRows: 152))
+    #expect(model.isViewingLiveBottom)
+}

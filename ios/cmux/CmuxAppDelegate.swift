@@ -76,10 +76,8 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
             )
             return
         }
-        // A tap (default action) deep-links to the workspace/terminal AND marks
-        // the notification read on the Mac, mirroring the Mac's own tap path
-        // (which opens + marks read). The two compose: deep-link locally, clear
-        // on the Mac.
+        // A tap (default action) opens the workspace/terminal and marks the
+        // notification read on the Mac, mirroring the Mac's own tap path.
         let ids = Self.cmuxIDs(from: request.content.userInfo)
         let appState = await UIApplication.shared.applicationState
         await analytics?.capture("ios_push_tapped", [

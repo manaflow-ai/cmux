@@ -1,0 +1,137 @@
+import { describe, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
+
+process.env.RESEND_API_KEY ??= "test";
+process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "test@example.com";
+process.env.CMUX_FEEDBACK_RATE_LIMIT_ID ??= "test";
+process.env.STACK_SECRET_SERVER_KEY ??= "test";
+process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "454ecd03-1db2-4050-845e-4ce5b0cd9895";
+process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test";
+
+const { GET: nativeSignInGET } = await import("../app/handler/native-sign-in/route");
+const { isAllowedNativeReturnTo } = await import("../app/handler/native-auth-helpers");
+
+describe("native auth routes", () => {
+  test("preserves LAN origin when redirecting native sign-in to Stack", () => {
+    const nativeReturnTo = "cmux-dev-sc2://auth-callback?cmux_auth_state=state-1";
+    const afterSignIn = new URL("http://172.20.21.125:4177/handler/after-sign-in");
+    afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+    const requestURL = new URL("http://localhost:4177/handler/native-sign-in");
+    requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
+
+    const response = nativeSignInGET(new NextRequest(requestURL, {
+      headers: {
+        host: "172.20.21.125:4177",
+      },
+    }));
+
+    expect(response.status).toBe(307);
+    const location = response.headers.get("location");
+    expect(location?.startsWith("http://172.20.21.125:4177/handler/sign-in?")).toBe(true);
+    expect(new URL(location!).searchParams.get("after_auth_return_to")?.startsWith(
+      "http://172.20.21.125:4177/handler/after-sign-in?"
+    )).toBe(true);
+  });
+
+  test("rejects native sign-in origins supplied only by forwarded host", () => {
+    const afterSignIn = new URL("https://attacker.example/handler/after-sign-in");
+    const requestURL = new URL("https://cmux.example/handler/native-sign-in");
+    requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
+
+    const response = nativeSignInGET(new NextRequest(requestURL, {
+      headers: {
+        host: "cmux.example",
+        "x-forwarded-host": "attacker.example",
+      },
+    }));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.example/");
+  });
+
+  test("rejects native sign-in origins supplied only by host header", () => {
+    const afterSignIn = new URL("https://attacker.example/handler/after-sign-in");
+    const requestURL = new URL("https://cmux.example/handler/native-sign-in");
+    requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
+
+    const response = nativeSignInGET(new NextRequest(requestURL, {
+      headers: {
+        host: "attacker.example",
+      },
+    }));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.example/");
+  });
+
+  test("preserves configured HTTPS public origin behind TLS offload", () => {
+    const previousPublicOrigin = process.env.CMUX_PUBLIC_ORIGIN;
+    const nativeReturnTo = "cmux-dev-sc2://auth-callback?cmux_auth_state=state-1";
+    process.env.CMUX_PUBLIC_ORIGIN = "https://cmux.example";
+    try {
+      const afterSignIn = new URL("https://cmux.example/handler/after-sign-in");
+      afterSignIn.searchParams.set("native_app_return_to", nativeReturnTo);
+      const requestURL = new URL("http://internal.local/handler/native-sign-in");
+      requestURL.searchParams.set("after_auth_return_to", afterSignIn.toString());
+
+      const response = nativeSignInGET(new NextRequest(requestURL, {
+        headers: {
+          host: "cmux.example",
+          "x-forwarded-host": "attacker.example",
+          "x-forwarded-proto": "https",
+        },
+      }));
+
+      expect(response.status).toBe(307);
+      const location = response.headers.get("location");
+      expect(location?.startsWith("https://cmux.example/handler/sign-in?")).toBe(true);
+      expect(new URL(location!).searchParams.get("after_auth_return_to")?.startsWith(
+        "https://cmux.example/handler/after-sign-in?"
+      )).toBe(true);
+      expect(response.headers.get("set-cookie")).toContain("Secure");
+    } finally {
+      restoreEnv("CMUX_PUBLIC_ORIGIN", previousPublicOrigin);
+    }
+  });
+
+  test("allows configured per-tag native callback schemes from a dev LAN host", () => {
+    const previousScheme = process.env.CMUX_AUTH_CALLBACK_SCHEME;
+    process.env.CMUX_AUTH_CALLBACK_SCHEME = "cmux-dev-sc2";
+    try {
+      const request = new NextRequest("http://localhost:4177/handler/after-sign-in", {
+        headers: {
+          host: "172.20.21.125:4177",
+        },
+      });
+
+      expect(isAllowedNativeReturnTo(
+        "cmux-dev-sc2://auth-callback?cmux_auth_state=state-1",
+        request
+      )).toBe(true);
+    } finally {
+      restoreEnv("CMUX_AUTH_CALLBACK_SCHEME", previousScheme);
+    }
+  });
+
+  test("rejects dev native callbacks when loopback appears only in forwarded host", () => {
+    const request = new NextRequest("https://cmux.example/handler/after-sign-in", {
+      headers: {
+        host: "cmux.example",
+        "x-forwarded-host": "localhost:4177",
+      },
+    });
+
+    expect(isAllowedNativeReturnTo(
+      "cmux-dev://auth-callback?cmux_auth_state=state-1",
+      request
+    )).toBe(false);
+  });
+});
+
+function restoreEnv(key: string, value: string | undefined) {
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+}

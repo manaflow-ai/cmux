@@ -12,10 +12,12 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-Current cmux pinned fork head: `49cb510f`, which adds tracked absolute
-screen-row selection setter/query C APIs so cmux keyboard visual-line copy mode
-can keep selections in Ghostty pins while scrollback pruning moves or clips
-them. The prior `301e0791` head removes the unused raw
+Current cmux pinned fork head: `fc2d507d`, which rebases the iOS precision
+pixel-scroll renderer patches from `eac310b7` onto `49cb510f`. This keeps
+GhosttyKit as the single terminal renderer for mobile scrollback while retaining
+the tracked absolute screen-row selection setter/query C APIs so cmux keyboard
+visual-line copy mode can keep selections in Ghostty pins while scrollback
+pruning moves or clips them. The prior `301e0791` head removes the unused raw
 `ghostty_surface_read_screen_text` export so absolute-row text access stays on
 the bounded clipboard formatter API. The earlier `e81fb65f` head bounds
 `ghostty_surface_read_screen_clipboard_text` formatting with the caller's byte
@@ -38,7 +40,7 @@ the copy-mode read branches `issue-6170-surface-read-screen-text-main` and
 `issue-6170-screen-clipboard-text`, and
 https://github.com/manaflow-ai/cmux/issues/4607. The corresponding prebuilt
 archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-49cb510f759aa109a5b1d30329583195155e58a4-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fc2d507dcf4d67228e56c6d69ad9e9aa2080a6dc-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 The prior head was refreshed from upstream `main` on May 1, 2026.

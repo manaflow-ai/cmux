@@ -71,6 +71,16 @@ public protocol ControlDebugContext: AnyObject {
     /// - Returns: The raw v1 response (`"OK <base64>"` or an `ERROR:` line).
     func controlDebugReadTerminalText(surfaceArgument: String) -> String
 
+    /// Drives a terminal's Ghostty scrollback to a fractional row offset for
+    /// renderer verification.
+    ///
+    /// - Parameters:
+    ///   - surfaceArgument: The surface id/index argument (may be empty for the
+    ///     focused surface).
+    ///   - rowOffset: Fractional row offset from the top of primary scrollback.
+    /// - Returns: `true` when the target terminal exists and has a live surface.
+    func controlDebugTerminalScrollToRowOffset(surfaceArgument: String, rowOffset: Double) -> Bool
+
     /// Runs the shared v1 `render_stats` body for `debug.terminal.render_stats`.
     ///
     /// - Parameter surfaceArgument: The surface id/index argument.

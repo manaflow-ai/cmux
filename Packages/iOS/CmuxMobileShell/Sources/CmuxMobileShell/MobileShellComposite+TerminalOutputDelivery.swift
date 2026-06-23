@@ -1,21 +1,25 @@
 import CMUXMobileCore
+import CmuxMobileDiagnostics
 import CmuxMobileShellModel
 public import Foundation
 
 extension MobileShellComposite {
-    /// Yield a raw PTY byte chunk to the surface stream, if one is attached.
+    /// Drop legacy raw PTY byte chunks before they can switch an iOS terminal
+    /// surface away from the render-grid display model.
     func deliverTerminalBytes(_ bytes: Data, surfaceID: String) {
-        deliverTerminalOutput(
-            TerminalOutputDelivery(bytes: bytes, replaceable: false),
-            surfaceID: surfaceID
+        MobileDebugLog.anchormux(
+            "sync.raw_bytes.dropped surface=\(surfaceID) reason=render_grid_only bytes=\(bytes.count)"
         )
     }
 
-    func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
+    func deliverTerminalRenderGrid(
+        _ envelope: MobileTerminalRenderGridEnvelope,
+        surfaceID: String
+    ) {
         deliverTerminalOutput(
             TerminalOutputDelivery(
-                renderGrid: frame,
-                replaceable: frame.isReplaceableViewportPatchForMobileDelivery
+                renderGrid: envelope,
+                replaceable: envelope.isReplaceableVisualUpdate
             ),
             surfaceID: surfaceID
         )
@@ -26,11 +30,16 @@ extension MobileShellComposite {
               let streamToken = terminalOutputStreamTokensBySurfaceID[surfaceID] else { return }
         var queue = terminalOutputQueuesBySurfaceID[surfaceID] ?? TerminalOutputDeliveryQueue()
         let immediate = queue.enqueue(delivery)
+        let renderGridOverflowSeq = queue.consumeRenderGridOverflowStateSeq()
         terminalOutputQueuesBySurfaceID[surfaceID] = queue
-        if let immediate {
-            continuation.yield(
-                MobileTerminalOutputChunk(data: immediate.bytes, streamToken: streamToken)
+        if let renderGridOverflowSeq {
+            handleTerminalOutputQueueRenderGridOverflow(
+                surfaceID: surfaceID,
+                stateSeq: renderGridOverflowSeq
             )
+        }
+        if let immediate {
+            continuation.yield(immediate.chunk(streamToken: streamToken))
         }
     }
 
@@ -45,6 +54,6 @@ extension MobileShellComposite {
               terminalOutputStreamTokensBySurfaceID[surfaceID] == streamToken else {
             return
         }
-        continuation.yield(MobileTerminalOutputChunk(data: next.bytes, streamToken: streamToken))
+        continuation.yield(next.chunk(streamToken: streamToken))
     }
 }

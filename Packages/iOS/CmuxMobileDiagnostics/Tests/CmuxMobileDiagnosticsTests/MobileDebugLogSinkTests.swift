@@ -46,6 +46,42 @@ import Testing
         #expect(result.body.isEmpty)
     }
 
+    @Test func mirrorFileIsBoundedToRecentBufferedLines() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mobile-debug-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mirrorURL = directory.appendingPathComponent("cmux-mobile-debug.log", isDirectory: false)
+        let sink = MobileDebugLogSink(
+            capacity: 20,
+            mirrorURL: mirrorURL,
+            mirrorMaxBytes: 160
+        )
+
+        for index in 0..<20 {
+            await sink.append("mirror line \(index) \(String(repeating: "x", count: 40))")
+        }
+
+        let data = try Data(contentsOf: mirrorURL)
+        let body = try #require(String(data: data, encoding: .utf8))
+        #expect(data.count <= 160)
+        #expect(!body.contains("mirror line 0"))
+        #expect(body.contains("mirror line 19"))
+    }
+
+    @Test func clearRewritesMirrorFile() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-mobile-debug-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let mirrorURL = directory.appendingPathComponent("cmux-mobile-debug.log", isDirectory: false)
+        let sink = MobileDebugLogSink(mirrorURL: mirrorURL)
+
+        await sink.append("persisted")
+        await sink.clear()
+
+        let body = try String(contentsOf: mirrorURL, encoding: .utf8)
+        #expect(body.isEmpty)
+    }
+
     @Test func timestampUsesInjectedClock() async {
         // A monotonic stepping clock: each read advances 1.5s from a fixed base.
         // The first read seeds `startedAt`; the second is the append time, so the

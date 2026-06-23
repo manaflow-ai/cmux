@@ -111,15 +111,17 @@ struct TerminalTextSheetView: View {
             isLoading = false
             return
         }
-        let fullText = await GhosttySurfaceView.copyableTerminalText(surfaceID: surfaceID)
-        // Cap off the main actor: the capture is bounded by the iOS surface's
-        // scrollback-limit (~2MB, see applyiOSDefaults), but splitting and
-        // rejoining even that much text is O(content) string work that would
-        // jank the UI if run on main.
-        let capped: TerminalTextSnapshot? = await Task.detached(priority: .userInitiated) {
-            fullText.map { TerminalTextSnapshot.capped(fullText: $0) }
-        }.value
-        snapshot = capped
+        let capture = await GhosttySurfaceView.copyableTerminalText(
+            surfaceID: surfaceID,
+            lineBudget: TerminalTextSnapshot.defaultLineBudget
+        )
+        snapshot = capture.map {
+            TerminalTextSnapshot(
+                text: $0.text,
+                isTruncated: $0.isTruncated,
+                lineBudget: $0.lineBudget
+            )
+        }
         isLoading = false
     }
 

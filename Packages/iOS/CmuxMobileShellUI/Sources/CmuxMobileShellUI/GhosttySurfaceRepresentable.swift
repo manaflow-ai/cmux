@@ -2,13 +2,14 @@
 import CMUXMobileCore
 import CmuxMobileDiagnostics
 import CmuxMobileShell
+import CmuxMobileShellModel
 import CmuxMobileTerminal
 import SwiftUI
 import UIKit
 
 /// SwiftUI wrapper that mounts a `GhosttySurfaceView` and routes the
-/// matching surface's PTY bytes (received via `terminal.bytes` events)
-/// into `ghostty_surface_process_output`. The result is that the iPhone
+/// matching surface's terminal output into `ghostty_surface_process_output`.
+/// The result is that the iPhone
 /// runs the same libghostty terminal core + Metal renderer as the Mac,
 /// fed by the Mac's own read thread byte-for-byte. No Swift VT parser,
 /// no snapshot rehydration, no cell-by-cell SwiftUI tree.
@@ -36,6 +37,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     /// band and pins first responder so the keyboard hands over in place; when it
     /// flips off, the field is unmounted and the band collapses to zero height.
     var isComposerActive: Bool = false
+    /// Whether normal-screen scrollback should move on the phone without a Mac
+    /// round trip. Turning this off restores host-coupled scroll for dogfood
+    /// comparison.
+    var decouplePrimaryScreenScroll: Bool = true
 
     func makeCoordinator() -> Coordinator {
         Coordinator(surfaceID: surfaceID, store: store)
@@ -59,6 +64,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.decouplePrimaryScreenScroll = decouplePrimaryScreenScroll
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -88,6 +94,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.decouplePrimaryScreenScroll = decouplePrimaryScreenScroll
         surfaceView.setComposerActive(isComposerActive)
         context.coordinator.setComposerMounted(isComposerActive)
         // A width change (rotation) is not a text change, so the field-content trigger
@@ -137,7 +144,22 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
-                    await surfaceView.processOutputAndWait(chunk.data)
+                    MobileDebugLog.anchormux(
+                        "replay.chunk.begin surface=\(surfaceID) bytes=\(chunk.debugByteCount) "
+                        + "screen=\(chunk.activeScreen?.rawValue ?? "nil") "
+                        + "scrollbackRows=\(chunk.scrollbackRows.map(String.init) ?? "nil") "
+                        + "grid=\(chunk.replayColumns.map(String.init) ?? "nil")x\(chunk.replayRows.map(String.init) ?? "nil")"
+                    )
+                    switch chunk.payload {
+                    case .bytes(let data):
+                        await surfaceView.processOutputAndWait(data)
+                    case .renderGrid(let envelope):
+                        await surfaceView.processRenderGridEnvelopeAndWait(envelope)
+                    }
+                    MobileDebugLog.anchormux(
+                        "replay.chunk.done surface=\(surfaceID) bytes=\(chunk.debugByteCount) "
+                        + "scrollbackRows=\(chunk.scrollbackRows.map(String.init) ?? "nil")"
+                    )
                     store.terminalOutputDidProcess(
                         surfaceID: surfaceID,
                         streamToken: chunk.streamToken
@@ -299,6 +321,28 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await self.store?.scrollTerminal(surfaceID: self.surfaceID, lines: lines, col: col, row: row)
+            }
+        }
+
+        func ghosttySurfaceView(
+            _ surfaceView: GhosttySurfaceView,
+            didScrollLines lines: Double,
+            atCol col: Int,
+            row: Int,
+            requestingScrollbackHydration: Bool
+        ) {
+            // Forward to the Mac's real surface; when local primary scrollback
+            // is not yet trustworthy, request a full replay in the same RPC so
+            // the phone mirror becomes the owner again after the response.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.store?.scrollTerminal(
+                    surfaceID: self.surfaceID,
+                    lines: lines,
+                    col: col,
+                    row: row,
+                    hydrateScrollback: requestingScrollbackHydration
+                )
             }
         }
 

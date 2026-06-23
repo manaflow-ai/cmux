@@ -9,15 +9,26 @@ public import Foundation
 /// falls back to decoding the payload directly as a
 /// ``MobileTerminalRenderGridFrame`` when ``frame`` is `nil`.
 public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
+    /// The typed render-grid envelope, if the host provided one.
+    public let envelope: MobileTerminalRenderGridEnvelope?
     /// The nested render-grid frame, if the payload used the wrapped form.
     public let frame: MobileTerminalRenderGridFrame?
+    /// Whether the payload opted into typed render-grid envelope semantics.
+    public let hasRole: Bool
 
     private enum CodingKeys: String, CodingKey {
+        case role
         case frame = "render_grid"
     }
 
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        hasRole = container.contains(.role)
+        if hasRole {
+            envelope = try? MobileTerminalRenderGridEnvelope(from: decoder)
+        } else {
+            envelope = nil
+        }
         frame = try container.decodeIfPresent(MobileTerminalRenderGridFrame.self, forKey: .frame)
     }
 
@@ -27,5 +38,57 @@ public struct MobileTerminalRenderGridEvent: Decodable, Sendable {
     /// - Throws: A decoding error if the payload is not a JSON object.
     public static func decode(_ data: Data) throws -> MobileTerminalRenderGridEvent {
         try JSONDecoder().decode(Self.self, from: data)
+    }
+
+    /// The live terminal event as a typed render-grid envelope.
+    ///
+    /// New hosts emit typed envelopes directly. Older hosts emitted wrapped or
+    /// bare render-grid frames; normalize those legacy frames as viewport deltas
+    /// so only explicitly typed snapshot events can own scrollback metadata.
+    public static func liveEnvelope(from data: Data) -> MobileTerminalRenderGridEnvelope? {
+        if let event = try? decode(data) {
+            if event.hasRole {
+                return event.envelope
+            }
+            if let frame = event.frame {
+                return viewportDeltaEnvelope(fromLegacyFrame: frame)
+            }
+        }
+        if let envelope = try? MobileTerminalRenderGridEnvelope.decode(data) {
+            return envelope
+        }
+        if payloadContainsRole(data) {
+            return nil
+        }
+        if let frame = try? MobileTerminalRenderGridFrame.decode(data) {
+            return viewportDeltaEnvelope(fromLegacyFrame: frame)
+        }
+        return nil
+    }
+
+    /// Legacy convenience for callers that only accept viewport deltas.
+    public static func liveViewportEnvelope(from data: Data) -> MobileTerminalRenderGridEnvelope? {
+        guard let envelope = liveEnvelope(from: data),
+              envelope.role == .viewportDelta else { return nil }
+        return envelope
+    }
+
+    private static func payloadContainsRole(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return object["role"] != nil
+    }
+
+    private static func viewportDeltaEnvelope(
+        fromLegacyFrame frame: MobileTerminalRenderGridFrame
+    ) -> MobileTerminalRenderGridEnvelope? {
+        if frame.full {
+            guard let delta = try? frame.filteredRows(Set(0..<frame.rows), full: false) else {
+                return nil
+            }
+            return try? MobileTerminalRenderGridEnvelope.viewportDelta(delta)
+        }
+        return try? MobileTerminalRenderGridEnvelope.viewportDelta(frame)
     }
 }

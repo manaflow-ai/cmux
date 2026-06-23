@@ -13,6 +13,7 @@ final class MobileTerminalRenderObserver {
         var columns: Int
         var rows: Int
         var stateSeq: UInt64
+        var activeScreen: MobileTerminalRenderGridFrame.Screen
         /// Per-row signatures of text *and* resolved styling, so a style-only
         /// change (e.g. typing over a dimmed shell autosuggestion) still marks
         /// the row dirty. See `MobileTerminalRenderGridFrame.rowSignatures()`.
@@ -185,7 +186,11 @@ final class MobileTerminalRenderObserver {
     private func emitRenderGrid(surfaceID: UUID) {
         let stateSeq = MobileTerminalByteTee.shared.currentSequence(surfaceID: surfaceID) ?? 0
         guard let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
-              let snapshot = surface.mobileRenderGridFrame(stateSeq: stateSeq, full: true) else {
+              let snapshot = surface.mobileRenderGridFrame(
+                stateSeq: stateSeq,
+                full: true,
+                scrollbackLines: 0
+              ) else {
             renderGridStatesBySurfaceID.removeValue(forKey: surfaceID)
             return
         }
@@ -193,9 +198,11 @@ final class MobileTerminalRenderObserver {
         let previous = renderGridStatesBySurfaceID[surfaceID]
         let nextSignatures = snapshot.frame.rowSignatures()
         let frame: MobileTerminalRenderGridFrame
+        let envelope: MobileTerminalRenderGridEnvelope
         if let previous,
            previous.columns == snapshot.frame.columns,
-           previous.rows == snapshot.frame.rows {
+           previous.rows == snapshot.frame.rows,
+           previous.activeScreen == snapshot.frame.activeScreen {
             var changedRows = Set<Int>()
             let count = min(previous.rowSignatures.count, nextSignatures.count)
             for index in 0..<count where previous.rowSignatures[index] != nextSignatures[index] {
@@ -212,7 +219,14 @@ final class MobileTerminalRenderObserver {
                     cursor: snapshot.frame.cursor,
                     full: false,
                     styles: snapshot.frame.styles,
-                    rowSpans: []
+                    rowSpans: [],
+                    activeScreen: snapshot.frame.activeScreen,
+                    terminalForeground: snapshot.frame.terminalForeground,
+                    terminalBackground: snapshot.frame.terminalBackground,
+                    terminalCursorColor: snapshot.frame.terminalCursorColor,
+                    terminalForegroundIsPresent: snapshot.frame.terminalForegroundIsPresent,
+                    terminalBackgroundIsPresent: snapshot.frame.terminalBackgroundIsPresent,
+                    terminalCursorColorIsPresent: snapshot.frame.terminalCursorColorIsPresent
                 ) else {
                     return
                 }
@@ -223,21 +237,30 @@ final class MobileTerminalRenderObserver {
                 }
                 frame = deltaFrame
             }
+            guard let deltaEnvelope = try? MobileTerminalRenderGridEnvelope.viewportDelta(frame) else {
+                return
+            }
+            envelope = deltaEnvelope
         } else {
             frame = snapshot.frame
+            guard let snapshotEnvelope = try? MobileTerminalRenderGridEnvelope.viewportReplacement(frame) else {
+                return
+            }
+            envelope = snapshotEnvelope
         }
 
         renderGridStatesBySurfaceID[surfaceID] = RenderGridState(
             columns: frame.columns,
             rows: frame.rows,
             stateSeq: frame.stateSeq,
+            activeScreen: frame.activeScreen,
             rowSignatures: nextSignatures
         )
-        guard let payload = try? frame.jsonObject() else { return }
+        guard let payload = try? envelope.jsonObject() else { return }
         MobileHostService.emitEvent(topic: "terminal.render_grid", payload: payload)
         #if DEBUG
         cmuxDebugLog(
-            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) full=\(frame.full) " +
+            "mobile.render_grid surface=\(surfaceID.uuidString.prefix(8)) role=\(envelope.role.rawValue) full=\(frame.full) " +
                 "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
         )
         #endif

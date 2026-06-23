@@ -1,4 +1,5 @@
 import Foundation
+import CMUXMobileCore
 import Testing
 @testable import CmuxMobileShell
 
@@ -65,6 +66,38 @@ import Testing
     #expect(coalesced.col == 3)
     #expect(coalesced.row == 3)
     #expect(coalesced.maxScrollbackRows == 600)
+}
+
+@Test func terminalScrollQueueCoalescesFullHydrationRequest() throws {
+    var queue = TerminalScrollDeliveryQueue()
+    let inFlight = TerminalScrollDelivery(surfaceID: "surface", lines: 1, col: 1, row: 1)
+    let ordinaryPending = TerminalScrollDelivery(
+        surfaceID: "surface",
+        lines: 2,
+        col: 2,
+        row: 2,
+        maxScrollbackRows: 600
+    )
+    let hydrationPending = TerminalScrollDelivery(
+        surfaceID: "surface",
+        lines: 3,
+        col: 3,
+        row: 3,
+        maxScrollbackRows: MobileTerminalScrollbackBudget.fullReplayRows,
+        scrollbackScope: MobileTerminalScrollbackReplayRequest.fullScope
+    )
+
+    #expect(queue.enqueue(inFlight) == inFlight)
+    #expect(queue.enqueue(ordinaryPending) == nil)
+    #expect(queue.enqueue(hydrationPending) == nil)
+
+    let maybeCoalesced = queue.completeInFlight()
+    let coalesced = try #require(maybeCoalesced)
+    #expect(coalesced.lines == 5)
+    #expect(coalesced.col == 3)
+    #expect(coalesced.row == 3)
+    #expect(coalesced.maxScrollbackRows == MobileTerminalScrollbackBudget.fullReplayRows)
+    #expect(coalesced.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope)
 }
 
 @Test func terminalScrollbackPrefetchStatePrimesThenRefreshesByDistance() {

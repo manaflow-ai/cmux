@@ -12,6 +12,15 @@ import Foundation
 public struct TerminalLetterboxGeometry {
     private init() {}
 
+    /// One backing row is kept below the visible terminal grid on iOS. This is
+    /// the terminal equivalent of overscan: a newline from the last visible row
+    /// can land in the hidden row before the viewport scrolls, so the last
+    /// visible line does not flash in and out during live output.
+    public static let defaultBottomSpareRows = 1
+    /// The visual guard covers more than the spare backing row because glyphs
+    /// can extend across row boundaries while Metal presents a live-tail frame.
+    public static let defaultBottomGuardRows = defaultBottomSpareRows + 3
+
     /// The drawable container size after subtracting the keyboard overlap.
     ///
     /// Mirrors the legacy `containerW`/`containerH`/`bottomInset` computation:
@@ -148,6 +157,116 @@ public struct TerminalLetterboxGeometry {
         let w = UInt32(max(1, Int((CGFloat(cols) * cellPixelSize.width).rounded(.down))))
         let h = UInt32(max(1, Int((CGFloat(rows) * cellPixelSize.height).rounded(.down))))
         return (w, h)
+    }
+
+    /// Converts a visible terminal row count into the backing row count used by
+    /// the local renderer.
+    public static func backingRows(visibleRows: Int, spareRows: Int = defaultBottomSpareRows) -> Int {
+        max(1, visibleRows) + max(0, spareRows)
+    }
+
+    /// Converts a backing terminal row count into the visible row count reported
+    /// to the host and used for the dock boundary.
+    public static func visibleRows(backingRows: Int, spareRows: Int = defaultBottomSpareRows) -> Int {
+        max(1, backingRows - max(0, spareRows))
+    }
+
+    /// The visible portion of a backing render box after reserving hidden
+    /// bottom overscan rows.
+    public static func visibleRenderSize(
+        backingSize: CGSize,
+        cellPixelSize: CGSize,
+        scale: CGFloat,
+        spareRows: Int = defaultBottomSpareRows
+    ) -> CGSize {
+        let hiddenHeight = CGFloat(max(0, spareRows)) * max(0, cellPixelSize.height) / max(scale, 1)
+        return CGSize(
+            width: backingSize.width,
+            height: max(1, backingSize.height - hiddenHeight)
+        )
+    }
+
+    /// Mask rect, in a backing render layer's local coordinate space, that
+    /// exposes only the visible terminal viewport and hides bottom overscan.
+    public static func visibleRendererMaskRect(
+        renderRect: CGRect,
+        visibleRenderRect: CGRect,
+        cellPixelSize: CGSize,
+        scale: CGFloat,
+        hiddenBottomRows: Int = defaultBottomSpareRows
+    ) -> CGRect {
+        guard !renderRect.isEmpty, !visibleRenderRect.isEmpty else {
+            return CGRect(origin: .zero, size: renderRect.size)
+        }
+        let local = visibleRenderRect.offsetBy(dx: -renderRect.minX, dy: -renderRect.minY)
+        return local.intersection(CGRect(origin: .zero, size: renderRect.size))
+    }
+
+    /// Cover rect, in the host view's coordinate space, that blanks only the
+    /// hidden overscan and slack below the visible terminal viewport.
+    public static func bottomOverscanCoverRect(
+        bounds: CGSize,
+        visibleRenderRect: CGRect,
+        cellPixelSize: CGSize,
+        scale: CGFloat,
+        guardRows: Int = defaultBottomGuardRows
+    ) -> CGRect {
+        guard bounds.width > 0, bounds.height > 0, !visibleRenderRect.isEmpty else {
+            return .zero
+        }
+        let coverTop = min(max(0, visibleRenderRect.maxY), bounds.height)
+        return CGRect(
+            x: 0,
+            y: coverTop,
+            width: bounds.width,
+            height: max(0, bounds.height - coverTop)
+        )
+    }
+
+    /// Frames for the bottom composer and toolbar dock.
+    ///
+    /// The terminal can render hidden backing rows below the visible viewport.
+    /// Bottom chrome must anchor to the visible rect, not the backing rect, or
+    /// the spare row still affects prompt stability by moving the toolbar one
+    /// hidden row too low.
+    public static func bottomDockFrames(
+        bounds: CGSize,
+        keyboardOccupancy: CGFloat,
+        chromeHidden: Bool,
+        composerBandHeight: CGFloat,
+        toolbarHeight: CGFloat,
+        visibleRenderRect: CGRect
+    ) -> (composer: CGRect, toolbar: CGRect) {
+        let clampedKeyboardOccupancy = max(0, keyboardOccupancy)
+        let bottomEdge = chromeHidden ? bounds.height : bounds.height - clampedKeyboardOccupancy
+        let width = bounds.width
+        let effectiveComposerHeight = chromeHidden ? 0 : max(0, composerBandHeight)
+        let clampedToolbarHeight = max(0, toolbarHeight)
+
+        let composerTop = bottomEdge - effectiveComposerHeight
+        let composerFrame = CGRect(
+            x: 0,
+            y: max(0, composerTop),
+            width: width,
+            height: effectiveComposerHeight
+        )
+
+        let toolbarBottom = effectiveComposerHeight > 0 ? composerTop : bottomEdge
+        let toolbarReservedTop = toolbarBottom - clampedToolbarHeight
+        let toolbarTop: CGFloat
+        if effectiveComposerHeight > 0 {
+            toolbarTop = max(0, toolbarReservedTop)
+        } else {
+            let renderBottom = visibleRenderRect.isEmpty ? toolbarReservedTop : visibleRenderRect.maxY
+            toolbarTop = max(0, min(renderBottom, toolbarReservedTop))
+        }
+        let toolbarFrame = CGRect(
+            x: 0,
+            y: toolbarTop,
+            width: width,
+            height: toolbarBottom - toolbarTop
+        )
+        return (composerFrame, toolbarFrame)
     }
 
     /// Whether the surface should be letterbox-pinned to `effective` inside the

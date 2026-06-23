@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileTransport
 import CmuxMobileRPC
 import Foundation
 import Testing
@@ -57,26 +58,48 @@ actor LivenessHostRouter {
         var topics: [String]?
     }
 
+    struct ReplayRequestParams: Equatable, Sendable {
+        var maxScrollbackRows: Int?
+        var scrollbackScope: String?
+    }
+
     private var recorded: [RecordedRequest] = []
+    private var replayParams: [ReplayRequestParams] = []
     private var hostStatusRequestCount = 0
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var replayRequestCount = 0
+    private var heldReplayRequestNumbers: Set<Int> = []
+    private var replaySnapshotsByRequestNumber: [Int: (seq: UInt64, text: String)] = [:]
     private var holdSubscribe = false
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var terminalFidelity = "render_grid"
 
-    func record(method: String?, topics: [String]?) {
+    func record(method: String?, topics: [String]?, replayParams: ReplayRequestParams?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
+        if method == "mobile.terminal.replay", let replayParams {
+            self.replayParams.append(replayParams)
+        }
     }
 
     func count(of method: String) -> Int {
         recorded.filter { $0.method == method }.count
     }
 
+    func replayRequestParams(at index: Int) -> ReplayRequestParams? {
+        guard replayParams.indices.contains(index) else { return nil }
+        return replayParams[index]
+    }
+
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setTerminalFidelity(_ terminalFidelity: String) {
+        self.terminalFidelity = terminalFidelity
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -96,6 +119,16 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    /// Hold the Nth `mobile.terminal.replay` request (1-based), modeling a
+    /// replay snapshot that outlives the view that requested it.
+    func holdReplayRequest(number: Int) {
+        heldReplayRequestNumbers.insert(number)
+    }
+
+    func setReplaySnapshot(number: Int, seq: UInt64, text: String) {
+        replaySnapshotsByRequestNumber[number] = (seq, text)
+    }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -109,6 +142,7 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        heldReplayRequestNumbers = []
         let continuations = heldContinuations
         heldContinuations = []
         for continuation in continuations {
@@ -145,7 +179,7 @@ actor LivenessHostRouter {
                 return nil
             }
             return try? Self.resultFrame(id: id, result: [
-                "terminal_fidelity": "render_grid",
+                "terminal_fidelity": terminalFidelity,
                 "capabilities": capabilities,
             ])
         case "mobile.events.subscribe":
@@ -161,7 +195,30 @@ actor LivenessHostRouter {
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "mobile.terminal.replay":
+            replayRequestCount += 1
+            if heldReplayRequestNumbers.contains(replayRequestCount) {
+                await park()
+            }
+            let snapshot = replaySnapshotsByRequestNumber[replayRequestCount] ?? (
+                seq: UInt64(replayRequestCount),
+                text: "replay-\(replayRequestCount)"
+            )
+            if capabilities.contains("terminal.render_grid.v1"),
+               let frame = try? MobileTerminalRenderGridFrame.fromPlainRows(
+                   surfaceID: "live-terminal",
+                   stateSeq: snapshot.seq,
+                   columns: 16,
+                   rows: 4,
+                   text: snapshot.text
+               ),
+               let envelope = try? MobileTerminalRenderGridEnvelope.snapshot(frame) {
+                return try? Self.resultFrame(id: id, result: [
+                    "render_grid_envelope": envelope.jsonObject(),
+                ])
+            }
+            return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
@@ -250,8 +307,13 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
-            await router.record(method: method, topics: topics)
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let replayParams = LivenessHostRouter.ReplayRequestParams(
+                maxScrollbackRows: (params?["max_scrollback_rows"] as? NSNumber)?.intValue,
+                scrollbackScope: params?[MobileTerminalScrollbackReplayRequest.scopeParameter] as? String
+            )
+            await router.record(method: method, topics: topics, replayParams: replayParams)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
@@ -346,10 +408,12 @@ func renderGridEventFrame(surfaceID: String, seq: UInt64, text: String) throws -
         rows: 4,
         text: text
     )
+    let delta = try frame.filteredRows(Set(0..<frame.rows), full: false)
+    let gridEnvelope = try MobileTerminalRenderGridEnvelope.viewportDelta(delta)
     let envelope: [String: Any] = [
         "kind": "event",
         "topic": "terminal.render_grid",
-        "payload": try frame.jsonObject(),
+        "payload": try gridEnvelope.jsonObject(),
     ]
     return try MobileSyncFrameCodec.encodeFrame(JSONSerialization.data(withJSONObject: envelope))
 }
@@ -382,7 +446,12 @@ func makeConnectedStore(
         now: { clock.now },
         livenessProbeTimeoutNanoseconds: probeTimeoutNanoseconds
     )
-    let store = MobileShellComposite.preview(runtime: runtime)
+    let store = MobileShellComposite(
+        runtime: runtime,
+        workspaces: PreviewMobileHost.workspaces,
+        reachability: AlwaysOnlineReachability(),
+        deliveredNotificationClearer: NoopDeliveredNotificationClearer()
+    )
     store.signIn()
     let ticket = try makeTicket(clock: clock)
     let connected = await store.connectPairingURL(try attachURL(for: ticket))
