@@ -11,12 +11,15 @@ test("code view CSS keeps Pierre structural surfaces transparent", () => {
   expect(css).toContain("--diffs-bg-context-gutter-override: transparent");
   expect(css).toContain("background-color: transparent");
   expect(css).toContain("--cmux-diff-surface-bg: transparent");
+  expect(css).toContain("--cmux-diff-header-bg: color-mix(in srgb, var(--cmux-diff-bg) 18%, transparent)");
   expect(css).not.toContain("color-mix(in srgb, var(--cmux-diff-bg) 94%, #3e3d32)");
   expect(css).not.toContain("[data-diffs-header][data-sticky]");
   expect(css).toContain("--diffs-bg-addition-override: color-mix");
   expect(css).toContain("--diffs-bg-deletion-override: color-mix");
   expect(css).toContain("[data-diffs-header] {");
-  expect(css).toContain("background-color: var(--cmux-diff-surface-bg) !important");
+  expect(css).toContain("background-color: var(--cmux-diff-header-bg) !important");
+  expect(css).toContain("-webkit-backdrop-filter: blur(16px) saturate(1.15)");
+  expect(css).toContain("backdrop-filter: blur(16px) saturate(1.15)");
   expect(css).toContain("min-height: 30px");
   expect(css).not.toContain("border-block: 1px solid var(--cmux-diff-border)");
   expect(css).not.toContain("@container sticky-header scroll-state");
