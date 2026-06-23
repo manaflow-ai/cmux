@@ -213,7 +213,7 @@ struct CMUXMobileRootView: View {
                 showAddDevice()
             }
         } else {
-            WorkspaceShellView(store: store, signOut: signOut)
+            MobileTabContainer(store: store, signOut: signOut)
         }
     }
 

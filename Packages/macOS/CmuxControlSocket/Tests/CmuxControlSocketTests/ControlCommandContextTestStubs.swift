@@ -487,12 +487,11 @@ extension ControlSurfaceContext {
 }
 
 extension ControlMobileHostContext {
-    private var mobileHostStubResult: ControlCallResult {
-        .err(code: "unavailable", message: "", data: nil)
-    }
+    private var mobileHostStubResult: ControlCallResult { .err(code: "unavailable", message: "", data: nil) }
 
     func controlMobileHostStatus(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileWorkspaceList(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
+    func controlMobileNotificationsList(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalInput(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }
     func controlMobileTerminalReplay(params: [String: JSONValue]) -> ControlCallResult { mobileHostStubResult }

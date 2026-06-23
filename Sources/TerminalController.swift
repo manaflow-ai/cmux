@@ -1982,7 +1982,7 @@ class TerminalController {
             "mobile.terminal.input",
             "mobile.terminal.paste",
             "mobile.terminal.replay",
-            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe",
+            "mobile.terminal.viewport", "mobile.events.subscribe", "mobile.events.unsubscribe", "mobile.notifications.list",
             "terminal.create",
             "terminal.input",
             "terminal.paste",
@@ -2103,7 +2103,7 @@ class TerminalController {
             "notification.create_for_caller",
             "notification.create_for_surface",
             "notification.create_for_target",
-            "notification.list",
+            "notification.list", "notifications.list",
             "notification.clear",
             "notification.dismiss",
             "notification.mark_read",
@@ -12859,8 +12859,8 @@ class TerminalController {
             result = v2MobileTerminalScroll(params: request.params)
         case "mobile.terminal.mouse", "terminal.mouse":
             result = v2MobileTerminalMouse(params: request.params)
-        case "workspace.action":
-            result = v2MobileWorkspaceAction(params: request.params)
+        case "workspace.action": result = v2MobileWorkspaceAction(params: request.params)
+        case "mobile.notifications.list", "notifications.list": result = v2MobileNotificationsList(params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(method: method, params: request.params)
         case "workspace.close":

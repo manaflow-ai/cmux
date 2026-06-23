@@ -64,6 +64,79 @@ import Testing
         #expect(store.workspaceGroups.isEmpty)
     }
 
+    @Test func signOutClearsNotificationFeed() {
+        let store = MobileShellComposite.preview()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", isRead: false)
+        ])
+
+        store.signOut()
+
+        #expect(store.notificationsStore.notifications.isEmpty)
+    }
+
+    @Test func failedOptimisticNotificationReadRestoresSnapshot() async {
+        let store = MobileShellComposite.preview()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", isRead: false),
+            notificationPreview(id: "n2", workspaceID: "workspace-other", isRead: false),
+        ])
+        let previousNotifications = store.notificationsStore.notifications
+
+        let claim = store.beginOptimisticNotificationRead(forWorkspace: "workspace-main")
+        await store.finishOptimisticNotificationRead(claim, mutationSucceeded: false)
+
+        #expect(store.notificationsStore.notifications == previousNotifications)
+    }
+
+    @Test func supersededOptimisticNotificationReadDoesNotRestoreStaleSnapshot() async {
+        let store = MobileShellComposite.preview()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", title: "old", isRead: false),
+        ])
+
+        let claim = store.beginOptimisticNotificationRead(forWorkspace: "workspace-main")
+        _ = await store.refreshNotifications()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", title: "new", isRead: true),
+        ])
+        await store.finishOptimisticNotificationRead(claim, mutationSucceeded: false)
+
+        #expect(store.notificationsStore.notifications.map(\.title) == ["new"])
+        #expect(store.notificationsStore.notifications.map(\.isRead) == [true])
+    }
+
+    @Test func signOutInvalidatesOptimisticNotificationReadRollback() async {
+        let store = MobileShellComposite.preview()
+        store.notificationsStore.apply([
+            notificationPreview(id: "n1", workspaceID: "workspace-main", title: "private", isRead: false),
+        ])
+
+        let claim = store.beginOptimisticNotificationRead(forWorkspace: "workspace-main")
+        store.signOut()
+        await store.finishOptimisticNotificationRead(claim, mutationSucceeded: false)
+
+        #expect(store.notificationsStore.notifications.isEmpty)
+    }
+
+    @Test func deeplinkNavigationSelectsAndBumpsToken() {
+        let store = MobileShellComposite.preview()
+        let target = try! #require(store.workspaces.last?.id)
+
+        #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+        store.navigateToWorkspaceForDeeplink(target)
+        #expect(store.selectedWorkspaceID == target)
+        let first = try! #require(store.deeplinkWorkspaceNavigationRequest)
+        #expect(first.workspaceID == target)
+
+        // A repeat open of the already-selected workspace must still bump the
+        // token so the compact stack's `onChange` fires again.
+        store.navigateToWorkspaceForDeeplink(target)
+        let second = try! #require(store.deeplinkWorkspaceNavigationRequest)
+        #expect(second.workspaceID == target)
+        #expect(second.token != first.token)
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()
@@ -216,5 +289,24 @@ private func hostPortRoute(
         kind: kind,
         endpoint: .hostPort(host: host, port: port),
         priority: priority
+    )
+}
+
+private func notificationPreview(
+    id: String,
+    workspaceID: String,
+    title: String = "done",
+    isRead: Bool
+) -> MobileNotificationPreview {
+    MobileNotificationPreview(
+        id: id,
+        workspaceID: workspaceID,
+        surfaceID: nil,
+        title: title,
+        subtitle: "",
+        body: "private output",
+        isContentHidden: false,
+        createdAt: Date(timeIntervalSince1970: 1),
+        isRead: isRead
     )
 }

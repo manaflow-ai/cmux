@@ -27,6 +27,10 @@ private final class FakeMobileHostControlCommandContext: ControlCommandContext {
         record("workspace.list", params)
     }
 
+    func controlMobileNotificationsList(params: [String: JSONValue]) -> ControlCallResult {
+        record("notifications.list", params)
+    }
+
     func controlMobileTerminalCreate(params: [String: JSONValue]) -> ControlCallResult {
         record("terminal.create", params)
     }
@@ -87,6 +91,14 @@ struct ControlCommandCoordinatorMobileHostTests {
         let (coordinator, context) = makeCoordinator()
         #expect(coordinator.handle(request("chat.sessions.dump")) != nil)
         #expect(context.lastMarker == "chat.sessions.dump")
+    }
+
+    @Test func v2SurfaceRoutesNotificationsListAndAliasThroughSeam() {
+        let (coordinator, context) = makeCoordinator()
+        #expect(coordinator.handle(request("mobile.notifications.list")) != nil)
+        #expect(context.lastMarker == "notifications.list")
+        #expect(coordinator.handle(request("notifications.list")) != nil)
+        #expect(context.lastMarker == "notifications.list")
     }
 
     @Test func v2SurfaceUsesPrivateHostStatusVariant() {

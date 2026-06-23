@@ -787,11 +787,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     // in `NotificationClickPerformer` (behind `FinderRevealing`), and the entire
     // focused-mark state machine lives in `FocusedNotificationMarker` (behind
     // `FocusedNotificationResolving`).
-    /// The auth graph, injected once via `configure(...)` at app startup.
     private(set) var auth: MacAuthComposition?
-    /// Strongly-held observers for every active TabManager. Each observer owns
-    /// Combine subscriptions that publish workspace.updated to mobile clients.
     private var mobileWorkspaceListObservers: [ObjectIdentifier: MobileWorkspaceListObserver] = [:]
+    private var mobileNotificationListObserver: MobileNotificationListObserver?
     private let agentChatTranscriptService = AgentChatTranscriptService()
     /// The app's settings dependency container, handed over by `cmuxApp` via
     /// `configure(...)` before any main window is created. AppKit builds the
@@ -2035,6 +2033,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
         ensureMobileWorkspaceListObserver(for: tabManager)
+        mobileNotificationListObserver = MobileNotificationListObserver(store: notificationStore)
         MobileTerminalRenderObserver.shared.start()
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSession(titleChange: $0) }
         installMobileHostSettingsObserver()

@@ -408,8 +408,6 @@ final class TerminalNotificationStore: ObservableObject {
     /// changes. Runs from ``refreshUnreadPresentation()`` — the same chokepoint
     /// that refreshes the Mac Dock badge — so every mutation lane (markRead,
     /// markUnread, record, restore, clear) keeps the phone badge correct without
-    /// per-call-site emits. Cheap when nothing is attached (subscriber
-    /// short-circuit inside `emitEvent`).
     private func emitUnreadBadgeEventIfChanged() {
         let count = indexes.unreadCount
         guard count != lastEmittedPhoneBadgeCount else { return }
@@ -430,21 +428,12 @@ final class TerminalNotificationStore: ObservableObject {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
             refreshUnreadPresentation()
+            scheduleNotificationsStreamYield()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
     }
     @Published private(set) var notificationMenuSnapshot = NotificationMenuSnapshotBuilder.make(notifications: [])
-    /// Coalesced, equality-guarded per-workspace unread projection for the
-    /// sidebar. The workspace list observes THIS instead of the whole store so
-    /// high-frequency notification churn that does not change a workspace's
-    /// badge count or latest-message text never republishes to the sidebar.
-    /// This is the boundary that keeps the workspace list off the store's hot
-    /// publish path (issue #2586 class of sidebar re-render spins). Owned (not
-    /// `@Published`) so its updates stay independent of the store's own
-    /// `objectWillChange`.
     let sidebarUnread = SidebarUnreadModel()
-    // Workspace-level unread drives sidebar workspace badges; pane-level manual
-    // unread remains owned by Workspace.manualUnreadPanelIds.
     @Published private(set) var manualUnreadWorkspaceIds: Set<UUID> = [] {
         didSet { refreshUnreadPresentation() }
     }
@@ -456,15 +445,26 @@ final class TerminalNotificationStore: ObservableObject {
     }
     @Published private(set) var focusedReadIndicatorByTabId: [UUID: UUID] = [:] {
         didSet {
-            // The sidebar/pane read-indicator presentation derives from this map
-            // (see hasVisibleNotificationIndicator); keep the coalesced
-            // SidebarUnreadModel in sync when it changes on its own.
             guard focusedReadIndicatorByTabId != oldValue else { return }
             refreshUnreadPresentation()
         }
     }
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
+    private var notificationStreamContinuations: [UUID: AsyncStream<[TerminalNotification]>.Continuation] = [:]
+    private var notificationStreamYieldScheduled = false
+
+    func notificationsStream() -> AsyncStream<[TerminalNotification]> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            let id = UUID(); notificationStreamContinuations[id] = continuation; continuation.yield(notifications)
+            continuation.onTermination = { [weak self] _ in Task { @MainActor [weak self] in self?.notificationStreamContinuations.removeValue(forKey: id) } }
+        }
+    }
+    private func scheduleNotificationsStreamYield() {
+        guard !notificationStreamYieldScheduled else { return }; notificationStreamYieldScheduled = true
+        Task { @MainActor [weak self] in guard let self else { return }; self.notificationStreamYieldScheduled = false; self.yieldNotificationsStream() }
+    }
+    private func yieldNotificationsStream() { for continuation in notificationStreamContinuations.values { continuation.yield(notifications) } }
 
     private let center = UNUserNotificationCenter.current()
     private var hasRequestedAutomaticAuthorization = false

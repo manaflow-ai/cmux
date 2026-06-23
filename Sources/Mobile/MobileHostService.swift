@@ -2248,10 +2248,10 @@ actor MobileHostConnection {
             return nil
         }
     }
-
     private static func isInteractiveMobileRequest(_ method: String) -> Bool {
         switch method {
         case "mobile.host.status", "mobile.terminal.replay", "terminal.replay",
+             "mobile.notifications.list", "notifications.list",
              // Subscription management is plumbing, not user interaction: the
              // phone's render-grid liveness watchdog re-asserts its
              // subscription on every silence window (~9s when idle), and

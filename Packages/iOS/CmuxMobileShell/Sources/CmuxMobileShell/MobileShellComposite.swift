@@ -40,15 +40,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         var eventTopics: [String] {
             switch self {
             case .renderGrid:
-                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge", "notifications.updated"]
             case .rawBytes:
-                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge"]
+                return ["workspace.updated", "terminal.bytes", "notification.dismissed", "notification.badge", "notifications.updated"]
             }
         }
     }
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
-
     /// Max seconds the launch reconnect may keep the restoring gate
     /// (``RestoringSessionView``) on screen before resolving to the
     /// disconnected/add-device UI. A stored Mac whose route went stale makes the
@@ -64,7 +63,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let dogfoodFeedbackCapability = "dogfood.v1"
     private static let workspaceGroupsCapability = "workspace.groups.v1"
     private static let terminalOutputCapabilityTimeoutNanoseconds: UInt64 = 750_000_000
-
     /// How long the render-grid stream may stay silent (no event of any topic)
     /// before the liveness watchdog suspects the push subscription is dead and
     /// runs a bounded host probe; only a failed probe forces the
@@ -202,10 +200,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Bumped on every ``workspaces`` mutation: a cheap "lists may have
     /// changed" signal (e.g. for retrying a parked notification deep link).
     public private(set) var workspaceTopologyVersion: UInt64 = 0
-    /// The Mac's workspace groups, in section order. Empty when the Mac reports no
-    /// groups (or is old enough not to emit them). Drives the collapsible group
-    /// sections in the workspace list.
+    /// The Mac's workspace groups, in section order.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+    /// Recent notification feed state mirrored from the connected Mac.
+    public let notificationsStore = MobileNotificationsStore()
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -221,7 +219,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Whether the Mac supports dogfood feedback submission.
     public var supportsDogfoodFeedback: Bool { supportedHostCapabilities.contains(Self.dogfoodFeedbackCapability) }
     /// The composer's live draft for the currently selected terminal.
-    ///
     /// Edits are persisted per-terminal through the FIFO draft pipeline on every
     /// change (see `didSet`), so the draft survives terminal switches; loads set
     /// `isLoadingDraft` so the restore is not re-saved under the wrong terminal
@@ -582,6 +579,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private var createWorkspaceTask: Task<Void, Never>?
     private var createTerminalTask: Task<Void, Never>?
     private var workspaceListRefreshTask: Task<Void, Never>?
+    @ObservationIgnored var notificationFeedRefreshTask: Task<Void, Never>?; @ObservationIgnored var notificationFeedRefreshGeneration: UInt64 = 0
     /// The user pull-to-refresh round-trip, kept on its own handle so the
     /// event-driven ``workspaceListRefreshTask`` cancel/restart can never truncate
     /// the spinner the pull is awaiting. Rapid pulls coalesce onto this single task.
@@ -833,16 +831,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         clearPairingError()
         activeTicket = nil
         activeRoute = nil
-        // Drop the cached paired Macs so the next signed-in user never sees the
-        // previous user's hosts in the switcher.
         pairedMacs = []
-        // Likewise drop the registry-backed device tree so a shared device never
-        // shows the previous user's team devices after sign-out.
+        invalidateNotificationFeedRefreshes()
+        notificationsStore.apply([])
         registryDevices = []
-        // Reset the in-memory restoring flags; hasKnownPairedMac stays driven by
-        // the forget path. On a real account switch the next reconnect's no-mac
-        // branch clears the hint. Bump the reconnect generation so any in-flight
-        // reconnect is superseded and can't re-set these flags after sign-out.
+        // Reset restoring flags and supersede in-flight reconnects.
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
@@ -3304,6 +3297,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
+                    Task { @MainActor [weak self] in await self?.refreshNotifications() }
                     diagnosticLog?.record(DiagnosticEvent(.pairOk))
                     if workspaceListRequest.isScoped {
                         scheduleFullWorkspaceListRefreshIfAvailable(
@@ -3495,6 +3489,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         createTerminalTaskID = nil
         workspaceListRefreshTask?.cancel()
         workspaceListRefreshTask = nil
+        invalidateNotificationFeedRefreshes()
         pullToRefreshTask?.cancel()
         pullToRefreshTask = nil
     }
@@ -3524,6 +3519,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionGeneration = UUID()
         connectionAttemptGeneration = UUID()
         cancelRemoteOperationTasks()
+        notificationsStore.apply([])
         rawTerminalInputBuffer.clear()
         clearPairingError()
         clearPairingVersionWarning()
@@ -4344,7 +4340,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 scheduleHostIdentityAdoptionIfNeeded(client: client)
                 return fallback
             }
+            let hadNotificationsFeed = supportsNotificationsFeed
             supportedHostCapabilities = Set(payload.capabilities)
+            if !hadNotificationsFeed, supportsNotificationsFeed, connectionState == .connected {
+                scheduleNotificationsRefreshFromEvent()
+            }
             await applyHostReportedIdentity(
                 client: client,
                 deviceID: payload.macDeviceID,
@@ -4457,7 +4457,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     await self.handleNotificationDismissedEvent(event)
                 } else if event.topic == "notification.badge" {
                     self.handleNotificationBadgeEvent(event)
-                }
+                } else if event.topic == "notifications.updated" { self.scheduleNotificationsRefreshFromEvent() }
             }
             guard let self else { return }
             self.handleTerminalEventStreamEnded(listenerID: listenerID, client: client)
@@ -4532,6 +4532,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalEventListenerID = nil
         startTerminalRefreshPolling()
         scheduleWorkspaceListRefreshFromEvent()
+        scheduleNotificationsRefreshFromEvent()
     }
 
     // MARK: - Render-grid liveness watchdog
@@ -4700,7 +4701,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     // The same registration carries `workspace.updated`, so
                     // workspace create/rename/delete events emitted during the
                     // gap were missed too; re-fetch the authoritative list.
-                    self.scheduleWorkspaceListRefreshFromEvent()
+                    self.scheduleWorkspaceListRefreshFromEvent(); self.scheduleNotificationsRefreshFromEvent()
                 } else {
                     MobileDebugLog.anchormux("sync.liveness probe_ok silentMs=\(Int(silent * 1000))")
                 }

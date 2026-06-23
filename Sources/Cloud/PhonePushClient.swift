@@ -15,6 +15,20 @@ enum PhonePushSettings {
     static let forwardModeKey = "forwardNotificationsToPhoneMode"
 }
 
+extension PhonePushSettings {
+    static func contentFields(
+        title: String,
+        subtitle: String,
+        body: String,
+        hideContent: Bool
+    ) -> (title: String, subtitle: String, body: String) {
+        guard hideContent else {
+            return (title, subtitle, body)
+        }
+        return ("cmux", "", "New terminal activity")
+    }
+}
+
 /// Forwards macOS terminal notifications to the user's iPhone via the cmux web
 /// API (`POST /api/notifications/push`), which relays them through APNs. Gated
 /// by ``PhonePushSettings/forwardEnabledKey`` (off by default) and only invoked
@@ -229,6 +243,12 @@ final class PhonePushClient {
         // never leave the Mac. Send generic placeholders so the request still
         // carries valid, parseable fields while the actual content stays local.
         // Ids, the badge count, and hideContent are opaque values, not content.
+        let content = PhonePushSettings.contentFields(
+            title: payload.title,
+            subtitle: payload.subtitle,
+            body: payload.body,
+            hideContent: payload.hideContent
+        )
         var bodyDict: [String: Any] = [
             "kind": payload.kind.rawValue,
             "badgeCount": payload.badgeCount,
@@ -236,9 +256,9 @@ final class PhonePushClient {
         ]
         switch payload.kind {
         case .notify:
-            bodyDict["title"] = payload.hideContent ? "cmux" : payload.title
-            bodyDict["subtitle"] = payload.hideContent ? "" : payload.subtitle
-            bodyDict["body"] = payload.hideContent ? "New terminal activity" : payload.body
+            bodyDict["title"] = content.title
+            bodyDict["subtitle"] = content.subtitle
+            bodyDict["body"] = content.body
             if let workspaceId = payload.workspaceId { bodyDict["workspaceId"] = workspaceId }
             if let surfaceId = payload.surfaceId { bodyDict["surfaceId"] = surfaceId }
             // Opaque UUID, not content: safe to send even when hideContent is on.

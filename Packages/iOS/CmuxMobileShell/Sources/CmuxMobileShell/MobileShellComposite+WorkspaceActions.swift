@@ -61,10 +61,11 @@ extension MobileShellComposite {
     /// - Parameters:
     ///   - id: The workspace to mark.
     ///   - unread: `true` to mark unread, `false` to mark read.
-    public func setWorkspaceUnread(id: MobileWorkspacePreview.ID, _ unread: Bool) async {
+    @discardableResult
+    public func setWorkspaceUnread(id: MobileWorkspacePreview.ID, _ unread: Bool) async -> Bool {
         var params = workspaceMutationParams(id: id)
         params["action"] = unread ? "mark_unread" : "mark_read"
-        await sendWorkspaceMutation(
+        return await sendWorkspaceMutation(
             method: "workspace.action",
             params: params,
             id: id,
@@ -87,25 +88,29 @@ extension MobileShellComposite {
         )
     }
 
+    @discardableResult
     private func sendWorkspaceMutation(
         method: String,
         params: [String: Any],
         id: MobileWorkspacePreview.ID,
         actionName: String
-    ) async {
-        guard let client = remoteClient else { return }
+    ) async -> Bool {
+        guard let client = remoteClient else { return false }
+        var didMutate = false
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: method,
                 params: params
             )
             _ = try await client.sendRequest(request)
+            didMutate = true
         } catch {
-            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
+            guard !disconnectForAuthorizationFailureIfNeeded(error) else { return false }
             markMacConnectionUnavailableIfNeeded(after: error)
             mobileShellLog.error("workspace mutation failed action=\(actionName, privacy: .public) id=\(id.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)")
         }
         await refreshWorkspaces()
+        return didMutate
     }
 
     private func workspaceMutationParams(id: MobileWorkspacePreview.ID) -> [String: Any] {
