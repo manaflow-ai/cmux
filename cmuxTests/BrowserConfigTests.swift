@@ -3610,6 +3610,83 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
 
+    func testDetachedInspectorCommandWIgnoresStaleMainEventWindow() throws {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(inspectorWindow.isKeyWindow)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: mainWindow.windowNumber,
+            context: nil,
+            characters: "w",
+            charactersIgnoringModifiers: "w",
+            isARepeat: false,
+            keyCode: 13
+        ))
+
+        NSApp.sendEvent(event)
+        spinRunLoopOneTick()
+        waitForDeveloperToolsTransitions()
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Cmd-W with stale main-window event metadata must not call _inspector.close on the inspected page"
+        )
+        XCTAssertFalse(inspectorWindow.isVisible)
+        XCTAssertNotNil(
+            workspace.browserPanel(for: browserPanelId),
+            "Cmd-W with stale main-window event metadata must not fall through to cmux close-tab routing"
+        )
+        XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
+    }
+
     func testDetachedInspectorChordedCloseTabClosesInspectorWithoutClosingBrowserPanel() throws {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         guard let appDelegate = AppDelegate.shared else {
