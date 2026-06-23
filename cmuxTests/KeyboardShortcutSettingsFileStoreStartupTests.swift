@@ -1195,6 +1195,18 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
     }
 
+    func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
+        let defaults = UserDefaults.standard
+        let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey
+        preservingDefaults(keys: [defaultActionKey]) {
+            defaults.set(TextBoxSubmitAction.textEntryAction.id, forKey: defaultActionKey)
+            XCTAssertEqual(
+                TerminalTextBoxInputSettings.defaultSubmitActionIDValue(defaults: defaults),
+                TextBoxSubmitAction.textEntryAction.id
+            )
+        }
+    }
+
     func testSettingsFileStoreAppliesTerminalCopyOnSelectSetting() throws {
         let defaults = UserDefaults.standard
         let key = TerminalCopyOnSelectSettings.copyOnSelectKey

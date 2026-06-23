@@ -169,6 +169,9 @@ enum TerminalTextBoxInputSettings {
         let configured = defaults.string(forKey: defaultSubmitActionKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let actions = submitActions(defaults: defaults)
+        if configured == TextBoxSubmitAction.textEntryAction.id {
+            return TextBoxSubmitAction.textEntryAction.id
+        }
         guard let configured,
               actions.contains(where: { $0.id == configured }) else {
             return defaultSubmitActionID

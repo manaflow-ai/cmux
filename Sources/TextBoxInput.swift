@@ -2756,6 +2756,7 @@ struct TextBoxInputContainer: View {
     let terminalFont: NSFont
     let maxLines: Int
     let terminalAgentContext: String
+    let allowsCommandTemplateSubmit: Bool
     let onFocusTextBox: () -> Void
     let onToggleFocus: () -> Void
     let onEscape: () -> Void
@@ -2798,6 +2799,9 @@ struct TextBoxInputContainer: View {
     }
 
     private var selectedSubmitAction: TextBoxSubmitAction {
+        if defaultSubmitActionID == TextBoxSubmitAction.textEntryAction.id {
+            return TextBoxSubmitAction.textEntryAction
+        }
         let actions = submitActions
         if let selected = actions.first(where: { $0.id == defaultSubmitActionID }) {
             return selected
@@ -2806,8 +2810,12 @@ struct TextBoxInputContainer: View {
             ?? TextBoxSubmitAction.builtInActions[0]
     }
 
+    private var shouldForceTextEntrySubmit: Bool {
+        hasActiveAgentSession || !allowsCommandTemplateSubmit
+    }
+
     private var effectiveSubmitAction: TextBoxSubmitAction {
-        guard !hasActiveAgentSession else {
+        guard !shouldForceTextEntrySubmit else {
             return TextBoxSubmitAction.textEntryAction
         }
         return selectedSubmitAction
@@ -2816,7 +2824,7 @@ struct TextBoxInputContainer: View {
     private var submitActionPresentation: TextBoxSubmitActionPresentation {
         TextBoxSubmitActionPresentation(
             action: effectiveSubmitAction,
-            isForcedTextEntry: hasActiveAgentSession && selectedSubmitAction.kind != .textEntry
+            isForcedTextEntry: shouldForceTextEntrySubmit && selectedSubmitAction.kind != .textEntry
         )
     }
 
@@ -3268,7 +3276,7 @@ struct TextBoxInputContainer: View {
         _ parts: [TextBoxSubmissionPart],
         applying action: TextBoxSubmitAction
     ) -> [TextBoxSubmissionPart] {
-        guard !hasActiveAgentSession,
+        guard !shouldForceTextEntrySubmit,
               let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
             return parts
         }
