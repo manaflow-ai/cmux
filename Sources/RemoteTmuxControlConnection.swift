@@ -1246,6 +1246,11 @@ final class RemoteTmuxControlConnection {
             } else if name.hasPrefix(Self.agentSubscriptionPrefix),
                       let paneId = Int(name.dropFirst(Self.agentSubscriptionPrefix.count)) {
                 // Remote agent status published into @cmux_agent by the agent's hook.
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.agent.sub pane=\(paneId) value=\"\(value.trimmingCharacters(in: .whitespacesAndNewlines).prefix(160))\""
+                )
+                #endif
                 observers.emitPaneAgent(paneId, value)
             }
         case let .commandResult(_, lines, isError):

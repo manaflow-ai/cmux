@@ -58,11 +58,19 @@ final class RemoteTmuxController {
         guard agentHookInstalledHosts.insert(host.connectionHash).inserted else { return }
         let transport = transport(for: host)
         Task { @MainActor in
-            for argv in [
-                RemoteTmuxAgentHookInstaller.claudeInstallCommand(),
-                RemoteTmuxAgentHookInstaller.codexInstallCommand(),
+            for (label, argv) in [
+                ("claude", RemoteTmuxAgentHookInstaller.claudeInstallCommand()),
+                ("codex", RemoteTmuxAgentHookInstaller.codexInstallCommand()),
             ] {
-                _ = try? await transport.run(argv)
+                let result = try? await transport.run(argv)
+                #if DEBUG
+                cmuxDebugLog(
+                    "remote.agent.hookinstall host=\(host.destination) agent=\(label) "
+                        + "exit=\(result?.exitCode.description ?? "nil") "
+                        + "stdout=\"\((result?.stdout ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))\" "
+                        + "stderr=\"\((result?.stderr ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(120))\""
+                )
+                #endif
             }
         }
     }

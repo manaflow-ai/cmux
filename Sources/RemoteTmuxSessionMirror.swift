@@ -476,11 +476,18 @@ final class RemoteTmuxSessionMirror {
     /// (Option C, via the live tmux subscription). An empty value clears it (the
     /// hook clears the option to drop the chip). Re-renders the sidebar status.
     private func handlePaneAgent(paneId: Int, rawValue: String) {
-        if let status = RemoteTmuxAgentStatus.parse(rawValue) {
-            hookAgentStatusByPane[paneId] = status
+        let status = RemoteTmuxAgentStatus.parse(rawValue)
+        hookAgentStatusByPane[paneId] = status
+        #if DEBUG
+        if let status {
+            cmuxDebugLog(
+                "remote.agent.hook pane=\(paneId) agent=\(status.agent) state=\(status.state.rawValue) "
+                    + "model=\(status.model ?? "-")"
+            )
         } else {
-            hookAgentStatusByPane[paneId] = nil
+            cmuxDebugLog("remote.agent.hook pane=\(paneId) cleared (raw=\"\(rawValue.prefix(80))\")")
         }
+        #endif
         refreshAgentStatus()
     }
 
@@ -544,6 +551,9 @@ final class RemoteTmuxSessionMirror {
         let value = suffix.map { "\(base) · \($0)" } ?? base
         let existing = workspace.statusEntries[Self.agentStatusKey]
         if existing?.value == value, existing?.key == Self.agentStatusKey { return }
+        #if DEBUG
+        cmuxDebugLog("remote.agent.sidebar write value=\"\(value)\" (workspace=\(workspace.id))")
+        #endif
         workspace.statusEntries[Self.agentStatusKey] = SidebarStatusEntry(
             key: Self.agentStatusKey,
             value: value,
