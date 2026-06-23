@@ -12,6 +12,13 @@ import UIKit
 final class AccessoryActionButton: UIButton {
     /// The configurable item this button triggers.
     let item: ResolvedToolbarItem
+    /// Whether this button lives inside the horizontally scrolling accessory row.
+    ///
+    /// iOS 26's Liquid Glass button configuration changes luminance while hosted
+    /// in a moving `UIScrollView`, which makes terminal keys flash/fade during
+    /// horizontal accessory-bar scrolling. Scroll-hosted buttons therefore use
+    /// the stable flat keycap style while pinned controls can keep glass.
+    let usesStableScrollableAppearance: Bool
 
     /// Whether this modifier is double-tap *sticky-locked* (vs. single-tap armed).
     ///
@@ -37,8 +44,9 @@ final class AccessoryActionButton: UIButton {
 
     /// Creates a button bound to a resolved toolbar item.
     /// - Parameter item: The built-in or custom action the button represents.
-    init(item: ResolvedToolbarItem) {
+    init(item: ResolvedToolbarItem, usesStableScrollableAppearance: Bool = false) {
         self.item = item
+        self.usesStableScrollableAppearance = usesStableScrollableAppearance
         super.init(frame: .zero)
     }
 
