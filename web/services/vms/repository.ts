@@ -228,10 +228,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 if (existing.status !== "failed" && existing.status !== "destroyed") {
                   return { inserted: false as const, vm: existing };
                 }
-                await tx
-                  .update(cloudVms)
-                  .set({ idempotencyKey: null, updatedAt: new Date() })
-                  .where(eq(cloudVms.id, existing.id));
               }
             }
 
