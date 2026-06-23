@@ -332,6 +332,23 @@ reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
   `ended` stays retained (disables the input bar, stays visible). `DispatchSource`
   is an event source, not a timer, so it does not fall under the asyncAfter ban
   and is cancellable.
+- **Status note (after A/B/D):** Slices A, B, D are implemented, build-green on
+  all layers, and committed on `feat-agent-session-sot`. They deliver the owner's
+  actual asks: reliable tracking with no title/mtime heuristic, deterministic
+  `ended` that disables the input bar, and authoritative pull. Slices C, E, F
+  below are scoped follow-ups, not blockers for the core feature:
+  - **C (off-main hook-store read):** marginal. The 30s per-session throttle
+    already bounds the main-actor JSON read to a negligible cost; making
+    `noteHookEvent`'s backfill async changes a hot-path return contract, so it
+    belongs with a broader authority cleanup, not this feature.
+  - **E (surface-id invariance):** conditional, only if a concrete
+    relaunch-rebinding bug appears (terminal surface id already rehydrates
+    verbatim on normal relaunch).
+  - **F (codex hook auto-setup):** real but separate. Codex hooks install via
+    `cmux hooks setup --agent codex` (into `~/.codex/hooks.json`) gated by
+    codex's config-TOML trust machinery; auto-installing at launch is a risky
+    CLI change that deserves its own PR. Until then, codex tracking requires
+    `cmux hooks setup` to have run (the normal onboarding step).
 - **Slice C — Off-main parsing.** Move the hook-store JSON read off `@MainActor`
   (interim, before it is deleted) and assert no `Data(contentsOf:)` /
   `JSONSerialization` / `Codable` decode on the main actor in this subsystem.
