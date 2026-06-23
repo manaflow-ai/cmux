@@ -23,6 +23,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private let schemaVersion: Int
     private let bundleIdentifier: String?
     private let appSupportDirectory: URL?
+    private let repairLoadedSnapshot: @Sendable (SnapshotValue) -> (snapshot: SnapshotValue, didRepair: Bool)
     // Justification: FileManager is documented thread-safe ("the methods of
     // the shared FileManager object can be called from multiple threads
     // safely") but Foundation does not mark it Sendable.
@@ -37,18 +38,25 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     ///     snapshot file name (pass `Bundle.main.bundleIdentifier` at the
     ///     composition root). Falls back to `com.cmuxterm.app` when nil or
     ///     blank.
+    ///   - repairLoadedSnapshot: Optional app-owned repair pass for decoded
+    ///     snapshots. The repository persists a repaired snapshot when the
+    ///     callback reports a change.
     ///   - appSupportDirectory: Overrides the discovered user Application
     ///     Support directory (tests pass a temporary directory).
     ///   - fileManager: File system access, injected for testability.
     public init(
         schemaVersion: Int,
         bundleIdentifier: String?,
+        repairLoadedSnapshot: @escaping @Sendable (SnapshotValue) -> (snapshot: SnapshotValue, didRepair: Bool) = {
+            (snapshot: $0, didRepair: false)
+        },
         appSupportDirectory: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.schemaVersion = schemaVersion
         self.bundleIdentifier = bundleIdentifier
         self.appSupportDirectory = appSupportDirectory
+        self.repairLoadedSnapshot = repairLoadedSnapshot
         self.fileManager = fileManager
     }
 
@@ -59,7 +67,11 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard let snapshot = try? decoder.decode(SnapshotValue.self, from: data) else { return .unusable }
         guard snapshot.version == schemaVersion else { return .unusable }
         guard snapshot.hasWindows else { return .unusable }
-        return .loaded(snapshot)
+        let repairResult = repairLoadedSnapshot(snapshot)
+        if repairResult.didRepair {
+            _ = save(repairResult.snapshot, fileURL: fileURL)
+        }
+        return .loaded(repairResult.snapshot)
     }
 
     public func load(fileURL: URL? = nil) -> SnapshotValue? {

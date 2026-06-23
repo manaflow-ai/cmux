@@ -30,6 +30,7 @@ final class SessionPersistenceTests: XCTestCase {
         SessionSnapshotRepository(
             schemaVersion: SessionSnapshotSchema.currentVersion,
             bundleIdentifier: bundleIdentifier,
+            repairLoadedSnapshot: AppSessionSnapshot.repairLoadedSessionSnapshot,
             appSupportDirectory: appSupportDirectory
         )
     }

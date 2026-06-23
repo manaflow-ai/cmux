@@ -1061,7 +1061,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `nonisolated` because the autosave write block runs on `sessionPersistenceQueue`.
     nonisolated let sessionSnapshotStore: any SessionSnapshotStoring<AppSessionSnapshot> = SessionSnapshotRepository(
         schemaVersion: SessionSnapshotSchema.currentVersion,
-        bundleIdentifier: Bundle.main.bundleIdentifier
+        bundleIdentifier: Bundle.main.bundleIdentifier,
+        repairLoadedSnapshot: AppSessionSnapshot.repairLoadedSessionSnapshot
     )
     /// Accessibility window-hierarchy cache (CmuxWindowing); composition-root
     /// owned. The `NSApplication` AX swizzle forwards to it behind
