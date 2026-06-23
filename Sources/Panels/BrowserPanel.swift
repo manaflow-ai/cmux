@@ -6363,11 +6363,11 @@ extension BrowserPanel {
     }
 
     private func syncDeveloperToolsPresentationPreferenceFromUI() {
+        normalizeDeveloperToolsDockControls()
         if !detachedDeveloperToolsWindowsForPanel().isEmpty {
             setPreferredDeveloperToolsPresentation(.detached)
         }
     }
-
     private func installDetachedDeveloperToolsWindowCloseObserver() {
         guard detachedDeveloperToolsWindowCloseObserver == nil else { return }
         detachedDeveloperToolsWindowCloseObserver = NotificationCenter.default.addObserver(
