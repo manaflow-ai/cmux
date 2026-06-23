@@ -99,7 +99,7 @@
     "faqCustomizeQ": "Mogu li prilagoditi cmux?",
     "faqCustomizeA": "Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, pa se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u <path>~/.config/cmux/cmux.json</path> kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka <shortcutsLink>tipkovnička prečica</shortcutsLink> je izmjenjiva. Pogledajte <link>konfiguraciju</link>.",
     "faqIosQ": "Postoji li iOS aplikacija?",
-    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA.",
+    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "Ima li cmux skills-e?",
     "faqSkillsA": "Da. Skills su ponovo iskoristivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i panela preglednika. Pregledajte otvorenu kolekciju na <skillsLink>cmux-skills</skillsLink> ili pročitajte <link>dokumentaciju za skills</link>.",
     "faqBrowserQ": "Šta može ugrađeni preglednik?",

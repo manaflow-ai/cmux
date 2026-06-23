@@ -99,7 +99,7 @@
     "faqCustomizeQ": "可以自定义 cmux 吗？",
     "faqCustomizeA": "是的。终端渲染使用你的 Ghostty 配置，因此主题、字体、颜色和光标会直接沿用。cmux 自身的设置位于 <path>~/.config/cmux/cmux.json</path>，用于控制侧边栏、标签栏、分割面板和行为，每个<shortcutsLink>键盘快捷键</shortcutsLink>都可编辑。参阅<link>配置</link>。",
     "faqIosQ": "有 iOS 应用吗？",
-    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 窗口中将你的 iPhone 与 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。它通过 TestFlight 以 cmux BETA 的形式发布。",
+    "faqIosA": "有，目前是 beta 版。在 Mobile Connect 窗口中将你的 iPhone 与 Mac 配对，即可从手机连接到你的终端，并可选择转发终端通知。它通过 TestFlight 以 cmux BETA 的形式发布。<foundersLink>cmux Founders Edition</foundersLink> 包含抢先访问权限。",
     "faqSkillsQ": "cmux 有 skills 吗？",
     "faqSkillsA": "有。skills 是可复用的工作流，你可以把它交给任何在 cmux 中运行的 agent，用于 CLI 控制、工作区自动化、设置和浏览器界面等场景。在 <skillsLink>cmux-skills</skillsLink> 浏览开放的集合，或阅读 <link>skills 文档</link>。",
     "faqBrowserQ": "内置浏览器能做什么？",

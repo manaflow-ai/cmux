@@ -134,7 +134,7 @@
     "faqFeatureQ": "機能リクエストやバグ報告があります",
     "faqFeatureA": "ぜひ聞かせてください。GitHubで<issuesLink>イシュー</issuesLink>や<prLink>プルリクエスト</prLink>を開くか、<mailLink>メールでご連絡</mailLink>ください。",
     "faqIosQ": "iOSアプリはありますか？",
-    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。",
+    "faqIosA": "はい、ベータ版があります。Mobile ConnectウィンドウからiPhoneをMacとペアリングし、スマートフォンからターミナルにアタッチできます。ターミナル通知の転送もオプションで利用できます。TestFlightで「cmux BETA」として提供されています。早期アクセスは<foundersLink>cmux Founders Edition</foundersLink>に含まれます。",
     "faqSupportQ": "cmuxを支援するには？",
     "faqSupportA": "cmuxは無料・オープンソースであり、これからもずっとそうです。開発を支援し、cmux AI、iOSアプリ、Cloud VMなど今後の機能に早期アクセスしたい方は、<foundersLink>cmux Founders Edition</foundersLink>をご覧ください。",
     "faqBrowserQ": "組み込みブラウザでは何ができますか？",
