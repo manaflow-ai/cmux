@@ -14,7 +14,31 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
     case pillGroup
     case softButtons
 
+    static let storageKey = "titlebarControlsStyle"
+    static let defaultStyle = TitlebarControlsStyle.compact
+    static var defaultRawValue: Int { defaultStyle.rawValue }
+
     var id: Int { rawValue }
+
+    static func stored(in defaults: UserDefaults = .standard) -> TitlebarControlsStyle {
+        guard let rawObject = defaults.object(forKey: storageKey) else {
+            return defaultStyle
+        }
+        let rawValue: Int?
+        if let integer = rawObject as? Int {
+            rawValue = integer
+        } else if let number = rawObject as? NSNumber {
+            rawValue = number.intValue
+        } else {
+            rawValue = nil
+        }
+        guard let rawValue else { return defaultStyle }
+        return TitlebarControlsStyle(rawValue: rawValue) ?? defaultStyle
+    }
+
+    static func stored(rawValue: Int) -> TitlebarControlsStyle {
+        TitlebarControlsStyle(rawValue: rawValue) ?? defaultStyle
+    }
 
     var menuTitle: String {
         switch self {
@@ -855,7 +879,7 @@ struct TitlebarControlsView: View {
     let onFocusHistoryForward: () -> Void
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
-    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
     @State private var shortcutRefreshTick = 0
     @State private var appearanceRefreshTick = 0
@@ -908,7 +932,7 @@ struct TitlebarControlsView: View {
         let _ = shortcutRefreshTick
         let _ = appearanceRefreshTick
         let _ = globalFontPercent
-        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let style = TitlebarControlsStyle.stored(rawValue: styleRawValue)
         let config = style.config
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: config,
@@ -1374,14 +1398,14 @@ struct HiddenTitlebarSidebarControlsView: View {
     @State private var isHoveringHost = false
     @State private var isHoveringWindowChrome = false
     @State private var hostWindowNumber: Int?
-    @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var styleRawValue = TitlebarControlsStyle.defaultRawValue
 
     private var shouldPinControls: Bool {
         isHoveringHost || isHoveringWindowChrome || popoverVisibilityState.isShown(in: hostWindowNumber)
     }
 
     var body: some View {
-        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let style = TitlebarControlsStyle.stored(rawValue: styleRawValue)
 
         ZStack(alignment: .leading) {
             WindowAccessor { window in
@@ -1926,8 +1950,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         updateObservedWindowIfNeeded()
         applyWorkspaceTitlebarVisibility()
         guard showsWorkspaceTitlebar else { return }
-        let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
-        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let style = TitlebarControlsStyle.stored()
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
         if intrinsicSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()

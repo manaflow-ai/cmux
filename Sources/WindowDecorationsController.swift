@@ -401,7 +401,7 @@ final class WindowDecorationsController {
             minimalModeSidebarTitlebarClickTargets.setObject(view, forKey: window)
             return view
         }()
-        target.config = (TitlebarControlsStyle(rawValue: UserDefaults.standard.integer(forKey: "titlebarControlsStyle")) ?? .classic).config
+        target.config = TitlebarControlsStyle.stored().config
         target.isEnabled = true
         target.requiresRevealedState = true
         target.telemetryPrefix = "minimalSidebarTitlebarClickTarget"

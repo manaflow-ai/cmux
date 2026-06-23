@@ -967,7 +967,7 @@ func isMinimalModeSidebarChromeHoverCandidate(
 }
 
 private func titlebarControlsStyleConfig(defaults: UserDefaults) -> TitlebarControlsStyleConfig {
-    let style = TitlebarControlsStyle(rawValue: defaults.integer(forKey: "titlebarControlsStyle")) ?? .classic
+    let style = TitlebarControlsStyle.stored(in: defaults)
     return style.config
 }
 

@@ -968,7 +968,7 @@ struct ContentView: View {
     @EnvironmentObject var cmuxConfigStore: CmuxConfigStore
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyleRawValue = TitlebarControlsStyle.defaultRawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
     @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
@@ -2046,7 +2046,7 @@ struct ContentView: View {
     /// Used to reserve space in the title row so the title flows to the right of
     /// the controls, which are themselves mounted once in the band overlay.
     private var fullscreenControlsWidth: CGFloat {
-        let style = TitlebarControlsStyle(rawValue: titlebarControlsStyleRawValue) ?? .classic
+        let style = TitlebarControlsStyle.stored(rawValue: titlebarControlsStyleRawValue)
         return TitlebarControlsLayoutMetrics.contentSize(config: style.config).width
     }
 

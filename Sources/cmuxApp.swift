@@ -57,7 +57,7 @@ struct cmuxApp: App {
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(TitlebarControlsStyle.storageKey) private var titlebarControlsStyle = TitlebarControlsStyle.defaultRawValue
     @AppStorage(DevBuildBannerDebugSettings.sidebarBannerVisibleKey)
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
