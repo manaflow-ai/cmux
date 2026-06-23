@@ -117,14 +117,18 @@ cmux_attach_ensure_mac() {
 # <repo_root>. Polls the mint RPC (the real readiness signal) until routes are
 # bound, bounded so a never-binding listener fails instead of hanging.
 cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" max="${4:-20}" sock payload url _i
+  local tag="$1" ttl="$2" repo_root="$3" max="${4:-20}" sock slug payload url _i
   sock="$(cmux_attach_socket_path "$tag")"
+  # cmux-debug-cli.sh rejects CMUX_TAG outside [A-Za-z0-9._-] and re-sanitizes it
+  # to the same slug used for the socket. Pass the slug so tags needing
+  # sanitization (e.g. "Fix Foo" -> "fix-foo") are not rejected before minting.
+  slug="$(cmux_attach__slug "$tag")"
   for _i in $(seq 1 "$max"); do
     if [[ ! -S "$sock" ]]; then
       sleep 0.5
       continue
     fi
-    payload="$(CMUX_TAG="$tag" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
+    payload="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
       "{\"ttl_seconds\":${ttl},\"scope\":\"mac\"}" 2>/dev/null || true)"
     if [[ -n "$payload" ]]; then
       url="$(REPO_ROOT="$repo_root" PAYLOAD="$payload" node --input-type=module <<'NODE' 2>/dev/null || true
