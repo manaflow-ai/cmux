@@ -371,8 +371,8 @@ run_with_timeout 600 ios/scripts/reload.sh --tag "$BUILD_TAG" --simulator "$SIMU
 phase "launching and auto-attaching real iOS app"
 SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA=0 \
 SIMCTL_CHILD_CMUX_DOGFOOD_ATTACH_URL="$ATTACH_URL" \
-  run_with_timeout 30 xcrun simctl launch "$SIMULATOR_ID" "$IOS_BUNDLE_ID"
-sleep 10
+  run_with_timeout 30 xcrun simctl launch --terminate-running-process "$SIMULATOR_ID" "$IOS_BUNDLE_ID"
+sleep 18
 
 phase "starting macOS and iOS recordings"
 start_macos_recording
@@ -381,7 +381,7 @@ start_ios_recording
 phase "sending synced terminal input through real macOS cmux"
 cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "clear\r"
 sleep 1
-cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "echo real cmux desktop <> iOS\r"
+cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "echo real cmux desktop to iOS\r"
 sleep 1
 cmux_tagged send --workspace "$WORKSPACE_ID" --surface "$SURFACE_ID" -- "echo ${SYNC_MARKER}\r"
 sleep 4
