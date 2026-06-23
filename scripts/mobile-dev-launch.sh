@@ -100,13 +100,20 @@ BUNDLE_ID="dev.cmux.ios.$slug"
 ATTACH_URL="${CMUX_DOGFOOD_ATTACH_URL:-}"
 if [[ -z "$ATTACH_URL" && "$ATTACH" -eq 1 ]]; then
   if [[ "$ENSURE_MAC" -eq 1 ]]; then
+    # We are pairing to THIS tag's Mac app: ensure it is up, then mint straight
+    # from its socket. Do NOT consult the QR server — its /ticket.json has no tag
+    # parameter and is served from whatever tag the QR server last set, so it
+    # could hand back a ticket for a DIFFERENT Mac and silently mispair.
     cmux_attach_ensure_mac "$TAG" || true
-  fi
-  ATTACH_URL="$(curl -fsS -m 8 "http://127.0.0.1:${QR_PORT}/ticket.json" 2>/dev/null \
-    | python3 -c 'import sys,json; print(json.load(sys.stdin).get("attach_url",""))' 2>/dev/null || true)"
-  if [[ -z "$ATTACH_URL" ]]; then
-    # No QR server (or it had no ticket): mint straight from the tagged socket.
     if cmux_attach_mac_socket_ready "$TAG"; then
+      ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
+    fi
+  else
+    # Plain --attach (legacy dev flow): prefer a running QR server, else mint
+    # directly from the tagged socket when it is up.
+    ATTACH_URL="$(curl -fsS -m 8 "http://127.0.0.1:${QR_PORT}/ticket.json" 2>/dev/null \
+      | python3 -c 'import sys,json; print(json.load(sys.stdin).get("attach_url",""))' 2>/dev/null || true)"
+    if [[ -z "$ATTACH_URL" ]] && cmux_attach_mac_socket_ready "$TAG"; then
       ATTACH_URL="$(cmux_attach_mint_url "$TAG" "$ATTACH_TTL_SECONDS" "$REPO_ROOT" || true)"
     fi
   fi

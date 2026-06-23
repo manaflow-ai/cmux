@@ -36,12 +36,14 @@ cmux_attach_socket_path() {
 }
 
 # The locally-built tagged macOS Debug .app bundle path (cloud/local reloads both
-# download/install here).
+# download/install here). Both the DerivedData dir AND the .app basename use the
+# sanitized slug, matching reload.sh (`APP_NAME="cmux DEV ${TAG_SLUG}"`); the raw
+# tag would miss for any tag whose slug differs (e.g. "Fix Foo" -> "fix-foo").
 cmux_attach_mac_app_path() {
-  local tag="$1" slug
-  slug="$(cmux_attach__slug "$tag")"
+  local slug
+  slug="$(cmux_attach__slug "$1")"
   printf '%s/Library/Developer/Xcode/DerivedData/cmux-%s/Build/Products/Debug/cmux DEV %s.app' \
-    "$HOME" "$slug" "$tag"
+    "$HOME" "$slug" "$slug"
 }
 
 # Enable the opt-in iOS pairing host on the tagged Mac bundle. Must be written
