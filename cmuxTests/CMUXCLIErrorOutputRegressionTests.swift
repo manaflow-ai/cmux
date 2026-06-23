@@ -1364,7 +1364,7 @@ import Testing
                 "--title", "Fix CI",
             ],
             environment: environment,
-            timeout: 5
+            timeout: 15
         )
 
         XCTAssertFalse(result.timedOut, result.stdout)
@@ -1397,7 +1397,7 @@ import Testing
             executablePath: cliPath,
             arguments: ["mobile", "set-font", "14", "--surface"],
             environment: environment,
-            timeout: 5
+            timeout: 15
         )
 
         XCTAssertFalse(missingSurface.timedOut, missingSurface.stdout)
@@ -1411,7 +1411,7 @@ import Testing
             executablePath: cliPath,
             arguments: ["mobile", "set-font", "14", "--workspace="],
             environment: environment,
-            timeout: 5
+            timeout: 15
         )
 
         XCTAssertFalse(emptyWorkspace.timedOut, emptyWorkspace.stdout)

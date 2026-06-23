@@ -145,6 +145,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     )
                 }
             }
+            // Drive Mac-pushed live font-size changes (`terminal.set_font`) into
+            // the surface's shared zoom apply path. Runs for the surface's whole
+            // mount, ending when the representable is dismantled.
             liveFontTask = Task { @MainActor [weak surfaceView, weak store] in
                 guard let store else { return }
                 for await points in store.terminalLiveFontStream(surfaceID: surfaceID) {

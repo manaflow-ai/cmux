@@ -1996,7 +1996,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     /// Drive the live terminal font to an absolute point size from outside the
-    /// surface, such as a Mac-pushed `terminal.set_font` event.
+    /// surface (the Mac-pushed `terminal.set_font` event, routed through the
+    /// representable's coordinator). Funnels through the same shared
+    /// ``applyAbsoluteFontSize(_:)`` apply path as a pinch step or the
+    /// zoom-control overlay, so there is one clamp + reflow path, then refreshes
+    /// the zoom HUD so the on-screen size tracks the remote change.
     public func setLiveFontSize(_ points: Float32) {
         applyAbsoluteFontSize(points)
         zoomOverlay?.updateZoom(points: pendingFontSize ?? liveFontSize)

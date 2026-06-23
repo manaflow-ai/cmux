@@ -1962,6 +1962,7 @@ class TerminalController {
             "system.memory",
             "mobile.host.status",
             "mobile.attach_ticket.create",
+            "mobile.terminal.set_font",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
@@ -12926,9 +12927,16 @@ class TerminalController {
     }
 
     /// Publish a `terminal.set_font` event to connected iOS device(s) so the
-    /// mirrored terminal live-zooms its font. This drives the same iOS apply path
-    /// as a pinch/zoom step, but originates from Mac automation
-    /// (`cmux mobile set-font <size>`).
+    /// mirrored terminal live-zooms its font (the grid reflows automatically on
+    /// the phone). Drives the same iOS apply path as a pinch/zoom step, just
+    /// initiated from the Mac for automation (`cmux mobile set-font <size>`).
+    ///
+    /// Params: `{ "font_size": Number, optional "surface_id": String,
+    /// optional "workspace_id": String }`. A surface scope targets one terminal,
+    /// a workspace scope targets mounted terminals in that workspace, and no
+    /// scope targets every mounted surface. `nonisolated` because it only
+    /// touches the Sendable connection registry via
+    /// ``MobileHostService/emitEvent(topic:payload:)``.
     nonisolated func v2MobileTerminalSetFont(params: [String: Any]) -> V2CallResult {
         guard let fontSize = v2Double(params, "font_size") else {
             return .err(

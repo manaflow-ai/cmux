@@ -66,7 +66,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // `mobile.terminal.set_font` only validates params and emits a
         // `terminal.set_font` push event via thread-safe MobileHostService
         // statics (no main-actor UI access), so it runs on the socket worker
-        // like the other mobile data-plane verbs.
+        // like the other mobile data-plane verbs. Without this entry the policy
+        // routes it to the main-actor processV2Command switch, which lacks the
+        // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
         "system.top",
         "system.memory",
