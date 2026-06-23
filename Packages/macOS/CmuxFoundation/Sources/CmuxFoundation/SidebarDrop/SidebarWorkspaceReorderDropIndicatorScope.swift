@@ -12,4 +12,10 @@ public enum SidebarWorkspaceReorderDropIndicatorScope: Equatable, Sendable {
 
     /// Draw against the rows belonging to one workspace group.
     case group(UUID)
+
+    /// Whether this scope renders against one workspace group's visible rows.
+    public var isGroup: Bool {
+        guard case .group = self else { return false }
+        return true
+    }
 }

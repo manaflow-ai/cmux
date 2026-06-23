@@ -113,83 +113,16 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot]
     ) -> UUID? {
         guard !groupByAnchorId.keys.contains(draggedWorkspace.id) else { return nil }
-        guard prefersGroupScope(request: request, context: context) else {
+        guard let candidate = groupScopeCandidate(
+            context: context,
+            groupsById: groupsById
+        ) else {
             return nil
         }
-
-        if let target = context.target,
-           let groupId = target.groupId,
-           groupsById[groupId] != nil {
-            return groupId
-        }
-
-        if context.edge == .top,
-           let previousGroupId = context.previousTarget?.groupId,
-           let next = context.nextTarget,
-           next.groupId == nil,
-           groupsById[previousGroupId] != nil {
-            return previousGroupId
-        }
-
-        if context.edge == .bottom,
-           let targetGroupId = context.target?.groupId,
-           groupsById[targetGroupId] != nil {
-            return targetGroupId
-        }
-
-        return nil
-    }
-
-    private func targetLeadingIndent(
-        for request: SidebarWorkspaceReorderDropRequest,
-        context: SidebarWorkspaceReorderHitContext
-    ) -> CGFloat {
-        if let target = context.target {
-            if target.isGroupHeader {
-                return context.edge == .bottom || isGroupHeaderCenterDrop(context: context) ? request.memberIndent : 0
-            }
-            if target.groupId != nil {
-                return max(0, target.frame.minX)
-            }
-            if context.edge == .top,
-               let previous = context.previousTarget,
-               previous.groupId != nil {
-                return max(0, previous.frame.minX)
-            }
-            return max(0, target.frame.minX)
-        }
-        if let previous = context.previousTarget,
-           previous.groupId != nil {
-            return max(0, previous.frame.minX)
-        }
-        return 0
-    }
-
-    private func prefersGroupScope(
-        request: SidebarWorkspaceReorderDropRequest,
-        context: SidebarWorkspaceReorderHitContext
-    ) -> Bool {
-        if isAmbiguousRootGroupBoundary(context: context) {
-            return request.point.x >= sidebarHorizontalMidpoint(targets: request.targets)
-        }
-        return SidebarWorkspaceGroupDropIntentPolicy(memberIndent: request.memberIndent)
-            .prefersGroupScope(
-                pointerX: request.point.x,
-                targetLeadingIndent: targetLeadingIndent(for: request, context: context)
-            )
-    }
-
-    private func isAmbiguousRootGroupBoundary(context: SidebarWorkspaceReorderHitContext) -> Bool {
-        if context.edge == .top,
-           context.previousTarget?.groupId != nil,
-           context.target?.groupId == nil {
-            return true
-        }
-        if context.target == nil,
-           context.previousTarget?.groupId != nil {
-            return true
-        }
-        return false
+        guard candidate.isAmbiguous else { return candidate.groupId }
+        return request.point.x >= sidebarHorizontalMidpoint(targets: request.targets)
+            ? candidate.groupId
+            : nil
     }
 
     private func sidebarHorizontalMidpoint(
@@ -202,17 +135,38 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         return bounds.minX + (bounds.width / 2)
     }
 
-    private func isGroupHeaderCenterDrop(context: SidebarWorkspaceReorderHitContext) -> Bool {
-        guard let target = context.target,
-              target.isGroupHeader,
-              let pointerY = context.pointerY,
-              let targetHeight = context.targetHeight else {
-            return false
+    private func groupScopeCandidate(
+        context: SidebarWorkspaceReorderHitContext,
+        groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot]
+    ) -> (groupId: UUID, isAmbiguous: Bool)? {
+        if let target = context.target {
+            if let groupId = target.groupId,
+               groupsById[groupId] != nil {
+                switch context.edge {
+                case .top:
+                    guard !target.isGroupHeader else { return nil }
+                    return (groupId, false)
+                case .bottom:
+                    let nextIsSameGroup = context.nextTarget?.groupId == groupId
+                    return (groupId, !nextIsSameGroup)
+                }
+            }
+
+            if context.edge == .top,
+               target.groupId == nil,
+               let previousGroupId = context.previousTarget?.groupId,
+               groupsById[previousGroupId] != nil {
+                return (previousGroupId, true)
+            }
+
+            return nil
         }
-        let height = max(targetHeight, 1)
-        let edgeBand = min(max(height * 0.25, 4), height * 0.4)
-        let y = min(max(pointerY, 0), height)
-        return y > edgeBand && y < height - edgeBand
+
+        guard let previousGroupId = context.previousTarget?.groupId,
+              groupsById[previousGroupId] != nil else {
+            return nil
+        }
+        return (previousGroupId, true)
     }
 
     private func groupScopedPlan(

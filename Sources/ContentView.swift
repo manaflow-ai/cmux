@@ -10230,7 +10230,8 @@ struct VerticalTabsSidebar: View {
         return SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
             draggedTabId: dragState.draggedTabId,
             dropIndicator: dragState.dropIndicator,
-            lastTabId: reorderIds.last
+            lastTabId: reorderIds.last,
+            indicatorScope: dragState.dropIndicatorScope
         )
     }
 
@@ -10257,7 +10258,8 @@ struct VerticalTabsSidebar: View {
         draggedWorkspaceId: UUID,
         scope: SidebarWorkspaceReorderDropIndicatorScope,
         tabs: [Workspace],
-        workspaceGroups: [WorkspaceGroup]
+        workspaceGroups: [WorkspaceGroup],
+        visibleWorkspaceRowIds: [UUID]
     ) -> [UUID] {
         switch scope {
         case .raw:
@@ -10269,7 +10271,8 @@ struct VerticalTabsSidebar: View {
             )
         case .group(let groupId):
             guard workspaceGroups.contains(where: { $0.id == groupId }) else { return [] }
-            return tabs.filter { $0.groupId == groupId }.map(\.id)
+            let visibleIds = Set(visibleWorkspaceRowIds)
+            return tabs.filter { $0.groupId == groupId && visibleIds.contains($0.id) }.map(\.id)
         }
     }
 
@@ -10440,7 +10443,8 @@ struct VerticalTabsSidebar: View {
                 draggedWorkspaceId: $0,
                 scope: dropIndicatorScope,
                 tabs: tabs,
-                workspaceGroups: workspaceGroups
+                workspaceGroups: workspaceGroups,
+                visibleWorkspaceRowIds: visibleWorkspaceRowIds
             )
         } ?? []
         let renderContext = WorkspaceListRenderContext(
@@ -12390,6 +12394,13 @@ struct VerticalTabsSidebar: View {
             dropIndicator: dragState.dropIndicator,
             tabIds: sidebarReorderIds
         )
+        let bottomDropIndicatorVisible = SidebarTabDropIndicatorPredicate().bottomVisible(
+            forTabId: tab.id,
+            draggedTabId: dragState.draggedTabId,
+            dropIndicator: dragState.dropIndicator,
+            tabIds: sidebarReorderIds,
+            indicatorScope: dragState.dropIndicatorScope
+        )
         let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
             #if DEBUG
             cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
@@ -12421,6 +12432,7 @@ struct VerticalTabsSidebar: View {
             dragAutoScrollController: dragAutoScrollController,
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
+            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             onDragStart: onDragStart,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
@@ -13237,6 +13249,7 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
+        lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
         lhs.settings == rhs.settings
     }
 
@@ -13272,6 +13285,7 @@ struct TabItemView: View, Equatable {
     // unchanged.
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
+    let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
@@ -14029,6 +14043,14 @@ struct TabItemView: View, Equatable {
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: index == 0,
                 rowSpacing: rowSpacing
+            )
+        }
+        .overlay(alignment: .bottom) {
+            SidebarWorkspaceTopDropIndicator(
+                isVisible: bottomDropIndicatorVisible,
+                isFirstRow: false,
+                rowSpacing: rowSpacing,
+                isBottomEdge: true
             )
         }
         .onAppear {

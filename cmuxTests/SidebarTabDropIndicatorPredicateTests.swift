@@ -231,6 +231,58 @@ private func expectFalse(_ value: Bool, _ message: String? = nil) {
             )
         )
     }
+
+    @Test func GroupEndBottomEdgeRendersOnLastVisibleScopedRow() {
+        let lastVisibleId = UUID()
+        let draggedId = UUID()
+        let indicator = SidebarDropIndicator(tabId: lastVisibleId, edge: .bottom)
+        let predicate = SidebarTabDropIndicatorPredicate()
+
+        expectFalse(
+            predicate.topVisible(
+                forTabId: lastVisibleId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: [lastVisibleId]
+            )
+        )
+        expectTrue(
+            predicate.bottomVisible(
+                forTabId: lastVisibleId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: [lastVisibleId],
+                indicatorScope: .group(UUID())
+            )
+        )
+    }
+
+    @Test func GroupNonEndBottomEdgeStillRendersOnlyAboveNextVisibleRow() {
+        let previousId = UUID()
+        let nextId = UUID()
+        let draggedId = UUID()
+        let tabIds = [previousId, nextId, draggedId]
+        let indicator = SidebarDropIndicator(tabId: previousId, edge: .bottom)
+        let predicate = SidebarTabDropIndicatorPredicate()
+
+        expectFalse(
+            predicate.bottomVisible(
+                forTabId: previousId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: tabIds,
+                indicatorScope: .group(UUID())
+            )
+        )
+        expectTrue(
+            predicate.topVisible(
+                forTabId: nextId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: tabIds
+            )
+        )
+    }
 }
 
 /// Tests for `SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(...)`.
@@ -311,6 +363,18 @@ private func expectFalse(_ value: Bool, _ message: String? = nil) {
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: UUID(), edge: .bottom),
                 lastTabId: nil
+            )
+        )
+    }
+
+    @Test func ScopedGroupAppendDoesNotAlsoRenderInEmptyArea() {
+        let lastId = UUID()
+        expectFalse(
+            SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
+                draggedTabId: UUID(),
+                dropIndicator: SidebarDropIndicator(tabId: lastId, edge: .bottom),
+                lastTabId: lastId,
+                indicatorScope: .group(UUID())
             )
         )
     }

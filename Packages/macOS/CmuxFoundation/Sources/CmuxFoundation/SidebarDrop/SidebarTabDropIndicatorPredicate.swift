@@ -44,33 +44,53 @@ public struct SidebarTabDropIndicatorPredicate {
     /// Returns whether the bottom-edge indicator should render below a row.
     ///
     /// Row-to-row dividers are canonicalized to `topVisible` for the row after
-    /// the gap. The final append divider is rendered by `emptyAreaTopVisible`.
+    /// the gap. Root-level final append dividers are rendered by
+    /// `emptyAreaTopVisible`; scoped group append dividers can be rendered below
+    /// the last visible row in that group.
     ///
     /// - Parameters:
     ///   - tabId: The row currently being rendered.
     ///   - draggedTabId: The workspace currently being dragged, if any.
     ///   - dropIndicator: The resolved sidebar drop indicator.
     ///   - tabIds: Visible workspace row identifiers in display order.
-    /// - Returns: Always `false` for row rendering; bottom edges are projected to one canonical gap.
+    ///   - indicatorScope: The visible row scope where the resolved indicator is rendered.
+    /// - Returns: `true` when a scoped final append divider should render below this row.
     public func bottomVisible(
         forTabId tabId: UUID,
         draggedTabId: UUID?,
         dropIndicator: SidebarDropIndicator?,
-        tabIds: [UUID]
+        tabIds: [UUID],
+        indicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     ) -> Bool {
-        guard draggedTabId != nil, dropIndicator != nil, tabIds.contains(tabId) else { return false }
-        return false
+        guard draggedTabId != nil,
+              indicatorScope.isGroup,
+              let indicator = dropIndicator,
+              indicator.edge == .bottom,
+              indicator.tabId == tabId,
+              tabIds.last == tabId else {
+            return false
+        }
+        return true
     }
 
     /// Convenience used by `SidebarEmptyArea`: the empty area's "top" indicator
     /// (drawn above the empty space below all rows) is visible when the drop
     /// indicator targets nothing (end-of-list), or when a `.bottom` indicator
     /// targets the last visible row in the current drag scope.
+    ///
+    /// - Parameters:
+    ///   - draggedTabId: The workspace currently being dragged, if any.
+    ///   - dropIndicator: The resolved sidebar drop indicator.
+    ///   - lastTabId: The last visible row in the current root/top-level scope.
+    ///   - indicatorScope: The visible row scope where the resolved indicator is rendered.
+    /// - Returns: `true` when the root/top-level empty area should render its divider.
     public func emptyAreaTopVisible(
         draggedTabId: UUID?,
         dropIndicator: SidebarDropIndicator?,
-        lastTabId: UUID?
+        lastTabId: UUID?,
+        indicatorScope: SidebarWorkspaceReorderDropIndicatorScope = .raw
     ) -> Bool {
+        guard !indicatorScope.isGroup else { return false }
         guard draggedTabId != nil, let indicator = dropIndicator else { return false }
         if indicator.tabId == nil {
             return true
