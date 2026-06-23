@@ -108,6 +108,13 @@ class TerminalController: MobileViewportSurfaceLimiting {
         compositionRootInstance = instance
     }
 
+    /// Pure replacement-policy transforms for sidebar status/metadata/git/PR/
+    /// port projections plus directory normalization and explicit-socket-scope
+    /// parsing. A `Sendable` value type owned by `CmuxSidebar`; the sidebar
+    /// control path (the `ControlSidebarContext` witnesses) calls it before
+    /// upserting a projection.
+    let sidebarReplacementPolicy = SidebarReplacementPolicy()
+
     // `internal` (not `private`): the `workspace.remote.pty_*` worker-lane
     // availability wait + notify live in the sibling extension file
     // `TerminalController+ControlRemotePTYReading.swift` (the resolution seam that
@@ -548,113 +555,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
     }
 #endif
 
-    nonisolated static func shouldReplaceStatusEntry(
-        current: SidebarStatusEntry?,
-        key: String,
-        value: String,
-        icon: String?,
-        color: String?,
-        url: URL?,
-        priority: Int,
-        format: SidebarMetadataFormat
-    ) -> Bool {
-        guard let current else { return true }
-        return current.key != key ||
-            current.value != value ||
-            current.icon != icon ||
-            current.color != color ||
-            current.url != url ||
-            current.priority != priority ||
-            current.format != format
-    }
-
-    nonisolated static func shouldReplaceMetadataBlock(
-        current: SidebarMetadataBlock?,
-        key: String,
-        markdown: String,
-        priority: Int
-    ) -> Bool {
-        guard let current else { return true }
-        return current.key != key || current.markdown != markdown || current.priority != priority
-    }
-
-    nonisolated static func shouldReplaceProgress(
-        current: SidebarProgressState?,
-        value: Double,
-        label: String?
-    ) -> Bool {
-        guard let current else { return true }
-        return current.value != value || current.label != label
-    }
-
-    nonisolated static func shouldReplaceGitBranch(
-        current: SidebarGitBranchState?,
-        branch: String,
-        isDirty: Bool
-    ) -> Bool {
-        guard let current else { return true }
-        return current.branch != branch || current.isDirty != isDirty
-    }
-
-    nonisolated static func shouldReplacePullRequest(
-        current: SidebarPullRequestState?,
-        number: Int,
-        label: String,
-        url: URL,
-        status: SidebarPullRequestStatus,
-        branch: String?
-    ) -> Bool {
-        guard let current else { return true }
-        let normalizedBranch = branch?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let effectiveBranch: String? = {
-            if let normalizedBranch, !normalizedBranch.isEmpty {
-                return normalizedBranch
-            }
-            guard current.number == number,
-                  current.label == label,
-                  current.url == url,
-                  current.status == status else {
-                return nil
-            }
-            return current.branch
-        }()
-        return current.number != number
-            || current.label != label
-            || current.url != url
-            || current.status != status
-            || current.branch != effectiveBranch
-            || current.isStale
-    }
-
-    nonisolated static func shouldReplacePorts(current: [Int]?, next: [Int]) -> Bool {
-        let currentSorted = Array(Set(current ?? [])).sorted()
-        let nextSorted = Array(Set(next)).sorted()
-        return currentSorted != nextSorted
-    }
-
-    nonisolated static func explicitSocketScope(
-        options: [String: String]
-    ) -> (workspaceId: UUID, panelId: UUID)? {
-        guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !tabRaw.isEmpty,
-              let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !panelRaw.isEmpty,
-              let workspaceId = UUID(uuidString: tabRaw),
-              let panelId = UUID(uuidString: panelRaw) else {
-            return nil
-        }
-        return (workspaceId, panelId)
-    }
-
-    nonisolated static func normalizeReportedDirectory(_ directory: String) -> String {
-        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return directory }
-        if trimmed.hasPrefix("file://"), let url = URL(string: trimmed), !url.path.isEmpty {
-            return url.path
-        }
-        return trimmed
-    }
-
     // The VT-export path helpers now live on `TerminalSurface` in
     // `CmuxTerminal` (`TerminalSurface+TextRead.swift`), beside the VT-export
     // reader that uses them. These app-target entry points forward to the
@@ -686,34 +586,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
     nonisolated static func normalizedMobileVTExportText(_ text: String) -> String {
         TerminalSurface.normalizedMobileVTExportText(text)
-    }
-
-    nonisolated static func parseReportedShellActivityState(
-        _ rawState: String
-    ) -> PanelShellActivityState? {
-        switch rawState.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "prompt", "idle":
-            return .promptIdle
-        case "running", "busy", "command":
-            return .commandRunning
-        case "unknown", "clear":
-            return .unknown
-        default:
-            return nil
-        }
-    }
-
-    nonisolated static func parseRemotePortScanKickReason(
-        _ rawReason: String
-    ) -> PortScanKickReason? {
-        switch rawReason.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "command", "running", "foreground", "start":
-            return .command
-        case "refresh", "prompt", "idle":
-            return .refresh
-        default:
-            return nil
-        }
     }
 
     /// Update which window's TabManager receives socket commands.

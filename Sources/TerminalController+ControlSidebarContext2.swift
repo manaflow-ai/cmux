@@ -94,13 +94,14 @@ extension TerminalController {
             // Unreachable: the coordinator validates the state first.
             return
         }
+        let replacementPolicy = sidebarReplacementPolicy
         controlSidebarSchedulePanelMetadataMutation(target: target) { tab, surfaceId in
             guard SidebarWorkspaceDetailDefaults.pullRequestPollingEnabled(defaults: .standard) else {
                 tab.clearPanelPullRequest(panelId: surfaceId)
                 return
             }
 
-            guard Self.shouldReplacePullRequest(
+            guard replacementPolicy.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
                 label: label,
