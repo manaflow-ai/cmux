@@ -26,9 +26,12 @@ export function LandingSchema({
   const tl = useTranslations("landing.links");
   const locale = useLocale();
 
+  // Use raw strings (not t()) so answers containing rich <code> markup and
+  // ICU-significant characters are not parsed as ICU and dropped to the key.
+  // Matches the homepage FAQ schema. Tags are stripped for the plain-text value.
   const qas = [1, 2, 3, 4].map((n) => ({
-    question: stripTags(t(`faqQ${n}`)),
-    answer: stripTags(t(`faqA${n}`)),
+    question: stripTags(t.raw(`faqQ${n}`) as string),
+    answer: stripTags(t.raw(`faqA${n}`) as string),
   }));
 
   const crumbs = [{ name: tl("home"), path: "/" }];
