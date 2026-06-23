@@ -26656,24 +26656,25 @@ struct CMUXCLI {
     }
 
     private func cmuxLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
-        guard let first = arguments.first else {
-            return 0
-        }
+        guard let first = arguments.first else { return 0 }
         let executableName = first.split(separator: "/").last.map(String.init) ?? first
         return executableName == "cmux" ? 1 : 0
     }
 
     private func codexLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
-        guard let first = arguments.first else {
-            return 0
-        }
-        let executableName = first.split(separator: "/").last.map(String.init) ?? first
-        return executableName == "codex" ? 1 : 0
+        ((arguments.first?.split(separator: "/").last).map(String.init) ?? arguments.first ?? "") == "codex" ? 1 : 0
     }
 
     private func codexRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
-        decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"])
-            ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
+        if let fallbackPID {
+            let pid = pid_t(fallbackPID)
+            if let arguments = self.processArguments(for: pid),
+               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments),
+               AgentLaunchCaptureTrust.nativeProcessDescribesKind(processName: processName(for: pid), arguments: arguments, kind: "codex") {
+                return arguments
+            }
+        }
+        return AgentLaunchCaptureTrust.launcherDescribesKind(normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]), kind: "codex") ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"]) : nil
     }
 
     private func codexForkSessionIdentifier(in arguments: [String], after forkIndex: Int) -> String? {
