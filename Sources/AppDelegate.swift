@@ -720,6 +720,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         pendingShellActivityStates[key] = state
     }
 
+    /// Replays buffered reports for a workspace that just became reachable. `apply`
+    /// returns whether the report landed; only landed reports are cleared, so a
+    /// surface still missing its panel retries on the next registration.
+    func drainPendingShellActivity(
+        forWorkspaceId workspaceId: UUID,
+        apply: (UUID, PanelShellActivityState) -> Bool
+    ) {
+        guard !pendingShellActivityStates.isEmpty else { return }
+        for key in Array(pendingShellActivityStates.keys) where key.workspaceId == workspaceId {
+            guard let state = pendingShellActivityStates[key] else { continue }
+            if apply(key.surfaceId, state) {
+                pendingShellActivityStates[key] = nil
+            }
+        }
+    }
+
     /// Notification jump/open navigation, extracted into `CmuxNotifications`.
     /// `AppDelegate` is the composition root: it conforms to every seam (see
     /// `AppDelegate+NotificationNavSeams.swift`) and injects itself. Built lazily

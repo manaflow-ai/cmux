@@ -246,6 +246,20 @@ class TabManager: ObservableObject {
         workspacesById = Dictionary(newValue.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         objectWillChange.send()
         tabsPublisher.send(newValue)
+        replayPendingShellActivity(for: newValue)
+    }
+
+    /// Replays shell-activity reports that arrived before their workspace was
+    /// reachable through any `TabManager` (issue #6618). Applies against the
+    /// explicit workspace objects because `tabs` still reflects the pre-change
+    /// value while this willSet bridge runs.
+    private func replayPendingShellActivity(for workspaces: [Workspace]) {
+        guard let appDelegate = AppDelegate.shared, appDelegate.hasPendingShellActivityReports else { return }
+        for workspace in workspaces where !workspace.panels.isEmpty {
+            appDelegate.drainPendingShellActivity(forWorkspaceId: workspace.id) { surfaceId, state in
+                self.updateSurfaceShellActivity(workspace: workspace, surfaceId: surfaceId, state: state)
+            }
+        }
     }
 
     /// Legacy `@Published workspaceGroups` willSet.
