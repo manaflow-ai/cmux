@@ -158,7 +158,11 @@ struct WorkspaceListView: View {
             if let store, showsConnectionRecoveryRow {
                 Section {
                     MobileConnectionRecoveryBanner(
-                        store: store,
+                        connectionRequiresReauth: store.connectionRequiresReauth,
+                        connectionRecoveryFailed: store.connectionRecoveryFailed,
+                        isRecoveringConnection: store.isRecoveringConnection,
+                        connectionError: store.connectionError,
+                        retry: { store.retryMobileConnection() },
                         signOut: signOut,
                         rendersInline: true
                     )
@@ -229,12 +233,16 @@ struct WorkspaceListView: View {
             }
             ToolbarItemGroup(placement: .topBarTrailing) {
                 WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
-                newWorkspaceButton
+                if canCreateWorkspace {
+                    newWorkspaceButton
+                }
             }
             #else
             ToolbarItemGroup {
                 WorkspaceListFilterMenu(filter: $filter, machines: filterMachines)
-                newWorkspaceButton
+                if canCreateWorkspace {
+                    newWorkspaceButton
+                }
             }
             #endif
         }
@@ -268,6 +276,10 @@ struct WorkspaceListView: View {
         return store.connectionRequiresReauth
             || store.connectionRecoveryFailed
             || store.isRecoveringConnection
+    }
+
+    private var canCreateWorkspace: Bool {
+        connectionStatus == .connected
     }
 
     #if os(iOS)
@@ -344,9 +356,13 @@ struct WorkspaceListView: View {
     }
 
     private var newWorkspaceButton: some View {
-        Button(action: createWorkspace) {
+        Button {
+            guard canCreateWorkspace else { return }
+            createWorkspace()
+        } label: {
             Image(systemName: "plus")
         }
+        .disabled(!canCreateWorkspace)
         .accessibilityLabel(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"))
         .accessibilityIdentifier("MobileNewWorkspaceButton")
     }

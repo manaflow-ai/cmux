@@ -6,7 +6,11 @@ import SwiftUI
 /// It can render as a floating pill above terminal content, or as an inline
 /// row when the current surface is a list instead of a terminal.
 struct MobileConnectionRecoveryBanner: View {
-    @Bindable var store: CMUXMobileShellStore
+    var connectionRequiresReauth: Bool
+    var connectionRecoveryFailed: Bool
+    var isRecoveringConnection: Bool
+    var connectionError: String?
+    var retry: (() -> Void)?
     /// Sign the user out so they can re-authenticate into the account that owns
     /// the Mac. Shown only for the account-mismatch / authorization-failure
     /// state, where Retry cannot help.
@@ -15,14 +19,14 @@ struct MobileConnectionRecoveryBanner: View {
 
     var body: some View {
         Group {
-            if store.connectionRequiresReauth {
+            if connectionRequiresReauth {
                 authBanner(
-                    text: store.connectionError ?? L10n.string(
+                    text: connectionError ?? L10n.string(
                         "mobile.recovery.accountMismatch",
                         defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with that account."
                     )
                 )
-            } else if store.connectionRecoveryFailed {
+            } else if connectionRecoveryFailed {
                 banner(
                     text: L10n.string(
                         "mobile.recovery.lost",
@@ -31,20 +35,20 @@ struct MobileConnectionRecoveryBanner: View {
                     showsRetry: true,
                     showsSpinner: false
                 )
-            } else if store.isRecoveringConnection {
+            } else if isRecoveringConnection {
                 banner(
                     text: L10n.string(
                         "mobile.recovery.reconnecting",
-                        defaultValue: "Reconnecting..."
+                        defaultValue: "Reconnecting…"
                     ),
                     showsRetry: false,
                     showsSpinner: true
                 )
             }
         }
-        .animation(.default, value: store.isRecoveringConnection)
-        .animation(.default, value: store.connectionRecoveryFailed)
-        .animation(.default, value: store.connectionRequiresReauth)
+        .animation(.default, value: isRecoveringConnection)
+        .animation(.default, value: connectionRecoveryFailed)
+        .animation(.default, value: connectionRequiresReauth)
     }
 
     /// An authorization failure (wrong account / unverifiable token). Retrying
@@ -136,7 +140,7 @@ struct MobileConnectionRecoveryBanner: View {
 
                 if showsRetry {
                     Button {
-                        store.retryMobileConnection()
+                        retry?()
                     } label: {
                         Text(L10n.string("mobile.recovery.retry", defaultValue: "Retry"))
                     }
@@ -159,7 +163,7 @@ struct MobileConnectionRecoveryBanner: View {
                     .foregroundStyle(.white)
                 if showsRetry {
                     Button {
-                        store.retryMobileConnection()
+                        retry?()
                     } label: {
                         Text(L10n.string("mobile.recovery.retry", defaultValue: "Retry"))
                             .font(.subheadline.weight(.semibold))

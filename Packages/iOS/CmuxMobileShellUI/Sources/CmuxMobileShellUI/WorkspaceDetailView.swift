@@ -384,7 +384,14 @@ struct WorkspaceDetailView: View {
             }
         }
         .overlay(alignment: .top) {
-            MobileConnectionRecoveryBanner(store: store, signOut: signOut)
+            MobileConnectionRecoveryBanner(
+                connectionRequiresReauth: store.connectionRequiresReauth,
+                connectionRecoveryFailed: store.connectionRecoveryFailed,
+                isRecoveringConnection: store.isRecoveringConnection,
+                connectionError: store.connectionError,
+                retry: { store.retryMobileConnection() },
+                signOut: signOut
+            )
         }
         #if os(iOS) && DEBUG
         // Store-side composer seam (DEBUG/UI-test only): exposes the source-of-truth
