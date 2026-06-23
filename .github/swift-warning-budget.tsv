@@ -50,6 +50,7 @@
 1	Sources/ContentView.swift	use of protocol 'Panel' as a type must be written 'any Panel'; this will be an error in a future Swift language mode
 1	Sources/Feed/FeedPanelView.swift	'onChange(of:perform:)' was deprecated in macOS 14.0: Use `onChange` with a two or zero parameter action closure instead.
 1	Sources/FileExplorerView.swift	'icon(forFileType:)' was deprecated in macOS 12.0: Use -[NSWorkspace iconForContentType:] instead.
+1	Sources/FocusStealingResponderConformances.swift	extension declares a conformance of imported type 'WKWebView' to imported protocol 'FocusStealingResponder'; this will not behave correctly if the owners of 'WebKit' introduce this conformance in the future
 1	Sources/GhosttyTerminalView.swift	'unsafeBitCast' from '@convention(c) (UnsafeMutableRawPointer?, ghostty_clipboard_e, UnsafeMutableRawPointer?) -> Bool' to 'ghostty_runtime_read_clipboard_cb' (aka '@convention(c) (Optional<UnsafeMutableRawPointer>, ghostty_clipboard_e, Optional<UnsafeMutableRawPointer>) -> Bool') is unnecessary and can be removed
 1	Sources/GhosttyTerminalView.swift	immutable value 'surface' was never used; consider replacing with '_' or removing it
 1	Sources/GhosttyTerminalView.swift	left side of nil coalescing operator '??' has non-optional type '[NSPasteboard.PasteboardType]', so the right side is never used

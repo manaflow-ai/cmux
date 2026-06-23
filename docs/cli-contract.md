@@ -84,6 +84,7 @@ Environment:
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
+| `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
 | `identify` | Print server identity and caller context. |
 | `list-windows` | List windows. |
@@ -98,10 +99,10 @@ Environment:
 | `reorder-workspace` | Reorder a workspace inside a window. |
 | `reorder-workspaces` | Atomically reorder workspaces inside pinned and unpinned groups. |
 | `workspace-action` | Run workspace context-menu actions from the CLI. |
-| `workspace` | Namespace for workspace verbs: `list`, `create`, `close`, `rename`, `select`, `reconnect`, `disconnect`, `group`. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. Both accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
+| `workspace` | Namespace for workspace verbs: `list`, `create`, `env`, `close`, `rename`, `select`, `reconnect`, `disconnect`, `group`. `workspace env` prints a workspace's configured environment variables (see [Workspace environment variables](#workspace-environment-variables)); pass `--mask` to redact the values. `workspace reconnect` manually reconnects a remote (SSH) workspace — including one whose automatic reconnect suspended because the host was unreachable — and `workspace disconnect` stops its remote connection. `env`, `reconnect`, and `disconnect` accept a positional workspace handle or `--workspace <id\|ref\|index>`, defaulting to the caller's workspace, then the selected one. |
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
-| `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
+| `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). |
 | `ssh` | Open an SSH-backed workspace. Preserves the caller's live `SSH_AUTH_SOCK` for app-launched OpenSSH processes so `ForwardAgent yes` from ssh_config works normally. Supports `-A` / `--forward-agent` to request forwarding and `-a` / `--no-forward-agent` to disable forwarding for a workspace. Agent forwarding remains opt-in because forwarded agents can be used by processes on the remote host while the SSH session is active. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
@@ -198,6 +199,14 @@ VM subcommands:
 | `vm ssh-attach` | Internal attach helper. |
 | `vm exec` | Run a shell command inside a VM. |
 
+Remotes subcommands:
+
+| Command | Contract |
+| --- | --- |
+| `remotes list`, `remotes ls` | List the team's registered remotes (name, deviceId, routes, tag, last seen). Supports `--json`. |
+| `remotes add <name>` | Register or update a remote with one or more `--route <host:port>`. Supports `--tag` and `--json`. Idempotent on `<name>` (re-adding updates routes). The host must be a Tailscale address the phone can authenticate to (CGNAT `100.64.x.x`-`100.127.x.x` or `*.ts.net`); loopback, plain LAN IPs, and bare hostnames are rejected. |
+| `remotes remove <name-or-deviceId>` | Remove a remote you registered. Aliases `rm`, `delete`. Supports `--json`. |
+
 Theme subcommands:
 
 | Command | Contract |
@@ -215,6 +224,52 @@ Workspace and tab action names:
 | --- | --- |
 | `workspace-action` | `pin`, `unpin`, `rename`, `clear-name`, `set-description`, `clear-description`, `move-up`, `move-down`, `move-top`, `close-others`, `close-above`, `close-below`, `mark-read`, `mark-unread`, `set-color`, `clear-color` |
 | `tab-action` | `rename`, `clear-name`, `close-left`, `close-right`, `close-others`, `new-terminal-right`, `new-browser-right`, `reload`, `duplicate`, `pin`, `unpin`, `mark-unread` |
+
+### Workspace environment variables
+
+A workspace can carry a set of user-defined environment variables that every
+shell spawned in it inherits.
+
+Setting them:
+
+- CLI: `cmux new-workspace --env KEY=VALUE [--env ...] [--env-file <path>]`
+  (and the same flags on `cmux workspace create`). `--env` is repeatable;
+  `--env-file` reads `KEY=VALUE` lines (blank lines and `#` comments ignored, an
+  optional leading `export ` stripped). When both are given, `--env` overrides a
+  value from a file.
+- Project config (`cmux.json`): an `env` object on a workspace definition, e.g.
+  `{ "name": "Build", "cwd": ".", "env": { "AWS_PROFILE": "prod" } }`.
+- Socket: the `workspace_env` param on `workspace.create`.
+
+Inspecting them: `cmux workspace env [<handle>] [--mask] [--json]` prints the
+configured set. `--mask` redacts the values so secrets are not echoed in full.
+The env set is intentionally omitted from `workspace list` output so a plain
+listing never leaks secrets.
+
+Semantics:
+
+- **Inheritance.** The variables apply to the workspace's initial shell and to
+  every pane, surface, and split created later in that workspace — no per-pane
+  re-export. They are also re-applied to every shell recreated on session
+  restore.
+- **Persistence.** They are stored on the workspace in the session manifest, so
+  they survive app restart, daemon restart, and session restore.
+- **Precedence.** Workspace env overlays the inherited process environment. It is
+  applied as the shell's startup environment, so it is visible to login-shell
+  init files (`~/.zprofile`, `~/.zshrc`) as they run, but any `export` those
+  files perform for the same key wins for the interactive session (they run after
+  the variable is seeded). An explicit per-surface environment (a layout
+  `surfaces[].env`, SSH startup env) overrides the workspace value for that
+  surface.
+- **Protected `CMUX_*` variables.** Workspace env can never override the managed
+  variables cmux injects (e.g. `CMUX_WORKSPACE_ID`, `CMUX_SURFACE_ID`,
+  `CMUX_SOCKET_PATH`, `CMUX_SOCKET_PASSWORD`) or the terminal identity variables
+  (`TERM`, `COLORTERM`, `TERM_PROGRAM`); those keys are protected at spawn time
+  and silently win.
+- **Secrets.** Values may be secrets. They are never logged, are masked by
+  `--mask`, and are kept out of `workspace list`. Prefer `--env-file` so secrets
+  do not land in shell history. Note that values stored in the session manifest
+  live on disk in plaintext.
 
 tmux compatibility commands:
 
@@ -308,6 +363,15 @@ Right sidebar commands:
 | `--window <id\|ref\|index>` | Target a window. Refs and indexes resolve before the V1 socket command is sent. |
 | `--no-focus` | Only valid with `set`; switches mode without moving focus. |
 
+Custom sidebar commands:
+
+| Command | Contract |
+| --- | --- |
+| `sidebar validate [name]` | Validate all custom sidebars, or one named sidebar, under `~/.config/cmux/sidebars`. |
+| `sidebar reload [name]` | Validate all custom sidebars, then request a reload for every valid one. |
+| `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
+| `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
+
 Docs topics:
 
 | Command | Contract |
@@ -391,6 +455,8 @@ the expected text without connecting to a cmux socket.
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
 - `cmux cloud --help` -> `Usage: cmux cloud <new|ls|rm|exec|shell|attach|ssh|ssh-info> [args...]`
+- `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
+- `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux rpc --help` -> `Usage: cmux rpc <method> [json-params]`
 - `cmux help --help` -> `Usage: cmux help`
 - `cmux docs --help` -> `Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]`

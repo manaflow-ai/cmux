@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxFeedback
 import Foundation
 
 /// The system-domain witnesses: the byte-faithful bodies of the former
@@ -261,7 +262,7 @@ extension TerminalController: ControlSystemContext {
                 }
             }
 
-            FeedbackComposerBridge.openComposer(in: targetWindow)
+            FeedbackComposerBridge().openComposer(in: targetWindow)
         }
     }
 

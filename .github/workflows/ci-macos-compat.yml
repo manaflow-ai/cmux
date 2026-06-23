@@ -9,12 +9,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+          - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             timeout: 30
             startup_smoke: true
             virtual_display: true
             skip_zig: false
-          - os: ${{ vars.MACOS_RUNNER_26 || 'warp-macos-26-arm64-6x' }}
+          - os: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
             timeout: 30
             startup_smoke: true
             virtual_display: false
@@ -95,6 +95,9 @@ jobs:
           path: .ci-source-packages
           key: spm-${{ matrix.os }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ matrix.os }}-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
         run: |

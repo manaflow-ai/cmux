@@ -39,6 +39,7 @@ struct cmuxApp: App {
         let runtime = CMUXMobileRuntime(
             transportFactory: transportFactory,
             stackAccessTokenProvider: CMUXMobileRuntime.stackAccessTokenProvider(from: auth.coordinator),
+            stackAccessTokenForStatusProvider: CMUXMobileRuntime.stackAccessTokenForStatusProvider(from: auth.coordinator),
             stackAccessTokenForceRefresher: CMUXMobileRuntime.stackAccessTokenForceRefresher(from: auth.coordinator)
         )
 

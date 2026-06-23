@@ -1,5 +1,5 @@
+import CmuxFoundation
 import AppKit
-import CmuxFileWatch
 import Combine
 import Foundation
 import QuartzCore
@@ -25,13 +25,15 @@ enum FileExplorerStyle: Int, CaseIterable {
     }
 
     var rowHeight: CGFloat {
+        let baseHeight: CGFloat
         switch self {
-        case .liquidGlass: return 28
-        case .highDensity: return 20
-        case .terminalStealth: return 24
-        case .proStudio: return 32
-        case .finder: return 26
+        case .liquidGlass: baseHeight = 28
+        case .highDensity: baseHeight = 20
+        case .terminalStealth: baseHeight = 24
+        case .proStudio: baseHeight = 32
+        case .finder: baseHeight = 26
         }
+        return GlobalFontMagnification.scaledSize(baseHeight)
     }
 
     var indentation: CGFloat {
@@ -66,11 +68,11 @@ enum FileExplorerStyle: Int, CaseIterable {
 
     var nameFont: NSFont {
         switch self {
-        case .liquidGlass: return .systemFont(ofSize: 13, weight: .medium)
-        case .highDensity: return .systemFont(ofSize: 11, weight: .regular)
-        case .terminalStealth: return .monospacedSystemFont(ofSize: 12, weight: .regular)
-        case .proStudio: return .systemFont(ofSize: 14, weight: .semibold)
-        case .finder: return .systemFont(ofSize: 13, weight: .regular)
+        case .liquidGlass: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+        case .highDensity: return GlobalFontMagnification.systemFont(ofSize: 11, weight: .regular)
+        case .terminalStealth: return GlobalFontMagnification.monospacedSystemFont(ofSize: 12, weight: .regular)
+        case .proStudio: return GlobalFontMagnification.systemFont(ofSize: 14, weight: .semibold)
+        case .finder: return GlobalFontMagnification.systemFont(ofSize: 13, weight: .regular)
         }
     }
 
@@ -515,8 +517,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: outPipe.fileHandleForReading)
-            let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errPipe.fileHandleForReading)
+            let data = outPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             terminationGate.markFinished()
             lock.lock()
@@ -600,11 +602,8 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 process.terminate()
             }
 
-            try ProcessPipeReader.copyDataToEndOfFile(
-                from: outPipe.fileHandleForReading,
-                to: outputHandle
-            )
-            let stderrData = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: errPipe.fileHandleForReading)
+            try outPipe.fileHandleForReading.copyDataToEndOfFile(to: outputHandle)
+            let stderrData = errPipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             terminationGate.markFinished()
             lock.lock()
@@ -1410,7 +1409,7 @@ enum GitStatusProvider {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
             return String(data: data, encoding: .utf8)
@@ -1437,7 +1436,7 @@ enum GitStatusProvider {
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
-            let data = ProcessPipeReader.readDataToEndOfFileOrEmpty(from: pipe.fileHandleForReading)
+            let data = pipe.fileHandleForReading.readDataToEndOfFileOrEmpty()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else { return nil }
             return String(data: data, encoding: .utf8)

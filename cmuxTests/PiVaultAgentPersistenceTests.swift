@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -679,7 +680,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.title, "Implement Grok Vault")
         XCTAssertEqual(entry.cwd, cwd)
         XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
-        XCTAssertEqual(entry.fileURL, historyURL)
+        XCTAssertEqual(entry.fileURL?.resolvingSymlinksInPath(), historyURL.resolvingSymlinksInPath())
         XCTAssertEqual(
             entry.resumeCommand,
             "{ cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ]; } && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
@@ -1094,9 +1095,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         ]
 
         let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
-        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let store = SessionSnapshotRepository<AppSessionSnapshot>(
+            schemaVersion: SessionSnapshotSchema.currentVersion,
+            bundleIdentifier: "com.cmuxterm.tests"
+        )
+        XCTAssertTrue(store.save(snapshot, fileURL: snapshotURL))
         let loadedAgent = try XCTUnwrap(
-            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?
+            store.load(fileURL: snapshotURL)?.windows.first?
                 .tabManager.workspaces.first?.panels.first?.terminal?.agent
         )
 
@@ -1104,7 +1109,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(loadedAgent.sessionId, sessionPath)
         XCTAssertEqual(
             loadedAgent.resumeCommand,
-            "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && '/opt/homebrew/bin/pi' '--session' '\(sessionPath)'"
+            "{ cd -- '/tmp/pi repo' 2>/dev/null || [ ! -d '/tmp/pi repo' ]; } && 'env' 'PI_CODING_AGENT_SESSION_DIR=\(tempDir.path)' '/opt/homebrew/bin/pi' '--session' '\(sessionPath)' '--session-dir' '\(tempDir.path)'"
         )
     }
 

@@ -1,3 +1,4 @@
+import CmuxPanes
 import Foundation
 
 extension TabManager {
@@ -13,8 +14,8 @@ extension TabManager {
     }
 
     @discardableResult
-    private func equalizeSplitsOnce(in tab: Workspace) -> SplitEqualizer.Result {
-        SplitEqualizer.equalize(
+    private func equalizeSplitsOnce(in tab: Workspace) -> SplitEqualizeResult {
+        paneLayout.equalizeSplits(
             in: tab.bonsplitController.treeSnapshot(),
             controller: tab.bonsplitController
         )
