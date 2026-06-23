@@ -1350,9 +1350,15 @@ struct RestorableAgentSessionIndex: Sendable {
         guard !claudeTranscriptExists(for: record, fileManager: fileManager, lookup: lookup) else {
             return record
         }
-        let panelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        // Derive the daemon-match cwd and CLAUDE_CONFIG_DIR only from a TRUSTED launch capture:
+        // a Claude session launched under another agent inherits the ancestor's
+        // CMUX_AGENT_LAUNCH_* env, so an untrusted launch command could point at the ancestor's
+        // cwd/config and reconcile the ghost to an unrelated conversation. Fall back to the
+        // hook-reported cwd (and the default config root) when the capture is untrusted.
+        let trustedLaunch = trustedLaunchCommand(record.launchCommand, kind: .claude)
+        let panelCwd = normalizedWorkingDirectory(trustedLaunch?.workingDirectory)
             ?? normalizedWorkingDirectory(record.cwd)
-        let configDir = normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"])
+        let configDir = normalizedNonEmptyValue(trustedLaunch?.environment?["CLAUDE_CONFIG_DIR"])
         guard let realSessionId = ClaudeBackgroundAgentReconciler().reconciledSessionId(
             forGhostSessionId: sessionId,
             panelCwd: panelCwd,
@@ -1362,9 +1368,8 @@ struct RestorableAgentSessionIndex: Sendable {
             claudeSessionIdIsSafeFilename(realSessionId),
             let transcriptPath = backgroundAgentTranscriptPath(
                 forSessionId: realSessionId,
-                record: record,
+                cwd: panelCwd,
                 roots: roots,
-                fileManager: fileManager,
                 lookup: lookup
             )
         else {
@@ -1385,18 +1390,17 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     /// The on-disk transcript path for a daemon-reported background agent `sessionId`, filed
-    /// under the record's working directory (or any project under its config roots), or `nil`
+    /// under `cwd`'s project dir (or any project under the record's config roots), or `nil`
     /// when none exists. Confirms the reconciled agent has a resumable conversation before a
-    /// ghost panel adopts it. https://github.com/manaflow-ai/cmux/issues/6622
+    /// ghost panel adopts it. `cwd` is the SAME resolved panel cwd used to match the agent, so
+    /// the narrow same-cwd transcript check never disagrees with the match.
+    /// https://github.com/manaflow-ai/cmux/issues/6622
     private static func backgroundAgentTranscriptPath(
         forSessionId sessionId: String,
-        record: RestorableAgentHookSessionRecord,
+        cwd: String?,
         roots: [String],
-        fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache
     ) -> String? {
-        let cwd = normalizedWorkingDirectory(record.cwd)
-            ?? normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
         for root in roots {
             if let cwd,
                let path = lookup.transcriptPath(
@@ -2074,6 +2078,10 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     static let shared = ClaudeBackgroundAgentsQuery()
 
     private let lock = NSLock()
+    // Serializes the probe so a cache miss observed by two concurrent off-main loaders does
+    // not spawn `claude agents --json` twice; the post-acquire re-check returns the first
+    // fetch's freshly cached result to the second caller.
+    private let fetchLock = NSLock()
     private var cache: [String: (agents: [ClaudeBackgroundAgentSnapshot], fetchedAt: Date)] = [:]
     private static let cacheTTL: TimeInterval = 20
     private static let probeTimeout: TimeInterval = 5
@@ -2083,12 +2091,17 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     /// caches the result. Must not be called on the main thread.
     func live(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
         let key = configDir ?? ""
-        lock.lock()
-        if let cached = cache[key], Date().timeIntervalSince(cached.fetchedAt) < Self.cacheTTL {
-            lock.unlock()
-            return cached.agents
+        if let fresh = freshCachedAgents(forKey: key) {
+            return fresh
         }
-        lock.unlock()
+
+        fetchLock.lock()
+        defer { fetchLock.unlock() }
+        // Re-check under the fetch lock: a concurrent probe for this key may have just filled
+        // the cache while we waited.
+        if let fresh = freshCachedAgents(forKey: key) {
+            return fresh
+        }
 
         let agents = Self.fetch(configDir: configDir)
         lock.lock()
@@ -2097,14 +2110,23 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         return agents
     }
 
-    /// Main-thread safe: returns whatever the off-main loaders have already cached for this
-    /// config dir (or none), never spawning `claude`. The synchronous session-save path uses
-    /// this so it reconciles from the warm cache without a subprocess on the main thread.
-    func cachedOnly(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
-        let key = configDir ?? ""
+    private func freshCachedAgents(forKey key: String) -> [ClaudeBackgroundAgentSnapshot]? {
         lock.lock()
         defer { lock.unlock() }
-        return cache[key]?.agents ?? []
+        guard let cached = cache[key], Date().timeIntervalSince(cached.fetchedAt) < Self.cacheTTL else {
+            return nil
+        }
+        return cached.agents
+    }
+
+    /// Main-thread safe: returns whatever the off-main loaders have already cached for this
+    /// config dir, never spawning `claude`. The synchronous session-save path uses this so it
+    /// reconciles from the warm cache without a subprocess on the main thread. Applies the same
+    /// TTL as ``live(configDir:)`` so a stale entry — where the daemon would now report zero, a
+    /// different, or multiple ambiguous agents — degrades to no reconciliation instead of
+    /// persisting a wrong session.
+    func cachedOnly(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
+        freshCachedAgents(forKey: configDir ?? "") ?? []
     }
 
     /// Holds the non-`Sendable` `Process`/`FileHandle` for use inside the background read and
