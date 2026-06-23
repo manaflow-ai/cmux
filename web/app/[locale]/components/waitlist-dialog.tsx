@@ -34,7 +34,7 @@ export function WaitlistDialog({
       <Dialog.Portal>
         <Dialog.Backdrop className="fixed inset-0 z-[1000] bg-black/40 backdrop-blur-sm transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0" />
         <Dialog.Viewport className="fixed inset-0 z-[1000] flex items-center justify-center overflow-y-auto p-4">
-          <Dialog.Popup className="w-full max-w-md rounded-2xl border border-border bg-background p-6 text-foreground shadow-xl shadow-black/10 outline-none transition duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+          <Dialog.Popup className="w-full max-w-md rounded-2xl border border-border bg-background p-6 text-foreground shadow-xl shadow-black/10 outline-none transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
             {/* Remount the body per open so its email/status state starts fresh
                 (the popup itself stays mounted to play the exit animation). */}
             {target ? (

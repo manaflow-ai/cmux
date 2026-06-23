@@ -3,7 +3,7 @@
 import { Menu } from "@base-ui-components/react/menu";
 import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, usePathname } from "../../../i18n/navigation";
 import {
   DOWNLOAD_CONFIRMATION_HREF,
@@ -14,6 +14,7 @@ import {
   type WaitlistPlatform,
 } from "../../lib/download";
 import { ctaButtonStyle } from "./cta-styles";
+import { PlatformIcon } from "./platform-icons";
 import { WaitlistDialog } from "./waitlist-dialog";
 
 export function DownloadButton({
@@ -27,10 +28,43 @@ export function DownloadButton({
 }) {
   const t = useTranslations("common");
   const tp = useTranslations("platforms");
+  const tw = useTranslations("waitlist");
   const pathname = usePathname();
   const isSmall = size === "sm";
   const [waitlistPlatform, setWaitlistPlatform] =
     useState<WaitlistPlatform | null>(null);
+
+  // Press-drag-release: press the caret, drag onto an item, release to select
+  // it (native macOS menu behavior). Base UI opens the menu on `mousedown`, but
+  // the published rc.0 drops the release-to-select reliably for some item types
+  // (link items in particular). We bridge it: arm a flag on the trigger press,
+  // and on an item's mouseup while armed, trigger that item's own click. Normal
+  // clicks clear the flag first (the bubble-phase disarm below runs after the
+  // item handler), so they fall through to Base UI without firing twice.
+  const dragArmedRef = useRef(false);
+  const armPressDrag = () => {
+    dragArmedRef.current = true;
+    document.addEventListener(
+      "mouseup",
+      () => {
+        dragArmedRef.current = false;
+      },
+      { once: true },
+    );
+  };
+  const handleItemMouseUp = (event: React.MouseEvent<HTMLElement>) => {
+    if (!dragArmedRef.current) return;
+    dragArmedRef.current = false;
+    event.currentTarget.click();
+  };
+
+  // Open the waitlist dialog on the next frame. Selecting a menu item fires
+  // inside a pointer gesture; opening the dialog synchronously lets that same
+  // gesture's trailing event count as an outside-press and dismiss the dialog
+  // the instant it mounts. Deferring past the gesture lets it open and stay.
+  const openWaitlist = (platform: WaitlistPlatform) => {
+    requestAnimationFrame(() => setWaitlistPlatform(platform));
+  };
 
   // On the confirmation page itself, navigating to the same route is a no-op
   // (the page stays mounted, so its auto-download won't re-fire). Point the CTA
@@ -114,37 +148,30 @@ export function DownloadButton({
         <div className="my-2 w-px bg-background/10" aria-hidden="true" />
 
         <Menu.Root>
-          <Menu.Trigger className={caretZone} aria-label={t("otherPlatforms")}>
+          <Menu.Trigger
+            className={caretZone}
+            aria-label={t("otherPlatforms")}
+            onPointerDown={armPressDrag}
+          >
             {caretIcon}
           </Menu.Trigger>
           <Menu.Portal>
-            <Menu.Positioner
-              side="bottom"
-              align="end"
-              sideOffset={8}
-              className="z-[1000]"
-            >
-              <Menu.Popup className="z-[1000] min-w-44 origin-[var(--transform-origin)] rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition duration-150 data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0">
+            <Menu.Positioner side="bottom" align="end" sideOffset={8} className="z-[1000]">
+              <Menu.Popup className="z-[1000] min-w-52 rounded-lg border border-border bg-background p-1.5 text-foreground shadow-xl shadow-black/10 outline-none transition-opacity duration-150 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0">
                 <Menu.Item
                   render={
-                    onConfirmationPage ? (
-                      <a href={macHref} />
-                    ) : (
-                      <Link href={macHref} />
-                    )
+                    onConfirmationPage ? <a href={macHref} /> : <Link href={macHref} />
                   }
                   onClick={captureMac}
+                  onMouseUp={handleItemMouseUp}
                   className={menuItemClass}
                 >
-                  {tp("macos")}
+                  <PlatformIcon name="macos" />
+                  <span className="flex-1 text-left">{tp("macos")}</span>
                 </Menu.Item>
                 <Menu.Item
                   render={
-                    <a
-                      href={IOS_FOUNDERS_EDITION_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                    />
+                    <a href={IOS_FOUNDERS_EDITION_URL} target="_blank" rel="noreferrer" />
                   }
                   onClick={() =>
                     posthog.capture("cmuxterm_download_clicked", {
@@ -152,27 +179,36 @@ export function DownloadButton({
                       platform: "ios",
                     })
                   }
+                  onMouseUp={handleItemMouseUp}
                   className={menuItemClass}
                 >
-                  <span>{tp("ios")}</span>
+                  <PlatformIcon name="ios" />
+                  <span className="flex-1 text-left">{tp("ios")}</span>
                   <ExternalLinkIcon />
                 </Menu.Item>
                 <Menu.Separator className="mx-1 my-1.5 h-px bg-border" />
-                {WAITLIST_PLATFORMS.map((platform) => (
-                  <Menu.Item
-                    key={platform}
-                    onClick={() => {
-                      posthog.capture("cmuxterm_waitlist_opened", {
-                        location,
-                        platform,
-                      });
-                      setWaitlistPlatform(platform);
-                    }}
-                    className={menuItemClass}
-                  >
-                    {tp(platform)}
-                  </Menu.Item>
-                ))}
+                <Menu.Group>
+                  <Menu.GroupLabel className="px-2.5 pb-1 pt-1 text-xs text-muted">
+                    {tw("join")}
+                  </Menu.GroupLabel>
+                  {WAITLIST_PLATFORMS.map((platform) => (
+                    <Menu.Item
+                      key={platform}
+                      onClick={() => {
+                        posthog.capture("cmuxterm_waitlist_opened", {
+                          location,
+                          platform,
+                        });
+                        openWaitlist(platform);
+                      }}
+                      onMouseUp={handleItemMouseUp}
+                      className={menuItemClass}
+                    >
+                      <PlatformIcon name={platform} />
+                      <span className="flex-1 text-left">{tp(platform)}</span>
+                    </Menu.Item>
+                  ))}
+                </Menu.Group>
               </Menu.Popup>
             </Menu.Positioner>
           </Menu.Portal>
@@ -193,7 +229,7 @@ export function DownloadButton({
 }
 
 const menuItemClass =
-  "flex min-h-9 cursor-default select-none items-center justify-between gap-6 rounded-md px-2.5 py-2 text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
+  "flex min-h-9 cursor-default select-none items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
 
 function ExternalLinkIcon() {
   return (
