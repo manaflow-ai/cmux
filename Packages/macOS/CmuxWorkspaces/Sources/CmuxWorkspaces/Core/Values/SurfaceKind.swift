@@ -33,4 +33,6 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let project = SurfaceKind(rawValue: "project")
     /// A browser pane owned by a sidebar extension.
     public static let extensionBrowser = SurfaceKind(rawValue: "extensionBrowser")
+    /// A per-workspace task-list pane.
+    public static let workspaceTasks = SurfaceKind(rawValue: "workspaceTasks")
 }

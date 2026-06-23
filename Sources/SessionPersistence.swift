@@ -1854,6 +1854,9 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     /// User-defined per-workspace environment variables (issue #5995). Optional
     /// with a `nil` default so manifests written before this field decode cleanly.
     var environment: [String: String]? = nil
+    /// User-defined per-workspace task list. Optional with a `nil` default so
+    /// manifests written before Workspace Tasks existed decode cleanly.
+    var tasks: [WorkspaceTask]? = nil
 }
 
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}

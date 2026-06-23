@@ -127,14 +127,24 @@ struct SidebarWorkspaceRowInteractionState: Equatable {
         applyDeferredPointerHovering()
     }
 
-    func shouldShowCloseButton(
-        canCloseWorkspace: Bool,
+    func shouldShowWorkspaceControls(
+        hasControls: Bool,
         shortcutHintModeActive: Bool
     ) -> Bool {
         isPointerHovering
             && !contextMenuTrackingSuppressesCloseButton
-            && canCloseWorkspace
+            && hasControls
             && !shortcutHintModeActive
+    }
+
+    func shouldShowCloseButton(
+        canCloseWorkspace: Bool,
+        shortcutHintModeActive: Bool
+    ) -> Bool {
+        shouldShowWorkspaceControls(
+            hasControls: canCloseWorkspace,
+            shortcutHintModeActive: shortcutHintModeActive
+        )
     }
 
     private mutating func applyDeferredPointerHovering() {

@@ -977,6 +977,9 @@ struct ContentView: View {
     @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
+    @LiveSetting(\.betaFeatures.workspaceTasks) private var workspaceTasksBetaEnabled
+    @LiveSetting(\.betaFeatures.workspaceControls) private var workspaceControlsBetaEnabled
+    @LiveSetting(\.sidebar.workspaceControls) private var sidebarWorkspaceControls
     @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1239,7 +1242,14 @@ struct ContentView: View {
     private static let minimumTerminalWidthWithRightSidebar: CGFloat = 360
 
     private var minimumSidebarWidth: CGFloat {
-        CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        let configuredMinimum = CGFloat(SessionPersistencePolicy.sanitizedMinimumSidebarWidth(sidebarMinimumWidthSetting))
+        let controlsMinimum = WorkspaceRowControlsSnapshot.resolved(
+            workspaceControlsBetaEnabled: workspaceControlsBetaEnabled,
+            workspaceTasksBetaEnabled: workspaceTasksBetaEnabled,
+            configuredControls: sidebarWorkspaceControls,
+            fontScale: SidebarTabItemFontScale.scale(for: GhosttyConfig.defaultSidebarFontSize)
+        ).layout.minimumSidebarWidth
+        return max(configuredMinimum, controlsMinimum)
     }
 
     private enum SidebarResizerHandle: Hashable {
@@ -5525,6 +5535,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.project", defaultValue: "Project")
         case .extensionBrowser:
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
+        case .workspaceTasks:
+            return String(localized: "workspaceTasks.surface.title", defaultValue: "Workspace Tasks")
         }
     }
     private func commandPaletteSurfaceKeywords(for panelType: PanelType) -> [String] {
@@ -5547,6 +5559,8 @@ struct ContentView: View {
             return ["project", "xcode", "build", "settings", "schemes", "targets"]
         case .extensionBrowser:
             return ["sidebar", "extensions", "extensionkit", "browser"]
+        case .workspaceTasks:
+            return ["workspace", "tasks", "todos", "goals"]
         }
     }
     private func commandPaletteCachedCommandsContext() -> CommandPaletteCommandsContext {
@@ -9559,6 +9573,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
+    let workspaceRowControls: WorkspaceRowControlsSnapshot
 
     init(
         defaults: UserDefaults = .standard,
@@ -9614,6 +9629,12 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+        workspaceRowControls = WorkspaceRowControlsSnapshot.resolved(
+            workspaceControlsBetaEnabled: settings.value(for: catalog.betaFeatures.workspaceControls),
+            workspaceTasksBetaEnabled: settings.value(for: catalog.betaFeatures.workspaceTasks),
+            configuredControls: settings.value(for: catalog.sidebar.workspaceControls),
+            fontScale: sidebarFontScale
+        )
     }
 
     private static func bool(
@@ -11092,6 +11113,8 @@ struct VerticalTabsSidebar: View {
         case .project:
             return .project
         case .extensionBrowser:
+            return .unknown
+        case .workspaceTasks:
             return .unknown
         }
     }
@@ -13034,6 +13057,7 @@ struct TabItemView: View, Equatable {
     @State private var rowInteractionState = SidebarWorkspaceRowInteractionState()
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State private var workspaceTasksPopoverPresented = false
 
     private static let maxWrappedTitleLines = 8
     private static let maxDisplayedTitleCharacters = 2048
@@ -13222,9 +13246,20 @@ struct TabItemView: View, Equatable {
         usesInvertedActiveForeground ? 1.0 : 0.9
     }
 
-    private var showCloseButton: Bool {
-        rowInteractionState.shouldShowCloseButton(
-            canCloseWorkspace: canCloseWorkspace,
+    private var visibleWorkspaceRowControls: [WorkspaceRowControlOption] {
+        settings.workspaceRowControls.controls.filter { option in
+            switch option {
+            case .close:
+                canCloseWorkspace
+            case .tasks:
+                true
+            }
+        }
+    }
+
+    private var showWorkspaceRowControls: Bool {
+        rowInteractionState.shouldShowWorkspaceControls(
+            hasControls: !visibleWorkspaceRowControls.isEmpty,
             shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
         )
     }
@@ -13360,6 +13395,45 @@ struct TabItemView: View, Equatable {
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceLinks(ids)
     }
 
+    @ViewBuilder
+    private func workspaceRowControlButton(
+        _ option: WorkspaceRowControlOption,
+        closeButtonTooltip: String,
+        size: CGFloat
+    ) -> some View {
+        switch option {
+        case .close:
+            WorkspaceRowControlButton(
+                option: option,
+                size: size,
+                foregroundColor: activeSecondaryColor(0.7),
+                closeTooltip: closeButtonTooltip,
+                action: {
+                    #if DEBUG
+                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                    #endif
+                    tabManager.closeWorkspaceWithConfirmation(tab)
+                }
+            )
+        case .tasks:
+            WorkspaceRowControlButton(
+                option: option,
+                size: size,
+                foregroundColor: activeSecondaryColor(0.7),
+                closeTooltip: closeButtonTooltip,
+                action: {
+                    workspaceTasksPopoverPresented = true
+                }
+            )
+            .popover(isPresented: $workspaceTasksPopoverPresented, arrowEdge: .trailing) {
+                WorkspaceTasksPopoverView(workspace: tab) {
+                    workspaceTasksPopoverPresented = false
+                    _ = tab.openOrFocusWorkspaceTasksSurface(focus: false)
+                }
+            }
+        }
+    }
+
     private var visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility {
         settings.visibleAuxiliaryDetails
     }
@@ -13401,11 +13475,8 @@ struct TabItemView: View, Equatable {
             maxDisplayedCharacters: Self.maxDisplayedTitleCharacters
         )
         let scaledUnreadBadgeSize = 16 * fontScale
-        let scaledCloseButtonHitSize = max(16, 16 * fontScale)
-        let scaledCloseButtonWidth = max(
-            SidebarTrailingAccessoryWidthPolicy().closeButtonWidth,
-            scaledCloseButtonHitSize
-        )
+        let workspaceRowControlsLayout = settings.workspaceRowControls.layout
+        let visibleWorkspaceRowControls = self.visibleWorkspaceRowControls
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
@@ -13476,29 +13547,27 @@ struct TabItemView: View, Equatable {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
 
-                // The close button is a sibling that always reserves its width
-                // when the workspace is closable, so the title wraps/truncates
-                // before this corner instead of flowing under the hover x. Its
-                // visibility toggles via opacity so hover never re-lays-out the
-                // row. (Matches the group-header plus-button pattern.)
-                if canCloseWorkspace {
-                    Button(action: {
-                        #if DEBUG
-                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                        #endif
-                        tabManager.closeWorkspaceWithConfirmation(tab)
-                    }) {
-                        Image(systemName: "xmark")
-                            .cmuxSymbolRasterSize(scaledFontSize(9), weight: .medium)
-                            .foregroundColor(activeSecondaryColor(0.7))
-                            .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
-                            .contentShape(Rectangle())
+                // Hover controls reserve their configured width so revealing
+                // them never changes title wrapping. Individual rows can filter
+                // unavailable controls, such as close on a non-closable row.
+                if !visibleWorkspaceRowControls.isEmpty {
+                    HStack(spacing: workspaceRowControlsLayout.controlSpacing) {
+                        ForEach(visibleWorkspaceRowControls, id: \.self) { option in
+                            workspaceRowControlButton(
+                                option,
+                                closeButtonTooltip: closeButtonTooltip,
+                                size: workspaceRowControlsLayout.controlHitSize
+                            )
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .safeHelp(closeButtonTooltip)
-                    .opacity(showCloseButton ? 1 : 0)
-                    .allowsHitTesting(showCloseButton)
-                    .accessibilityHidden(!showCloseButton)
+                    .frame(
+                        width: max(workspaceRowControlsLayout.trailingWidth, workspaceRowControlsLayout.controlHitSize),
+                        height: workspaceRowControlsLayout.controlHitSize,
+                        alignment: .trailing
+                    )
+                    .opacity(showWorkspaceRowControls ? 1 : 0)
+                    .allowsHitTesting(showWorkspaceRowControls)
+                    .accessibilityHidden(!showWorkspaceRowControls)
                 }
             }
 

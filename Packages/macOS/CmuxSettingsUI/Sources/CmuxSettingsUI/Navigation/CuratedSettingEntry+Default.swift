@@ -138,6 +138,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-progress", title: "Show Progress in Sidebar", synonyms: "sidebar.showProgress progress bar percent status set_progress"),
             .init(section: .sidebarAppearance, id: "show-metadata", title: "Show Custom Metadata in Sidebar", synonyms: "sidebar.showCustomMetadata metadata meta report_meta status custom block"),
             .init(section: .sidebarAppearance, id: "right-max-width", title: "Dock Max Width", synonyms: "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"),
+            .init(section: .sidebarAppearance, id: "workspace-controls", title: String(localized: "settings.sidebar.workspaceControls", defaultValue: "Workspace Controls"), synonyms: "sidebar.workspaceControls hover controls close tasks workspace row beta"),
 
             // Mobile
             .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
@@ -154,6 +155,8 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(section: .betaFeatures, id: "customSidebars", title: "Custom Sidebars", synonyms: "custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: "Remote tmux", synonyms: "remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(section: .betaFeatures, id: "workspaceTasks", title: String(localized: "settings.betaFeatures.workspaceTasks", defaultValue: "Workspace Tasks"), synonyms: "workspace tasks todos goals deliverables per workspace beta unstable"),
+            .init(section: .betaFeatures, id: "workspaceControls", title: String(localized: "settings.betaFeatures.workspaceControls", defaultValue: "Workspace Controls"), synonyms: "workspace controls sidebar row hover close tasks beta unstable"),
 
             // Automation
             .init(section: .automation, id: "socket-mode", title: "Socket Control Mode", synonyms: "automation.socketControlMode api socket unix domain control server auth allow password disabled"),

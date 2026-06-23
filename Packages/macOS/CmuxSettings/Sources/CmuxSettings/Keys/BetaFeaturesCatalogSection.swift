@@ -60,5 +60,23 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "remoteTmux.beta.enabled"
     )
 
+    /// Workspace Tasks: per-workspace task lists surfaced as a native panel,
+    /// sidebar-row popover, and CLI/socket command set. Defaults off while the
+    /// data model and UI are in beta.
+    public let workspaceTasks = DefaultsKey<Bool>(
+        id: "workspaceTasks.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "workspaceTasks.beta.enabled"
+    )
+
+    /// Workspace Controls: an experimental sidebar-row hover control chooser.
+    /// Defaults off so the sidebar keeps the existing close-only row chrome
+    /// unless users opt into the beta.
+    public let workspaceControls = DefaultsKey<Bool>(
+        id: "workspaceControls.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "workspaceControls.beta.enabled"
+    )
+
     public init() {}
 }

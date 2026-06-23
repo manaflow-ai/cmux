@@ -122,114 +122,245 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         }
     }
 
-    var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .cmuxFont(size: metrics.chevronFontSize, weight: .semibold)
-                .foregroundStyle(.secondary)
-                .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
-                .contentShape(Rectangle())
-                .onTapGesture { onToggleCollapsed() }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityLabel(
-                    Text(
-                        isCollapsed
-                            ? String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
-                            : String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
-                    )
-                )
+    private var disclosureAccessibilityLabel: String {
+        if isCollapsed {
+            String(localized: "workspaceGroup.expand.a11y", defaultValue: "Expand group")
+        } else {
+            String(localized: "workspaceGroup.collapse.a11y", defaultValue: "Collapse group")
+        }
+    }
 
-            HStack(spacing: 6) {
-                Image(systemName: displayedIconSymbol)
-                    .cmuxFont(size: metrics.iconFontSize, weight: .semibold)
-                    .foregroundStyle(iconColor)
-                    .frame(width: metrics.iconFrame, height: metrics.iconFrame)
-                    .accessibilityHidden(true)
-                Text(name)
-                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
-                    .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if anchorUnreadCount > 0 {
-                    Text("\(anchorUnreadCount)")
-                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, metrics.unreadHorizontalPadding)
-                        .padding(.vertical, metrics.unreadVerticalPadding)
-                        .background(Capsule().fill(Color.accentColor))
-                        .accessibilityLabel(Text(String.localizedStringWithFormat(
-                            String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
-                            anchorUnreadCount
-                        )))
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private var plusVisible: Bool {
+        rowInteractionState.shouldShowWorkspaceControls(
+            hasControls: true,
+            shortcutHintModeActive: showsShortcutHint
+        )
+    }
+
+    private var disclosureControl: some View {
+        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+            .cmuxFont(size: metrics.chevronFontSize, weight: .semibold)
+            .foregroundStyle(.secondary)
+            .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
             .contentShape(Rectangle())
-            .onTapGesture { onFocusAnchor() }
+            .onTapGesture { onToggleCollapsed() }
             .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(Text(name))
-            .accessibilityHint(Text(String(
-                localized: "workspaceGroup.focusAnchor.a11y",
-                defaultValue: "Focus the group's anchor workspace"
-            )))
+            .accessibilityLabel(Text(disclosureAccessibilityLabel))
+    }
 
-            let plusVisible = rowInteractionState.shouldShowCloseButton(
-                canCloseWorkspace: true,
-                shortcutHintModeActive: showsShortcutHint
-            )
-            Button(action: onTapPlus) {
-                Image(systemName: "plus")
-                    .cmuxFont(size: metrics.plusFontSize, weight: .medium)
-                    .foregroundStyle(.secondary)
-                    .frame(width: metrics.plusFrame, height: metrics.plusFrame)
-                    .contentShape(Rectangle())
-                    .opacity(plusVisible ? 1 : 0)
+    private var anchorControl: some View {
+        HStack(spacing: 6) {
+            Image(systemName: displayedIconSymbol)
+                .cmuxFont(size: metrics.iconFontSize, weight: .semibold)
+                .foregroundStyle(iconColor)
+                .frame(width: metrics.iconFrame, height: metrics.iconFrame)
+                .accessibilityHidden(true)
+            Text(name)
+                .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
+                .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if anchorUnreadCount > 0 {
+                unreadBadge
             }
-            .buttonStyle(.plain)
-            .frame(width: metrics.plusFrame, height: metrics.plusFrame)
-            .allowsHitTesting(plusVisible)
-            .accessibilityHidden(!plusVisible)
-            .accessibilityLabel(Text(String(
-                localized: "workspaceGroup.newWorkspaceInGroup.a11y",
-                defaultValue: "New workspace in group"
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture { onFocusAnchor() }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(Text(name))
+        .accessibilityHint(Text(String(
+            localized: "workspaceGroup.focusAnchor.a11y",
+            defaultValue: "Focus the group's anchor workspace"
+        )))
+    }
+
+    private var unreadBadge: some View {
+        Text("\(anchorUnreadCount)")
+            .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
+            .foregroundStyle(.white)
+            .padding(.horizontal, metrics.unreadHorizontalPadding)
+            .padding(.vertical, metrics.unreadVerticalPadding)
+            .background(Capsule().fill(Color.accentColor))
+            .accessibilityLabel(Text(String.localizedStringWithFormat(
+                String(localized: "workspaceGroup.unread.a11y", defaultValue: "%lld unread"),
+                anchorUnreadCount
             )))
-            .contextMenu {
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.newWorkspace",
-                        defaultValue: "New Workspace in Group"
-                    ),
-                    action: onTapPlus
-                )
-                if !cwdContextMenuItems.isEmpty {
+    }
+
+    private var plusControl: some View {
+        Button(action: onTapPlus) {
+            Image(systemName: "plus")
+                .cmuxFont(size: metrics.plusFontSize, weight: .medium)
+                .foregroundStyle(.secondary)
+                .frame(width: metrics.plusFrame, height: metrics.plusFrame)
+                .contentShape(Rectangle())
+                .opacity(plusVisible ? 1 : 0)
+        }
+        .buttonStyle(.plain)
+        .frame(width: metrics.plusFrame, height: metrics.plusFrame)
+        .allowsHitTesting(plusVisible)
+        .accessibilityHidden(!plusVisible)
+        .accessibilityLabel(Text(String(
+            localized: "workspaceGroup.newWorkspaceInGroup.a11y",
+            defaultValue: "New workspace in group"
+        )))
+        .contextMenu {
+            plusContextMenu
+        }
+    }
+
+    @ViewBuilder
+    private var plusContextMenu: some View {
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                defaultValue: "New Workspace in Group"
+            ),
+            action: onTapPlus
+        )
+        if !cwdContextMenuItems.isEmpty {
+            Divider()
+            ForEach(cwdContextMenuItems) { item in
+                switch item {
+                case .separator:
                     Divider()
-                    ForEach(cwdContextMenuItems) { item in
-                        switch item {
-                        case .separator:
-                            Divider()
-                        case .action(let action):
-                            Button(action.title) {
-                                onRunResolvedItem(action)
-                            }
-                        }
+                case .action(let action):
+                    Button(action.title) {
+                        onRunResolvedItem(action)
                     }
                 }
-                Divider()
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.editConfig",
-                        defaultValue: "Edit Group Config..."
-                    ),
-                    action: onEditConfig
-                )
-                Button(
-                    String(
-                        localized: "workspaceGroup.plus.contextMenu.openDocs",
-                        defaultValue: "Open Workspace Groups Docs"
-                    ),
-                    action: onOpenDocs
-                )
             }
+        }
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.editConfig",
+                defaultValue: "Edit Group Config..."
+            ),
+            action: onEditConfig
+        )
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.openDocs",
+                defaultValue: "Open Workspace Groups Docs"
+            ),
+            action: onOpenDocs
+        )
+    }
+
+    @ViewBuilder
+    private var rowContextMenu: some View {
+        Button(
+            String(
+                localized: "workspaceGroup.plus.contextMenu.newWorkspace",
+                defaultValue: "New Workspace in Group"
+            ),
+            action: onTapPlus
+        )
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.rename",
+                defaultValue: "Rename Group..."
+            ),
+            action: onRename
+        )
+        Button(
+            isPinned
+                ? String(
+                    localized: "workspaceGroup.contextMenu.unpin",
+                    defaultValue: "Unpin Group"
+                )
+                : String(
+                    localized: "workspaceGroup.contextMenu.pin",
+                    defaultValue: "Pin Group"
+                ),
+            action: onTogglePinned
+        )
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.markRead",
+                defaultValue: "Mark Group as Read"
+            ),
+            action: onMarkRead
+        )
+        .disabled(!canMarkRead)
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.markUnread",
+                defaultValue: "Mark Group as Unread"
+            ),
+            action: onMarkUnread
+        )
+        .disabled(!canMarkUnread)
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.clearLatestNotifications",
+                defaultValue: "Clear Latest Notifications"
+            ),
+            action: onClearLatestNotifications
+        )
+        .disabled(!hasLatestNotifications)
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.markAllRead",
+                defaultValue: "Mark All Workspaces in Group as Read"
+            ),
+            action: onMarkAllRead
+        )
+        .disabled(!canMarkAllRead)
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.markAllUnread",
+                defaultValue: "Mark All Workspaces in Group as Unread"
+            ),
+            action: onMarkAllUnread
+        )
+        .disabled(!canMarkAllUnread)
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.editConfig",
+                defaultValue: "Edit Group Config..."
+            ),
+            action: onEditConfig
+        )
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.openDocs",
+                defaultValue: "Open Workspace Groups Docs"
+            ),
+            action: onOpenDocs
+        )
+        Divider()
+        Button(
+            String(
+                localized: "workspaceGroup.contextMenu.ungroup",
+                defaultValue: "Ungroup (Keep Workspaces)"
+            ),
+            action: onUngroup
+        )
+        Button(
+            role: .destructive,
+            action: onDelete
+        ) {
+            Text(
+                String(
+                    localized: "workspaceGroup.contextMenu.delete",
+                    defaultValue: "Delete Group (Close Workspaces)"
+                )
+            )
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            disclosureControl
+            anchorControl
+            plusControl
         }
         .padding(.vertical, 5)
         .padding(.trailing, SidebarWorkspaceListMetrics.rowContentHorizontalPadding)
@@ -264,109 +395,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
         .internalOnlyTabDrag()
         .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: tabDropDelegateFactory(rowHeight))
         .contextMenu {
-            Button(
-                String(
-                    localized: "workspaceGroup.plus.contextMenu.newWorkspace",
-                    defaultValue: "New Workspace in Group"
-                ),
-                action: onTapPlus
-            )
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.rename",
-                    defaultValue: "Rename Group..."
-                ),
-                action: onRename
-            )
-            Button(
-                isPinned
-                    ? String(
-                        localized: "workspaceGroup.contextMenu.unpin",
-                        defaultValue: "Unpin Group"
-                    )
-                    : String(
-                        localized: "workspaceGroup.contextMenu.pin",
-                        defaultValue: "Pin Group"
-                    ),
-                action: onTogglePinned
-            )
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markRead",
-                    defaultValue: "Mark Group as Read"
-                ),
-                action: onMarkRead
-            )
-            .disabled(!canMarkRead)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markUnread",
-                    defaultValue: "Mark Group as Unread"
-                ),
-                action: onMarkUnread
-            )
-            .disabled(!canMarkUnread)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.clearLatestNotifications",
-                    defaultValue: "Clear Latest Notifications"
-                ),
-                action: onClearLatestNotifications
-            )
-            .disabled(!hasLatestNotifications)
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markAllRead",
-                    defaultValue: "Mark All Workspaces in Group as Read"
-                ),
-                action: onMarkAllRead
-            )
-            .disabled(!canMarkAllRead)
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.markAllUnread",
-                    defaultValue: "Mark All Workspaces in Group as Unread"
-                ),
-                action: onMarkAllUnread
-            )
-            .disabled(!canMarkAllUnread)
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.editConfig",
-                    defaultValue: "Edit Group Config..."
-                ),
-                action: onEditConfig
-            )
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.openDocs",
-                    defaultValue: "Open Workspace Groups Docs"
-                ),
-                action: onOpenDocs
-            )
-            Divider()
-            Button(
-                String(
-                    localized: "workspaceGroup.contextMenu.ungroup",
-                    defaultValue: "Ungroup (Keep Workspaces)"
-                ),
-                action: onUngroup
-            )
-            Button(
-                role: .destructive,
-                action: onDelete
-            ) {
-                Text(
-                    String(
-                        localized: "workspaceGroup.contextMenu.delete",
-                        defaultValue: "Delete Group (Close Workspaces)"
-                    )
-                )
-            }
+            rowContextMenu
         }
     }
 }

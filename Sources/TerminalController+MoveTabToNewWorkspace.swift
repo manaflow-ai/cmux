@@ -93,7 +93,8 @@ extension TerminalController {
         "pane.join",
         "markdown.open",
         "browser.open_split",
-        "sidebar.custom.open"
+        "sidebar.custom.open",
+        "workspace.tasks.open"
     ]
 
     nonisolated static func explicitFocusParamAllowsFocus(commandKey: String, params: [String: Any]) -> Bool {

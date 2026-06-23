@@ -140,6 +140,16 @@ struct PanelContentView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        case .workspaceTasks:
+            if let tasksPanel = panel as? WorkspaceTasksPanel,
+               let workspace = tasksPanel.workspace {
+                WorkspaceTasksPanelView(
+                    panel: tasksPanel,
+                    workspace: workspace,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -157,7 +167,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser:
+        case .markdown, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project, .extensionBrowser, .workspaceTasks:
             return true
         case .terminal, .browser:
             return false

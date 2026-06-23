@@ -13,6 +13,7 @@ public enum PanelType: String, Codable, Sendable {
     case agentSession
     case project
     case extensionBrowser
+    case workspaceTasks
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()

@@ -1108,6 +1108,18 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
         case "workspace.env":
             return v2Result(id: request.id, v2WorkspaceEnv(params: request.params))
+        case "workspace.tasks.list":
+            return v2Result(id: request.id, v2WorkspaceTasksList(params: request.params))
+        case "workspace.tasks.add":
+            return v2Result(id: request.id, v2WorkspaceTasksAdd(params: request.params))
+        case "workspace.tasks.archive":
+            return v2Result(id: request.id, v2WorkspaceTasksArchive(params: request.params))
+        case "workspace.tasks.remove":
+            return v2Result(id: request.id, v2WorkspaceTasksRemove(params: request.params))
+        case "workspace.tasks.move":
+            return v2Result(id: request.id, v2WorkspaceTasksMove(params: request.params))
+        case "workspace.tasks.open":
+            return v2Result(id: request.id, v2WorkspaceTasksOpen(params: request.params))
         case "workspace.remote.pty_sessions":
             return v2Result(id: request.id, v2WorkspaceRemotePTYSessions(params: request.params))
         case "workspace.remote.pty_close":
@@ -1980,6 +1992,12 @@ class TerminalController {
             "workspace.list",
             "workspace.create",
             "workspace.env",
+            "workspace.tasks.list",
+            "workspace.tasks.add",
+            "workspace.tasks.archive",
+            "workspace.tasks.remove",
+            "workspace.tasks.move",
+            "workspace.tasks.open",
             "workspace.select",
             "workspace.current",
             "workspace.close",
