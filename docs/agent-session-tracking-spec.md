@@ -305,16 +305,27 @@ already exists, so the remaining work is additive-then-subtractive, in
 reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
 (runtime PRs do not merge before dogfood approval).
 
-- **Slice A — Versioning + pull snapshot (additive, no deletes).** Add a
-  monotonic `version` to each session descriptor, bumped on every registry
-  change. `mobile.chat.sessions` carries `version`; add `mobile.chat.session`
-  (single-session snapshot pull). iOS reconciles by version and pulls on
-  (re)connect / foreground / version gap / manual refresh. Pure reliability win,
-  no behavior removed. Lowest risk, ships first.
-- **Slice B — Owned-process-exit backstop.** Observe the agent pid cmux owns via
-  a termination handler; deterministic `ended` without the `sessionEnd` hook.
-  Keep `ended` retained (disables input bar, stays visible). Remove the
-  `kill(pid,0)` polling sweep once the handler covers it.
+- **Slice A — Versioning + pull snapshot (additive, no deletes). DONE.** Added a
+  monotonic `version` to each session descriptor, bumped at one registry
+  chokepoint. `mobile.chat.sessions` carries `version`; added
+  `mobile.chat.session` (single-session snapshot pull). Reducer version-gates
+  upserts (+test). iOS re-pulls the list on (re)connect and foreground (the
+  `chatRefreshKey` connection + foreground epochs); `session(sessionID:)` pull
+  primitive available for finer version-gap healing. Verified: shared pkg +128
+  tests, iOS shell + UI build, macOS app builds.
+- **Slice B — Deterministic process-exit backstop.** cmux does NOT own a
+  `Process` handle for a terminal agent (the agent is a child in the pty), so
+  there is no `terminationHandler` to hook. The deterministic signal is a
+  `DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit)` watcher
+  on the agent pid cmux already knows (from hook events / the store). On `.exit`,
+  hop to the main actor and flip to `.ended` ONLY if the exited pid is still the
+  record's current pid (so a `claude --resume` under a new pid is not ended by
+  its predecessor's exit). Register/refresh the watcher wherever a record's pid
+  is set. Replaces the per-`sessions()` `kill(pid,0)` polling sweep with an
+  event-driven transition; keep the one-shot `kill(pid,0)` seed-time check.
+  `ended` stays retained (disables the input bar, stays visible). `DispatchSource`
+  is an event source, not a timer, so it does not fall under the asyncAfter ban
+  and is cancellable.
 - **Slice C — Off-main parsing.** Move the hook-store JSON read off `@MainActor`
   (interim, before it is deleted) and assert no `Data(contentsOf:)` /
   `JSONSerialization` / `Codable` decode on the main actor in this subsystem.

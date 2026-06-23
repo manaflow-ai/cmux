@@ -35,6 +35,14 @@ final class AgentChatSessionRegistry {
         record.version = next
     }
 
+    /// Per-session process-exit watchers, keyed by session id, each tagged with
+    /// the pid it watches. A `DispatchSourceProcess` (`.exit`) fires exactly
+    /// when the agent process dies (crash, kill, closed terminal), so the
+    /// session flips to `.ended` deterministically without a `SessionEnd` hook
+    /// and without polling `kill(pid,0)` on every read. `DispatchSource` is an
+    /// event source, not a timer, and is cancellable.
+    private var exitWatchers: [String: (pid: Int, source: DispatchSourceProcess)] = [:]
+
     /// Creates a registry.
     ///
     /// - Parameter hookStore: Reader for the per-agent hook session stores.
@@ -48,24 +56,55 @@ final class AgentChatSessionRegistry {
     /// - Parameter workspaceID: Workspace UUID string filter, or `nil`.
     /// - Returns: Matching records.
     func sessions(workspaceID: String?) -> [AgentChatSessionRecord] {
-        sweepDeadProcesses()
         return records.values
             .filter { workspaceID == nil || $0.workspaceID == workspaceID }
             .sorted { $0.lastActivityAt > $1.lastActivityAt }
     }
 
-    /// Marks sessions whose agent process died without a SessionEnd hook
-    /// (crash, kill, closed terminal) as ended, so a missing Stop hook
-    /// cannot wedge a session in "working" forever.
-    private func sweepDeadProcesses() {
-        for (sessionID, record) in records {
-            guard record.state != .ended, let pid = record.pid else { continue }
-            // ESRCH means the process is gone; EPERM means it exists but is
-            // not signalable, which still counts as alive.
-            if kill(pid_t(pid), 0) != 0, errno == ESRCH {
-                update(sessionID: sessionID) { $0.state = .ended }
-            }
+    /// Reconciles the session's exit watcher with its current pid. Called from
+    /// every record-store path, so a watcher exists exactly while a session has
+    /// a live pid and is cancelled when the pid changes, clears, or the session
+    /// ends. Idempotent: a no-op when already watching the right pid.
+    ///
+    /// A process that is already gone at registration (the app was off while it
+    /// died) would never produce an `.exit` event, so that case ends the
+    /// session on a fresh main-actor turn rather than registering a watcher.
+    private func syncProcessExitWatch(for record: AgentChatSessionRecord) {
+        let sessionID = record.sessionID
+        if let existing = exitWatchers[sessionID], existing.pid == record.pid {
+            return
         }
+        exitWatchers[sessionID]?.source.cancel()
+        exitWatchers[sessionID] = nil
+        guard record.state != .ended, let pid = record.pid else { return }
+        // ESRCH means the process is already gone; EPERM means it exists but is
+        // not signalable, which still counts as alive.
+        if kill(pid_t(pid), 0) != 0, errno == ESRCH {
+            Task { @MainActor [weak self] in self?.handleProcessExit(sessionID: sessionID, pid: pid) }
+            return
+        }
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid_t(pid),
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        source.setEventHandler { [weak self] in
+            Task { @MainActor in self?.handleProcessExit(sessionID: sessionID, pid: pid) }
+        }
+        exitWatchers[sessionID] = (pid: pid, source: source)
+        source.resume()
+    }
+
+    /// Flips a session to `.ended` because its agent process exited. Ignores a
+    /// stale fire: the session may have resumed under a new pid (`claude
+    /// --resume`), and the predecessor's exit must not end the live session.
+    /// `ended` is retained (the GUI stays shown, the input bar disables); only
+    /// the watcher is torn down.
+    private func handleProcessExit(sessionID: String, pid: Int) {
+        guard let record = records[sessionID], record.pid == pid, record.state != .ended else {
+            return
+        }
+        update(sessionID: sessionID) { $0.state = .ended }
     }
 
     /// One session's record.
@@ -137,6 +176,7 @@ final class AgentChatSessionRegistry {
         mutate(&record)
         stampVersion(&record)
         records[sessionID] = record
+        syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
     }
@@ -181,6 +221,7 @@ final class AgentChatSessionRegistry {
                 )
                 stampVersion(&record)
                 records[entry.sessionID] = record
+                syncProcessExitWatch(for: record)
                 updateLiveSessionIndex(previous: nil, current: record)
             }
         }
@@ -228,6 +269,7 @@ final class AgentChatSessionRegistry {
         )
         stampVersion(&record)
         records[sessionID] = record
+        syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: nil, current: record)
         onRecordChanged?(record, nil)
         return record
@@ -295,6 +337,7 @@ final class AgentChatSessionRegistry {
         record.state = Self.nextState(previous: record.state, event: event)
         stampVersion(&record)
         records[sessionID] = record
+        syncProcessExitWatch(for: record)
         updateLiveSessionIndex(previous: previous, current: record)
         onRecordChanged?(record, previous)
         return record
