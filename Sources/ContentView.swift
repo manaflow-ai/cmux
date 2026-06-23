@@ -27,7 +27,6 @@ import SwiftUI
 import ObjectiveC
 import UniformTypeIdentifiers
 import WebKit
-
 var fileDropOverlayKey: UInt8 = 0
 private var commandPaletteWindowOverlayKey: UInt8 = 0
 private var tmuxWorkspacePaneWindowOverlayKey: UInt8 = 0
