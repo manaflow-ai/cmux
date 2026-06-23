@@ -2490,7 +2490,7 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = pendingProviderLaunchAction == nil && shouldEnableTextBoxSubmit(
+        let canSend = pendingProviderLaunchAction == nil && TextBoxSubmitAvailability.shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
@@ -2536,7 +2536,7 @@ struct TextBoxInputContainer: View {
                     onTextViewDismantled: onTextViewDismantled
                 )
 
-                if shouldShowTextBoxPlaceholder(
+                if TextBoxSubmitAvailability.shouldShowPlaceholder(
                     text: text,
                     attachmentCount: attachments.count,
                     hasMarkedText: hasMarkedText
@@ -2712,7 +2712,7 @@ struct TextBoxInputContainer: View {
 
     func submit() {
         let textView = textViewReference.textView
-        guard shouldSubmitTextBox(
+        guard TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: textView?.hasPendingAttachmentUploadPlaceholder() ?? hasPendingAttachmentUpload,
             hasMarkedText: textView?.hasMarkedText() ?? hasMarkedText
         ) else {

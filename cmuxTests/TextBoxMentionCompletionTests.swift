@@ -124,17 +124,17 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: true
         ))
-        #expect(shouldShowTextBoxPlaceholder(
+        #expect(TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: false
         ))
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxSubmitAvailability.shouldShowPlaceholder(
             text: "に",
             attachmentCount: 0,
             hasMarkedText: false
@@ -143,23 +143,23 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
-        #expect(!shouldEnableTextBoxSubmit(
+        #expect(!TextBoxSubmitAvailability.shouldEnableSubmit(
             text: "に",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(!shouldSubmitTextBox(
+        #expect(!TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(shouldEnableTextBoxSubmit(
+        #expect(TextBoxSubmitAvailability.shouldEnableSubmit(
             text: "send",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
-        #expect(shouldSubmitTextBox(
+        #expect(TextBoxSubmitAvailability.shouldSubmit(
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))

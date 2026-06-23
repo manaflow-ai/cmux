@@ -1,27 +1,29 @@
 import Foundation
 
-func shouldShowTextBoxPlaceholder(
-    text: String,
-    attachmentCount: Int,
-    hasMarkedText: Bool
-) -> Bool {
-    text.isEmpty && attachmentCount == 0 && !hasMarkedText
-}
+enum TextBoxSubmitAvailability {
+    static func shouldShowPlaceholder(
+        text: String,
+        attachmentCount: Int,
+        hasMarkedText: Bool
+    ) -> Bool {
+        text.isEmpty && attachmentCount == 0 && !hasMarkedText
+    }
 
-func shouldEnableTextBoxSubmit(
-    text: String,
-    attachmentCount: Int,
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload
-        && !hasMarkedText
-        && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0)
-}
+    static func shouldEnableSubmit(
+        text: String,
+        attachmentCount: Int,
+        hasPendingAttachmentUpload: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        !hasPendingAttachmentUpload
+            && !hasMarkedText
+            && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachmentCount > 0)
+    }
 
-func shouldSubmitTextBox(
-    hasPendingAttachmentUpload: Bool,
-    hasMarkedText: Bool
-) -> Bool {
-    !hasPendingAttachmentUpload && !hasMarkedText
+    static func shouldSubmit(
+        hasPendingAttachmentUpload: Bool,
+        hasMarkedText: Bool
+    ) -> Bool {
+        !hasPendingAttachmentUpload && !hasMarkedText
+    }
 }
