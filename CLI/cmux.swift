@@ -5309,6 +5309,7 @@ struct CMUXCLI {
         "markdown",
         "mark-notification-read",
         "memory",
+        "mobile",
         "move-surface",
         "move-tab-to-new-workspace",
         "move-workspace-to-window",

@@ -1979,6 +1979,7 @@ class TerminalController {
             "system.memory",
             "mobile.host.status",
             "mobile.attach_ticket.create",
+            "mobile.terminal.set_font",
             "mobile.workspace.list",
             "mobile.terminal.create",
             "mobile.terminal.input",
