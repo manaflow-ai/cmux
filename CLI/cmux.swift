@@ -23393,10 +23393,16 @@ struct CMUXCLI {
             if let mappedSession,
                let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
                summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
+                // This is a deferred notification reusing a body an earlier hook saved
+                // (e.g. a blocking AskUserQuestion/ExitPlanMode PreToolUse that recorded
+                // `.needsInput`, or an idle waiting reminder that recorded `.idle`). The
+                // generic notification text would otherwise reclassify to `.idle` and
+                // undo a real blocking state, so keep the lifecycle the session already
+                // recorded alongside that body.
                 summary = (
                     subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
                     body: savedBody,
-                    lifecycle: summary.lifecycle
+                    lifecycle: mappedSession.agentLifecycle ?? summary.lifecycle
                 )
             }
 

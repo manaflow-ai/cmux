@@ -84,16 +84,58 @@ struct ClaudeNotificationStatusLifecycleTests {
         )
     }
 
+    @Test func deferredBlockingToolNotificationKeepsRecordedNeedsInput() throws {
+        // AskUserQuestion / ExitPlanMode (non-bypass) record `.needsInput` + a saved
+        // body in PreToolUse, then defer the bell to the following Notification, whose
+        // generic text ("needs your input") would otherwise reclassify to `.idle`. The
+        // handler must keep the session's already-recorded `.needsInput` so the pane is
+        // not hibernated while the user still owes an answer / plan approval.
+        let snapshot = try runClaudeNotification(
+            name: "claude-notify-blocking-tool",
+            ttyName: "ttys-claude-notify-blocking-tool",
+            message: "Claude needs your input",
+            seededLifecycle: "needsInput",
+            seededBody: "Which option do you want?"
+        )
+        #expect(
+            snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
+            "Expected a deferred blocking-tool notification to keep needsInput, saw \(snapshot)"
+        )
+        #expect(
+            !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
+            "A deferred blocking-tool notification must not downgrade to idle, saw \(snapshot)"
+        )
+    }
+
     /// Runs the Claude `notification` hook with a given message and returns the
-    /// socket commands it emitted.
+    /// socket commands it emitted. When `seededLifecycle`/`seededBody` are provided,
+    /// a prior session record is written first so the handler's saved-body reuse path
+    /// is exercised (mirrors a blocking PreToolUse that recorded state then deferred
+    /// the notification).
     private func runClaudeNotification(
         name: String,
         ttyName: String,
-        message: String
+        message: String,
+        seededLifecycle: String? = nil,
+        seededBody: String? = nil
     ) throws -> [String] {
         let harness = ClaudeHookSurfaceResolutionSwiftTests()
         let context = try harness.makeClaudeHookContext(name: name)
         defer { context.cleanup() }
+
+        let sessionId = "\(name)-session"
+        let storeURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        if let seededLifecycle, let seededBody {
+            try seedClaudeSession(
+                storeURL: storeURL,
+                sessionId: sessionId,
+                workspaceId: context.workspaceId,
+                surfaceId: context.surfaceId,
+                cwd: context.root.path,
+                agentLifecycle: seededLifecycle,
+                lastBody: seededBody
+            )
+        }
 
         let serverHandled = harness.startClaudeSurfaceResolutionServer(
             context: context,
@@ -106,7 +148,7 @@ struct ClaudeNotificationStatusLifecycleTests {
             context: context,
             surfaceId: context.surfaceId,
             ttyName: ttyName,
-            storeURL: context.root.appendingPathComponent("claude-hook-sessions.json")
+            storeURL: storeURL
         )
         environment["CMUX_CLAUDE_PID"] = "42424"
 
@@ -114,12 +156,43 @@ struct ClaudeNotificationStatusLifecycleTests {
             executablePath: context.cliPath,
             arguments: ["hooks", "claude", "notification"],
             environment: environment,
-            standardInput: #"{"session_id":"\#(name)-session","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"\#(message)"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Notification","message":"\#(message)"}"#,
             timeout: 5
         )
 
         #expect(serverHandled.wait(timeout: .now() + 5) == .success)
         harness.assertSuccessfulHook(result)
         return context.state.snapshot()
+    }
+
+    private func seedClaudeSession(
+        storeURL: URL,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String,
+        agentLifecycle: String,
+        lastBody: String
+    ) throws {
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": cwd,
+                    "isRestorable": true,
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "agentLifecycle": agentLifecycle,
+                    "lastSubtitle": "Permission",
+                    "lastBody": lastBody,
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.sortedKeys])
+        try data.write(to: storeURL)
     }
 }
