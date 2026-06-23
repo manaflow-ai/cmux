@@ -93,6 +93,21 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone workspace-detail (terminal + nav header) layout
+    /// preview is enabled.
+    ///
+    /// When `CMUX_UITEST_WORKSPACE_DETAIL_PREVIEW=1`, the root view renders the
+    /// production `WorkspaceDetailView` with a preview store so the navigation
+    /// header + terminal grid layout can be screenshotted without sign-in or Mac
+    /// pairing. DEBUG-only.
+    public static var workspaceDetailLayoutPreviewEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_DETAIL_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether mock data is enabled for an explicit environment.
     ///
     /// In release builds this is always `false`. In DEBUG builds, an explicit
