@@ -6404,7 +6404,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func handleTerminalSetFontEvent(_ event: MobileEventEnvelope) {
         guard
             let json = event.payloadJSON,
-            let payload = try? MobileTerminalSetFontEvent.decode(json)
+            let payload = try? JSONDecoder().decode(MobileTerminalSetFontEvent.self, from: json)
         else {
             return
         }
