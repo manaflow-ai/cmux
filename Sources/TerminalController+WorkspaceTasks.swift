@@ -15,15 +15,22 @@ extension TerminalController {
                 data: nil
             )
         }
+        guard !WorkspaceTask.normalizedTitle(title).isEmpty else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "socket.workspaceTasks.add.emptyTitle", defaultValue: "Task title cannot be empty"),
+                data: nil
+            )
+        }
         let beforeTaskId = v2UUID(params, "before_task_id") ?? v2UUID(params, "before_id")
         let afterTaskId = v2UUID(params, "after_task_id") ?? v2UUID(params, "after_id")
         let index = v2Int(params, "index")
         return v2WorkspaceTasksCommand(params: params) { workspace, tabManager in
             guard let task = workspace.addWorkspaceTask(title: title, before: beforeTaskId, after: afterTaskId, index: index) else {
                 return .err(
-                    code: "invalid_params",
-                    message: String(localized: "socket.workspaceTasks.add.emptyTitle", defaultValue: "Task title cannot be empty"),
-                    data: nil
+                    code: "not_found",
+                    message: String(localized: "socket.workspaceTasks.add.anchorNotFound", defaultValue: "Task insertion anchor not found"),
+                    data: v2WorkspaceTasksAnchorErrorData(beforeTaskId: beforeTaskId, afterTaskId: afterTaskId)
                 )
             }
             return .ok(v2WorkspaceTasksPayload(workspace: workspace, tabManager: tabManager, changedTask: task))
@@ -185,5 +192,18 @@ extension TerminalController {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.string(from: date)
+    }
+
+    private nonisolated func v2WorkspaceTasksAnchorErrorData(
+        beforeTaskId: UUID?,
+        afterTaskId: UUID?
+    ) -> [String: Any]? {
+        if let beforeTaskId {
+            return ["before_task_id": beforeTaskId.uuidString]
+        }
+        if let afterTaskId {
+            return ["after_task_id": afterTaskId.uuidString]
+        }
+        return nil
     }
 }

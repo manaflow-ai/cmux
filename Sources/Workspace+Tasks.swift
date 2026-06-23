@@ -33,11 +33,15 @@ extension Workspace {
         let task = WorkspaceTask(title: normalizedTitle, createdAt: createdAt)
         let openCount = tasks.prefix { $0.isOpen }.count
         let insertionIndex: Int
-        if let beforeTaskId,
-           let beforeIndex = tasks[..<openCount].firstIndex(where: { $0.id == beforeTaskId }) {
+        if let beforeTaskId {
+            guard let beforeIndex = tasks[..<openCount].firstIndex(where: { $0.id == beforeTaskId }) else {
+                return nil
+            }
             insertionIndex = beforeIndex
-        } else if let afterTaskId,
-                  let afterIndex = tasks[..<openCount].firstIndex(where: { $0.id == afterTaskId }) {
+        } else if let afterTaskId {
+            guard let afterIndex = tasks[..<openCount].firstIndex(where: { $0.id == afterTaskId }) else {
+                return nil
+            }
             insertionIndex = afterIndex + 1
         } else if let requestedIndex {
             insertionIndex = min(max(requestedIndex, 0), openCount)

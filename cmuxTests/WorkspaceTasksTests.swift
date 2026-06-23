@@ -64,6 +64,13 @@ import Testing
         #expect(workspace.moveWorkspaceTask(id: first.id, before: second.id) == nil)
         #expect(workspace.workspaceTasks == beforeInvalidMove)
 
+        let missingAnchor = UUID()
+        let beforeInvalidAdd = workspace.workspaceTasks
+        #expect(workspace.addWorkspaceTask(title: "Invalid before", before: missingAnchor) == nil)
+        #expect(workspace.workspaceTasks == beforeInvalidAdd)
+        #expect(workspace.addWorkspaceTask(title: "Invalid after", after: missingAnchor) == nil)
+        #expect(workspace.workspaceTasks == beforeInvalidAdd)
+
         let removed = try #require(workspace.removeWorkspaceTask(id: third.id))
         #expect(removed.id == third.id)
         #expect(workspace.openWorkspaceTasks.map(\.id) == [second.id])
