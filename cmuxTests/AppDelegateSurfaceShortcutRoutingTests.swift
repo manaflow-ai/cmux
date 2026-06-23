@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCanvasUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -9,6 +10,21 @@ import Testing
 
 private final class ShortcutUnrelatedResponderView: NSView {
     override var acceptsFirstResponder: Bool { true }
+}
+
+@MainActor
+private final class CanvasViewportSpy: CanvasViewportControlling {
+    var overviewToggleCount = 0
+    var modelDidChangeCount = 0
+    var currentMagnification: CGFloat = 1
+    var currentCenterInCanvas: CGPoint = .zero
+
+    func revealPane(_ panelId: UUID, animated: Bool) {}
+    func toggleOverview() { overviewToggleCount += 1 }
+    func zoom(by factor: CGFloat) {}
+    func resetZoom() {}
+    func setViewport(center: CGPoint, magnification: CGFloat?) {}
+    func modelDidChangeExternally(animated: Bool) { modelDidChangeCount += 1 }
 }
 
 @MainActor
@@ -179,6 +195,8 @@ struct AppDelegateSurfaceShortcutRoutingTests {
             ))
 
             workspace.setLayoutMode(.canvas)
+            let viewport = CanvasViewportSpy()
+            workspace.canvasModel.viewport = viewport
             #expect(workspace.layoutMode == .canvas)
             #expect(!workspace.bonsplitController.isSplitZoomed)
             #expect(KeyboardShortcutSettings.shortcut(for: .toggleSplitZoom).matches(event: event))
@@ -192,6 +210,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 !workspace.bonsplitController.isSplitZoomed,
                 "In canvas mode, the split-zoom shortcut should drive canvas overview instead of Bonsplit zoom"
             )
+            #expect(viewport.overviewToggleCount == 1)
         }
     }
 
@@ -308,6 +327,29 @@ struct AppDelegateSurfaceShortcutRoutingTests {
 
             #expect(workspace.focusedPanelId == secondPanel.id)
         }
+    }
+
+    @Test func canvasSurfaceSelectionKeepsNinthAndLastSeparate() throws {
+        let appDelegate = try #require(AppDelegate.shared)
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
+        let workspace = try #require(manager.selectedWorkspace)
+        var panelIds = [try #require(workspace.focusedPanelId)]
+
+        workspace.setLayoutMode(.canvas)
+        for _ in 1..<10 {
+            panelIds.append(try #require(workspace.newTerminalSurfaceInFocusedPane(focus: true)).id)
+        }
+        #expect(panelIds.count == 10)
+
+        workspace.focusPanel(panelIds[0])
+        workspace.selectSurface(at: 8)
+        #expect(workspace.focusedPanelId == panelIds[8])
+
+        workspace.selectLastSurface()
+        #expect(workspace.focusedPanelId == panelIds[9])
     }
 
     @Test func equalizeSplitsShortcutInCanvasEqualizesCanvasPaneSizesOnly() throws {

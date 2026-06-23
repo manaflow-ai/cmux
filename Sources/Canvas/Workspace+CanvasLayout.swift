@@ -190,8 +190,7 @@ extension Workspace {
         return true
     }
 
-    /// Selects a tab by index inside the focused canvas pane. Index 8 maps to
-    /// the last tab, matching the normal pane shortcut's 9 = last convention.
+    /// Selects a tab by zero-based index inside the focused canvas pane.
     func selectCanvasTab(at index: Int) -> Bool {
         guard let focusedPanelId,
               let paneID = canvasModel.paneID(containing: focusedPanelId),
@@ -199,9 +198,21 @@ extension Workspace {
               !tabs.isEmpty else {
             return false
         }
-        let resolvedIndex = index == 8 ? tabs.count - 1 : index
-        guard tabs.indices.contains(resolvedIndex) else { return false }
-        focusPanel(tabs[resolvedIndex].rawValue)
+        guard tabs.indices.contains(index) else { return false }
+        focusPanel(tabs[index].rawValue)
+        canvasModel.viewport?.modelDidChangeExternally(animated: false)
+        return true
+    }
+
+    /// Selects the last tab inside the focused canvas pane.
+    func selectLastCanvasTab() -> Bool {
+        guard let focusedPanelId,
+              let paneID = canvasModel.paneID(containing: focusedPanelId),
+              let tabs = canvasModel.layout.panelIds(in: paneID),
+              let last = tabs.last else {
+            return false
+        }
+        focusPanel(last.rawValue)
         canvasModel.viewport?.modelDidChangeExternally(animated: false)
         return true
     }

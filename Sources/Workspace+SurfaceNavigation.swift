@@ -46,7 +46,7 @@ extension Workspace {
     /// Select the last surface in the currently focused pane.
     func selectLastSurface() {
         if layoutMode == .canvas {
-            _ = selectCanvasTab(at: 8)
+            _ = selectLastCanvasTab()
             return
         }
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return }
