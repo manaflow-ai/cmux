@@ -26610,7 +26610,14 @@ struct CMUXCLI {
     }
 
     private func codexForkCommandIndex(in arguments: [String]) -> Int? {
-        var index = codexLaunchArgumentsStartIndex(arguments)
+        if let wrapperIndex = codexTeamsWrapperCommandIndex(in: arguments) {
+            return codexForkSubcommandIndex(in: arguments, startIndex: wrapperIndex + 1)
+        }
+        return codexForkSubcommandIndex(in: arguments, startIndex: codexLaunchArgumentsStartIndex(arguments))
+    }
+
+    private func codexForkSubcommandIndex(in arguments: [String], startIndex: Int) -> Int? {
+        var index = startIndex
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" {
@@ -26622,6 +26629,29 @@ struct CMUXCLI {
             index += codexForkOptionWidth(arguments, index: index)
         }
         return nil
+    }
+
+    private func codexTeamsWrapperCommandIndex(in arguments: [String]) -> Int? {
+        var index = cmuxLaunchArgumentsStartIndex(arguments)
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return argument == "codex-teams" ? index : nil
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private func cmuxLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
+        guard let first = arguments.first else {
+            return 0
+        }
+        let executableName = first.split(separator: "/").last.map(String.init) ?? first
+        return executableName == "cmux" ? 1 : 0
     }
 
     private func codexLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
@@ -26705,9 +26735,11 @@ struct CMUXCLI {
         guard codexLaunchIsForkSession(env: env, fallbackPID: fallbackPID) else {
             return false
         }
+        let currentSurfaceId = normalizedHookValue(env["CMUX_SURFACE_ID"])
         for candidate in [payloadSessionId, resolvedSessionId] {
             guard let candidate else { continue }
-            if (try? store.lookup(sessionId: candidate)) != nil {
+            guard let record = try? store.lookup(sessionId: candidate) else { continue }
+            if let currentSurfaceId, record.surfaceId != currentSurfaceId {
                 return true
             }
         }
