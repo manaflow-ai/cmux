@@ -12284,7 +12284,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let shortcutTimingStart = CmuxTypingTiming.start()
 #endif
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
-                let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) || self.handleCustomShortcut(event: event)
+                let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
+                    || self.handleCustomShortcut(event: event)
 #if DEBUG
                 shortcutMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 CmuxTypingTiming.logDuration(
@@ -13038,6 +13039,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
+            if handleDetachedInspectorCloseShortcutOutsideMainContext(event: event) {
+                return true
+            }
 #if DEBUG
             cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
 #endif
@@ -13455,6 +13459,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // The Close Tab shortcut must close the focused panel even if first-responder
         // momentarily lags on a browser NSTextView during split focus transitions.
         if matchConfiguredShortcut(event: event, action: .closeTab) {
+            if closeDetachedInspectorWindowForCloseShortcut(event: event) {
+                return true
+            }
             let routedManager = tabManagerForFocusedCloseShortcut(event: event)
             // Browser popup windows primarily intercept the configured Close Tab shortcut
             // in BrowserPopupPanel. This AppDelegate path is a fallback for cases where
@@ -13864,6 +13871,84 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return false
+    }
+
+    @discardableResult
+    private func closeDetachedInspectorWindowForCloseShortcut(event: NSEvent) -> Bool {
+        for window in closeShortcutWindowCandidates(event: event) {
+            for panel in allBrowserPanelsForInspectorWindowClose() {
+                if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+                    window,
+                    source: "shortcut.\(NSWindow.keyDescription(event))"
+                ) {
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.devtools detachedClose.shortcut panel=\(panel.id.uuidString.prefix(5)) " +
+                        "event=\(NSWindow.keyDescription(event)) window=\(window.windowNumber)"
+                    )
+#endif
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func closeShortcutWindowCandidates(event: NSEvent) -> [NSWindow] {
+        var seen = Set<Int>()
+        var windows: [NSWindow] = []
+        func append(_ candidates: [NSWindow?]) {
+            for candidate in candidates {
+                guard let candidate else { continue }
+                let windowNumber = candidate.windowNumber
+                guard seen.insert(windowNumber).inserted else { continue }
+                windows.append(candidate)
+            }
+        }
+
+        append([
+            shortcutRoutingKeyWindow,
+            NSApp.keyWindow,
+            shortcutRoutingActiveWindow,
+            NSApp.mainWindow,
+        ])
+        append([
+            event.window,
+            event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil,
+        ])
+        return windows
+    }
+
+    private func hasDetachedInspectorWindowForCloseShortcut(event: NSEvent) -> Bool {
+        for window in closeShortcutWindowCandidates(event: event) {
+            for panel in allBrowserPanelsForInspectorWindowClose() where panel.ownsDetachedDeveloperToolsWindow(window) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func handleDetachedInspectorCloseShortcutOutsideMainContext(event: NSEvent) -> Bool {
+        guard isCloseTabShortcutEventOrChordPrefix(event) else { return false }
+        guard hasDetachedInspectorWindowForCloseShortcut(event: event) else { return false }
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [.closeTab]) {
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .closeTab) {
+            return closeDetachedInspectorWindowForCloseShortcut(event: event)
+        }
+        return false
+    }
+
+    private func isCloseTabShortcutEventOrChordPrefix(_ event: NSEvent) -> Bool {
+        if matchConfiguredShortcut(event: event, action: .closeTab) {
+            return true
+        }
+        guard activeConfiguredShortcutChordPrefixForCurrentEvent == nil else { return false }
+        let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
+        guard closeTabShortcut.hasChord else { return false }
+        return matchShortcutStroke(event: event, stroke: closeTabShortcut.firstStroke)
     }
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(
@@ -16497,8 +16582,7 @@ private extension AppDelegate {
                 target: target,
                 sender: sender,
                 allowFallback: Self.allowsWindowFallback(for: action)
-            ),
-                  BrowserPanel.isDetachedInspectorWindow(window) else { return false }
+            ) else { return false }
 
             for panel in allBrowserPanelsForInspectorWindowClose() {
                 if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
