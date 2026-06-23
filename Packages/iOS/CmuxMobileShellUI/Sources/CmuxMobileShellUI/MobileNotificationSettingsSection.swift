@@ -41,10 +41,7 @@ struct MobileNotificationSettingsSection: View {
                 )
             }
             .accessibilityIdentifier("MobileSettingsNotifications")
-            .disabled(
-                notificationSettingsSyncing
-                    || (!receivesNotifications && store?.supportsNotificationSettings == false)
-            )
+            .disabled(notificationSettingsSyncing)
 
             if notificationsLocallyEnabled && !receivesNotifications {
                 Button {
@@ -177,7 +174,6 @@ struct MobileNotificationSettingsSection: View {
 
     private func toggleNotifications() {
         guard !notificationSettingsSyncing else { return }
-        guard receivesNotifications || store?.supportsNotificationSettings != false else { return }
         let shouldDisable = receivesNotifications
         notificationSettingsSyncing = true
         Task { @MainActor in
