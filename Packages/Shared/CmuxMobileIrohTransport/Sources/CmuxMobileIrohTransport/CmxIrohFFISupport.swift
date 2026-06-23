@@ -18,3 +18,11 @@ struct CmxIrohCallOutcome<R> {
 }
 
 extension CmxIrohCallOutcome: Sendable where R: Sendable {}
+
+/// The parsed result of a single `recv` call, carried back across the
+/// actor/queue continuation boundary.
+struct CmxIrohReceiveOutcome: Sendable {
+    let count: Int
+    let message: String
+    let buffer: [UInt8]
+}

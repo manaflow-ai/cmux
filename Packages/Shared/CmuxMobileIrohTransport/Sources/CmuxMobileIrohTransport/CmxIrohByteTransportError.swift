@@ -50,6 +50,10 @@ public enum CmxIrohByteTransportError: Error, Equatable, Sendable {
     /// The dial failed; the values describe the cause and a classified
     /// ``CmxIrohConnectFailureKind`` so the UI can give an actionable message.
     case connectFailed(String, CmxIrohConnectFailureKind)
+    /// Accepting an incoming connection failed or timed out (host side).
+    case acceptFailed(String, CmxIrohConnectFailureKind)
+    /// An operation needed a bound endpoint but the listener was not started.
+    case notStarted
     /// A receive failed; the value describes the cause.
     case receiveFailed(String)
     /// A send failed; the value describes the cause.

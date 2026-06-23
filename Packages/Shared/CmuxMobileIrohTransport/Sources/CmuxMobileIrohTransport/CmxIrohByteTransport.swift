@@ -26,7 +26,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
     private let maximumReceiveLength: Int
 
     private var endpoint: OpaquePointer?
-    private var connection: OpaquePointer?
+    private var stream: CmxIrohByteStream?
     private var didClose = false
 
     // Concurrent so a blocked indefinite recv on one thread does not stall a
@@ -100,7 +100,7 @@ public actor CmxIrohByteTransport: CmxByteTransport {
 
     public func connect() async throws {
         if didClose { throw CmxIrohByteTransportError.alreadyClosed }
-        if connection != nil { return }
+        if stream != nil { return }
 
         let key: [UInt8]
         if let secretKey {
@@ -165,7 +165,10 @@ public actor CmxIrohByteTransport: CmxByteTransport {
         switch result {
         case let .success(handles):
             endpoint = handles.endpoint.value
-            connection = handles.connection.value
+            stream = CmxIrohByteStream(
+                connection: handles.connection.value,
+                maximumReceiveLength: maximumReceiveLength
+            )
         case let .failure(error):
             throw error
         }
@@ -173,88 +176,29 @@ public actor CmxIrohByteTransport: CmxByteTransport {
 
     public func receive() async throws -> Data? {
         if didClose { return nil }
-        guard let connection else {
+        guard let stream else {
             throw CmxIrohByteTransportError.notConnected
         }
-        let connectionBox = CmxIrohUnsafeBox(connection)
-        let capacity = maximumReceiveLength
-
-        let outcome = await runBlocking { () -> CmxIrohReceiveOutcome in
-            var buffer = [UInt8](repeating: 0, count: capacity)
-            let call = Self.withErrorBuffer { kindPtr, errBuf, cap in
-                buffer.withUnsafeMutableBufferPointer { bufferPointer in
-                    Int(cmux_iroh_connection_recv(
-                        connectionBox.value,
-                        bufferPointer.baseAddress,
-                        bufferPointer.count,
-                        0,
-                        kindPtr,
-                        errBuf,
-                        cap
-                    ))
-                }
-            }
-            return CmxIrohReceiveOutcome(
-                count: call.result,
-                message: call.message,
-                buffer: buffer
-            )
-        }
-
-        if outcome.count > 0 {
-            return Data(outcome.buffer.prefix(outcome.count))
-        }
-        if outcome.count == 0 {
-            return nil // clean end of stream
-        }
-        // A forced close races recv to a connection-lost error; surface that as
-        // a normal end of stream rather than an error.
-        if didClose {
-            return nil
-        }
-        throw CmxIrohByteTransportError.receiveFailed(outcome.message)
+        return try await stream.receive()
     }
 
     public func send(_ data: Data) async throws {
         if didClose { throw CmxIrohByteTransportError.alreadyClosed }
-        guard let connection else {
+        guard let stream else {
             throw CmxIrohByteTransportError.notConnected
         }
-        if data.isEmpty { return }
-        let connectionBox = CmxIrohUnsafeBox(connection)
-        let bytes = [UInt8](data)
-
-        let outcome = await runBlocking { () -> CmxIrohCallOutcome<Int32> in
-            Self.withErrorBuffer { kindPtr, errBuf, cap in
-                bytes.withUnsafeBufferPointer { bytePointer in
-                    cmux_iroh_connection_send(
-                        connectionBox.value,
-                        bytePointer.baseAddress,
-                        bytePointer.count,
-                        0,
-                        kindPtr,
-                        errBuf,
-                        cap
-                    )
-                }
-            }
-        }
-        if outcome.result != 0 {
-            throw CmxIrohByteTransportError.sendFailed(outcome.message)
-        }
+        try await stream.send(data)
     }
 
     public func close() async {
         if didClose { return }
         didClose = true
-        let connectionBox = connection.map(CmxIrohUnsafeBox.init)
+        let openStream = stream
         let endpointBox = endpoint.map(CmxIrohUnsafeBox.init)
-        connection = nil
+        stream = nil
         endpoint = nil
+        await openStream?.close()
         _ = await runBlocking { () -> Bool in
-            if let connectionBox {
-                cmux_iroh_connection_close(connectionBox.value)
-            }
             if let endpointBox {
                 cmux_iroh_endpoint_close(endpointBox.value)
             }
@@ -276,10 +220,4 @@ public actor CmxIrohByteTransport: CmxByteTransport {
 private struct CmxIrohHandles: Sendable {
     let endpoint: CmxIrohUnsafeBox<OpaquePointer>
     let connection: CmxIrohUnsafeBox<OpaquePointer>
-}
-
-private struct CmxIrohReceiveOutcome: Sendable {
-    let count: Int
-    let message: String
-    let buffer: [UInt8]
 }
