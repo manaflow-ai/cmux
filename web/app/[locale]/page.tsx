@@ -145,7 +145,7 @@ function HomeContent() {
         {/* Screenshot */}
         <div
           data-dev="screenshot"
-          className="mt-12 mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
         >
           <HeroScreenshot />
         </div>

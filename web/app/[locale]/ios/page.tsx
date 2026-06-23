@@ -6,7 +6,8 @@ import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
 import { BrandLogoLink } from "../components/brand-logo-link";
 import { GitHubButton } from "../components/github-button";
-import phoneImage from "../assets/landing-iphone.png";
+import iosWorkspaces from "../assets/ios-workspaces.png";
+import iosTerminal from "../assets/ios-terminal.png";
 
 export async function generateMetadata({
   params,
@@ -84,14 +85,21 @@ export default function IosLanding() {
         {/* Phone */}
         <div
           data-dev="ios-screenshot"
-          className="my-14 flex justify-center"
+          className="my-14 grid grid-cols-2 gap-5 sm:gap-10 max-w-lg mx-auto"
         >
           <Image
-            src={phoneImage}
+            src={iosWorkspaces}
             alt={t("screenshotAlt")}
             priority
-            sizes="(max-width: 640px) 70vw, 320px"
-            className="w-[64%] max-w-[320px] h-auto drop-shadow-[0_30px_70px_rgba(0,0,0,0.55)]"
+            sizes="(max-width: 640px) 42vw, 240px"
+            className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
+          />
+          <Image
+            src={iosTerminal}
+            alt={t("screenshotAlt")}
+            priority
+            sizes="(max-width: 640px) 42vw, 240px"
+            className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
         </div>
 
