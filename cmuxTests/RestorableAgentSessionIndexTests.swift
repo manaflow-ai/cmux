@@ -916,6 +916,77 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    // Safety gate for #6622: a brand-new Claude panel is transcript-less until its first prompt
+    // and has a LIVE process. Reconciliation must NOT hijack such an in-use session to the cwd's
+    // background agent — only an abandoned ghost (no live process) is reconciled.
+    func testClaudeTranscriptlessSessionWithLiveProcessIsNotHijacked() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-live-ghost-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        // A live background agent exists in the same cwd.
+        let backgroundAgentId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        try writeClaudeTranscript(
+            sessionId: backgroundAgentId,
+            transcriptURL: projectDir.appendingPathComponent("\(backgroundAgentId).jsonl", isDirectory: false),
+            cwd: cwd
+        )
+
+        // A transcript-less Claude session (e.g. a freshly opened panel) WITH a live process.
+        let liveSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+        let livePid = 4242
+        let workspaceId = UUID()
+        let panelId = UUID()
+        var record = hookRecord(
+            sessionId: liveSessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            cwd: cwd.path,
+            configDir: configDir.path,
+            isRestorable: false,
+            updatedAt: 20
+        )
+        record["pid"] = livePid
+        try writeClaudeHookStore(root: root, sessions: [liveSessionId: record])
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { pid in
+                guard pid == livePid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/claude"],
+                    environment: [
+                        "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                        "CMUX_SURFACE_ID": panelId.uuidString,
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
+                    ]
+                )
+            },
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(sessionId: backgroundAgentId, cwd: cwd.path, kind: "background")]
+            }
+        )
+
+        let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertNotEqual(
+            snapshot?.sessionId, backgroundAgentId,
+            "a transcript-less Claude session with a live process must not be hijacked to the cwd's background agent"
+        )
+    }
+
     /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.

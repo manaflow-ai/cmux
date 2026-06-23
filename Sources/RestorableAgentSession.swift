@@ -1138,7 +1138,8 @@ struct RestorableAgentSessionIndex: Sendable {
                         record,
                         fileManager: fileManager,
                         lookup: claudeTranscriptLookup,
-                        backgroundAgents: backgroundAgents(forConfigDir:)
+                        backgroundAgents: backgroundAgents(forConfigDir:),
+                        processArgumentsProvider: processArgumentsProvider
                     )
                     : record
                 // Drop untrusted launch captures before ANY derivation: the
@@ -1307,7 +1308,8 @@ struct RestorableAgentSessionIndex: Sendable {
         _ record: RestorableAgentHookSessionRecord,
         fileManager: FileManager,
         lookup: ClaudeTranscriptLookupCache,
-        backgroundAgents: (String?) -> [ClaudeBackgroundAgentSnapshot]
+        backgroundAgents: (String?) -> [ClaudeBackgroundAgentSnapshot],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     ) -> RestorableAgentHookSessionRecord {
         // Sanitize the launch capture up front so every config-root lookup and the daemon
         // reconciliation below use only a TRUSTED launch command. A Claude session launched
@@ -1366,6 +1368,16 @@ struct RestorableAgentSessionIndex: Sendable {
         guard !claudeTranscriptExists(for: record, fileManager: fileManager, lookup: lookup) else {
             return record
         }
+        // Only reconcile an ABANDONED ghost — one whose process is gone. A transcript-less
+        // Claude record with a live process is an in-use session, and a brand-new Claude panel
+        // the user just opened in this cwd is also transcript-less until its first prompt; healing
+        // it to the cwd's background agent would silently retarget restore/fork/hibernate at the
+        // wrong conversation. The empty ghost's process has exited (its real conversation lives on
+        // as the daemon background agent), so gating on "no live process" reconciles it without
+        // stealing live sessions. https://github.com/manaflow-ai/cmux/issues/6622
+        guard !recordHasLiveClaudeProcess(record, processArgumentsProvider: processArgumentsProvider) else {
+            return record
+        }
         // `record.launchCommand` is already trust-sanitized above, so `panelCwd`, `configDir`,
         // and `roots` all derive from the same trusted config (or the default when untrusted).
         // Require a cwd before probing: the reconciler can only match a background agent by cwd,
@@ -1393,6 +1405,26 @@ struct RestorableAgentSessionIndex: Sendable {
             return record
         }
         return claudeRecord(record, healedTo: realSessionId, transcriptPath: transcriptPath)
+    }
+
+    /// Whether the record's Claude process is still live and cmux-scoped to its panel — i.e.
+    /// an in-use session that ghost reconciliation must not retarget.
+    /// https://github.com/manaflow-ai/cmux/issues/6622
+    private static func recordHasLiveClaudeProcess(
+        _ record: RestorableAgentHookSessionRecord,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> Bool {
+        guard let workspaceId = UUID(uuidString: record.workspaceId),
+              let panelId = UUID(uuidString: record.surfaceId) else {
+            return false
+        }
+        return liveScopedProcessID(
+            for: record,
+            kind: .claude,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processArgumentsProvider: processArgumentsProvider
+        ) != nil
     }
 
     private static func claudeRecord(
