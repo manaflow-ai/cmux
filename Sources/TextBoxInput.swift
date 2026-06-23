@@ -2821,7 +2821,7 @@ struct TextBoxInputContainer: View {
                 NSSound.beep()
                 return
             }
-            hasPendingProviderLaunch = false
+            pendingProviderLaunchAction = nil
             if !pendingComments.isEmpty {
                 for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)

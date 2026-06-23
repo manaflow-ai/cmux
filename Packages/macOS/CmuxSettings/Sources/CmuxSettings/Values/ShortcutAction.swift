@@ -67,6 +67,7 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case newSurface
     case toggleTerminalCopyMode
     case focusTextBoxInput
+    case cycleTextBoxSubmitAction
     case attachTextBoxFile
     /// Sends a Ctrl-F keystroke through to the focused terminal.
     case sendCtrlFToTerminal
@@ -184,7 +185,7 @@ extension ShortcutAction {
              .editWorkspaceDescription, .closeTab, .closeOtherTabsInPane, .closeWorkspace,
              .groupSelectedWorkspaces, .toggleFocusedWorkspaceGroupCollapsed,
              .reopenClosedBrowserPanel, .newSurface, .toggleTerminalCopyMode,
-             .focusTextBoxInput, .attachTextBoxFile, .sendCtrlFToTerminal,
+             .focusTextBoxInput, .cycleTextBoxSubmitAction, .attachTextBoxFile, .sendCtrlFToTerminal,
              .clearScreenKeepScrollback:
             return .navigation
         case .focusLeft, .focusRight, .focusUp, .focusDown, .splitRight, .splitDown,
@@ -359,6 +360,7 @@ extension ShortcutAction {
         case .newSurface: return "New Surface"
         case .toggleTerminalCopyMode: return "Toggle Terminal Copy Mode"
         case .focusTextBoxInput: return "Focus TextBox Input"
+        case .cycleTextBoxSubmitAction: return "Cycle TextBox Submit Action"
         case .attachTextBoxFile: return "Attach File to TextBox Input"
         case .sendCtrlFToTerminal:
             return String(localized: "shortcut.sendCtrlFToTerminal.label", defaultValue: "Send Ctrl-F to Terminal")
