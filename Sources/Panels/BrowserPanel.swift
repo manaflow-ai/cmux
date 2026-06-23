@@ -4805,6 +4805,20 @@ final class BrowserPanel: Panel, ObservableObject {
             portalAnchorView.layer?.backgroundColor = NSColor.clear.cgColor
             return
         }
+        if usesTransparentBackground {
+            // Transparent internal pages keep their page CSS clear. On opaque
+            // themes, the native webview layer owns the terminal-color backing
+            // fill so loading/empty/code regions never fall through to window gray.
+            webView.wantsLayer = true
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.underPageBackgroundColor = color
+            webView.layer?.isOpaque = color.alphaComponent >= 0.999
+            webView.layer?.backgroundColor = color.cgColor
+            portalAnchorView.wantsLayer = true
+            portalAnchorView.layer?.isOpaque = color.alphaComponent >= 0.999
+            portalAnchorView.layer?.backgroundColor = color.cgColor
+            return
+        }
         // Real website on an opaque theme: keep WebKit drawing its own background
         // so pages without their own CSS background remain readable. (Restores
         // opaque drawing in case a transparent theme previously made this webview
