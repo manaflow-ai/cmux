@@ -96,7 +96,10 @@ extension Workspace {
                     timestamp: entry.timestamp.timeIntervalSince1970
                 )
             }
-        let logSnapshots = logEntries.map { entry in
+        let logEntriesForSnapshot = isDefaultFreestyleSSHDRemoteWorkspace
+            ? logEntries.filter { !Self.isProxyOnlyRemoteLogEntry($0) }
+            : logEntries
+        let logSnapshots = logEntriesForSnapshot.map { entry in
             SessionLogEntrySnapshot(
                 message: entry.message,
                 level: entry.level.rawValue,
@@ -235,6 +238,9 @@ extension Workspace {
                 source: entry.source,
                 timestamp: Date(timeIntervalSince1970: entry.timestamp)
             )
+        }
+        if isDefaultFreestyleSSHDRemoteWorkspace {
+            clearProxyOnlyRemoteSidebarArtifacts()
         }
         progress = snapshot.progress.map { SidebarProgressState(value: $0.value, label: $0.label) }
         gitBranch = snapshot.gitBranch.map { SidebarGitBranchState(branch: $0.branch, isDirty: $0.isDirty) }

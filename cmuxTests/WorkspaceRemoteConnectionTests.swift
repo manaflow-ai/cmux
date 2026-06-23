@@ -3549,6 +3549,36 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.remoteConnectionState, .connected)
         XCTAssertNil(workspace.statusEntries["remote.error"])
         XCTAssertNil(workspace.logEntries.last(where: { $0.source == "remote-proxy" }))
+
+        workspace.logEntries.append(
+            SidebarLogEntry(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: .error,
+                source: "remote-proxy",
+                timestamp: Date()
+            )
+        )
+
+        XCTAssertNil(
+            workspace.sessionSnapshot(includeScrollback: false)
+                .logEntries
+                .last(where: { $0.source == "remote-proxy" })
+        )
+
+        var legacySnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        legacySnapshot.logEntries = [
+            SessionLogEntrySnapshot(
+                message: "Remote proxy unavailable (cloud VM): \(proxyError)",
+                level: SidebarLogLevel.error.rawValue,
+                source: "remote-proxy",
+                timestamp: Date().timeIntervalSince1970
+            )
+        ]
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(legacySnapshot)
+
+        XCTAssertNil(restored.logEntries.last(where: { $0.source == "remote-proxy" }))
     }
 
     @MainActor
