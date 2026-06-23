@@ -3,8 +3,8 @@
 # Reduce counts as files shrink. CI fails if tracked files exceed this budget.
 34546	CLI/cmux.swift
 17837	Sources/AppDelegate.swift
-16092	Sources/ContentView.swift
-13950	Sources/TerminalController.swift
+16132	Sources/ContentView.swift
+13822	Sources/TerminalController.swift
 12828	Sources/Workspace.swift
 12240	Sources/GhosttyTerminalView.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
@@ -92,8 +92,8 @@
 947	Sources/TerminalNotificationPolicy.swift
 945	Sources/SessionIndexRegisteredAgents.swift
 937	Sources/TextBoxMentionIndexStore.swift
-935	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 934	Sources/App/ShortcutRoutingSupport.swift
+928	Packages/macOS/CmuxSettingsUI/Sources/CmuxSettingsUI/Sections/AppSection.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
 918	cmuxTests/WorkspaceGroupTests.swift
@@ -221,10 +221,10 @@
 506	Packages/iOS/CmuxMobileShellUI/Sources/CmuxMobileShellUI/CMUXMobileRootView.swift
 506	Sources/App/MainWindowVisibilityController.swift
 505	cmuxUITests/DisplayResolutionRegressionUITests.swift
-504	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 504	cmuxTests/TerminalNotificationSocketActionTests.swift
 503	Sources/Settings/ConfigSource.swift
 502	Sources/CmuxEventPublishing.swift
 502	Sources/KeyboardShortcutContext.swift
 502	Sources/RemoteTmuxSessionMirror.swift
+501	Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandContextTestStubs.swift
 500	Sources/KeyboardShortcutRecorder.swift
