@@ -29781,11 +29781,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
         }()
-        let authoritativeForkSurfaceId = processBinding()?.surfaceId
-            ?? (explicitSurfaceFlag == nil ? nil : resolvedDirectSurfaceArg)
         if def.name == "codex",
            (subcommand == "session-start" || subcommand == "active" || subcommand == "session-end"),
            codexLaunchIsForkSession(env: env, fallbackPID: inferredPID) {
+            let authoritativeForkSurfaceId = processBinding()?.surfaceId
+                ?? (explicitSurfaceFlag == nil ? nil : resolvedDirectSurfaceArg)
             let isCodexForkParentLifecycle = shouldSkipCodexForkParentLifecycle(
                 def: def,
                 subcommand: subcommand,
