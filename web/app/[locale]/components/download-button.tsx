@@ -107,20 +107,18 @@ export function DownloadButton({
     </svg>
   );
 
+  // A small filled caret reads crisper than a thin stroked chevron at this
+  // size (no sub-pixel stroke fuzz), which keeps the split affordance clean.
   const caretIcon = (
     <svg
-      width={isSmall ? 11 : 13}
-      height={isSmall ? 11 : 13}
-      viewBox="0 0 12 12"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      width={isSmall ? 9 : 10}
+      height={isSmall ? 9 : 10}
+      viewBox="0 0 10 10"
+      fill="currentColor"
       className="opacity-40 transition-opacity group-hover:opacity-70 group-data-[popup-open]:opacity-70"
       aria-hidden="true"
     >
-      <path d="M3 4.5 6 7.5 9 4.5" />
+      <path d="M2 3.5h6L5 7z" />
     </svg>
   );
 
