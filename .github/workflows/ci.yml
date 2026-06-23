@@ -232,7 +232,7 @@ jobs:
         run: ./tests/test_remote_daemon_release_assets.sh
 
   cmux-iroh-crate:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
