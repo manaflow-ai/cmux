@@ -10450,7 +10450,9 @@ struct CMUXCLI {
             usesDefaultFreestyleSSHD: usesDefaultFreestyleSSHD,
             client: client
         )
-        bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
+        if ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] == nil {
+            bootstrapFreestyleZshEnvironmentIfPossible(vmID: vmID, username: "cmux", client: client)
+        }
         logVMTiming("ssh_info", vmID: vmID, transport: "ssh", startedAt: attachInfoStartedAt)
         let options = try vmSSHOptions(
             fromAttachInfo: response,
@@ -10703,10 +10705,14 @@ struct CMUXCLI {
               export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud-$cmux_cloud_tty_scope}"
             fi
             if ! tmux has-session -t "$CMUX_CLOUD_TMUX_SESSION" >/dev/null 2>&1; then
-              tmux new-session -d -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l" >/dev/null 2>&1 || true
+              tmux new-session -d -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l" >/dev/null 2>&1 || unset CMUX_CLOUD_TMUX_SESSION
             fi
-            tmux set-option -t "$CMUX_CLOUD_TMUX_SESSION" status off >/dev/null 2>&1 || true
-            exec tmux attach-session -t "$CMUX_CLOUD_TMUX_SESSION"
+            if [ -n "${CMUX_CLOUD_TMUX_SESSION:-}" ] && tmux has-session -t "$CMUX_CLOUD_TMUX_SESSION" >/dev/null 2>&1; then
+              tmux set-option -t "$CMUX_CLOUD_TMUX_SESSION" status off >/dev/null 2>&1 || true
+              tmux attach-session -t "$CMUX_CLOUD_TMUX_SESSION"
+              cmux_tmux_status=$?
+              [ "$cmux_tmux_status" -eq 0 ] && exit 0
+            fi
           fi
           exec zsh -l
         fi
