@@ -187,6 +187,9 @@ extension Workspace {
         workspaceEnvironment = Self.sanitizedWorkspaceEnvironment(snapshot.environment ?? [:])
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
+        let shouldRestoreSingleDefaultCloudTerminal =
+            isDefaultFreestyleSSHDRemoteWorkspace &&
+            snapshot.panels.filter { $0.type == .terminal }.count == 1
         let leafEntries: [SessionPaneRestoreEntry] = {
             let previousValue = suppressRemoteTerminalStartupForSessionRestoreScaffold
             suppressRemoteTerminalStartupForSessionRestoreScaffold = true
@@ -201,6 +204,7 @@ extension Workspace {
                 snapshot: entry.snapshot,
                 panelSnapshotsById: panelSnapshotsById,
                 snapshotWorkspaceId: snapshot.workspaceId,
+                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal,
                 oldToNewPanelIds: &oldToNewPanelIds
             )
         }
@@ -247,6 +251,9 @@ extension Workspace {
             focusPanel(fallbackFocusedPanelId)
         } else {
             scheduleFocusReconcile()
+        }
+        if !normalizedCurrentDirectory.isEmpty {
+            currentDirectory = normalizedCurrentDirectory
         }
         let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
@@ -524,7 +531,7 @@ extension Workspace {
                 },
                 resumeBinding: resumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
-                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId) || isDefaultFreestyleSSHDRemoteWorkspace,
+                isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: isDefaultFreestyleSSHDRemoteWorkspace
                     ? nil
                     : remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -767,7 +774,8 @@ extension Workspace {
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
-            snapshotWorkspaceId: nil
+            snapshotWorkspaceId: nil,
+            shouldRestoreSingleDefaultCloudTerminal: false
         ) else { return nil }
 
         let maxIndex = max(0, bonsplitController.tabs(inPane: pane).count - 1)
@@ -805,7 +813,8 @@ extension Workspace {
         guard let panelId = createPanel(
             from: entry.snapshot,
             inPane: pane,
-            snapshotWorkspaceId: nil
+            snapshotWorkspaceId: nil,
+            shouldRestoreSingleDefaultCloudTerminal: false
         ) else {
             _ = closePanel(placeholderPanel.id, force: true)
             return nil
@@ -1095,6 +1104,7 @@ extension Workspace {
         snapshot: SessionPaneLayoutSnapshot,
         panelSnapshotsById: [UUID: SessionPanelSnapshot],
         snapshotWorkspaceId: UUID?,
+        shouldRestoreSingleDefaultCloudTerminal: Bool,
         oldToNewPanelIds: inout [UUID: UUID]
     ) {
         let existingPanelIds = bonsplitController
@@ -1108,7 +1118,8 @@ extension Workspace {
             guard let createdPanelId = createPanel(
                 from: panelSnapshot,
                 inPane: paneId,
-                snapshotWorkspaceId: snapshotWorkspaceId
+                snapshotWorkspaceId: snapshotWorkspaceId,
+                shouldRestoreSingleDefaultCloudTerminal: shouldRestoreSingleDefaultCloudTerminal
             ) else { continue }
             createdPanelIds.append(createdPanelId)
             oldToNewPanelIds[oldPanelId] = createdPanelId
@@ -1183,7 +1194,8 @@ extension Workspace {
     private func createPanel(
         from snapshot: SessionPanelSnapshot,
         inPane paneId: PaneID,
-        snapshotWorkspaceId: UUID?
+        snapshotWorkspaceId: UUID?,
+        shouldRestoreSingleDefaultCloudTerminal: Bool
     ) -> UUID? {
         switch snapshot.type {
         case .terminal:
@@ -1285,7 +1297,7 @@ extension Workspace {
             }
             let snapshotIsRemoteTerminal =
                 snapshot.terminal?.isRemoteTerminal == true ||
-                isDefaultFreestyleSSHDRemoteWorkspace
+                shouldRestoreSingleDefaultCloudTerminal
             let restoredStartupCommand =
                 restoredRemotePTYAttachCommand
                 ?? restoredTmuxStartupScript?.path
@@ -1314,6 +1326,8 @@ extension Workspace {
                 !startupHandlesWorkingDirectory
                 ? (suppressWorkspaceRemoteStartupCommand ? savedWorkingDirectory : workingDirectory)
                 : nil
+            let requestedWorkingDirectory =
+                localWorkingDirectory ?? (startupHandlesWorkingDirectory ? workingDirectory : nil)
             let restoredAgentWillRunStartupCommand = restorableAgent != nil && (
                 restoredAgentResumeLaunch?.initialCommand != nil ||
                 (restoredBindingLaunch?.initialCommand != nil && resumeBinding?.isAgentHookBinding == true)
@@ -1359,7 +1373,7 @@ extension Workspace {
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
-                workingDirectory: localWorkingDirectory,
+                workingDirectory: requestedWorkingDirectory,
                 initialCommand: restoredStartupCommand,
                 tmuxStartCommand: restoredTmuxStartCommand,
                 initialInput: restoredStartupInput,
@@ -7490,7 +7504,7 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         tmuxStartCommand: String? = nil,
         focus: Bool? = nil,
-        waitAfterCommand: Bool = false
+        waitAfterCommand: Bool? = nil
     ) -> TerminalPanel? {
         guard let oldPanel = terminalPanel(for: panelId),
               let tabId = surfaceIdFromPanelId(panelId),
@@ -7502,11 +7516,9 @@ final class Workspace: Identifiable, ObservableObject {
         guard !trimmedCommand.isEmpty else { return nil }
 
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
-        if waitAfterCommand {
-            var config = inheritedConfig ?? CmuxSurfaceConfigTemplate()
-            config.waitAfterCommand = true
-            inheritedConfig = config
-        }
+        var respawnConfig = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+        respawnConfig.waitAfterCommand = waitAfterCommand ?? oldPanel.surface.debugWaitAfterCommand()
+        inheritedConfig = respawnConfig
         let requestedWorkingDirectory = resolvedTerminalStartupWorkingDirectory(
             requestedWorkingDirectory: workingDirectory,
             sourcePanelId: panelId
@@ -10633,7 +10645,6 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func createTerminalToRight(of anchorTabId: TabID, inPane paneId: PaneID) {
-        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         let sourcePanelId = panelIdFromSurfaceId(anchorTabId)
         guard let newPanel = newTerminalSurface(
             inPane: paneId,
@@ -10641,6 +10652,7 @@ final class Workspace: Identifiable, ObservableObject {
             inheritWorkingDirectoryFallback: true,
             workingDirectoryFallbackSourcePanelId: sourcePanelId
         ) else { return }
+        let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 

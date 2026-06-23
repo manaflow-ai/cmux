@@ -5,7 +5,7 @@
 17881	Sources/AppDelegate.swift
 16114	Sources/ContentView.swift
 13950	Sources/TerminalController.swift
-12814	Sources/Workspace.swift
+12826	Sources/Workspace.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
 11924	Sources/Panels/BrowserPanel.swift
 11867	Sources/GhosttyTerminalView.swift
@@ -13,7 +13,7 @@
 8017	CLI/cmux_open.swift
 7988	Sources/Panels/BrowserPanelView.swift
 7354	cmuxTests/WorkspaceUnitTests.swift
-7218	cmuxTests/WorkspaceRemoteConnectionTests.swift
+7228	cmuxTests/WorkspaceRemoteConnectionTests.swift
 6317	cmuxTests/SessionPersistenceTests.swift
 6220	cmuxTests/GhosttyConfigTests.swift
 6165	Sources/TabManager.swift
@@ -96,7 +96,7 @@
 934	Sources/App/ShortcutRoutingSupport.swift
 926	Sources/DockPanelView.swift
 920	Sources/CommandPalette/CommandPaletteSettingsToggle.swift
-918	cmuxTests/WorkspaceGroupTests.swift
+924	cmuxTests/WorkspaceGroupTests.swift
 905	Sources/CmuxSSHURLRequest.swift
 899	Sources/Panels/MarkdownWebRenderer.swift
 885	Sources/Panels/TerminalPanel.swift
@@ -161,7 +161,7 @@
 615	cmuxTests/RemoteTmuxControlParserTests.swift
 614	Sources/PortScanner.swift
 612	cmuxUITests/FeedSidebarUITests.swift
-608	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
+609	Packages/macOS/CmuxWorkspaces/Sources/CmuxWorkspaces/Coordinators/WorkspaceGroupCoordinator.swift
 606	Sources/SettingsNavigation.swift
 604	Packages/macOS/CmuxCommandPalette/Tests/CmuxCommandPaletteTests/CommandPaletteNucleoFFITests.swift
 601	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/AgentLaunchSanitizerPrimaryPolicies.swift

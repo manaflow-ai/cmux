@@ -30,6 +30,20 @@ private struct ScriptedRemoteProcessRunner: RemoteSessionProcessRunning, @unchec
     }
 }
 
+private func remoteDaemonServeCommand(_ command: String) -> Bool {
+    command.contains("serve") && command.contains("--stdio")
+}
+
+private func remoteReverseRelayControlOperation(from arguments: [String]) -> (command: String, spec: String)? {
+    guard let operationIndex = arguments.firstIndex(of: "-O"),
+          operationIndex + 1 < arguments.count,
+          let reverseIndex = arguments.firstIndex(of: "-R"),
+          reverseIndex + 1 < arguments.count else {
+        return nil
+    }
+    return (arguments[operationIndex + 1], arguments[reverseIndex + 1])
+}
+
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
         let status: Int32, stdout: String, stderr: String
@@ -2151,7 +2165,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                         stderr: ""
                     )
                 }
-                if command.contains("serve --stdio") {
+                if remoteDaemonServeCommand(command) {
                     return (
                         status: 0,
                         stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"old","capabilities":["proxy.stream.push"]}}"# + "\n",
@@ -2230,11 +2244,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "unexpected executable")
             }
 
-            if let operationIndex = arguments.firstIndex(of: "-O"),
-               operationIndex + 3 < arguments.count,
-               arguments[operationIndex + 2] == "-R" {
-                let operation = arguments[operationIndex + 1]
-                let spec = arguments[operationIndex + 3]
+            if let controlOperation = remoteReverseRelayControlOperation(from: arguments) {
+                let operation = controlOperation.command
+                let spec = controlOperation.spec
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 lock.unlock()
@@ -2257,10 +2269,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     stderr: ""
                 )
             }
-            if command.contains("serve --stdio") {
+            if remoteDaemonServeCommand(command) {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }
@@ -2323,11 +2335,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 return (status: 1, stdout: "", stderr: "unexpected executable")
             }
 
-            if let operationIndex = arguments.firstIndex(of: "-O"),
-               operationIndex + 3 < arguments.count,
-               arguments[operationIndex + 2] == "-R" {
-                let operation = arguments[operationIndex + 1]
-                let spec = arguments[operationIndex + 3]
+            if let controlOperation = remoteReverseRelayControlOperation(from: arguments) {
+                let operation = controlOperation.command
+                let spec = controlOperation.spec
                 lock.lock()
                 controlOperations.append((command: operation, spec: spec))
                 if operation == "forward" {
@@ -2372,10 +2382,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                     stderr: ""
                 )
             }
-            if command.contains("serve --stdio") {
+            if remoteDaemonServeCommand(command) {
                 return (
                     status: 0,
-                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.session.persistent_daemon"]}}"# + "\n",
+                    stdout: #"{"id":1,"ok":true,"result":{"name":"cmuxd-remote","version":"dev","capabilities":["proxy.stream.push","pty.session","pty.session.token","pty.write.notification","pty.resize.notification","pty.session.persistent_daemon"]}}"# + "\n",
                     stderr: ""
                 )
             }

@@ -11,12 +11,18 @@ import CmuxSettings
 #endif
 
 @MainActor
-@Suite("Workspace group model")
+@Suite("Workspace group model", .serialized)
 struct WorkspaceGroupTests {
 
     private func makeTabManager() -> TabManager {
-        let manager = TabManager()
-        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let suiteName = "cmux.workspace-group-tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            settings: UserDefaultsSettingsClient(defaults: defaults),
+            closeTabWarningDefaults: defaults
+        )
         manager.addWorkspace(autoWelcomeIfNeeded: false)
         return manager
     }

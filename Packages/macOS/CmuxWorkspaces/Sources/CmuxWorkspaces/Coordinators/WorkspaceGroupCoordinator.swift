@@ -50,7 +50,8 @@ public final class WorkspaceGroupCoordinator<Tab: WorkspaceTabRepresenting> {
         // reject those silently and let the user explicitly ungroup first.
         let existingAnchorIds = Set(model.workspaceGroups.map(\.anchorWorkspaceId))
         let eligibleChildren = childWorkspaceIds.compactMap { id -> UUID? in
-            guard model.tabs.contains(where: { $0.id == id }),
+            guard let tab = model.tabs.first(where: { $0.id == id }),
+                  !tab.isPinned,
                   !existingAnchorIds.contains(id) else { return nil }
             return id
         }
