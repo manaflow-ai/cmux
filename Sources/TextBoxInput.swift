@@ -3353,7 +3353,10 @@ struct TextBoxInputContainer: View {
         }
         return SubmitDispatchPlan(
             events: TextBoxSubmit.dispatchEvents(for: [.text(command)], terminalAgentContext: ""),
-            cleanupTerminalAgentContext: terminalAgentContext
+            cleanupTerminalAgentContext: Self.textEntryTerminalAgentContext(
+                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+                terminalAgentContext: terminalAgentContext
+            )
         )
     }
 

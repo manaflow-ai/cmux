@@ -251,7 +251,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "opencode",
             title: "OpenCode",
             kind: .commandTemplate,
-            commandTemplate: "opencode run",
+            commandTemplate: "opencode",
             preservePromptAfterLaunch: true,
             systemImage: "curlybraces",
             assetName: "AgentIcons/OpenCode",

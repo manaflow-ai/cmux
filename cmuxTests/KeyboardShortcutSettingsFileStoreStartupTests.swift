@@ -1204,7 +1204,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
         XCTAssertEqual(launchCommandsByID["claude"], "claude")
         XCTAssertEqual(launchCommandsByID["codex"], "codex")
-        XCTAssertEqual(launchCommandsByID["opencode"], "opencode run")
+        XCTAssertEqual(launchCommandsByID["opencode"], "opencode")
         XCTAssertEqual(launchCommandsByID["pi"], "pi")
         XCTAssertTrue(TextBoxSubmitAction.builtInActions.allSatisfy { $0.command(forPrompt: "secret") == nil })
     }
