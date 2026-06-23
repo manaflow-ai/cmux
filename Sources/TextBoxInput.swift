@@ -1823,15 +1823,11 @@ enum TextBoxSubmit {
         return [.pasteText(pastePayload), .namedKey(submitKey)]
     }
 
-    static func launchThenPromptDispatchEvents(
-        launchCommand: String,
-        promptParts: [TextBoxSubmissionPart],
-        terminalAgentContext: String
-    ) -> [DispatchEvent] {
+    static func launchDispatchEvents(launchCommand: String) -> [DispatchEvent] {
         [
             .pasteText(launchCommand),
             .namedKey(TextBoxTerminalKey.returnKey.rawValue),
-        ] + dispatchEvents(for: promptParts, terminalAgentContext: terminalAgentContext)
+        ]
     }
 
     static func send(
@@ -3234,6 +3230,17 @@ struct TextBoxInputContainer: View {
             NSSound.beep()
             return
         }
+        if let launchCommand = providerLaunchCommand(for: effectiveSubmitAction) {
+            TextBoxSubmit.sendEvents(
+                TextBoxSubmit.launchDispatchEvents(launchCommand: launchCommand),
+                via: surface
+            ) { completionContext in
+                if !completionContext.didSubmit {
+                    NSSound.beep()
+                }
+            }
+            return
+        }
         // Claim the workspace's pending diff comments: this submission carries
         // them, and the chip clears from every other TextBox in the workspace.
         let pendingComments = poolWorkspaceId.map {
@@ -3323,18 +3330,6 @@ struct TextBoxInputContainer: View {
             )
         }
 
-        if let launchCommand = action.launchCommand() {
-            let launchedAgentContext = action.launchedAgentContext
-            return SubmitDispatchPlan(
-                events: TextBoxSubmit.launchThenPromptDispatchEvents(
-                    launchCommand: launchCommand,
-                    promptParts: parts,
-                    terminalAgentContext: launchedAgentContext
-                ),
-                cleanupTerminalAgentContext: launchedAgentContext
-            )
-        }
-
         guard let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
             return SubmitDispatchPlan(
                 events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext),
@@ -3345,6 +3340,11 @@ struct TextBoxInputContainer: View {
             events: TextBoxSubmit.dispatchEvents(for: [.text(command)], terminalAgentContext: ""),
             cleanupTerminalAgentContext: terminalAgentContext
         )
+    }
+
+    private func providerLaunchCommand(for action: TextBoxSubmitAction) -> String? {
+        guard !shouldForceTextEntrySubmit else { return nil }
+        return action.launchCommand()
     }
 
     private func cycleSubmitAction() {

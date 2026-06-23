@@ -8,7 +8,6 @@ import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
 import struct CmuxSettings.BrowserSearchSettingsStore
-import class CmuxSettings.CmuxSettingsFileStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1210,17 +1209,11 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertTrue(TextBoxSubmitAction.builtInActions.allSatisfy { $0.command(forPrompt: "secret") == nil })
     }
 
-    func testLaunchThenPromptSubmitEventsKeepPromptOutOfLaunchCommand() {
+    func testProviderLaunchEventsKeepPromptInTextBoxUntilAgentIsActive() {
         XCTAssertEqual(
-            TextBoxSubmit.launchThenPromptDispatchEvents(
-                launchCommand: "codex",
-                promptParts: [.text("--dangerously-skip-permissions")],
-                terminalAgentContext: "restoredAgent:codex"
-            ),
+            TextBoxSubmit.launchDispatchEvents(launchCommand: "codex"),
             [
                 .pasteText("codex"),
-                .namedKey("return"),
-                .pasteText("--dangerously-skip-permissions"),
                 .namedKey("return"),
             ]
         )
@@ -1256,7 +1249,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         let template = CmuxSettingsFileStore.defaultTemplate()
 
         XCTAssertTrue(template.contains(#""commandTemplate" : "codex""#))
-        XCTAssertTrue(template.contains(#""sendPromptAfterLaunch" : true"#))
+        XCTAssertTrue(template.contains(#""preservePromptAfterLaunch" : true"#))
     }
 
     func testTextBoxForceTextEntryUsesShellEligibilityOverStaleAgentMetadata() {

@@ -190,7 +190,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     let title: String
     let kind: Kind
     let commandTemplate: String?
-    let sendPromptAfterLaunch: Bool?
+    let preservePromptAfterLaunch: Bool?
     let systemImage: String
     let assetName: String?
     let imagePath: String?
@@ -201,7 +201,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         title: String,
         kind: Kind,
         commandTemplate: String? = nil,
-        sendPromptAfterLaunch: Bool? = nil,
+        preservePromptAfterLaunch: Bool? = nil,
         systemImage: String,
         assetName: String? = nil,
         imagePath: String? = nil,
@@ -211,7 +211,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         self.title = title
         self.kind = kind
         self.commandTemplate = commandTemplate
-        self.sendPromptAfterLaunch = sendPromptAfterLaunch
+        self.preservePromptAfterLaunch = preservePromptAfterLaunch
         self.systemImage = systemImage
         self.assetName = assetName
         self.imagePath = imagePath
@@ -232,7 +232,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             title: "Claude",
             kind: .commandTemplate,
             commandTemplate: "claude",
-            sendPromptAfterLaunch: true,
+            preservePromptAfterLaunch: true,
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
             backgroundColorHex: "#F6D5C8"
@@ -242,7 +242,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             title: "Codex",
             kind: .commandTemplate,
             commandTemplate: "codex",
-            sendPromptAfterLaunch: true,
+            preservePromptAfterLaunch: true,
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
@@ -252,7 +252,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             title: "OpenCode",
             kind: .commandTemplate,
             commandTemplate: "opencode run",
-            sendPromptAfterLaunch: true,
+            preservePromptAfterLaunch: true,
             systemImage: "curlybraces",
             assetName: "AgentIcons/OpenCode",
             backgroundColorHex: "#B5E48C"
@@ -262,7 +262,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             title: "Pi",
             kind: .commandTemplate,
             commandTemplate: "pi",
-            sendPromptAfterLaunch: true,
+            preservePromptAfterLaunch: true,
             systemImage: "brain.head.profile",
             assetName: "AgentIcons/Pi",
             backgroundColorHex: "#D0B3FF"
@@ -300,32 +300,17 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
                   !commandTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 return false
             }
-            return commandTemplate.contains("{{prompt}}") || shouldSendPromptAfterLaunch
+            return commandTemplate.contains("{{prompt}}") || shouldPreservePromptAfterLaunch
         }
     }
 
-    var shouldSendPromptAfterLaunch: Bool {
-        sendPromptAfterLaunch == true
-    }
-
-    var launchedAgentContext: String {
-        switch id {
-        case "claude":
-            return "restoredAgent:claude"
-        case "codex":
-            return "restoredAgent:codex"
-        case "opencode":
-            return "restoredAgent:opencode"
-        case "pi":
-            return "restoredAgent:pi"
-        default:
-            return ""
-        }
+    var shouldPreservePromptAfterLaunch: Bool {
+        preservePromptAfterLaunch == true
     }
 
     func launchCommand() -> String? {
         guard kind == .commandTemplate,
-              shouldSendPromptAfterLaunch,
+              shouldPreservePromptAfterLaunch,
               let commandTemplate,
               !commandTemplate.contains("{{prompt}}") else {
             return nil
