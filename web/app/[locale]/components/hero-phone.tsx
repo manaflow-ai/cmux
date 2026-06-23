@@ -115,14 +115,14 @@ export function HeroPhone() {
     );
   }
 
-  // Default: static, links to the iOS docs (no hover scale).
+  // Default: static, links to the iOS landing page (no hover scale).
   // No own fade: HeroScreenshot fades the Mac + phone together, in sync.
   return (
     <div
       style={style}
       className={`pointer-events-none absolute z-10 drop-shadow-[0_28px_60px_rgba(0,0,0,0.5)] ${sizeClasses}`}
     >
-      <Link href="/docs/ios" aria-label="cmux on iOS" className="pointer-events-auto block">
+      <Link href="/ios" aria-label="cmux iOS" className="pointer-events-auto block">
         {img}
       </Link>
     </div>
