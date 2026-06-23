@@ -4795,6 +4795,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
+
+        // Registration makes this manager reachable through `tabManagerFor`, so it
+        // is also a replay trigger: reports that arrived after the restored `tabs`
+        // were assigned but before the window registered would otherwise sit
+        // buffered until an unrelated tabs change (issue #6618).
+        tabManager.flushPendingShellActivityForRegisteredWorkspaces()
     }
 
 #if DEBUG

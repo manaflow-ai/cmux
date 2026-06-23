@@ -63,6 +63,30 @@ import CmuxWorkspaces
         )
     }
 
+    // The restore race also has a window where reports land after the restored
+    // `tabs` were assigned but before the window registers with AppDelegate. No
+    // tabs change follows, so manager registration must itself replay the buffer.
+    @Test func bufferedReportReplaysOnManagerRegistration() throws {
+        let appDelegate = try #require(AppDelegate.shared, "Test host AppDelegate expected")
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        defer { appDelegate.discardPendingShellActivity(forWorkspaceId: workspace.id) }
+
+        #expect(appDelegate.tabManagerFor(tabId: workspace.id) == nil)
+        appDelegate.recordReportedShellActivity(workspaceId: workspace.id, surfaceId: panelId, state: .promptIdle)
+        #expect(appDelegate.hasPendingShellActivityReports)
+
+        // No tabs change — registration is the only replay trigger here.
+        manager.flushPendingShellActivityForRegisteredWorkspaces()
+
+        #expect(
+            workspace.panelShellActivityStates[panelId] == .promptIdle,
+            "Manager registration must replay reports buffered before it became reachable"
+        )
+        #expect(!appDelegate.hasPendingShellActivityReports)
+    }
+
     // A buffered report for a surface that does not exist when the workspace
     // registers (stale/post-close telemetry) must be discarded, not retained
     // forever — otherwise a single workspace's bucket grows unbounded.

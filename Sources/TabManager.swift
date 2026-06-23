@@ -252,6 +252,14 @@ class TabManager: ObservableObject {
         replayPendingShellActivity(for: newValue)
     }
 
+    /// Replays buffered shell-activity reports for this manager's current
+    /// workspaces. Called when the manager becomes reachable through
+    /// `AppDelegate` routing (`registerMainWindow`), covering reports that arrived
+    /// after a restored `tabs` assignment but before registration (issue #6618).
+    func flushPendingShellActivityForRegisteredWorkspaces() {
+        replayPendingShellActivity(for: tabs)
+    }
+
     /// Replays shell-activity reports that arrived before their workspace was
     /// reachable through any `TabManager` (issue #6618). Runs from the `didChange`
     /// hook, where `tabs` already holds the new value, so the prompt-idle PR probe
