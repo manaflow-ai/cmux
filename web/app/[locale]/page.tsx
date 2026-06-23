@@ -74,10 +74,7 @@ function HomeContent() {
 
         {/* Tagline */}
         <p className="text-lg leading-relaxed mb-3 text-foreground">
-          <span className="sr-only">
-            {t("taglinePrefix")}
-            {t("typingCodingAgents")}, {t("typingMultitasking")}
-          </span>
+          <span className="sr-only">{t("taglineStatic")}</span>
           <span aria-hidden="true">
             {t("taglinePrefix")}
             <TypingTagline />
