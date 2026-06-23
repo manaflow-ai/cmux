@@ -228,7 +228,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "claude",
             title: "Claude",
             kind: .commandTemplate,
-            commandTemplate: "claude {{prompt}}",
+            commandTemplate: "claude -- {{prompt}}",
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
             backgroundColorHex: "#F6D5C8"
@@ -237,7 +237,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "codex",
             title: "Codex",
             kind: .commandTemplate,
-            commandTemplate: "codex {{prompt}}",
+            commandTemplate: "codex -- {{prompt}}",
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
@@ -246,7 +246,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "opencode",
             title: "OpenCode",
             kind: .commandTemplate,
-            commandTemplate: "opencode {{prompt}}",
+            commandTemplate: "opencode run -- {{prompt}}",
             systemImage: "curlybraces",
             assetName: "AgentIcons/OpenCode",
             backgroundColorHex: "#B5E48C"
@@ -255,7 +255,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "pi",
             title: "Pi",
             kind: .commandTemplate,
-            commandTemplate: "pi {{prompt}}",
+            commandTemplate: "pi -- {{prompt}}",
             systemImage: "brain.head.profile",
             assetName: "AgentIcons/Pi",
             backgroundColorHex: "#D0B3FF"

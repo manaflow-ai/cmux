@@ -1195,6 +1195,19 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
     }
 
+    func testBuiltInTextBoxSubmitActionsTerminateProviderOptionsBeforePrompt() throws {
+        let commandsByID = Dictionary(
+            uniqueKeysWithValues: TextBoxSubmitAction.builtInActions.compactMap { action in
+                action.command(forPrompt: "--dangerously-skip-permissions").map { (action.id, $0) }
+            }
+        )
+
+        XCTAssertEqual(commandsByID["claude"], "claude -- '--dangerously-skip-permissions'")
+        XCTAssertEqual(commandsByID["codex"], "codex -- '--dangerously-skip-permissions'")
+        XCTAssertEqual(commandsByID["opencode"], "opencode run -- '--dangerously-skip-permissions'")
+        XCTAssertEqual(commandsByID["pi"], "pi -- '--dangerously-skip-permissions'")
+    }
+
     func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
         let defaults = UserDefaults.standard
         let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey

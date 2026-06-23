@@ -82,7 +82,7 @@ Press Shift-Tab in the TextBox to cycle the default action. Right-click the subm
         "id": "codex",
         "title": "Codex",
         "kind": "commandTemplate",
-        "commandTemplate": "codex {{prompt}}",
+        "commandTemplate": "codex -- {{prompt}}",
         "systemImage": "sparkles",
         "assetName": "AgentIcons/Codex",
         "backgroundColorHex": "#8FDBFF"
@@ -111,7 +111,7 @@ Action fields:
 - `id`: stable action ID.
 - `title`: menu label for custom actions.
 - `kind`: `textEntry` or `commandTemplate`.
-- `commandTemplate`: shell command for `commandTemplate`; include `{{prompt}}` where the shell-quoted prompt should go.
+- `commandTemplate`: shell command for `commandTemplate`; include `{{prompt}}` where the shell-quoted prompt should go. Use a provider option terminator such as `-- {{prompt}}` when the provider supports positional prompts.
 - `systemImage`: fallback SF Symbol name shown on the submit button.
 - `assetName`: optional app asset catalog image name, for example `AgentIcons/Codex`.
 - `imagePath`: optional PNG or image path for the submit button.
