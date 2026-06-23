@@ -1,3 +1,4 @@
+import CmuxPanes
 import SwiftUI
 
 /// A compact per-pane control bar shown above each mirrored tmux pane.

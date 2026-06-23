@@ -3,6 +3,7 @@ import Foundation
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
+import CmuxPanes
 import CmuxTestSupport
 import CmuxTerminal
 import CmuxFoundation
@@ -249,23 +250,12 @@ private func terminalViewportFormat(_ value: CGFloat) -> String {
 }
 #endif
 
-/// Shared appearance settings for panels
-struct PanelAppearance {
-    let backgroundColor: NSColor
-    let foregroundColor: NSColor
-    let dividerColor: Color
-    let unfocusedOverlayNSColor: NSColor
-    let unfocusedOverlayOpacity: Double
-    let usesClearContentBackground: Bool
-
-    var contentBackgroundColor: NSColor {
-        usesClearContentBackground ? .clear : backgroundColor
-    }
-
-    var drawsContentBackground: Bool {
-        !usesClearContentBackground
-    }
-
+// App-side factories that resolve a `PanelAppearance` (a package value type in
+// CmuxPanes) from a Ghostty config. These stay in the app target because they
+// read the app-owned window-background composition policy, the Ghostty
+// background theme, and the readable-foreground color helper, none of which
+// belong in the panel package.
+extension PanelAppearance {
     static func fromConfig(_ config: GhosttyConfig) -> PanelAppearance {
         fromConfig(
             config,
@@ -294,13 +284,5 @@ struct PanelAppearance {
                 usesTransparentWindow: usesTransparentWindow
             )
         )
-    }
-
-    static func shouldUseClearContentBackground(
-        opacity: Double,
-        usesGhosttyGlassStyle: Bool,
-        usesTransparentWindow: Bool
-    ) -> Bool {
-        usesTransparentWindow || usesGhosttyGlassStyle || opacity < 0.999
     }
 }

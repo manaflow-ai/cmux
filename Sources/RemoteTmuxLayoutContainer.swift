@@ -1,4 +1,5 @@
 import Bonsplit
+import CmuxPanes
 import SwiftUI
 
 /// Recursive split container that lays out one ``RemoteTmuxLayoutNode`` subtree,

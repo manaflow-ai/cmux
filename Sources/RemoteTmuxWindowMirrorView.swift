@@ -1,3 +1,4 @@
+import CmuxPanes
 import SwiftUI
 
 /// Renders a mirrored tmux window's multi-pane layout as nested splits inside a
