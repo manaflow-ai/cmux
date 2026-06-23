@@ -681,6 +681,312 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    // #6622: cmux's `claude` wrapper mints a fresh `--session-id <uuid>` for every create-new
+    // launch. When such a launch was meant to resume a backgrounded agent, the empty session
+    // never receives a message and writes no transcript — an unrecoverable "ghost" id — while
+    // the real conversation stays alive as a separate background-agent session under a different
+    // id. Restore must reconcile the panel to the live background agent's real session id (from
+    // `claude agents --json`), so resume targets the real conversation (`--resume <real-id>`),
+    // never the empty ghost id and never a fresh `--session-id`.
+    func testClaudeGhostSessionReconcilesToLiveBackgroundAgent() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ghost-session-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+
+        // The real conversation: the live background agent's transcript in the cwd project dir.
+        let realSessionId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        let realTranscriptURL = projectDir.appendingPathComponent("\(realSessionId).jsonl", isDirectory: false)
+        try writeClaudeTranscript(sessionId: realSessionId, transcriptURL: realTranscriptURL, cwd: cwd)
+
+        // The ghost: a create-new `--session-id` id whose `<ghost>.jsonl` was never written.
+        let ghostSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                ghostSessionId: hookRecord(
+                    sessionId: ghostSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: false,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(sessionId: realSessionId, cwd: cwd.path, kind: "background")]
+            }
+        )
+        let snapshot = try XCTUnwrap(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "The ghost panel must reconcile to the live background agent instead of being dropped."
+        )
+
+        XCTAssertEqual(
+            snapshot.sessionId, realSessionId,
+            "tracked sessionId must reconcile from the empty ghost id to the live background agent id"
+        )
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(
+            resumeCommand.contains(realSessionId),
+            "resume must target the real conversation; got: \(resumeCommand)"
+        )
+        XCTAssertFalse(
+            resumeCommand.contains(ghostSessionId),
+            "resume must not target the empty ghost id; got: \(resumeCommand)"
+        )
+        XCTAssertTrue(
+            resumeCommand.contains("--resume"),
+            "resume must use --resume <real-id>; got: \(resumeCommand)"
+        )
+        XCTAssertFalse(
+            resumeCommand.contains("--session-id"),
+            "resume must never mint a fresh --session-id; got: \(resumeCommand)"
+        )
+    }
+
+    // Graceful degradation for #6622: with no live background agent reported for the cwd, a
+    // transcript-less ghost stays non-restorable exactly as before — reconciliation never
+    // guesses from the filesystem.
+    func testClaudeGhostSessionWithoutBackgroundAgentStaysNonRestorable() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ghost-nomatch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        // A real sibling transcript exists, but no daemon agent is reported for this cwd, so
+        // the ghost must NOT be healed off the filesystem alone.
+        try writeClaudeTranscript(
+            sessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb",
+            transcriptURL: projectDir.appendingPathComponent("bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb.jsonl", isDirectory: false),
+            cwd: cwd
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa": hookRecord(
+                    sessionId: "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa",
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: false,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "without a daemon match a transcript-less ghost must stay non-restorable"
+        )
+    }
+
+    // Safety gate for #6622: a Claude session that already owns its transcript is a real
+    // conversation and keeps its id, even when the daemon reports a background agent for the
+    // same cwd. Reconciliation must never reattach a real session.
+    func testClaudeSessionWithOwnTranscriptIsNotReconciled() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-own-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+
+        let ownSessionId = "cccccccc-3333-3333-3333-cccccccccccc"
+        try writeClaudeTranscript(sessionId: ownSessionId, cwd: cwd, projectsDir: projectsDir)
+        let otherSessionId = "dddddddd-4444-4444-4444-dddddddddddd"
+        try writeClaudeTranscript(sessionId: otherSessionId, cwd: cwd, projectsDir: projectsDir)
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                ownSessionId: hookRecord(
+                    sessionId: ownSessionId,
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: true,
+                    updatedAt: 30
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(sessionId: otherSessionId, cwd: cwd.path, kind: "background")]
+            }
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(
+            snapshot.sessionId, ownSessionId,
+            "a real session with its own transcript must keep its id, not adopt a background agent"
+        )
+    }
+
+    // Safety gate for #6622: a reconciled background agent whose transcript is not on disk is
+    // not surfaced — that would only swap one broken resume for another.
+    func testClaudeGhostReconcilesOnlyWhenBackgroundAgentTranscriptExists() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-ghost-no-real-transcript-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(expectedClaudeProjectDirName(cwd.path), isDirectory: true),
+            withIntermediateDirectories: true
+        )
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa": hookRecord(
+                    sessionId: "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa",
+                    workspaceId: workspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    isRestorable: false,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        // The daemon reports a background agent, but no transcript exists for it on disk.
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(
+                    sessionId: "99999999-9999-9999-9999-999999999999",
+                    cwd: cwd.path,
+                    kind: "background"
+                )]
+            }
+        )
+        XCTAssertNil(
+            index.snapshot(workspaceId: workspaceId, panelId: panelId),
+            "a reconciled id without an on-disk transcript must not be surfaced as restorable"
+        )
+    }
+
+    // Safety gate for #6622: a brand-new Claude panel is transcript-less until its first prompt
+    // and has a LIVE process. Reconciliation must NOT hijack such an in-use session to the cwd's
+    // background agent — only an abandoned ghost (no live process) is reconciled.
+    func testClaudeTranscriptlessSessionWithLiveProcessIsNotHijacked() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-live-ghost-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        let projectDir = projectsDir.appendingPathComponent(
+            expectedClaudeProjectDirName(cwd.path),
+            isDirectory: true
+        )
+        try fm.createDirectory(at: projectDir, withIntermediateDirectories: true)
+        // A live background agent exists in the same cwd.
+        let backgroundAgentId = "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb"
+        try writeClaudeTranscript(
+            sessionId: backgroundAgentId,
+            transcriptURL: projectDir.appendingPathComponent("\(backgroundAgentId).jsonl", isDirectory: false),
+            cwd: cwd
+        )
+
+        // A transcript-less Claude session (e.g. a freshly opened panel) WITH a live process.
+        let liveSessionId = "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa"
+        let livePid = 4242
+        let workspaceId = UUID()
+        let panelId = UUID()
+        var record = hookRecord(
+            sessionId: liveSessionId,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            cwd: cwd.path,
+            configDir: configDir.path,
+            isRestorable: false,
+            updatedAt: 20
+        )
+        record["pid"] = livePid
+        try writeClaudeHookStore(root: root, sessions: [liveSessionId: record])
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            processArgumentsProvider: { pid in
+                guard pid == livePid else { return nil }
+                return CmuxTopProcessArguments(
+                    arguments: ["/usr/local/bin/claude"],
+                    environment: [
+                        "CMUX_WORKSPACE_ID": workspaceId.uuidString,
+                        "CMUX_SURFACE_ID": panelId.uuidString,
+                        "CMUX_AGENT_LAUNCH_KIND": "claude",
+                    ]
+                )
+            },
+            backgroundAgentsProvider: { _ in
+                [ClaudeBackgroundAgentSnapshot(sessionId: backgroundAgentId, cwd: cwd.path, kind: "background")]
+            }
+        )
+
+        let snapshot = index.snapshot(workspaceId: workspaceId, panelId: panelId)
+        XCTAssertNotEqual(
+            snapshot?.sessionId, backgroundAgentId,
+            "a transcript-less Claude session with a live process must not be hijacked to the cwd's background agent"
+        )
+    }
+
     /// Mirrors Claude's external project-directory naming rule ("/" and "." both become "-")
     /// independently of the production `encodeClaudeProjectDir`, so these regression tests fail if
     /// that helper regresses instead of masking it by sharing the same code path.
@@ -1097,6 +1403,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     }
 
     private func writeClaudeTranscript(sessionId: String, transcriptURL: URL, cwd: URL) throws {
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try """
         {"type":"last-prompt","sessionId":"\(sessionId)"}
         {"type":"user","sessionId":"\(sessionId)","cwd":"\(cwd.path)","message":{"role":"user","content":"hello"}}
@@ -1273,5 +1583,145 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             to: stateDir.appendingPathComponent(storeFilename, isDirectory: false),
             options: .atomic
         )
+    }
+
+    // MARK: - ClaudeBackgroundAgentsQuery (#6622)
+
+    // The query's cache/TTL behaviour is decoupled from the `claude agents --json` subprocess
+    // via injected `probe` and `now` seams, so it is unit-testable without spawning a process.
+    func testClaudeBackgroundAgentsQueryCachesWithinTTLAndRefreshesAfter() {
+        let clock = TestClock(Date(timeIntervalSince1970: 1000))
+        let calls = CallCounter()
+        let query = ClaudeBackgroundAgentsQuery(
+            cacheTTL: 20,
+            now: { clock.current },
+            probe: { _ in
+                calls.increment()
+                return [ClaudeBackgroundAgentSnapshot(sessionId: "real", cwd: "/repo", kind: "background")]
+            }
+        )
+
+        XCTAssertEqual(query.live(configDir: "/cfg").first?.sessionId, "real")
+        _ = query.live(configDir: "/cfg")
+        XCTAssertEqual(calls.value, 1, "a second call within the TTL must reuse the cache, not re-probe")
+
+        clock.current = clock.current.addingTimeInterval(25)
+        _ = query.live(configDir: "/cfg")
+        XCTAssertEqual(calls.value, 2, "a call past the TTL must re-probe")
+    }
+
+    func testClaudeBackgroundAgentsQueryCachesPerConfigDir() {
+        let calls = CallCounter()
+        let query = ClaudeBackgroundAgentsQuery(
+            cacheTTL: 20,
+            now: { Date(timeIntervalSince1970: 1000) },
+            probe: { _ in calls.increment(); return [] }
+        )
+        _ = query.live(configDir: "/a")
+        _ = query.live(configDir: "/b")
+        _ = query.live(configDir: "/a")
+        XCTAssertEqual(calls.value, 2, "each distinct config dir probes once; the repeat is cached")
+    }
+
+    func testClaudeBackgroundAgentsQueryCachedOnlyToleratesProbeTTLForSaveThenExpires() {
+        let clock = TestClock(Date(timeIntervalSince1970: 1000))
+        let calls = CallCounter()
+        let query = ClaudeBackgroundAgentsQuery(
+            cacheTTL: 20,
+            saveTolerance: 100,
+            now: { clock.current },
+            probe: { _ in
+                calls.increment()
+                return [ClaudeBackgroundAgentSnapshot(sessionId: "real", cwd: "/repo", kind: "background")]
+            }
+        )
+
+        XCTAssertTrue(query.cachedOnly(configDir: "/cfg").isEmpty, "cachedOnly must not probe a cold cache")
+        XCTAssertEqual(calls.value, 0)
+
+        _ = query.live(configDir: "/cfg")
+        XCTAssertEqual(query.cachedOnly(configDir: "/cfg").first?.sessionId, "real", "a warm cache is reused")
+
+        // Past the probe TTL but within the save tolerance: the synchronous quit save still
+        // reconciles, so a quit shortly after the last off-main refresh keeps the real session id
+        // instead of re-persisting the empty ghost.
+        clock.current = clock.current.addingTimeInterval(25)
+        XCTAssertEqual(
+            query.cachedOnly(configDir: "/cfg").first?.sessionId, "real",
+            "cachedOnly tolerates probe-TTL staleness for the save path"
+        )
+
+        // Past the save tolerance: degrade to no reconciliation.
+        clock.current = clock.current.addingTimeInterval(100)
+        XCTAssertTrue(query.cachedOnly(configDir: "/cfg").isEmpty, "a long-idle entry expires")
+        XCTAssertEqual(calls.value, 1, "cachedOnly never spawns the probe")
+    }
+
+    // #6622: the live (spawning) provider is invoked at most `maxBackgroundAgentProbes` times
+    // per load across distinct config dirs, so a hook store with transcript-less ghosts spread
+    // over many config dirs cannot chain unbounded `claude agents --json` subprocess waits. This
+    // is a simple per-load counter, not a time window a slow probe could reset.
+    func testBackgroundAgentProbesAreCappedPerLoad() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-probe-cap-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let workspaceId = UUID()
+        var sessions: [String: [String: Any]] = [:]
+        for index in 0..<3 {
+            let config = root.appendingPathComponent("config-\(index)", isDirectory: true)
+            try fm.createDirectory(
+                at: config.appendingPathComponent("projects", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            let cwd = root.appendingPathComponent("repo-\(index)", isDirectory: true)
+            try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+            let sessionId = "0000000\(index)-1111-1111-1111-aaaaaaaaaaaa"
+            sessions[sessionId] = hookRecord(
+                sessionId: sessionId,
+                workspaceId: workspaceId,
+                panelId: UUID(),
+                cwd: cwd.path,
+                configDir: config.path,
+                isRestorable: false,
+                updatedAt: 20
+            )
+        }
+        try writeClaudeHookStore(root: root, sessions: sessions)
+
+        let probeCalls = CallCounter()
+        _ = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            maxBackgroundAgentProbes: 2,
+            backgroundAgentsProvider: { _ in
+                probeCalls.increment()
+                return []
+            }
+        )
+        XCTAssertEqual(
+            probeCalls.value, 2,
+            "the live provider must run at most maxBackgroundAgentProbes times per load across distinct config dirs"
+        )
+    }
+
+    private final class TestClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Date
+        init(_ value: Date) { self.value = value }
+        var current: Date {
+            get { lock.lock(); defer { lock.unlock() }; return value }
+            set { lock.lock(); value = newValue; lock.unlock() }
+        }
+    }
+
+    private final class CallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func increment() { lock.lock(); count += 1; lock.unlock() }
+        var value: Int { lock.lock(); defer { lock.unlock() }; return count }
     }
 }

@@ -2047,7 +2047,16 @@ final class SharedLiveAgentIndex: ObservableObject {
             let newIndex = await Task.detached(priority: .utility) {
                 // agent-index-load-ok: off-main cache loader (this IS the sanctioned home
                 // for load(); everything else should read SharedLiveAgentIndex.shared).
-                RestorableAgentSessionIndex.load()
+                // Reconcile transcript-less Claude ghost panels (a wrapper-minted, create-new
+                // `--session-id`) to their real background-agent session id via the Claude
+                // Code daemon. Best-effort and off-main; degrades to no reconciliation.
+                // https://github.com/manaflow-ai/cmux/issues/6622
+                RestorableAgentSessionIndex.load(
+                    maxBackgroundAgentProbes: RestorableAgentSessionIndex.liveBackgroundAgentProbesPerLoad,
+                    backgroundAgentsProvider: { configDir in
+                        ClaudeBackgroundAgentsQuery.shared.live(configDir: configDir)
+                    }
+                )
             }.value
             guard let self else { return }
             // Assigning to `@Published` fires objectWillChange, which subscribed

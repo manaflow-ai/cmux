@@ -1022,34 +1022,57 @@ struct RestorableAgentSessionIndex: Sendable {
     // panel/window close, SwiftUI body, didSet, menu evaluation, socket handlers). Read
     // the off-main, cached `SharedLiveAgentIndex.shared` instead. The only sanctioned
     // synchronous callers are cold-cache fallbacks guarded by a nil cache check.
+    /// Resolves the live Claude background agents for a given `CLAUDE_CONFIG_DIR` (via
+    /// `claude agents --json`) so a transcript-less ghost panel can be reconciled to its real
+    /// session id. `@Sendable` so it can cross into the off-main `Task.detached` loaders.
+    /// Defaults to none, which keeps synchronous/cold-cache load paths (and tests) free of any
+    /// subprocess. https://github.com/manaflow-ai/cmux/issues/6622
+    typealias ClaudeBackgroundAgentsProvider = @Sendable (String?) -> [ClaudeBackgroundAgentSnapshot]
+
     static func load(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maxBackgroundAgentProbes: Int = .max,
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         return load(
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: [:]
+            detectedSnapshots: [:],
+            maxBackgroundAgentProbes: maxBackgroundAgentProbes,
+            backgroundAgentsProvider: backgroundAgentsProvider
         )
     }
 
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        // This overload is always off-main (Task.detached), so it reconciles ghost panels by
+        // default: every async caller (command-palette forkability, hibernation, …) sees the
+        // same real session id as SharedLiveAgentIndex instead of silently opting out, bounded by
+        // the live per-load probe cap. https://github.com/manaflow-ai/cmux/issues/6622
+        maxBackgroundAgentProbes: Int = liveBackgroundAgentProbesPerLoad,
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = {
+            ClaudeBackgroundAgentsQuery.shared.live(configDir: $0)
+        }
     ) async -> RestorableAgentSessionIndex {
         await Task.detached(priority: .utility) {
             loadIncludingProcessDetectedSnapshotsSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                maxBackgroundAgentProbes: maxBackgroundAgentProbes,
+                backgroundAgentsProvider: backgroundAgentsProvider
             )
         }.value
     }
 
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maxBackgroundAgentProbes: Int = .max,
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
         let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
         let detectedSnapshots = processDetectedSnapshots(
@@ -1060,9 +1083,19 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            maxBackgroundAgentProbes: maxBackgroundAgentProbes,
+            backgroundAgentsProvider: backgroundAgentsProvider
         )
     }
+
+    /// Per-load cap on distinct config dirs the spawning (off-main, live) provider probes, so a
+    /// hook store littered with transcript-less ghosts across many config dirs cannot turn one
+    /// index load into an N×timeout chain of `claude agents --json` waits. A simple per-load
+    /// counter (not a time window a slow probe could reset). The synchronous `cachedOnly` path
+    /// never spawns, so its callers pass `.max` and reconcile every cached config.
+    /// https://github.com/manaflow-ai/cmux/issues/6622
+    static let liveBackgroundAgentProbesPerLoad = 4
 
     static func load(
         homeDirectory: String,
@@ -1071,8 +1104,30 @@ struct RestorableAgentSessionIndex: Sendable {
         detectedSnapshots: [PanelKey: ProcessDetectedSnapshotEntry],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
-        }
+        },
+        maxBackgroundAgentProbes: Int = .max,
+        backgroundAgentsProvider: @escaping ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> RestorableAgentSessionIndex {
+        // Resolve background agents at most once per config dir per load, only when a
+        // transcript-less Claude ghost actually needs reconciliation (the provider fires lazily
+        // from `resolvedClaudeWorkflowRecord`), and at most `maxBackgroundAgentProbes` distinct
+        // config dirs per load so the spawning path stays bounded. The query itself owns the TTL
+        // cache, eviction, and concurrent-miss coalescing. https://github.com/manaflow-ai/cmux/issues/6622
+        var backgroundAgentsByConfigDir: [String: [ClaudeBackgroundAgentSnapshot]] = [:]
+        var probedConfigDirCount = 0
+        func backgroundAgents(forConfigDir configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
+            let key = configDir ?? ""
+            if let cached = backgroundAgentsByConfigDir[key] { return cached }
+            let resolved: [ClaudeBackgroundAgentSnapshot]
+            if probedConfigDirCount >= maxBackgroundAgentProbes {
+                resolved = []
+            } else {
+                probedConfigDirCount += 1
+                resolved = backgroundAgentsProvider(configDir)
+            }
+            backgroundAgentsByConfigDir[key] = resolved
+            return resolved
+        }
         let decoder = JSONDecoder()
         var resolved: [PanelKey: Entry] = [:]
         let claudeTranscriptLookup = ClaudeTranscriptLookupCache(
@@ -1103,7 +1158,9 @@ struct RestorableAgentSessionIndex: Sendable {
                     ? resolvedClaudeWorkflowRecord(
                         record,
                         fileManager: fileManager,
-                        lookup: claudeTranscriptLookup
+                        lookup: claudeTranscriptLookup,
+                        backgroundAgents: backgroundAgents(forConfigDir:),
+                        processArgumentsProvider: processArgumentsProvider
                     )
                     : record
                 // Drop untrusted launch captures before ANY derivation: the
@@ -1271,8 +1328,18 @@ struct RestorableAgentSessionIndex: Sendable {
     private static func resolvedClaudeWorkflowRecord(
         _ record: RestorableAgentHookSessionRecord,
         fileManager: FileManager,
-        lookup: ClaudeTranscriptLookupCache
+        lookup: ClaudeTranscriptLookupCache,
+        backgroundAgents: (String?) -> [ClaudeBackgroundAgentSnapshot],
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
     ) -> RestorableAgentHookSessionRecord {
+        // Sanitize the launch capture up front so every config-root lookup and the daemon
+        // reconciliation below use only a TRUSTED launch command. A Claude session launched
+        // under another agent inherits the ancestor's CMUX_AGENT_LAUNCH_* env, whose cwd/config
+        // would otherwise poison the project-root search and match the ghost to an unrelated
+        // conversation. An untrusted capture drops to nil, falling back to the hook-reported
+        // cwd and the default config root. https://github.com/manaflow-ai/cmux/issues/6622
+        var record = record
+        record.launchCommand = trustedLaunchCommand(record.launchCommand, kind: .claude)
         guard let sessionId = normalizedNonEmptyValue(record.sessionId),
               claudeSessionIdIsSafeFilename(sessionId) else {
             return record
@@ -1287,25 +1354,150 @@ struct RestorableAgentSessionIndex: Sendable {
 
         let roots = lookup.configRoots(for: record)
         guard !roots.isEmpty else { return record }
-        let candidateProjectDirs = claudeWorkflowProjectDirs(
+
+        // (1) Workflow container session: `<sessionId>/` is a directory holding the real
+        // sub-session `.jsonl` files; `claude --resume` needs one of those sibling
+        // transcripts, not the container id.
+        let workflowProjectDirs = claudeWorkflowProjectDirs(
             for: record,
             sessionId: sessionId,
             roots: roots,
             fileManager: fileManager,
             lookup: lookup
         )
-        guard let resolved = newestClaudeSiblingTranscript(
-            in: candidateProjectDirs,
+        if let resolved = newestClaudeSiblingTranscript(
+            in: workflowProjectDirs,
             excludingSessionId: sessionId,
             fileManager: fileManager
-        ) else {
-            return record
+        ) {
+            return claudeRecord(record, healedTo: resolved.sessionId, transcriptPath: resolved.path)
         }
 
-        var resolvedRecord = record
-        resolvedRecord.sessionId = resolved.sessionId
-        resolvedRecord.transcriptPath = resolved.path
-        return resolvedRecord
+        // (2) Ghost session (https://github.com/manaflow-ai/cmux/issues/6622): cmux's
+        // `claude` wrapper mints a fresh `--session-id <uuid>` for every create-new launch.
+        // When such a launch was meant to resume a backgrounded agent, the empty session
+        // never receives a message, so `<sessionId>.jsonl` is never written and
+        // `claude --resume <ghost>` fails with "No conversation found". The user's real
+        // conversation stays alive as a separate background-agent session in the Claude Code
+        // daemon under a different id. Ask the daemon (`claude agents --json`) for the live
+        // background agent in this cwd and reconcile the panel to its real session id, so
+        // resume targets the real conversation instead of the empty ghost id. Reconciliation
+        // only proceeds when this id owns no transcript (a real session is never reattached)
+        // and a real transcript exists for the reconciled id (so a still-pending agent is not
+        // surfaced as a broken resume). With no daemon match this degrades to today's
+        // behaviour: a transcript-less Claude record stays non-restorable.
+        guard !claudeTranscriptExists(for: record, fileManager: fileManager, lookup: lookup) else {
+            return record
+        }
+        // Only reconcile an ABANDONED ghost — one whose process is gone. A transcript-less
+        // Claude record with a live process is an in-use session, and a brand-new Claude panel
+        // the user just opened in this cwd is also transcript-less until its first prompt; healing
+        // it to the cwd's background agent would silently retarget restore/fork/hibernate at the
+        // wrong conversation. The empty ghost's process has exited (its real conversation lives on
+        // as the daemon background agent), so gating on "no live process" reconciles it without
+        // stealing live sessions.
+        //
+        // Accepted residual: a genuinely-unrelated dead/empty Claude session in the same cwd as a
+        // single live background agent is indistinguishable from the ghost at this layer (cmux
+        // records no link between the wrapper-minted ghost id and the agent), so it is reconciled
+        // too. This is bounded (transcript-less + process-exited; the live-process gate protects
+        // every in-use session) and low-stakes (an already-empty panel reopens the user's own real
+        // conversation for that repo, not data loss), and is the intended best-effort behaviour —
+        // the alternative of never reconciling dead empties would defeat the fix entirely.
+        // https://github.com/manaflow-ai/cmux/issues/6622
+        guard !recordHasLiveClaudeProcess(record, processArgumentsProvider: processArgumentsProvider) else {
+            return record
+        }
+        // `record.launchCommand` is already trust-sanitized above, so `panelCwd`, `configDir`,
+        // and `roots` all derive from the same trusted config (or the default when untrusted).
+        // Require a cwd before probing: the reconciler can only match a background agent by cwd,
+        // so a record with no launch/recorded cwd can never reconcile and must not spawn or
+        // consume a `claude agents --json` probe. Standardize it so the same path feeds the
+        // (standardizing) daemon match and `encodeClaudeProjectDir` transcript lookup — a
+        // syntactic variant must not match the agent but miss the project dir.
+        guard let rawPanelCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+            ?? normalizedWorkingDirectory(record.cwd) else {
+            return record
+        }
+        let panelCwd = (rawPanelCwd as NSString).standardizingPath
+        let configDir = normalizedNonEmptyValue(record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"])
+        guard let realSessionId = ClaudeBackgroundAgentReconciler().reconciledSessionId(
+            forGhostSessionId: sessionId,
+            panelCwd: panelCwd,
+            backgroundAgents: backgroundAgents(configDir)
+        ),
+            realSessionId != sessionId,
+            claudeSessionIdIsSafeFilename(realSessionId),
+            let transcriptPath = backgroundAgentTranscriptPath(
+                forSessionId: realSessionId,
+                cwd: panelCwd,
+                roots: roots,
+                lookup: lookup
+            )
+        else {
+            return record
+        }
+        return claudeRecord(record, healedTo: realSessionId, transcriptPath: transcriptPath)
+    }
+
+    /// Whether the record's Claude process is still live and cmux-scoped to its panel — i.e.
+    /// an in-use session that ghost reconciliation must not retarget.
+    /// https://github.com/manaflow-ai/cmux/issues/6622
+    private static func recordHasLiveClaudeProcess(
+        _ record: RestorableAgentHookSessionRecord,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> Bool {
+        guard let workspaceId = UUID(uuidString: record.workspaceId),
+              let panelId = UUID(uuidString: record.surfaceId) else {
+            return false
+        }
+        return liveScopedProcessID(
+            for: record,
+            kind: .claude,
+            workspaceId: workspaceId,
+            panelId: panelId,
+            processArgumentsProvider: processArgumentsProvider
+        ) != nil
+    }
+
+    private static func claudeRecord(
+        _ record: RestorableAgentHookSessionRecord,
+        healedTo sessionId: String,
+        transcriptPath: String
+    ) -> RestorableAgentHookSessionRecord {
+        var resolved = record
+        resolved.sessionId = sessionId
+        resolved.transcriptPath = transcriptPath
+        return resolved
+    }
+
+    /// The on-disk transcript path for a daemon-reported background agent `sessionId`, filed
+    /// under `cwd`'s project dir (or any project under the record's config roots), or `nil`
+    /// when none exists. Confirms the reconciled agent has a resumable conversation before a
+    /// ghost panel adopts it. `cwd` is the SAME resolved panel cwd used to match the agent, so
+    /// the narrow same-cwd transcript check never disagrees with the match.
+    /// https://github.com/manaflow-ai/cmux/issues/6622
+    private static func backgroundAgentTranscriptPath(
+        forSessionId sessionId: String,
+        cwd: String?,
+        roots: [String],
+        lookup: ClaudeTranscriptLookupCache
+    ) -> String? {
+        // Require the transcript under the MATCHED cwd's project dir only. Resume runs from
+        // `panelCwd`, and `claude --resume` resolves the transcript under `projects/<encode(cwd)>`,
+        // so accepting an any-project hit would heal to an id that resume cannot find from this
+        // cwd ("No conversation found"). https://github.com/manaflow-ai/cmux/issues/6622
+        guard let cwd else { return nil }
+        for root in roots {
+            if let path = lookup.transcriptPath(
+                configRoot: root,
+                projectDirName: encodeClaudeProjectDir(cwd),
+                sessionId: sessionId
+            ) {
+                return path
+            }
+        }
+        return nil
     }
 
     private static func claudeWorkflowProjectDirs(
@@ -1899,13 +2091,23 @@ struct ProcessDetectedResumeIndexes: Sendable {
         fileManager: FileManager = .default
     ) async -> ProcessDetectedResumeIndexes {
         await Task.detached(priority: .utility) {
-            loadSynchronously(homeDirectory: homeDirectory, fileManager: fileManager)
+            // Off-main: reconcile transcript-less Claude ghost panels to their real
+            // background-agent id so the persisted session snapshot records the real id, not
+            // the empty ghost. https://github.com/manaflow-ai/cmux/issues/6622
+            loadSynchronously(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager,
+                maxBackgroundAgentProbes: RestorableAgentSessionIndex.liveBackgroundAgentProbesPerLoad,
+                backgroundAgentsProvider: { ClaudeBackgroundAgentsQuery.shared.live(configDir: $0) }
+            )
         }.value
     }
 
     static func loadSynchronously(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        maxBackgroundAgentProbes: Int = .max,
+        backgroundAgentsProvider: @escaping RestorableAgentSessionIndex.ClaudeBackgroundAgentsProvider = { _ in [] }
     ) -> ProcessDetectedResumeIndexes {
         let capturedAt = Date().timeIntervalSince1970
         let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
@@ -1920,7 +2122,9 @@ struct ProcessDetectedResumeIndexes: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager,
             registry: registry,
-            detectedSnapshots: detectedSnapshots
+            detectedSnapshots: detectedSnapshots,
+            maxBackgroundAgentProbes: maxBackgroundAgentProbes,
+            backgroundAgentsProvider: backgroundAgentsProvider
         )
         let detectedBindings = SurfaceResumeBindingIndex.processDetectedTmuxBindings(
             fileManager: fileManager,
