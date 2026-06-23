@@ -12390,12 +12390,6 @@ struct VerticalTabsSidebar: View {
             dropIndicator: dragState.dropIndicator,
             tabIds: sidebarReorderIds
         )
-        let bottomDropIndicatorVisible = SidebarTabDropIndicatorPredicate().bottomVisible(
-            forTabId: tab.id,
-            draggedTabId: dragState.draggedTabId,
-            dropIndicator: dragState.dropIndicator,
-            tabIds: sidebarReorderIds
-        )
         let onDragStart: () -> NSItemProvider = { [tabId = tab.id] in
             #if DEBUG
             cmuxDebugLog("sidebar.onDrag tab=\(tabId.uuidString.prefix(5))")
@@ -12427,7 +12421,6 @@ struct VerticalTabsSidebar: View {
             dragAutoScrollController: dragAutoScrollController,
             isBeingDragged: isBeingDragged,
             topDropIndicatorVisible: topDropIndicatorVisible,
-            bottomDropIndicatorVisible: bottomDropIndicatorVisible,
             onDragStart: onDragStart,
             contextMenuWorkspaceIds: contextMenuWorkspaceIds,
             remoteContextMenuWorkspaceIds: remoteContextMenuWorkspaceIds,
@@ -13244,7 +13237,6 @@ struct TabItemView: View, Equatable {
         lhs.workspaceGroupMenuSnapshot == rhs.workspaceGroupMenuSnapshot &&
         lhs.isBeingDragged == rhs.isBeingDragged &&
         lhs.topDropIndicatorVisible == rhs.topDropIndicatorVisible &&
-        lhs.bottomDropIndicatorVisible == rhs.bottomDropIndicatorVisible &&
         lhs.settings == rhs.settings
     }
 
@@ -13280,7 +13272,6 @@ struct TabItemView: View, Equatable {
     // unchanged.
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
-    let bottomDropIndicatorVisible: Bool
     let onDragStart: () -> NSItemProvider
     let contextMenuWorkspaceIds: [UUID]
     let remoteContextMenuWorkspaceIds: [UUID]
@@ -14037,12 +14028,6 @@ struct TabItemView: View, Equatable {
             SidebarWorkspaceTopDropIndicator(
                 isVisible: topDropIndicatorVisible,
                 isFirstRow: index == 0,
-                rowSpacing: rowSpacing
-            )
-        }
-        .overlay(alignment: .bottom) {
-            SidebarWorkspaceBottomDropIndicator(
-                isVisible: bottomDropIndicatorVisible,
                 rowSpacing: rowSpacing
             )
         }

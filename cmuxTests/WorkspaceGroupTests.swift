@@ -236,8 +236,14 @@ struct WorkspaceGroupTests {
             originalIds[3],
         ] + Array(originalIds.dropFirst(4)))
         #expect(forcedTopLevelIds == headerTargetIds)
-        #expect(SidebarTabDropIndicatorPredicate().bottomVisible(
+        #expect(!SidebarTabDropIndicatorPredicate().bottomVisible(
             forTabId: group.anchorWorkspaceId,
+            draggedTabId: originalIds[0],
+            dropIndicator: indicator,
+            tabIds: forcedTopLevelIds
+        ))
+        #expect(SidebarTabDropIndicatorPredicate().topVisible(
+            forTabId: originalIds[3],
             draggedTabId: originalIds[0],
             dropIndicator: indicator,
             tabIds: forcedTopLevelIds

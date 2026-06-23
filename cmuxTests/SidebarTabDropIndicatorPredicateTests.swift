@@ -79,11 +79,11 @@ private func expectFalse(_ value: Bool, _ message: String? = nil) {
         )
     }
 
-    @Test func ReturnsFalseWhenIndicatorTargetsPreviousRowBottomEdge() {
+    @Test func ReturnsTrueWhenIndicatorTargetsPreviousRowBottomEdge() {
         let firstId = UUID()
         let middleId = UUID()
         let draggedId = UUID()
-        expectFalse(
+        expectTrue(
             SidebarTabDropIndicatorPredicate().topVisible(
                 forTabId: middleId,
                 draggedTabId: draggedId,
@@ -152,10 +152,10 @@ private func expectFalse(_ value: Bool, _ message: String? = nil) {
         )
     }
 
-    @Test func ReturnsTrueWhenIndicatorTargetsThisRowBottomEdge() {
+    @Test func ReturnsFalseWhenIndicatorTargetsThisRowBottomEdge() {
         let rowId = UUID()
         let draggedId = UUID()
-        expectTrue(
+        expectFalse(
             SidebarTabDropIndicatorPredicate().bottomVisible(
                 forTabId: rowId,
                 draggedTabId: draggedId,
@@ -186,6 +186,48 @@ private func expectFalse(_ value: Bool, _ message: String? = nil) {
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: rowId, edge: .bottom),
                 tabIds: [UUID()]
+            )
+        )
+    }
+
+    @Test func BottomEdgeBetweenRowsHasExactlyOneVisibleDivider() {
+        let previousId = UUID()
+        let nextId = UUID()
+        let draggedId = UUID()
+        let tabIds = [previousId, nextId, draggedId]
+        let indicator = SidebarDropIndicator(tabId: previousId, edge: .bottom)
+        let predicate = SidebarTabDropIndicatorPredicate()
+
+        expectFalse(
+            predicate.topVisible(
+                forTabId: previousId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: tabIds
+            )
+        )
+        expectFalse(
+            predicate.bottomVisible(
+                forTabId: previousId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: tabIds
+            )
+        )
+        expectTrue(
+            predicate.topVisible(
+                forTabId: nextId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: tabIds
+            )
+        )
+        expectFalse(
+            predicate.bottomVisible(
+                forTabId: nextId,
+                draggedTabId: draggedId,
+                dropIndicator: indicator,
+                tabIds: tabIds
             )
         )
     }
@@ -227,9 +269,9 @@ private func expectFalse(_ value: Bool, _ message: String? = nil) {
         )
     }
 
-    @Test func ReturnsFalseWhenIndicatorTargetsLastRowBottomEdge() {
+    @Test func ReturnsTrueWhenIndicatorTargetsLastRowBottomEdge() {
         let lastId = UUID()
-        expectFalse(
+        expectTrue(
             SidebarTabDropIndicatorPredicate().emptyAreaTopVisible(
                 draggedTabId: UUID(),
                 dropIndicator: SidebarDropIndicator(tabId: lastId, edge: .bottom),
