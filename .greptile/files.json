@@ -26,6 +26,15 @@
       ]
     },
     {
+      "path": ".github/review-bot-rules/browser-automation-webkit-waits-off-main.md",
+      "description": "Source-of-truth cmux review rule for keeping browser socket automation WebKit waits off the main actor.",
+      "scope": [
+        "Sources/TerminalController.swift",
+        "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift",
+        "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/runtime-no-hacky-sleeps.md",
       "description": "Source-of-truth cmux review rule for fixed sleeps, delays, and polling used as runtime synchronization.",
       "scope": [

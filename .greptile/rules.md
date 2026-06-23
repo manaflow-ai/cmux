@@ -8,6 +8,7 @@ Review production Swift and runtime changes for:
 
 - Swift actor isolation mistakes.
 - Blocking runtime primitives and timing-based synchronization.
+- Browser socket automation commands that wait on WebKit/page callbacks from main actor paths instead of the socket worker.
 - Fixed sleeps, delays, and polling used as hacky synchronization.
 - Legacy concurrency patterns where Swift concurrency is available.
 - Incorrect `@concurrent` or `nonisolated async` behavior.
@@ -34,6 +35,14 @@ For production non-Swift app/runtime code and build/runtime scripts, flag fixed 
 Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal from the owning subsystem or a dedicated cancellation-aware timeout/retry abstraction with tests.
 
 Pass for deterministic test-only scaffolding, GitHub Actions workflow or action YAML sleeps used only for CI orchestration, pure presentation animation or progress timing, and existing delay code the PR does not introduce or worsen. Swift sleeps are covered by the Swift blocking runtime rule.
+
+## Browser Automation WebKit Waits Off Main
+
+For browser socket automation in `Sources/TerminalController.swift` and the cmux control socket policy, keep blocking waits off the main actor.
+
+Flag any `browser.*` command that waits on page JavaScript, WebKit callbacks, `WKHTTPCookieStore`, screenshot callbacks, or injected page hooks while routed through `.mainActor` or the main `processV2Command` switch. Require the command to be listed in `ControlCommandExecutionPolicy.socketWorkerMethods`, dispatched by the worker browser automation router, and covered by policy tests that prove worker routing.
+
+Worker-lane handlers may resolve panels, access WebKit/AppKit, or mutate browser state only inside explicit main hops such as `v2BrowserWithPanelContext` and `v2MainSync`. Pass for direct focus/show commands that do not wait, and for existing debt that the PR does not worsen.
 
 ## Full Internationalization
 
