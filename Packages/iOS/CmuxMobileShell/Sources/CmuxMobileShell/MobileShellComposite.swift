@@ -5,6 +5,7 @@ public import CmuxMobileRPC
 public import CmuxMobileShellModel
 internal import CmuxMobileSupport
 public import CmuxMobileTransport
+public import CmuxSyncStore
 public import Foundation
 import Observation
 internal import OSLog
@@ -87,6 +88,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // down (and blank the map) the moment the user signs out so a
             // shared device never renders the previous account's devices.
             evaluatePresenceSubscription()
+            evaluateSyncSubscription()
         }
     }
     public private(set) var connectionState: MobileConnectionState {
@@ -479,6 +481,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Optional and failure-tolerant like the registry: when `nil` or down, the
     /// device tree simply keeps its registry "last seen" hints.
     private let presence: (any PresenceSubscribing)?
+    /// Local-first device-list sync store (DESIGN.md feat-do-device-list). When
+    /// present AND `deviceListLocalFirst` is on, the device list is read from
+    /// this durable, DO-synced cache instead of a live `/api/devices` call, so it
+    /// survives app updates and appears on any device signed into the account.
+    /// `nil` keeps today's registry-driven list.
+    private let syncStore: (any CmuxSyncStoring)?
+    /// Resolved `mobileDeviceListLocalFirst` flag (DEBUG-on/Release-off). Gates
+    /// the whole sync path; OFF preserves the existing `/api/devices` behavior.
+    private let deviceListLocalFirst: Bool
+    /// Resolves the current team for the sync applier/read scope. Mirrors the
+    /// presence client's team scoping.
+    private let syncTeamIDProvider: (@Sendable () async -> String?)?
+    /// Builds a fresh `SyncTransport` (its own authenticated presence WebSocket)
+    /// pinned to the given team id, one per subscription attempt.
+    private let makeSyncTransport: (@Sendable (String) -> any SyncTransport)?
     private let identityProvider: (any MobileIdentityProviding)?
     private let reachability: any ReachabilityProviding
     // Internal (not private): used by the dismiss-sync extension file.
@@ -661,6 +678,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacStore: (any MobilePairedMacStoring)? = nil,
         deviceRegistry: (any DeviceRegistryRefreshing)? = nil,
         presence: (any PresenceSubscribing)? = nil,
+        syncStore: (any CmuxSyncStoring)? = nil,
+        deviceListLocalFirst: Bool = false,
+        syncTeamIDProvider: (@Sendable () async -> String?)? = nil,
+        makeSyncTransport: (@Sendable (String) -> any SyncTransport)? = nil,
         clientIDRepository: MobileClientIDRepository = MobileClientIDRepository(defaults: .standard),
         identityProvider: (any MobileIdentityProviding)? = nil,
         reachability: any ReachabilityProviding = ReachabilityService(),
@@ -680,6 +701,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.presence = presence
+        self.syncStore = syncStore
+        self.deviceListLocalFirst = deviceListLocalFirst
+        self.syncTeamIDProvider = syncTeamIDProvider
+        self.makeSyncTransport = makeSyncTransport
         self.identityProvider = identityProvider
         self.reachability = reachability
         self.deliveredNotificationClearer = deliveredNotificationClearer
@@ -744,6 +769,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     isolated deinit {
         presenceTask?.cancel()
+        syncTask?.cancel()
         networkPathObservationTask?.cancel()
         terminalEventListenerTask?.cancel()
         terminalSubscriptionStartTask?.cancel()
@@ -878,6 +904,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // Covers stores constructed already-signed-in (no isSignedIn edge) and
         // restarts a subscription torn down while backgrounded.
         evaluatePresenceSubscription()
+        evaluateSyncSubscription()
         resyncTerminalOutput(reason: "foreground", restartEventStream: true)
     }
 
@@ -1494,6 +1521,59 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// leads with the host the user is on. Mirrors ``loadPairedMacs()``: signed
     /// out yields an empty list.
     public func loadRegistryDevices() async {
+        // Local-first: when the flag is on AND a sync store + transport are wired
+        // (so a subscription can actually populate the store), the device list is
+        // the durable, DO-synced, cross-device collection read from the local
+        // store (no network). The read swap is gated on the SAME transport
+        // availability as `evaluateSyncSubscription()`, so enabling the flag
+        // without a presence URL never disables the registry with nothing feeding
+        // the store. If the store is still empty (DO unreachable, pre-seed), fall
+        // through to the `/api/devices` registry path below rather than show an
+        // empty tree. Flag OFF keeps the registry path verbatim.
+        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil, isSignedIn {
+            let requestingUserID = identityProvider?.currentUserID
+            let teamID = (await syncTeamIDProvider?()) ?? ""
+            // The team-resolve await may have suspended; only proceed if still the
+            // same signed-in user, so a stale read can't mutate the new session.
+            if isSignedIn, identityProvider?.currentUserID == requestingUserID, !teamID.isEmpty {
+                deviceListTeamID = teamID // the team the rendered list is for
+                // Team switched while a socket was pinned to the old team: restart
+                // the subscription so the new team streams + seeds.
+                if let active = syncSubscriptionTeamID, active != teamID {
+                    syncTask?.cancel()
+                    syncTask = nil
+                    syncSubscriptionTeamID = nil
+                    evaluateSyncSubscription()
+                }
+                // Serve the durable list when present. A non-mutating read so an
+                // EMPTY store does not clear the current list before falling
+                // through — otherwise a transient registry failure (a no-op that
+                // is meant to keep the tree) would surface as a blank tree.
+                if let devices = await syncStoreDevices(teamID: teamID), !devices.isEmpty {
+                    registryDevices = devices
+                    return
+                }
+                // Empty read. If the DO has already synced this team (cursor
+                // advanced past 0), that empty is AUTHORITATIVE — the team really
+                // has no devices — so show it rather than resurrecting stale
+                // registry rows the DO may have removed. Only fall back to the
+                // registry before the first sync (cursor 0 = cache not warm yet).
+                if let syncStore,
+                   let cursor = try? await syncStore.cursor(teamID: teamID, collection: devicesSyncCollection),
+                   cursor > 0 {
+                    // The cursor read suspended; only blank the tree if we are
+                    // still the same signed-in user on the same team this read was
+                    // for, so a stale read can never clear the current session's
+                    // list (mirrors syncStoreDevices' own guards).
+                    guard isSignedIn, identityProvider?.currentUserID == requestingUserID,
+                          (await syncTeamIDProvider?() ?? "") == teamID else { return }
+                    deviceSyncAuthoritativeTeamID = teamID
+                    registryDevices = []
+                    return
+                }
+            }
+            // Not-yet-synced store or unresolved team: fall through to the registry.
+        }
         guard isSignedIn, let deviceRegistry else {
             registryDevices = []
             return
@@ -1553,6 +1633,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// device sorts first, then most-recently-seen.
     public var deviceTreeDevices: [RegistryDevice] {
         if !registryDevices.isEmpty { return registryDevices }
+        // In local-first mode, once the store has AUTHORITATIVELY synced the team
+        // the list is showing (`deviceSyncAuthoritativeTeamID == deviceListTeamID`),
+        // an empty `registryDevices` means the team genuinely has no devices: do
+        // NOT synthesize from `pairedMacs` (that
+        // XOR fallback is only for the registry-only path; it would resurrect
+        // stale local Macs the DO removed). BEFORE the first sync we keep the
+        // fallback, so an offline first launch still shows the local paired Macs.
+        if deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil,
+           let synced = deviceSyncAuthoritativeTeamID, synced == deviceListTeamID {
+            return []
+        }
         let connectedID = connectedMacDeviceID
         return pairedMacs
             .map { mac in
@@ -1598,6 +1689,201 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             presenceTask?.cancel()
             presenceTask = nil
             presenceMap = PresenceMap()
+        }
+    }
+
+    // MARK: - Device-list sync (local-first, cross-device)
+
+    /// The local-first device-list sync subscription. Mirrors
+    /// ``presenceTask``: it runs while signed in with the flag on and a store
+    /// injected, and is torn down on sign-out.
+    private var syncTask: Task<Void, Never>?
+    /// The team the running ``syncTask`` is bound to (its socket + applier are
+    /// pinned to one team). Used to restart the subscription on a team switch.
+    private var syncSubscriptionTeamID: String?
+    /// Teams already seeded from the local paired-Mac store this session, so a
+    /// team switch re-seeds the new team (the per-team migration marker also
+    /// makes the underlying seed idempotent).
+    private var seededSyncTeams: Set<String> = []
+    /// The team for which the sync store has synced (cursor > 0), so an empty
+    /// list for THAT team is AUTHORITATIVE. Compared against ``deviceListTeamID``
+    /// (the team the rendered list is for) in `deviceTreeDevices`, so a synced
+    /// team-A never marks an unsynced team-B authoritative. Until a team is
+    /// synced, the paired-Mac fallback persists (offline first launch still shows
+    /// local Macs). Reset on sign-out.
+    private var deviceSyncAuthoritativeTeamID: String?
+    /// The team the currently-rendered ``registryDevices`` is for (local-first
+    /// path), so the authoritative-empty gate can scope to the displayed team.
+    private var deviceListTeamID: String?
+
+    /// Start or stop the device-list sync to match the session + flag. Called
+    /// from the `isSignedIn` edge and `resumeForegroundRefresh()`, exactly like
+    /// ``evaluatePresenceSubscription()``.
+    private func evaluateSyncSubscription() {
+        if isSignedIn, deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil {
+            startSyncSubscription()
+        } else {
+            // Account isolation is enforced at READ time (the facade owner-scopes
+            // provisional rows; authoritative rows are team-scoped), the same way
+            // MobilePairedMacStore persists across sign-out and filters by
+            // stackUserID. So we just tear the subscription down here; clearing on
+            // sign-out would race the next account's sign-in/seed.
+            syncTask?.cancel()
+            syncTask = nil
+            syncSubscriptionTeamID = nil
+            seededSyncTeams = []
+            deviceSyncAuthoritativeTeamID = nil
+            deviceListTeamID = nil
+        }
+    }
+
+    /// Run the sync/v1 subscription with the same 1s..60s backoff as presence.
+    /// Each attempt builds the client via a SHORT-LIVED weak `self` (resolve
+    /// team, seed, construct), then runs the long-lived socket holding NO strong
+    /// `self` — so an in-flight socket never retains the shell store past its
+    /// owner's lifetime (the `onApplied` callback is weak too). Mirrors how the
+    /// presence loop re-grabs `self` per frame rather than across the await.
+    private func startSyncSubscription() {
+        guard syncTask == nil, deviceListLocalFirst, syncStore != nil, makeSyncTransport != nil else { return }
+        // NOT @MainActor: the frame loop (receive + JSON parse + apply) must run
+        // OFF the main actor so the shared socket's frequent presence-tick noise
+        // never parses on the UI thread. The pieces that touch main-actor state
+        // hop explicitly: `makeSyncSubscriptionClient()` (resolve team/seed/build)
+        // and the `onApplied` reload are `@MainActor` and reached via `await`; the
+        // applier is its own actor; `SyncClient`/transport are Sendable.
+        syncTask = Task { [weak self] in
+            let clock = ContinuousClock()
+            var backoff: Duration = .seconds(1)
+            while !Task.isCancelled {
+                // Build via weak self; `self` is released before `client.run()`.
+                // If self was deallocated, its `isolated deinit` already cancelled
+                // this task, so the next loop check exits.
+                guard let client = await self?.makeSyncSubscriptionClient() else {
+                    if Task.isCancelled { return }
+                    guard (try? await clock.sleep(for: .seconds(1))) != nil else { return }
+                    continue
+                }
+                do {
+                    try await client.run()
+                    backoff = .seconds(1)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    mobileShellLog.debug(
+                        "device sync stream ended: \(String(describing: error), privacy: .public)"
+                    )
+                }
+                if Task.isCancelled { return }
+                guard (try? await clock.sleep(for: backoff)) != nil else { return }
+                backoff = min(backoff * 2, .seconds(60))
+            }
+        }
+    }
+
+    /// Build the sync client for one subscription attempt: resolve the team, run
+    /// the one-time per-team local→DO seed (DESIGN.md §6 — provisional rev==0
+    /// rows from the paired-Mac store render instantly before any frame and
+    /// survive snapshot reconciliation; idempotent), and construct the client
+    /// with a weak-self apply callback. Returns nil when the team is not yet
+    /// resolved or sync is not configured. Separated so the subscription loop
+    /// touches `self` only here, never across the long `client.run()` await.
+    private func makeSyncSubscriptionClient() async -> SyncClient? {
+        guard deviceListLocalFirst, let syncStore, let makeSyncTransport else { return nil }
+        let teamID = (await syncTeamIDProvider?()) ?? ""
+        guard !teamID.isEmpty else { return nil }
+        syncSubscriptionTeamID = teamID
+        if !seededSyncTeams.contains(teamID), let pairedMacStore,
+           let accountID = identityProvider?.currentUserID {
+            do {
+                _ = try await PairedMacMigration(pairedStore: pairedMacStore, syncStore: syncStore)
+                    .runIfNeeded(accountID: accountID, teamID: teamID)
+                // The migration await suspended. If the user signed out or
+                // switched accounts while it ran, don't render or track this seed
+                // for the new session. The committed rows are `accountID`'s and
+                // stay on disk, but the facade owner-scopes them at read time, so
+                // the new account never sees them (no clear → no sign-in race).
+                guard isSignedIn, identityProvider?.currentUserID == accountID else {
+                    return nil
+                }
+                seededSyncTeams.insert(teamID)
+                await reloadDeviceListFromSyncStore(teamID: teamID)
+            } catch {
+                mobileShellLog.debug(
+                    "paired-mac sync seed failed: \(String(describing: error), privacy: .public)"
+                )
+            }
+        }
+        let applier = SyncFrameApplier(
+            store: syncStore,
+            teamID: teamID,
+            sortKeyFor: DeviceSyncFacade.sortKey(for:),
+            allowedCollections: [devicesSyncCollection]
+        )
+        return SyncClient(
+            transport: makeSyncTransport(teamID),
+            applier: applier,
+            collections: [devicesSyncCollection],
+            onApplied: { [weak self] in
+                await self?.handleSyncCommit(teamID: teamID)
+            }
+        )
+    }
+
+    /// A committed sync frame for `teamID` (cursor advanced): the store has now
+    /// synced this team, so an empty list is authoritative. Mark it (when still
+    /// the current team) and refresh the rendered list. Runs on the main actor;
+    /// reached via `await` from the off-main sync loop's apply callback.
+    private func handleSyncCommit(teamID: String) async {
+        if (await syncTeamIDProvider?() ?? "") == teamID {
+            deviceSyncAuthoritativeTeamID = teamID
+        }
+        await reloadDeviceListFromSyncStore(teamID: teamID)
+    }
+
+    /// Read + guard + sort the device list from the local sync store (no
+    /// network), with the same connected-first / most-recently-seen sort as the
+    /// registry path. Returns the rendered list (possibly empty) when the read is
+    /// still valid for the current user + team, or `nil` when it must be
+    /// discarded: a different signed-in user, or a team switch mid-stream (so a
+    /// late old-team frame can never overwrite the current team's list), or a
+    /// read error. Non-mutating, so callers choose whether an empty result clears
+    /// the list (a committed frame did) or falls through (a launch read must not
+    /// blank a populated tree).
+    private func syncStoreDevices(teamID: String) async -> [RegistryDevice]? {
+        guard deviceListLocalFirst, let syncStore else { return nil }
+        let requestingUserID = identityProvider?.currentUserID
+        let loaded: [RegistryDevice]
+        do {
+            // Owner-scope the account-private provisional seed so this account
+            // never renders another account's local-only devices (no clearing,
+            // so no race with the next sign-in).
+            loaded = try await DeviceSyncFacade(store: syncStore)
+                .registryDevices(teamID: teamID, provisionalOwnerUserID: requestingUserID)
+        } catch {
+            mobileShellLog.debug(
+                "device sync facade read failed: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+        guard isSignedIn, identityProvider?.currentUserID == requestingUserID else { return nil }
+        guard (await syncTeamIDProvider?() ?? "") == teamID else { return nil }
+        let connectedID = connectedMacDeviceID
+        return loaded.sorted { lhs, rhs in
+            let lhsConnected = lhs.deviceId == connectedID
+            let rhsConnected = rhs.deviceId == connectedID
+            if lhsConnected != rhsConnected { return lhsConnected }
+            return lhs.lastSeenAt > rhs.lastSeenAt
+        }
+    }
+
+    /// Assign ``registryDevices`` from the local sync store. Used by the sync
+    /// subscription's apply callback, where an empty result is authoritative (a
+    /// delta tombstoned the last device). Internal (not private) so the
+    /// stale-team overwrite guard is unit-testable.
+    func reloadDeviceListFromSyncStore(teamID: String) async {
+        if let devices = await syncStoreDevices(teamID: teamID) {
+            deviceListTeamID = teamID
+            registryDevices = devices
         }
     }
 

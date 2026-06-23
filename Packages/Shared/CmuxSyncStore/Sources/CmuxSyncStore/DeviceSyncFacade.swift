@@ -140,8 +140,35 @@ public struct DeviceSyncFacade: Sendable {
     /// shell's `loadRegistryDevices` local-first branch is a one-line swap with
     /// no new UI model (DESIGN.md §4.2: "No new UI model. The facade ... produc[es]
     /// the existing two-level RegistryDevice/RegistryAppInstance shape").
-    public func registryDevices(teamID: String) async throws -> [RegistryDevice] {
-        try await devices(teamID: teamID).map(Self.registryDevice(from:))
+    ///
+    /// `provisionalOwnerUserID` scopes the account-private migration seed: a
+    /// provisional `rev == 0` row (one account's local paired-Mac seed) is
+    /// included only when its `ownerUserId` matches. Authoritative `rev >= 1`
+    /// rows are team-shared and always included. This keeps one account's
+    /// local-only devices private on a shared device — same model as
+    /// `MobilePairedMacStore` filtering by `stackUserID` — without clearing the
+    /// cross-account cache (which would race the next sign-in).
+    ///
+    /// Fails CLOSED: when `provisionalOwnerUserID` is `nil` (the current owner id
+    /// is unavailable), NO provisional rows are returned, so an unknown owner can
+    /// never see another account's local devices. Authoritative rows are
+    /// unaffected.
+    public func registryDevices(teamID: String, provisionalOwnerUserID: String? = nil) async throws -> [RegistryDevice] {
+        let rows = try await store.liveRecords(teamID: teamID, collection: devicesSyncCollection)
+        let decoder = JSONDecoder()
+        return rows.compactMap { row in
+            guard let record = try? decoder.decode(SyncedDeviceRecord.self, from: row.payloadJSON) else {
+                return nil
+            }
+            if row.rev == 0 {
+                // Provisional (account-private) row: include only for its owner.
+                // Unknown current owner (nil) excludes it — fail closed.
+                guard let owner = provisionalOwnerUserID, record.ownerUserId == owner else {
+                    return nil
+                }
+            }
+            return Self.registryDevice(from: record)
+        }
     }
 
     /// Map one synced record to the UI model. `lastSeenAtAtRev` is epoch ms (the

@@ -5,6 +5,7 @@ import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 @_exported import CmuxMobileShellUI
+import CmuxSyncStore
 import CmuxMobileTransport
 import Foundation
 import OSLog
@@ -46,6 +47,12 @@ public struct CMUXMobileRootScene: View {
     /// non-iOS roots, which simply shows no Tailscale guidance.
     private let tailscaleStatusMonitor: (any TailscaleStatusObserving)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
+    /// Durable, DO-synced device-list cache (feat-do-device-list). Opened once at
+    /// the composition root next to ``pairedMacStore``; survives app updates
+    /// (Application Support) and backs the local-first, cross-device device list
+    /// when the `mobileDeviceListLocalFirst` flag is on. `nil` falls back to the
+    /// registry-driven list.
+    private let syncStore: (any CmuxSyncStoring)?
     /// Per-terminal composer drafts for the app session, so an unsent message
     /// survives keyboard dismiss and terminal switches. In-memory only for now;
     /// a disk-backed ``TerminalDraftStoring`` (drafts surviving relaunch) lands
@@ -97,6 +104,7 @@ public struct CMUXMobileRootScene: View {
         self.onboardingStore = onboardingStore
         self.tailscaleStatusMonitor = tailscaleStatusMonitor
         self.pairedMacStore = Self.openPairedMacStore()
+        self.syncStore = Self.openSyncStore()
         self.draftStore = InMemoryTerminalDraftStore()
         #if DEBUG
         self.diagnosticLog = diagnosticLog
@@ -116,6 +124,7 @@ public struct CMUXMobileRootScene: View {
         self.analytics = analytics
         self.tailscaleStatusMonitor = nil
         self.pairedMacStore = Self.openPairedMacStore()
+        self.syncStore = Self.openSyncStore()
         self.draftStore = InMemoryTerminalDraftStore()
         #if DEBUG
         self.diagnosticLog = nil
@@ -129,6 +138,17 @@ public struct CMUXMobileRootScene: View {
         } catch {
             mobileRootSceneLog.error(
                 "failed to open paired mac store: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
+    }
+
+    private static func openSyncStore() -> (any CmuxSyncStoring)? {
+        do {
+            return try CmuxSyncStore()
+        } catch {
+            mobileRootSceneLog.error(
+                "failed to open device sync store: \(String(describing: error), privacy: .public)"
             )
             return nil
         }
@@ -210,12 +230,41 @@ public struct CMUXMobileRootScene: View {
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
         }
+        // Local-first device-list sync wiring (feat-do-device-list). Auth/team
+        // scoping mirrors `makePresenceClient()`; the transport opens its own
+        // presence WebSocket pinned to the resolved team. Gated by the
+        // `mobileDeviceListLocalFirst` flag (DEBUG-on/Release-off) and by a
+        // presence base URL resolving (nil in Release without an override, which
+        // keeps the registry-driven list).
+        let coordinator = auth.coordinator
+        let deviceListLocalFirst = MobileDeviceListLocalFirst.resolved().isEnabled
+        let syncTeamIDProvider: (@Sendable () async -> String?)? = {
+            await coordinator.resolvedTeamID
+        }
+        let makeSyncTransport: (@Sendable (String) -> any SyncTransport)?
+        if let presenceBaseURL = PresenceClient.resolvedServiceBaseURL() {
+            makeSyncTransport = { @Sendable (teamID: String) -> any SyncTransport in
+                PresenceSyncTransport(
+                    serviceBaseURL: presenceBaseURL,
+                    tokenSource: PresenceTokenSource(
+                        accessToken: { try? await coordinator.accessToken() }
+                    ),
+                    teamID: teamID
+                )
+            }
+        } else {
+            makeSyncTransport = nil
+        }
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
             pairedMacStore: pairedMacStore,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
+            syncStore: syncStore,
+            deviceListLocalFirst: deviceListLocalFirst,
+            syncTeamIDProvider: syncTeamIDProvider,
+            makeSyncTransport: makeSyncTransport,
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,
@@ -230,6 +279,10 @@ public struct CMUXMobileRootScene: View {
             pairedMacStore: pairedMacStore,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
+            syncStore: syncStore,
+            deviceListLocalFirst: deviceListLocalFirst,
+            syncTeamIDProvider: syncTeamIDProvider,
+            makeSyncTransport: makeSyncTransport,
             identityProvider: identityProvider,
             reachability: reachability,
             analytics: analytics,
