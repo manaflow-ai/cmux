@@ -41,7 +41,8 @@
     "copyright": "© {year} Manaflow",
     "language": "Jezik",
     "assets": "Materijali",
-    "openSource": "Otvoreni kod"
+    "openSource": "Otvoreni kod",
+    "guides": "Vodiči"
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -71,7 +72,7 @@
       "openSource": "Otvoreni kod",
       "openSourceDesc": ": besplatan i licenciran pod GPL",
       "ios": "iOS pratilac",
-      "iosDesc": ": povežite se na svoje terminale s iPhonea (beta)"
+      "iosDesc": ": povežite se na svoje terminale s vašeg iPhone-a"
     },
     "faqGhosttyQ": "Kakav je odnos cmux-a i Ghostty-ja?",
     "faqGhosttyA": "cmux nije fork Ghostty-ja. Koristi <link>libghostty</link> kao biblioteku za renderiranje terminala, na isti način kao što aplikacije koriste WebKit za web prikaze. Ghostty je samostalni terminal; cmux je drugačija aplikacija izgrađena na njegovom rendering engine-u.",
@@ -1671,6 +1672,12 @@
       "iosBody": "cmux ima prateću iOS aplikaciju (beta): uparite svoj iPhone s Macom da provjeravate svoja OpenCode pokretanja, uz opcionalno prosljeđivanje notifikacija, dok ste daleko od stola.",
       "scriptTitle": "Skriptabilan",
       "scriptBody": "Svaka radnja je dostupna kroz cmux CLI i Unix socket, tako da možete kreirati radne prostore, pokretati OpenCode, slati unos, čitati ekran i upravljati ugrađenim preglednikom iz skripte."
+    },
+    "guides": {
+      "metaTitle": "cmux vodiči: poređenja i slučajevi upotrebe terminala",
+      "metaDescription": "Vodiči koji porede cmux s drugim macOS terminalima, kako je izgrađen na Ghostty i kako pokrenuti Claude Code, Codex i OpenCode u cmux.",
+      "title": "Vodiči",
+      "intro": "Poređenja, pozadina i vodiči za slučajeve upotrebe za cmux. Za dokumentaciju proizvoda pogledajte docs."
     }
   }
 }

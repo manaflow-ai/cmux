@@ -41,7 +41,8 @@
     "copyright": "© {year} Manaflow",
     "language": "Dil",
     "assets": "Varlıklar",
-    "openSource": "Açık kaynak"
+    "openSource": "Açık kaynak",
+    "guides": "Kılavuzlar"
   },
   "home": {
     "taglinePrefix": "Şunun için tasarlanmış terminal: ",
@@ -71,7 +72,7 @@
       "openSource": "Açık kaynak",
       "openSourceDesc": ": ücretsiz ve GPL lisanslı",
       "ios": "iOS Yardımcısı",
-      "iosDesc": ": terminallerinize iPhone'unuzdan bağlanın (beta)"
+      "iosDesc": ": terminallerinize iPhone'unuzdan bağlanın"
     },
     "faqGhosttyQ": "cmux'un Ghostty ile ilişkisi nedir?",
     "faqGhosttyA": "cmux, Ghostty'nin bir forku değildir. Uygulamaların web görünümleri için WebKit kullanması gibi, terminal işleme için bir kütüphane olarak <link>libghostty</link>'yi kullanır. Ghostty bağımsız bir terminaldir; cmux, onun işleme motoru üzerine kurulmuş farklı bir uygulamadır.",
@@ -1671,6 +1672,12 @@
       "iosBody": "cmux'un bir iOS yardımcı uygulaması var (beta): masanızdan uzaktayken, isteğe bağlı bildirim yönlendirmesiyle OpenCode çalıştırmalarınızı kontrol etmek için iPhone'unuzu Mac'inizle eşleştirin.",
       "scriptTitle": "Betiklenebilir",
       "scriptBody": "Her eylem cmux CLI'ı ve bir Unix soketi aracılığıyla kullanılabilir, böylece çalışma alanları oluşturabilir, OpenCode başlatabilir, giriş gönderebilir, ekranı okuyabilir ve uygulama içi bir tarayıcıyı bir betikten yönlendirebilirsiniz."
+    },
+    "guides": {
+      "metaTitle": "cmux kılavuzları: karşılaştırmalar ve terminal kullanım senaryoları",
+      "metaDescription": "cmux'u diğer macOS terminalleriyle karşılaştıran, Ghostty üzerine nasıl inşa edildiğini ve cmux içinde Claude Code, Codex ve OpenCode'un nasıl çalıştırılacağını anlatan kılavuzlar.",
+      "title": "Kılavuzlar",
+      "intro": "cmux için karşılaştırmalar, arka plan ve kullanım senaryosu kılavuzları. Ürün belgeleri için docs bölümüne bakın."
     }
   }
 }

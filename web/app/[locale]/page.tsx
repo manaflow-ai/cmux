@@ -132,7 +132,6 @@ function HomeContent() {
                 ["scriptable", "scriptableDesc"],
                 ["gpuAccelerated", "gpuAcceleratedDesc"],
                 ["lightweight", "lightweightDesc"],
-                ["ios", "iosDesc"],
                 ["openSource", "openSourceDesc"],
               ] as const
             ).map(([title, desc]) => (
@@ -164,6 +163,20 @@ function HomeContent() {
                     ),
                   })}
                 </span>
+              </span>
+            </li>
+            <li className="flex gap-3">
+              <span className="text-muted shrink-0">-</span>
+              <span>
+                <strong className="font-medium">
+                  <a
+                    href="https://github.com/manaflow-ai/cmux#founders-edition"
+                    className={linkClass}
+                  >
+                    {t("feature.ios")}
+                  </a>
+                </strong>
+                <span className="text-muted">{t("feature.iosDesc")}</span>
               </span>
             </li>
           </ul>

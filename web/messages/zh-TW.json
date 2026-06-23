@@ -41,7 +41,8 @@
     "copyright": "© {year} Manaflow",
     "language": "語言",
     "assets": "素材",
-    "openSource": "開源"
+    "openSource": "開源",
+    "guides": "指南"
   },
   "home": {
     "taglinePrefix": "開源終端，專為 ",
@@ -71,7 +72,7 @@
       "openSource": "開源",
       "openSourceDesc": "：免費且採用 GPL 授權",
       "ios": "iOS 伴侶應用程式",
-      "iosDesc": "：從你的 iPhone 連接到你的終端機（測試版）"
+      "iosDesc": "：從你的 iPhone 連接到你的終端機"
     },
     "faqGhosttyQ": "cmux 和 Ghostty 有什麼關係？",
     "faqGhosttyA": "cmux 不是 Ghostty 的分支。它使用 <link>libghostty</link> 作為終端機渲染的函式庫，就像應用程式使用 WebKit 來顯示網頁一樣。Ghostty 是一個獨立的終端機；cmux 是建立在其渲染引擎之上的不同應用程式。",
@@ -1671,6 +1672,12 @@
       "iosBody": "cmux 有一個 iOS 伴侶應用程式（測試版）：將你的 iPhone 與 Mac 配對，在離開辦公桌時查看你的 OpenCode 執行，並可選擇轉發通知。",
       "scriptTitle": "可指令稿化",
       "scriptBody": "每個操作都可透過 cmux CLI 和 Unix socket 使用，因此你可以從指令稿建立工作區、啟動 OpenCode、傳送輸入、讀取畫面，並驅動內建瀏覽器。"
+    },
+    "guides": {
+      "metaTitle": "cmux 指南：對比與終端機使用場景",
+      "metaDescription": "對比 cmux 與其他 macOS 終端機的指南，介紹它如何基於 Ghostty 構建，以及如何在 cmux 中執行 Claude Code、Codex 和 OpenCode。",
+      "title": "指南",
+      "intro": "cmux 的對比、背景與使用場景指南。產品文件請參閱文件。"
     }
   }
 }

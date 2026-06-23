@@ -41,7 +41,8 @@
     "copyright": "© {year} Manaflow",
     "language": "言語",
     "assets": "アセット",
-    "openSource": "オープンソース"
+    "openSource": "オープンソース",
+    "guides": "ガイド"
   },
   "home": {
     "taglinePrefix": "次のために作られたターミナル：",
@@ -71,7 +72,7 @@
       "openSource": "オープンソース",
       "openSourceDesc": "：無料・GPLライセンス",
       "ios": "iOSコンパニオン",
-      "iosDesc": "：iPhoneからターミナルにアタッチ（ベータ）"
+      "iosDesc": "：iPhoneからターミナルにアタッチ"
     },
     "faqGhosttyQ": "cmuxとGhosttyの関係は？",
     "faqGhosttyA": "cmuxはGhosttyのフォークではありません。アプリがWebKitをWebビューに使うのと同様に、ターミナルレンダリングのライブラリとして<link>libghostty</link>を使用しています。Ghosttyはスタンドアロンのターミナルで、cmuxはそのレンダリングエンジンの上に構築された別のアプリです。",
@@ -1965,6 +1966,12 @@
       "iosBody": "cmux には iOS コンパニオンアプリ（ベータ）があります。iPhone を Mac とペアリングすれば、デスクを離れていても OpenCode 実行を確認でき、必要に応じて通知を転送できます。",
       "scriptTitle": "スクリプト可能",
       "scriptBody": "すべての操作は cmux CLI と Unix ソケットから利用できるので、ワークスペースの作成、OpenCode の起動、入力の送信、画面の読み取り、アプリ内ブラウザの操作まで、すべてスクリプトから行えます。"
+    },
+    "guides": {
+      "metaTitle": "cmuxガイド：比較とターミナルの使い方",
+      "metaDescription": "cmuxと他のmacOSターミナルの比較、Ghostty上に構築されている仕組み、Claude Code・Codex・OpenCodeをcmuxで実行する方法のガイド。",
+      "title": "ガイド",
+      "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
     }
   }
 }

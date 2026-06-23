@@ -41,7 +41,8 @@
     "copyright": "© {year} Manaflow",
     "language": "Idioma",
     "assets": "Recursos",
-    "openSource": "Open source"
+    "openSource": "Open source",
+    "guides": "Guías"
   },
   "home": {
     "taglinePrefix": "La terminal diseñada para ",
@@ -71,7 +72,7 @@
       "openSource": "Open source",
       "openSourceDesc": ": gratis y con licencia GPL",
       "ios": "App complementaria para iOS",
-      "iosDesc": ": conéctate a tus terminales desde tu iPhone (beta)"
+      "iosDesc": ": conéctate a tus terminales desde tu iPhone"
     },
     "faqGhosttyQ": "¿Cuál es la relación entre cmux y Ghostty?",
     "faqGhosttyA": "cmux no es un fork de Ghostty. Utiliza <link>libghostty</link> como biblioteca para el renderizado de terminal, de la misma forma que las apps usan WebKit para vistas web. Ghostty es una terminal independiente; cmux es una app diferente construida sobre su motor de renderizado.",
@@ -1671,6 +1672,12 @@
       "iosBody": "cmux tiene una app complementaria para iOS (beta): empareja tu iPhone con tu Mac para revisar tus ejecuciones de OpenCode, con reenvío opcional de notificaciones, mientras estás lejos del escritorio.",
       "scriptTitle": "Programable",
       "scriptBody": "Cada acción está disponible a través de la CLI de cmux y un socket de Unix, así que puedes crear espacios de trabajo, lanzar OpenCode, enviar entrada, leer la pantalla y controlar un navegador integrado desde un script."
+    },
+    "guides": {
+      "metaTitle": "Guías de cmux: comparativas y casos de uso de la terminal",
+      "metaDescription": "Guías que comparan cmux con otras terminales de macOS, cómo está construido sobre Ghostty y cómo ejecutar Claude Code, Codex y OpenCode en cmux.",
+      "title": "Guías",
+      "intro": "Comparativas, contexto y guías de casos de uso para cmux. Para la documentación del producto, consulta los docs."
     }
   }
 }

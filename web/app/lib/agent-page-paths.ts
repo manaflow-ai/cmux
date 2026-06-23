@@ -90,6 +90,7 @@ export const agentReadablePages = [
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
   { path: "/assets", title: "Brand Assets" },
+  { path: "/guides", title: "Guides" },
   { path: "/best-terminal-for-mac", title: "Best terminal for Mac" },
   { path: "/built-on-ghostty", title: "Built on Ghostty" },
   { path: "/claude-code-terminal", title: "Terminal for Claude Code" },

@@ -41,7 +41,8 @@
     "copyright": "© {year} Manaflow",
     "language": "언어",
     "assets": "애셋",
-    "openSource": "오픈 소스"
+    "openSource": "오픈 소스",
+    "guides": "가이드"
   },
   "home": {
     "taglinePrefix": "다음을 위해 만들어진 터미널: ",
@@ -71,7 +72,7 @@
       "openSource": "오픈 소스",
       "openSourceDesc": ": 무료이며 GPL 라이선스",
       "ios": "iOS 컴패니언",
-      "iosDesc": ": iPhone에서 터미널에 연결하세요 (베타)"
+      "iosDesc": ": iPhone에서 터미널에 연결하세요"
     },
     "faqGhosttyQ": "cmux와 Ghostty는 어떤 관계인가요?",
     "faqGhosttyA": "cmux는 Ghostty의 포크가 아닙니다. 앱이 웹 뷰에 WebKit을 사용하는 것처럼, 터미널 렌더링을 위한 라이브러리로 <link>libghostty</link>를 사용합니다. Ghostty는 독립형 터미널이고, cmux는 그 렌더링 엔진 위에 구축된 별도의 앱입니다.",
@@ -1671,6 +1672,12 @@
       "iosBody": "cmux에는 iOS 동반 앱(베타)이 있습니다: iPhone을 Mac과 페어링하여, 자리를 비운 사이에도 선택적 알림 전달과 함께 OpenCode 실행을 확인하세요.",
       "scriptTitle": "스크립트 가능",
       "scriptBody": "모든 동작은 cmux CLI와 Unix 소켓을 통해 사용할 수 있으므로, 스크립트에서 작업 공간을 만들고, OpenCode를 실행하고, 입력을 보내고, 화면을 읽고, 앱 내장 브라우저를 제어할 수 있습니다."
+    },
+    "guides": {
+      "metaTitle": "cmux 가이드: 비교 및 터미널 사용 사례",
+      "metaDescription": "cmux를 다른 macOS 터미널과 비교하고, Ghostty 위에 어떻게 구축되었는지, 그리고 cmux에서 Claude Code, Codex, OpenCode를 실행하는 방법을 다루는 가이드입니다.",
+      "title": "가이드",
+      "intro": "cmux의 비교, 배경, 사용 사례 가이드입니다. 제품 문서는 문서를 참고하세요."
     }
   }
 }
