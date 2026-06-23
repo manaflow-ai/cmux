@@ -272,7 +272,7 @@ extension ControlCommandCoordinator {
             return .err(code: "invalid_params", message: "Invalid placement", data: .object(["placement": .string(raw)]))
         }
         let referenceWorkspaceID = uuid(params, "reference_workspace_id")
-        if params["reference_workspace_id"] != nil,
+        if hasNonNull(params, "reference_workspace_id"),
            referenceWorkspaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid reference_workspace_id", data: nil)
         }

@@ -100,6 +100,30 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == referenceWorkspaceID)
     }
 
+    @Test func workspaceGroupAddAcceptsNullReferenceWorkspaceID() throws {
+        let (coordinator, context) = coordinator()
+        let groupID = UUID()
+        let workspaceID = UUID()
+        context.addWorkspaceToGroupResolution = .added
+
+        guard case .ok(.object(let payload)) = coordinator.handle(request("workspace.group.add", [
+            "group_id": .string(groupID.uuidString),
+            "workspace_id": .string(workspaceID.uuidString),
+            "placement": .string("top"),
+            "reference_workspace_id": .null,
+        ])) else {
+            Issue.record("unexpected workspace.group.add result")
+            return
+        }
+
+        #expect(payload["group_id"] == .string(groupID.uuidString))
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(context.addWorkspaceToGroupCall?.groupID == groupID)
+        #expect(context.addWorkspaceToGroupCall?.workspaceID == workspaceID)
+        #expect(context.addWorkspaceToGroupCall?.placement == .top)
+        #expect(context.addWorkspaceToGroupCall?.referenceWorkspaceID == nil)
+    }
+
     @Test func workspaceGroupAddRejectsInvalidPlacement() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()
