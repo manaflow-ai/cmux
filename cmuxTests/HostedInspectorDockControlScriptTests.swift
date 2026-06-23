@@ -22,10 +22,11 @@ final class HostedInspectorDockControlScriptTests: XCTestCase {
         XCTAssertTrue(source.contains("WI._detachNavigationItem"))
         XCTAssertTrue(source.contains("WI._undockTabBarButton"))
         XCTAssertTrue(source.contains("WI._undockButton"))
-        XCTAssertTrue(source.contains("window.webkit.messageHandlers.cmuxDevToolsDock"))
-        XCTAssertTrue(source.contains("event.stopImmediatePropagation();"))
-        XCTAssertTrue(source.contains("interceptDockButton(WI._dockLeftTabBarButton, \"left\");"))
-        XCTAssertTrue(source.contains("interceptDockButton(WI._dockRightTabBarButton, \"right\");"))
-        XCTAssertTrue(source.contains("], \"bottom\");"))
+        XCTAssertTrue(source.contains("const hideDockTargets = detached;"))
+        XCTAssertTrue(source.contains("hideDockTargets || disallowSideDock || dockedLeft"))
+        XCTAssertTrue(source.contains("hideDockTargets || disallowSideDock || dockedRight"))
+        XCTAssertTrue(source.contains("hideDockTargets || dockedBottom"))
+        XCTAssertFalse(source.contains("stopImmediatePropagation"))
+        XCTAssertFalse(source.contains("cmuxDevToolsDock"))
     }
 }

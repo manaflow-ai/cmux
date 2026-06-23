@@ -6522,7 +6522,7 @@ extension BrowserPanel {
 #endif
     }
 
-    func adoptAttachedDeveloperToolsRedock(source: String) {
+    private func adoptAttachedDeveloperToolsRedock(source: String) {
         developerToolsDetachedOpenGraceDeadline = nil
         forceDeveloperToolsRefreshOnNextAttach = false
         developerToolsPreservedVisibleIntentForNextAttach = false
