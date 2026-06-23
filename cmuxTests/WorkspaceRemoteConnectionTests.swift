@@ -4,6 +4,7 @@ import XCTest
 import CmuxCore
 import CmuxRemoteDaemon
 import CmuxRemoteSession
+import CmuxSidebar
 import CmuxRemoteWorkspace
 import CmuxTerminal
 
@@ -3495,6 +3496,50 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
             "unavailable"
         )
+    }
+
+    @MainActor
+    func testDefaultCloudProxyOnlyErrorsDoNotPolluteConnectedSidebar() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cloud VM",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64015,
+            relayID: String(repeating: "e", count: 16),
+            relayToken: String(repeating: "f", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            managedCloudVMID: "71smiccrg35sw9pydt8k",
+            terminalStartupCommand: "cmux vm ssh-attach --id 71smiccrg35sw9pydt8k --default-freestyle-sshd",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+
+        let proxyError = "Remote proxy to cloud VM unavailable: Failed to start local daemon proxy: timed out"
+        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cloud VM")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.statusEntries["remote.error"])
+        XCTAssertNil(workspace.logEntries.last(where: { $0.source == "remote-proxy" }))
+        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+
+        workspace.statusEntries["remote.error"] = SidebarStatusEntry(
+            key: "remote.error",
+            value: "Remote proxy unavailable (cloud VM): \(proxyError)",
+            icon: "exclamationmark.triangle.fill",
+            color: nil,
+            timestamp: Date()
+        )
+        workspace.applyRemoteConnectionStateUpdate(.reconnecting, detail: "Reconnecting to cloud VM", target: "cloud VM")
+
+        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.statusEntries["remote.error"])
     }
 
     @MainActor
