@@ -246,7 +246,7 @@ struct MobileSettingsView: View {
                         } label: {
                             Text(L10n.string("mobile.notifications.mode", defaultValue: "When to Notify"))
                         }
-                        .onChange(of: notificationMode) { mode in
+                        .onChange(of: notificationMode) { _, mode in
                             guard !notificationSettingsSyncing else { return }
                             updateNotificationMode(mode)
                         }
@@ -259,7 +259,7 @@ struct MobileSettingsView: View {
                                 defaultValue: "Hide Notification Content"
                             ))
                         }
-                        .onChange(of: hideNotificationContent) { hidesContent in
+                        .onChange(of: hideNotificationContent) { _, hidesContent in
                             guard !notificationSettingsSyncing else { return }
                             updateNotificationHideContent(hidesContent)
                         }
