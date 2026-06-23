@@ -362,14 +362,12 @@ nonisolated struct VSCodeCLILaunchConfiguration {
 nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
     static let portEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_PORT"
     static let dataDirectoryEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_DATA_DIR"
-    static let extraArgumentsEnvironmentKey = "CMUX_VSCODE_SERVE_WEB_ARGS"
     static let portDefaultsKey = "vscodeServeWeb.port"
 
     let port: Int
     let serverDataDirectoryURL: URL
     let userDataDirectoryURL: URL
     let connectionTokenFileURL: URL
-    let extraArguments: [String]
     let allowsEphemeralPortFallback: Bool
 
     var arguments: [String] {
@@ -389,7 +387,6 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
         arguments.append(contentsOf: [
             "--connection-token-file", connectionTokenFileURL.path,
         ])
-        arguments.append(contentsOf: extraArguments)
         return arguments
     }
 
@@ -421,7 +418,7 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
             )
         } catch {
             vscodeServeWebLogger.error(
-                "Failed to create VS Code serve-web directories serverDataDir=\(serverDataDirectoryURL.path, privacy: .public) userDataDir=\(userDataDirectoryURL.path, privacy: .public) error=\(error.localizedDescription, privacy: .public)"
+                "Failed to create VS Code serve-web directories: \(error.localizedDescription, privacy: .private)"
             )
             return nil
         }
@@ -442,7 +439,6 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
             serverDataDirectoryURL: serverDataDirectoryURL,
             userDataDirectoryURL: userDataDirectoryURL,
             connectionTokenFileURL: connectionTokenFileURL,
-            extraArguments: extraArguments(from: environment[extraArgumentsEnvironmentKey]),
             allowsEphemeralPortFallback: portResolution.allowsEphemeralFallback
         )
     }
@@ -454,7 +450,6 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
             serverDataDirectoryURL: serverDataDirectoryURL,
             userDataDirectoryURL: userDataDirectoryURL,
             connectionTokenFileURL: connectionTokenFileURL,
-            extraArguments: extraArguments,
             allowsEphemeralPortFallback: false
         )
     }
@@ -561,27 +556,13 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
         guard let attributes = try? fileManager.attributesOfItem(atPath: tokenFileURL.path),
               let fileSize = attributes[.size] as? NSNumber,
               fileSize.intValue == 32,
+              let permissions = attributes[.posixPermissions] as? NSNumber,
+              permissions.intValue & 0o777 == 0o600,
               let data = try? Data(contentsOf: tokenFileURL),
               let token = String(data: data, encoding: .utf8) else {
             return false
         }
         return token.range(of: #"^[0-9A-Fa-f]{32}$"#, options: .regularExpression) != nil
-    }
-
-    private static func extraArguments(from rawValue: String?) -> [String] {
-        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !rawValue.isEmpty else {
-            return []
-        }
-
-        if let data = rawValue.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([String].self, from: data) {
-            return decoded.filter { !$0.isEmpty }
-        }
-
-        return rawValue
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
     }
 
     private static func expandedHomePath(_ path: String) -> String {

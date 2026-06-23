@@ -321,8 +321,10 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
             port: 64120,
             serverDataDirectoryURL: serverDataDirectoryURL,
             userDataDirectoryURL: serverDataDirectoryURL.appendingPathComponent("user-data", isDirectory: true),
-            connectionTokenFileURL: serverDataDirectoryURL.appendingPathComponent("connection-token", isDirectory: false),
-            extraArguments: [],
+            connectionTokenFileURL: serverDataDirectoryURL.appendingPathComponent(
+                "connection-token",
+                isDirectory: false
+            ),
             allowsEphemeralPortFallback: true
         )
 
@@ -459,7 +461,7 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
         }
     }
 
-    func testResolveUsesEnvironmentOverridesAndJsonExtraArguments() throws {
+    func testResolveUsesEnvironmentOverrides() throws {
         try withTemporaryDirectory { rootURL in
             try withDefaults { defaults in
                 defaults.set(5555, forKey: VSCodeServeWebLaunchOptions.portDefaultsKey)
@@ -469,7 +471,6 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                     environment: [
                         VSCodeServeWebLaunchOptions.portEnvironmentKey: "8123",
                         VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path,
-                        VSCodeServeWebLaunchOptions.extraArgumentsEnvironmentKey: #"["--future-flag","value with spaces"]"#,
                     ],
                     defaults: defaults,
                     bundleIdentifier: "dev.cmux.test",
@@ -485,8 +486,6 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                     dataDirectoryURL.appendingPathComponent("user-data", isDirectory: true).path
                 )
                 XCTAssertEqual(options.connectionTokenFileURL.deletingLastPathComponent().path, dataDirectoryURL.path)
-                XCTAssertEqual(options.extraArguments, ["--future-flag", "value with spaces"])
-                XCTAssertEqual(Array(options.arguments.suffix(2)), ["--future-flag", "value with spaces"])
             }
         }
     }
@@ -498,11 +497,15 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
             let tokenFileURL = dataDirectoryURL.appendingPathComponent("connection-token", isDirectory: false)
             let existingToken = "0123456789abcdef0123456789ABCDEF"
             try Data(existingToken.utf8).write(to: tokenFileURL)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenFileURL.path)
 
-            let options = try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
-                environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
-                applicationSupportDirectoryURL: rootURL
-            ))
+            let options = try withDefaults { defaults in
+                try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                    environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                    defaults: defaults,
+                    applicationSupportDirectoryURL: rootURL
+                ))
+            }
             let tokenData = try Data(contentsOf: options.connectionTokenFileURL)
 
             XCTAssertEqual(options.connectionTokenFileURL, tokenFileURL)
@@ -525,17 +528,44 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                 try FileManager.default.createDirectory(at: dataDirectoryURL, withIntermediateDirectories: true)
                 let tokenFileURL = dataDirectoryURL.appendingPathComponent("connection-token", isDirectory: false)
                 try Data(invalidToken.utf8).write(to: tokenFileURL)
+                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: tokenFileURL.path)
 
-                let options = try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
-                    environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
-                    applicationSupportDirectoryURL: rootURL
-                ))
+                let options = try withDefaults { defaults in
+                    try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                        environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                        defaults: defaults,
+                        applicationSupportDirectoryURL: rootURL
+                    ))
+                }
                 let tokenData = try Data(contentsOf: options.connectionTokenFileURL)
 
                 XCTAssertEqual(options.connectionTokenFileURL, tokenFileURL)
                 try assertCmuxGeneratedToken(tokenData)
                 XCTAssertNotEqual(String(data: tokenData, encoding: .utf8), invalidToken)
             }
+
+            let dataDirectoryURL = rootURL.appendingPathComponent("group-readable-token", isDirectory: true)
+            try FileManager.default.createDirectory(at: dataDirectoryURL, withIntermediateDirectories: true)
+            let tokenFileURL = dataDirectoryURL.appendingPathComponent("connection-token", isDirectory: false)
+            let groupReadableToken = String(repeating: "0", count: 32)
+            try Data(groupReadableToken.utf8).write(to: tokenFileURL)
+            try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: tokenFileURL.path)
+
+            let options = try withDefaults { defaults in
+                try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                    environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                    defaults: defaults,
+                    applicationSupportDirectoryURL: rootURL
+                ))
+            }
+            let tokenData = try Data(contentsOf: options.connectionTokenFileURL)
+
+            XCTAssertEqual(options.connectionTokenFileURL, tokenFileURL)
+            try assertCmuxGeneratedToken(tokenData)
+            XCTAssertNotEqual(String(data: tokenData, encoding: .utf8), groupReadableToken)
+            let attributes = try FileManager.default.attributesOfItem(atPath: tokenFileURL.path)
+            let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber)
+            XCTAssertEqual(permissions.intValue & 0o777, 0o600)
         }
     }
 }
