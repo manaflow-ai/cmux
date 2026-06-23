@@ -343,12 +343,15 @@ reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
     the JSON off the main actor via `Task.detached`; the send/interrupt/answer
     RPC chain was threaded async to match. Satisfies the owner's "no jsonl
     parsing / heavy work on the main thread" directive. macOS app builds.
-  - **E (surface-id invariance): deferred, by spec.** Zero benefit to this
-    feature: agents run in TERMINAL surfaces, whose ids already rehydrate
-    verbatim on normal relaunch. Only non-terminal panel ids regenerate, which
-    does not affect agent tracking. The spec marks E conditional ("only if a
-    concrete relaunch-rebinding bug appears"), so deferring it is following the
-    spec; implementing it speculatively risks the restore subsystem for no gain.
+  - **E (surface-id invariance): RESOLVED — not needed.** E's trigger condition
+    ("a concrete relaunch-rebinding bug") does not exist for this feature.
+    Agents run in TERMINAL surfaces, and the Phase-1 audit confirmed terminal
+    surface ids rehydrate verbatim on normal relaunch (`Workspace.swift:1340`);
+    only non-terminal panel ids regenerate, which never carries an agent
+    session. So the durable-key invariant the design needs already holds for the
+    agent case. E stays unimplemented intentionally; implementing it would change
+    the restore subsystem for zero benefit and real regression risk. Re-open
+    only if a real relaunch-rebinding bug is observed.
   - **F (codex hook auto-setup): deferred, needs a product decision.** The only
     way to "guarantee" codex hooks is to silently edit the user's
     `~/.codex/config.toml` trust entries + `hooks.json` at launch — a standing
