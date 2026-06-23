@@ -16809,8 +16809,7 @@ private extension NSWindow {
         let responderWebView = responder.flatMap {
             Self.cmuxOwningWebView(for: $0, in: self, event: currentEvent)
         }
-        var pointerInitiatedWebFocus = false
-        var pointerInitiatedTerminalFocus = false
+        var pointerInitiatedWebFocus = false, pointerInitiatedTerminalFocus = false
 
         if AppDelegate.shared?.shouldBlockFirstResponderChangeWhileCommandPaletteVisible(
             window: self,
@@ -16925,6 +16924,7 @@ private extension NSWindow {
             result = cmux_makeFirstResponder(responder)
         }
         if result {
+            BrowserInspectorFocusHandoff.postClickIntentIfNeeded(for: responder, in: self, event: currentEvent)
             if let fieldEditor = responder as? NSTextView, fieldEditor.isFieldEditor {
                 Self.cmuxTrackFieldEditor(fieldEditor, owningWebView: responderWebView)
             } else if let fieldEditor = self.firstResponder as? NSTextView, fieldEditor.isFieldEditor {
