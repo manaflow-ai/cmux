@@ -124,9 +124,7 @@ struct WorkspaceDetailView: View {
         Group {
             detailSurfaceContent
         }
-        .overlay(alignment: .top) {
-            recoveryBanner
-        }
+        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
     }
 
     @ViewBuilder
@@ -147,20 +145,7 @@ struct WorkspaceDetailView: View {
         #endif
     }
 
-    private var recoveryBanner: some View {
-        MobileConnectionRecoveryBanner(
-            connectionRequiresReauth: store.connectionRequiresReauth,
-            connectionRecoveryFailed: store.connectionRecoveryFailed,
-            isRecoveringConnection: store.isRecoveringConnection,
-            connectionError: store.connectionError,
-            retry: { store.retryMobileConnection() },
-            signOut: signOut
-        )
-    }
-
     #if os(iOS)
-    /// Agent chat rendered in place of the terminal while chat mode is on.
-    /// Carries the same toolbar so the toggle (now filled) flips back.
     @ViewBuilder
     private func chatContent(_ session: ChatSessionDescriptor) -> some View {
         WorkspaceChatPane(
@@ -179,20 +164,12 @@ struct WorkspaceDetailView: View {
                 pinnedChatSessionID = nil
             }
         )
-        // Bind the pane's identity to the session so a session change
-        // rebuilds ChatScreen (its store is captured in @State at init and
-        // would otherwise stay on the old session).
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Extra top inset so the first transcript rows clear the Dynamic Island /
-        // nav bar instead of hiding behind the opaque top; content still scrolls
-        // up under the glass.
         .safeAreaPadding(.top, terminalTopPadding)
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // Chat toggle stays top-level next to the picker (lets you flip
-                // back to the terminal); New Workspace lives in the picker menu.
                 chatToggleButton
                 terminalPickerToolbarButton
             }
@@ -205,12 +182,6 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    /// Top-level toolbar toggle between terminal and chat. Shown only when the
-    /// currently visible tab has an agent session (or chat is already on), so the
-    /// toggle tracks the tab the user is looking at. Surface ids are stable across
-    /// relaunch/restore, so this per-tab match survives a restart. It sits next to
-    /// the terminal picker (where New Workspace used to be); the glass title pill
-    /// keeps the center readable even with the button present.
     @ViewBuilder
     private var chatToggleButton: some View {
         if isChatMode || sessionForSelectedTerminal != nil {

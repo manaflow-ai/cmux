@@ -12,8 +12,6 @@ import AppKit
 #endif
 
 struct CMUXMobileRootView: View {
-    private static let rootLoadingTimeout: Duration = .seconds(10)
-
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
@@ -33,8 +31,6 @@ struct CMUXMobileRootView: View {
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
-    @State private var rootLoadingTimedOut = false
-    @State private var rootLoadingRetryGeneration = 0
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -186,9 +182,6 @@ struct CMUXMobileRootView: View {
                 clearAttachTicketAuthenticationIfNeeded()
             }
         }
-        .task(id: rootLoadingDeadlineTaskID) {
-            await updateRootLoadingDeadline(isActive: isStoredMacLoadingGateActive)
-        }
     }
 
     @ViewBuilder
@@ -200,13 +193,11 @@ struct CMUXMobileRootView: View {
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            WorkspaceShellView(
+            RestoringStoredMacWorkspaceShell(
                 store: store,
                 signOut: signOut,
-                isInitialConnectionLoading: !rootLoadingTimedOut,
-                initialConnectionTimedOut: rootLoadingTimedOut,
-                retryInitialConnection: retryRootLoading,
-                showAddDevice: showAddDevice
+                showAddDevice: showAddDevice,
+                reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if shouldShowOnboarding {
             // Placed after the reconnect-determining branch so `hasKnownPairedMac`
@@ -344,14 +335,6 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    private var isStoredMacLoadingGateActive: Bool {
-        isAuthenticated && shouldShowRestoringStoredMac
-    }
-
-    private var rootLoadingDeadlineTaskID: Int {
-        (rootLoadingRetryGeneration &* 2) + (isStoredMacLoadingGateActive ? 1 : 0)
-    }
-
     private var hasActiveAttachTicketAuthentication: Bool {
         didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
@@ -463,35 +446,6 @@ struct CMUXMobileRootView: View {
         }
         didAuthenticateWithAttachTicket = false
         syncShellAuthentication(authManager.isAuthenticated)
-    }
-
-    private func updateRootLoadingDeadline(isActive: Bool) async {
-        guard isActive else {
-            rootLoadingTimedOut = false
-            return
-        }
-        rootLoadingTimedOut = false
-        // This is the user-visible loading gate deadline, not a repair delay:
-        // if auth restore or paired-Mac determination does not resolve, expose
-        // recovery actions instead of leaving the root on a spinner.
-        do {
-            try await ContinuousClock().sleep(for: Self.rootLoadingTimeout)
-        } catch {
-            return
-        }
-        guard isStoredMacLoadingGateActive else { return }
-        rootLoadingTimedOut = true
-    }
-
-    private func retryRootLoading() {
-        rootLoadingTimedOut = false
-        rootLoadingRetryGeneration &+= 1
-        syncShellAuthentication(isAuthenticated)
-        store.resumeForegroundRefresh()
-        Task {
-            await authManager.revalidateSession()
-            reconnectStoredMacIfNeeded()
-        }
     }
 
     private func signOut() {
