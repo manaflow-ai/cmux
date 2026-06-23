@@ -27,6 +27,10 @@ final class RemoteTmuxController {
     private var connectionsByHostSession: [String: RemoteTmuxControlConnection] = [:]
     private var connectionObserverTokensByHostSession: [String: RemoteTmuxControlConnection.ObserverToken] = [:]
 
+    /// Hosts whose remote agent-status hooks have been (attempted to be) installed
+    /// this session, so the best-effort install runs once per host, not per attach.
+    private var agentHookInstalledHosts: Set<String> = []
+
     init() {}
 
     /// Synchronous read of the `remoteTmux` beta flag for AppKit/socket paths
@@ -42,6 +46,25 @@ final class RemoteTmuxController {
     /// Returns (creating if needed) the transport for a host.
     func transport(for host: RemoteTmuxHost) -> RemoteTmuxSSHTransport {
         transportRegistry.transport(for: host)
+    }
+
+    /// Best-effort, once-per-host install of the remote agent-status hooks
+    /// (Option C). Writes a dependency-free `tmux set @cmux_agent` hook into the
+    /// remote `~/.claude/settings.json` and `~/.codex/hooks.json` over the already
+    /// open ControlMaster, so a claude/codex started in a mirrored pane reports
+    /// running/working/idle (+ model) into the option cmux subscribes to. Never
+    /// blocks or fails the attach; runs detached.
+    func installRemoteAgentStatusHooks(host: RemoteTmuxHost) {
+        guard agentHookInstalledHosts.insert(host.connectionHash).inserted else { return }
+        let transport = transport(for: host)
+        Task { @MainActor in
+            for argv in [
+                RemoteTmuxAgentHookInstaller.claudeInstallCommand(),
+                RemoteTmuxAgentHookInstaller.codexInstallCommand(),
+            ] {
+                _ = try? await transport.run(argv)
+            }
+        }
     }
 
     /// Discovers the tmux sessions on a host.
@@ -322,6 +345,11 @@ final class RemoteTmuxController {
                 discovered = try await listSessions(host: host)
             }
             sessions = discovered
+            // The master is open — best-effort install the remote agent-status
+            // hooks so a claude/codex started in a mirrored pane reports
+            // running/working/idle into @cmux_agent (Option C). Fire-and-forget:
+            // never blocks or fails the attach.
+            installRemoteAgentStatusHooks(host: host)
         } catch let error as RemoteTmuxError {
             if case .commandFailed(_, let stderr) = error,
                RemoteTmuxSSHTransport.indicatesAuthRequired(stderr) {

@@ -103,6 +103,9 @@ final class RemoteTmuxSessionMirror {
             onSessionChanged: { [weak self] oldName, newName in
                 self?.handleSessionNameChanged(oldName: oldName, newName: newName)
             },
+            onPaneAgent: { [weak self] paneId, rawValue in
+                self?.handlePaneAgent(paneId: paneId, rawValue: rawValue)
+            },
             onTopologyChanged: { [weak self] in
                 self?.rebuild()
             },
@@ -254,6 +257,7 @@ final class RemoteTmuxSessionMirror {
         // stays bounded across window/pane churn (tmux pane ids never recur).
         let livePanes = Set(connection.windowsByID.values.flatMap { $0.paneIDsInOrder })
         cwdByPane = cwdByPane.filter { livePanes.contains($0.key) }
+        hookAgentStatusByPane = hookAgentStatusByPane.filter { livePanes.contains($0.key) }
         closeDefaultTabsIfNeeded()
         // Follow out-of-band tmux window reorders (a second client, or a manual
         // move-window / a new-window inserted mid-list): the cmux tabs are created
@@ -462,20 +466,47 @@ final class RemoteTmuxSessionMirror {
     /// mirror so repeated writes replace (rather than stack) the row.
     private static let agentStatusKey = "remote-tmux.agent"
 
-    /// Reflects "a coding agent CLI is running in this remote session" into the
-    /// workspace's sidebar status row, driven by the per-pane foreground command
-    /// already streamed for reflow classification (`pane_current_command`). Writes
-    /// a single keyed `SidebarStatusEntry` when any pane foregrounds a known agent,
-    /// and clears it otherwise. This is the same runtime status surface the control
-    /// socket writes to (``Workspace/statusEntries``), so the existing sidebar
-    /// renders it with no UI change.
+    /// Latest agent status a remote hook published into `@cmux_agent`, per pane
+    /// (Option C). This is the AUTHORITATIVE signal — the agent's own lifecycle
+    /// hook reports it — so it takes precedence over the coarse foreground-command
+    /// detection and the transcript probe. `nil`/cleared panes fall back to those.
+    private var hookAgentStatusByPane: [Int: RemoteTmuxAgentStatus] = [:]
+
+    /// A remote agent's lifecycle hook published into `@cmux_agent` for `paneId`
+    /// (Option C, via the live tmux subscription). An empty value clears it (the
+    /// hook clears the option to drop the chip). Re-renders the sidebar status.
+    private func handlePaneAgent(paneId: Int, rawValue: String) {
+        if let status = RemoteTmuxAgentStatus.parse(rawValue) {
+            hookAgentStatusByPane[paneId] = status
+        } else {
+            hookAgentStatusByPane[paneId] = nil
+        }
+        refreshAgentStatus()
+    }
+
+    /// Reflects a coding agent's status into the workspace's sidebar status row —
+    /// the same runtime surface the control socket writes (``Workspace/statusEntries``),
+    /// so the existing sidebar renders it with no UI change.
     ///
-    /// Coarse by design: the remote tmux exposes only the foreground comm name, so
-    /// this reports presence ("Claude Code running"), not busy/idle or model — that
-    /// richer signal is a planned follow-up that reads the remote `~/.claude` state
-    /// over the shared SSH master.
+    /// Three signal tiers, best first:
+    ///  1. **Hook (Option C)** — the remote agent's own lifecycle hook published
+    ///     state+model into `@cmux_agent`. Authoritative: real running/working/idle
+    ///     and the model, for both Claude and Codex.
+    ///  2. **Transcript probe (Claude)** — busy/idle + model read from the remote
+    ///     `~/.claude` over the SSH master, when no hook is reporting.
+    ///  3. **Foreground command** — coarse "agent running" from `pane_current_command`.
     private func refreshAgentStatus() {
         guard let workspace else { return }
+
+        // Tier 1: a hook-reported status wins outright.
+        if let hook = hookAgentStatusByPane.values.first {
+            writeHookAgentStatusEntry(hook)
+            agentProbeTask?.cancel()
+            agentProbeTask = nil
+            activeAgentPaneId = nil
+            return
+        }
+
         guard let detected = foregroundedAgent() else {
             if workspace.statusEntries[Self.agentStatusKey] != nil {
                 workspace.statusEntries[Self.agentStatusKey] = nil
@@ -486,13 +517,40 @@ final class RemoteTmuxSessionMirror {
             return
         }
         writeAgentStatusEntry(provider: detected.provider, activity: nil, model: nil)
-        // Layer (b): if the agent's pane has a known cwd, enrich the chip with
+        // Tier 2: if the agent's pane has a known cwd, enrich the chip with
         // busy/idle + model by reading the remote ~/.claude transcript over the
         // shared SSH master. Best-effort and throttled; the coarse chip already
         // shows regardless.
         if detected.provider == .claude, let cwd = cwdByPane[detected.paneId] {
             scheduleAgentProbe(provider: detected.provider, paneId: detected.paneId, cwd: cwd)
         }
+    }
+
+    /// Writes the sidebar row from an authoritative hook-reported status (Tier 1).
+    private func writeHookAgentStatusEntry(_ status: RemoteTmuxAgentStatus) {
+        guard let workspace else { return }
+        let display = AgentSessionProviderID(rawValue: status.agent)?.displayName
+            ?? status.agent.capitalized
+        let base: String
+        switch status.state {
+        case .working:
+            base = String(localized: "remoteTmux.agentStatus.working", defaultValue: "\(display) working")
+        case .idle:
+            base = String(localized: "remoteTmux.agentStatus.idle", defaultValue: "\(display) idle")
+        case .running:
+            base = String(localized: "remoteTmux.agentStatus.running", defaultValue: "\(display) running")
+        }
+        let suffix = status.model ?? status.title
+        let value = suffix.map { "\(base) · \($0)" } ?? base
+        let existing = workspace.statusEntries[Self.agentStatusKey]
+        if existing?.value == value, existing?.key == Self.agentStatusKey { return }
+        workspace.statusEntries[Self.agentStatusKey] = SidebarStatusEntry(
+            key: Self.agentStatusKey,
+            value: value,
+            icon: status.state == .working ? "sparkles" : "moon.zzz",
+            priority: 50,
+            timestamp: Date()
+        )
     }
 
     /// Writes (or replaces, only on a meaningful change) the agent status row.

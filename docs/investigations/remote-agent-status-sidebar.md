@@ -229,6 +229,34 @@ Branch `feat-remote-tmux-agent-status`. Reuses the already-streamed
 - Unit tests: `agentProvider` classification (agent vs shell/tool/empty).
 - Fidelity: presence only (no busy/idle, no model). Effort: S. Zero UI changes.
 
+### Attempt 3 — tmux `@cmux_agent` user-option hook channel (IMPLEMENTED — the clean path)
+
+The recommended Option C, now built and validated live for both Claude and Codex.
+
+- **Remote install (`RemoteTmuxAgentHookInstaller`):** on first attach to a host,
+  cmux writes a dependency-free hook into the remote `~/.claude/settings.json`
+  (Claude) and `~/.codex/hooks.json` (Codex) over the open ControlMaster
+  (`RemoteTmuxController.installRemoteAgentStatusHooks`, once-per-host,
+  fire-and-forget, via a python3 JSON merger that preserves the user's other
+  hooks and replaces only cmux-marked entries). The hook fires on
+  SessionStart→running, UserPromptSubmit→working, Stop→idle; its body is
+  `tmux set -t "$TMUX_PANE" @cmux_agent '{"agent":…,"state":…,"model":…}'`,
+  self-disabling when not inside tmux and always printing `{}` for blocking-hook
+  stdout.
+- **Local receive:** cmux subscribes `#{@cmux_agent}` per pane
+  (`RemoteTmuxControlConnection.subscribePaneAgent`, alongside `cmux_cwd_`/
+  `cmux_reflow_`), parses the value with `RemoteTmuxAgentStatus`, and writes the
+  sidebar entry via `RemoteTmuxSessionMirror` — taking precedence over Attempts
+  1/2 when a hook is reporting.
+- **Verified live (tmux 3.6a):** setting `@cmux_agent` pushes
+  `%subscription-changed cmux_agent_<pane> … : <json>`; the generated install
+  command merges cleanly into the remote settings; and the installed hook, run as
+  Claude invokes it (event JSON on stdin), sets the option to a value the parser
+  accepts (model `[1m]` suffix stripped).
+- **Fidelity:** authoritative running/working/idle + model, agent-agnostic. No
+  remote cmux CLI, no socket, no relay, no auth. Pure builders/parsers
+  (`RemoteTmuxAgentStatus`, `RemoteTmuxAgentHookInstaller`) are unit-tested.
+
 ### Attempt 2 — remote `~/.claude` read for busy/idle + model (IMPLEMENTED)
 
 Gated on Attempt 1's detection (Claude only). When the agent's pane has a known

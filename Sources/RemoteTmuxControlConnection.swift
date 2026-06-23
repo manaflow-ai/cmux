@@ -178,6 +178,15 @@ final class RemoteTmuxControlConnection {
     /// routing, mirroring ``cwdSubscriptionPrefix``.
     private static let reflowSubscriptionPrefix = "cmux_reflow_"
 
+    /// Subscription-name prefix for a per-pane coding-agent status, published by
+    /// the remote agent's own lifecycle hook into the `@cmux_agent` user option
+    /// (`tmux set -p @cmux_agent '<json>'`). tmux delivers the value on subscribe
+    /// and on every change as `%subscription-changed cmux_agent_<paneId> … : <json>`
+    /// — the zero-socket, zero-remote-CLI channel for remote agent status (Option C
+    /// in `docs/investigations/remote-agent-status-sidebar.md`). The tmux pane id is
+    /// appended for routing, mirroring ``cwdSubscriptionPrefix``.
+    private static let agentSubscriptionPrefix = "cmux_agent_"
+
     /// `ESC[?1049h` — enter the alternate screen, emitted to a mirror surface when
     /// the remote pane is on the alternate screen (see ``capturePane(paneId:)``).
     private static let altScreenEnterSequence = Data("\u{1b}[?1049h".utf8)
@@ -233,6 +242,7 @@ final class RemoteTmuxControlConnection {
         onPaneReflow: ((_ paneId: Int, _ noReflow: Bool) -> Void)? = nil,
         onActivePaneChanged: ((_ windowId: Int, _ paneId: Int) -> Void)? = nil,
         onSessionChanged: ((_ oldName: String, _ newName: String) -> Void)? = nil,
+        onPaneAgent: ((_ paneId: Int, _ rawValue: String) -> Void)? = nil,
         onTopologyChanged: (() -> Void)? = nil,
         onExit: (() -> Void)? = nil,
         onConnectionStateChanged: ((ConnectionState) -> Void)? = nil
@@ -243,6 +253,7 @@ final class RemoteTmuxControlConnection {
             onPaneReflow: onPaneReflow,
             onActivePaneChanged: onActivePaneChanged,
             onSessionChanged: onSessionChanged,
+            onPaneAgent: onPaneAgent,
             onTopologyChanged: onTopologyChanged,
             onExit: onExit,
             onConnectionStateChanged: onConnectionStateChanged
@@ -656,6 +667,7 @@ final class RemoteTmuxControlConnection {
         capturePane(paneId: paneId)
         requestPanePath(paneId: paneId)
         subscribePanePath(paneId: paneId)
+        subscribePaneAgent(paneId: paneId)
     }
 
     /// One-shot query of a pane's working directory (`pane_current_path`),
@@ -758,6 +770,30 @@ final class RemoteTmuxControlConnection {
     /// the pane is gone), mirroring ``unsubscribePanePath(paneId:)``.
     func unsubscribePaneReflow(paneId: Int) {
         send("refresh-client -B \(Self.reflowSubscriptionPrefix)\(paneId)")
+    }
+
+    /// The exact `refresh-client -B` line that subscribes `paneId`'s `@cmux_agent`
+    /// user option. Same load-bearing quoting as ``panePathSubscriptionCommand(paneId:)``
+    /// — the `name:target:format` argument MUST stay double-quoted or tmux drops it
+    /// with a (silently swallowed) parse error and the agent status never arrives.
+    /// Verified on tmux 3.6a: setting the option via `tmux set -p @cmux_agent …`
+    /// pushes `%subscription-changed cmux_agent_<paneId> … : <value>`.
+    static func paneAgentSubscriptionCommand(paneId: Int) -> String {
+        "refresh-client -B \"\(agentSubscriptionPrefix)\(paneId):%\(paneId):#{@cmux_agent}\""
+    }
+
+    /// Subscribes to live `@cmux_agent` changes for `paneId`. The remote agent's
+    /// lifecycle hook publishes its status into that option; tmux pushes the value
+    /// on subscribe and on every change with no polling. Best-effort: on tmux builds
+    /// without `-B` subscriptions this is a no-op (the chip simply won't appear).
+    func subscribePaneAgent(paneId: Int) {
+        send(Self.paneAgentSubscriptionCommand(paneId: paneId))
+    }
+
+    /// Removes the live `@cmux_agent` subscription for `paneId`, mirroring
+    /// ``unsubscribePanePath(paneId:)``.
+    func unsubscribePaneAgent(paneId: Int) {
+        send("refresh-client -B \(Self.agentSubscriptionPrefix)\(paneId)")
     }
 
     /// Format for close-time activity queries: the pane id (for cache refresh and
@@ -1207,6 +1243,10 @@ final class RemoteTmuxControlConnection {
                       let paneId = Int(name.dropFirst(Self.reflowSubscriptionPrefix.count)) {
                 // Reflow classification: "<alternate_on>|<pane_current_command>".
                 classifyAndEmitReflow(paneId: paneId, rawValue: value, source: "sub")
+            } else if name.hasPrefix(Self.agentSubscriptionPrefix),
+                      let paneId = Int(name.dropFirst(Self.agentSubscriptionPrefix.count)) {
+                // Remote agent status published into @cmux_agent by the agent's hook.
+                observers.emitPaneAgent(paneId, value)
             }
         case let .commandResult(_, lines, isError):
             // The first block on each control stream is the attach command's own —

@@ -556,6 +556,16 @@ import Testing
                 == "refresh-client -B \"cmux_cwd_7:%7:#{pane_current_path}\""
         )
     }
+
+    @Test @MainActor func agentSubscribeCommandKeepsFormatQuoted() {
+        // Subscribes the remote agent hook's @cmux_agent user option (Option C).
+        // Same load-bearing quoting; verified live that setting the option pushes
+        // %subscription-changed cmux_agent_<pane> … : <value> on tmux 3.6a.
+        #expect(
+            RemoteTmuxControlConnection.paneAgentSubscriptionCommand(paneId: 12)
+                == "refresh-client -B \"cmux_agent_12:%12:#{@cmux_agent}\""
+        )
+    }
 }
 
 /// Close-time activity queries: the wire commands (same quoting constraint as
