@@ -285,6 +285,19 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         #expect(explicitGroupId == nil)
     }
 
+    @Test func RootSelfDropDoesNotInventIndicator() {
+        let fixture = reorderFixture()
+
+        let plan = SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(
+                point: CGPoint(x: 14, y: 170),
+                draggedWorkspaceId: fixture.dragged
+            )
+        )
+
+        #expect(plan == nil)
+    }
+
     @Test func GroupHeaderCenterGroupLanePlansFirstSlotInGroup() throws {
         let fixture = reorderFixture()
 
