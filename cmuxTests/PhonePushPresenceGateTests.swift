@@ -320,7 +320,7 @@ import Testing
             auth: nil
         )
 
-        #expect(MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request) == nil)
+        #expect(MobileHostService.ticketAuthorizationError(ticket: ticket, request: request) == nil)
     }
 
     @MainActor

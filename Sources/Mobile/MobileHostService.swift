@@ -1343,7 +1343,7 @@ final class MobileHostService {
         }
     }
 
-    nonisolated private static func ticketAuthorizationError(
+    nonisolated static func ticketAuthorizationError(
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1357,7 +1357,7 @@ final class MobileHostService {
         )
     }
 
-    nonisolated private static func ticketAuthorizationError(
+    nonisolated static func ticketAuthorizationError(
         authorization: MobileAttachTicketAuthorization,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
@@ -1446,22 +1446,6 @@ final class MobileHostService {
             return scopedTicketError
         }
         return nil
-    }
-
-    nonisolated static func debugTicketAuthorizationError(
-        ticket: CmxAttachTicket,
-        request: MobileHostRPCRequest,
-        createdWorkspaceIDs: Set<String> = [],
-        createdTerminalIDs: Set<String> = []
-    ) -> MobileHostRPCError? {
-        ticketAuthorizationError(
-            authorization: MobileAttachTicketAuthorization(
-                ticket: ticket,
-                createdWorkspaceIDs: createdWorkspaceIDs,
-                createdTerminalIDs: createdTerminalIDs
-            ),
-            request: request
-        )
     }
 
     nonisolated private static var scopedTicketError: MobileHostRPCError {

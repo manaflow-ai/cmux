@@ -54,4 +54,26 @@ import Testing
 
         #expect(MobileNotificationPreferences(defaults: defaults) == preferences)
     }
+
+    @Test func firstPhoneOptInUsesAlwaysWhenMacForwardingIsDisabled() {
+        let preferences = MobileNotificationPreferences(
+            isEnabled: false,
+            isForwardingEnabled: false,
+            forwardingMode: .onlyWhenAway,
+            hidesContent: true
+        )
+
+        #expect(preferences.forwardingModeForPhoneOptIn == .always)
+    }
+
+    @Test func firstPhoneOptInPreservesEnabledMacForwardingMode() {
+        let preferences = MobileNotificationPreferences(
+            isEnabled: false,
+            isForwardingEnabled: true,
+            forwardingMode: .onlyWhenAway,
+            hidesContent: true
+        )
+
+        #expect(preferences.forwardingModeForPhoneOptIn == .onlyWhenAway)
+    }
 }

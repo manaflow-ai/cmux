@@ -26,6 +26,15 @@ public struct MobileNotificationPreferences: Equatable, Sendable {
         isEnabled && isForwardingEnabled
     }
 
+    /// The forwarding mode a first phone opt-in should write to the Mac.
+    ///
+    /// Existing enabled Mac forwarding keeps its selected mode. A disabled Mac
+    /// forwarding gate may only be exposing its legacy away-only default, so the
+    /// phone opt-in starts from the phone-active default instead.
+    public var forwardingModeForPhoneOptIn: MobileNotificationForwardingMode {
+        isForwardingEnabled ? forwardingMode : MobileNotificationForwardingMode.defaultMode
+    }
+
     /// Creates a notification-preferences value.
     public init(
         isEnabled: Bool,

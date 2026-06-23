@@ -195,24 +195,21 @@ public final class MobilePushCoordinator {
         analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
         let generation = claimNotificationSettingsSyncGeneration()
         await registration.setEnabled(true)
-        let storedForwardingMode = storedForwardingModePreference
+        let currentPreferences = notificationPreferences
+        let storedForwardingMode = forwardingMode ?? currentPreferences.forwardingModeForPhoneOptIn
         let storedHidesContent = storedHideContentPreference
-        let authoritativeForwardingMode = forwardingMode ?? storedForwardingMode
+        let authoritativeForwardingMode = storedForwardingMode
         let authoritativeHidesContent = hidesContent ?? storedHidesContent
         defaults.set(true, forKey: MobileNotificationPreferences.enabledKey)
         defaults.set(true, forKey: MobileNotificationPreferences.forwardingEnabledKey)
-        if let authoritativeForwardingMode {
-            defaults.set(authoritativeForwardingMode.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
-        }
+        defaults.set(authoritativeForwardingMode.rawValue, forKey: MobileNotificationPreferences.forwardingModeKey)
         if let authoritativeHidesContent {
             defaults.set(authoritativeHidesContent, forKey: MobileNotificationPreferences.hideContentKey)
         }
         var preferences = notificationPreferences
         preferences.isEnabled = true
         preferences.isForwardingEnabled = true
-        if let authoritativeForwardingMode {
-            preferences.forwardingMode = authoritativeForwardingMode
-        }
+        preferences.forwardingMode = authoritativeForwardingMode
         if let authoritativeHidesContent {
             preferences.hidesContent = authoritativeHidesContent
         }
@@ -220,7 +217,7 @@ public final class MobilePushCoordinator {
         await syncExplicitNotificationPreferencesToMac(
             preferences,
             generation: generation,
-            hasAuthoritativeForwardingMode: authoritativeForwardingMode != nil,
+            hasAuthoritativeForwardingMode: true,
             hasAuthoritativeHidesContent: authoritativeHidesContent != nil
         )
         return true
