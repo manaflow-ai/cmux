@@ -134,13 +134,11 @@ function HeroPhoneStyle() {
   return (
     <style>{`
       .hero-phone {
-        animation: heroPhoneIn 1150ms cubic-bezier(.22,1.18,.36,1) 350ms both;
-        transform-origin: 70% 100%;
+        animation: heroPhoneIn 900ms ease-out 120ms both;
       }
       @keyframes heroPhoneIn {
-        0%   { opacity: 0; transform: translateY(64px) scale(.9) rotate(2.5deg); filter: blur(8px); }
-        55%  { opacity: 1; filter: blur(0); }
-        100% { opacity: 1; transform: translateY(0) scale(1) rotate(0deg); filter: blur(0); }
+        from { opacity: 0; }
+        to   { opacity: 1; }
       }
       @media (prefers-reduced-motion: reduce) {
         .hero-phone { animation: none; }
