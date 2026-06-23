@@ -436,6 +436,16 @@ final class CmuxSettingsFileStore {
             }
             snapshot.managedUserDefaults[SettingCatalog().app.newWorkspacePlacement.userDefaultsKey] = .string(placement.rawValue)
         }
+        if let value = jsonInt(section["globalFontMagnification"]) {
+            let clamped = GlobalFontMagnification.clamp(value)
+            guard clamped == value else {
+                logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[GlobalFontMagnification.percentKey] = .int(clamped)
+        } else if section.keys.contains("globalFontMagnification") {
+            logInvalid("app.globalFontMagnification", sourcePath: sourcePath)
+        }
         if let raw = jsonString(section["forkConversationDefaultDestination"]) {
             if let destination = AgentConversationForkDestination(rawValue: raw) {
                 snapshot.managedUserDefaults[AgentConversationForkDefaultSettings.key] = .string(destination.rawValue)
@@ -1592,6 +1602,8 @@ final class CmuxSettingsFileStore {
                     )
                 } else if change.defaultsKey == AppIconSettings.modeKey {
                     AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                } else if change.defaultsKey == GlobalFontMagnification.percentKey {
+                    notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
                 }
             }
 

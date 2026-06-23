@@ -102,10 +102,17 @@ struct WorkspaceAvatar: View {
                 .fill(workspace.avatarGradient)
                 .frame(width: CGFloat(size), height: CGFloat(size))
 
-            Image(systemName: workspace.avatarSymbolName)
-                .font(.system(size: CGFloat(size) * 0.38, weight: .semibold))
-                .foregroundStyle(.white)
-                .accessibilityHidden(true)
+            switch workspace.avatarIcon {
+            case .symbol(let name):
+                Image(systemName: name)
+                    .font(.system(size: CGFloat(size) * 0.38, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .accessibilityHidden(true)
+            case .emoji(let emoji):
+                Text(emoji)
+                    .font(.system(size: CGFloat(size) * 0.5))
+                    .accessibilityHidden(true)
+            }
         }
         .offset(x: -CGFloat(leftShift))
     }

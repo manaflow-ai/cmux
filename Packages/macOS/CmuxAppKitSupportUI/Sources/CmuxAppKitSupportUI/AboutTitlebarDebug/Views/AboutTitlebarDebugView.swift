@@ -1,3 +1,4 @@
+import CmuxFoundation
 #if canImport(AppKit)
 
 public import SwiftUI
@@ -20,7 +21,7 @@ public struct AboutTitlebarDebugView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 Text(String(localized: "debug.aboutTitlebarDebug.title", defaultValue: "About Titlebar Debug"))
-                    .font(.headline)
+                    .cmuxFont(.headline)
 
                 editor(for: .about)
 
@@ -56,7 +57,7 @@ public struct AboutTitlebarDebugView: View {
                 Toggle("Enable Debug Overrides", isOn: overridesEnabled)
 
                 Text("When disabled, cmux uses normal default titlebar behavior for this window.")
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundColor(.secondary)
 
                 Divider()
@@ -87,7 +88,7 @@ public struct AboutTitlebarDebugView: View {
                     Divider()
 
                     Text("Style Mask")
-                        .font(.caption)
+                        .cmuxFont(.caption)
                         .foregroundColor(.secondary)
 
                     Toggle("Titled", isOn: binding(for: kind, keyPath: \.titled))
