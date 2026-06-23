@@ -20416,10 +20416,12 @@ struct CMUXCLI {
             "--max-auto-depth",
             String(Self.codexTeamsMaxAutoDepth)
         ]
-        if let explicitPassword,
-           !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            watcherArguments.insert(contentsOf: ["--password", explicitPassword], at: 2)
-        }
+        // The socket password is handed to the watcher through its environment
+        // (CMUX_SOCKET_PASSWORD is set in launcherEnvironment above), not through
+        // argv. A `--password` argument would be visible to any local user via
+        // `ps`/proc_info; the watcher's SocketPasswordResolver reads the env var
+        // (falling back to the password file/keychain) when no explicit value is
+        // passed, so removing the argv copy does not change auth behavior.
         if let rootPid = rootCodex?.processIdentifier {
             watcherArguments += ["--owner-pid", String(rootPid)]
         }
