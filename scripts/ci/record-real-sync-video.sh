@@ -56,10 +56,13 @@ FINAL_VIDEO="$ARTIFACT_DIR/cmux-real-sync-left-right-${BUILD_TAG}.mp4"
 MAC_RECORD_LOG="$ARTIFACT_DIR/macos-record.log"
 MAC_FRAME_DIR="$ARTIFACT_DIR/macos-frames"
 IOS_RECORD_LOG="$ARTIFACT_DIR/ios-record.log"
+IOS_SIMULATOR_LOG="$ARTIFACT_DIR/ios-simulator.log"
+IOS_SEEDED_DEFAULTS="$ARTIFACT_DIR/ios-seeded-defaults.txt"
 METADATA_PATH="$ARTIFACT_DIR/metadata.json"
 
 MAC_RECORDER_PID=""
 IOS_RECORDER_PID=""
+IOS_LOG_PID=""
 SIMULATOR_ID=""
 SIMULATOR_CREATED="0"
 
@@ -85,6 +88,7 @@ cleanup() {
   set +e
   stop_pid_bounded "$MAC_RECORDER_PID" INT
   stop_pid_bounded "$IOS_RECORDER_PID" INT
+  stop_pid_bounded "$IOS_LOG_PID" INT
   if [[ -n "$SIMULATOR_ID" ]]; then
     xcrun simctl terminate "$SIMULATOR_ID" "$IOS_BUNDLE_ID" >/dev/null 2>&1 || true
     xcrun simctl shutdown "$SIMULATOR_ID" >/dev/null 2>&1 || true
@@ -283,11 +287,24 @@ start_ios_recording() {
   return 1
 }
 
+start_ios_log_capture() {
+  rm -f "$IOS_SIMULATOR_LOG"
+  xcrun simctl spawn "$SIMULATOR_ID" log stream \
+    --style compact \
+    --level debug \
+    --predicate 'process == "cmux" OR subsystem == "ai.manaflow.cmux"' \
+    >"$IOS_SIMULATOR_LOG" 2>&1 &
+  IOS_LOG_PID="$!"
+  sleep 1
+}
+
 stop_recorders() {
   stop_pid_bounded "$IOS_RECORDER_PID" INT
   IOS_RECORDER_PID=""
   stop_pid_bounded "$MAC_RECORDER_PID" INT
   MAC_RECORDER_PID=""
+  stop_pid_bounded "$IOS_LOG_PID" INT
+  IOS_LOG_PID=""
   local frame_count
   frame_count="$(find "$MAC_FRAME_DIR" -name 'frame-*.png' -type f 2>/dev/null | wc -l | tr -d ' ')"
   if [[ "$frame_count" -ge 2 && ! -s "$MAC_RAW_VIDEO" ]]; then
@@ -387,6 +404,26 @@ data["CMUX_DOGFOOD_ATTACH_URL"] = attach_url
 with path.open("wb") as handle:
     plistlib.dump(data, handle)
 PY
+run_with_timeout 30 xcrun simctl spawn "$SIMULATOR_ID" defaults write "$IOS_BUNDLE_ID" CMUX_DOGFOOD_ATTACH_URL "$ATTACH_URL"
+run_with_timeout 30 xcrun simctl spawn "$SIMULATOR_ID" launchctl setenv CMUX_DOGFOOD_ATTACH_URL "$ATTACH_URL"
+python3 - "$IOS_PREFS_PLIST" "$IOS_SEEDED_DEFAULTS" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+out = Path(sys.argv[2])
+has_attach_url = False
+attach_url_length = 0
+if path.exists():
+    with path.open("rb") as handle:
+        data = plistlib.load(handle)
+    value = data.get("CMUX_DOGFOOD_ATTACH_URL")
+    has_attach_url = isinstance(value, str) and bool(value.strip())
+    attach_url_length = len(value) if isinstance(value, str) else 0
+out.write_text(f"hasAttachURL={str(has_attach_url).lower()}\nattachURLLength={attach_url_length}\n")
+PY
+start_ios_log_capture
 phase "launching and auto-attaching real iOS app"
 run_with_timeout 30 env \
   SIMCTL_CHILD_CMUX_UITEST_MOCK_DATA=0 \

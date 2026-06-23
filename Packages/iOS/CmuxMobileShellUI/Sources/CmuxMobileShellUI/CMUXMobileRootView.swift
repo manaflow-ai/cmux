@@ -4,12 +4,15 @@ import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
 import CmuxMobileWorkspace
+import OSLog
 import SwiftUI
 #if os(iOS)
 @preconcurrency import UIKit
 #elseif os(macOS)
 import AppKit
 #endif
+
+private let mobileRootLog = Logger(subsystem: "ai.manaflow.cmux", category: "mobile.root")
 
 struct CMUXMobileRootView: View {
     @Bindable var store: CMUXMobileShellStore
@@ -368,13 +371,16 @@ struct CMUXMobileRootView: View {
 
     private func connectAttachURL(_ rawURL: String) {
         guard !authManager.isRestoringSession else {
+            mobileRootLog.debug("parking attach URL while auth session restores")
             pendingAttachURL = rawURL
             return
         }
+        mobileRootLog.debug("connecting raw attach URL")
         didAuthenticateWithAttachTicket = true
         syncShellAuthentication(true)
         Task {
             let result = await store.connectPairingURLResult(rawURL)
+            mobileRootLog.debug("raw attach URL connection finished: \(attachResultDescription(result), privacy: .public)")
             if result == .needsUserApproval {
                 isShowingAddDeviceSheet = true
             }
@@ -480,6 +486,7 @@ struct CMUXMobileRootView: View {
             return false
         }
         didConsumeUITestAttachURL = true
+        mobileRootLog.debug("consuming launch attach URL")
         if isRawAttachURL(attachURL) {
             connectAttachURL(attachURL)
             return true
@@ -495,5 +502,18 @@ struct CMUXMobileRootView: View {
         #else
         return false
         #endif
+    }
+
+    private func attachResultDescription(_ result: MobilePairingURLConnectionResult) -> String {
+        switch result {
+        case .connected:
+            return "connected"
+        case .failed:
+            return "failed"
+        case .needsUserApproval:
+            return "needsUserApproval"
+        case .superseded:
+            return "superseded"
+        }
     }
 }
