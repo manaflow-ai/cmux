@@ -2743,9 +2743,8 @@ struct TextBoxInputContainer: View {
                 if !completionContext.didSubmit {
                     clearPendingProviderLaunch()
                     NSSound.beep()
-                    return
                 }
-                clearPendingProviderLaunchIfPromptIdleWithoutAgentContext()
+                }
             }
             return
         }

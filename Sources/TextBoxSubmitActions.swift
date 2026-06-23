@@ -135,6 +135,17 @@ extension TextBoxInputContainer {
         .accessibilityLabel(presentation.accessibilityLabel)
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         .contextMenu {
+            if pendingProviderLaunchAction != nil {
+                Button {
+                    clearPendingProviderLaunch()
+                } label: {
+                    Label(
+                        String(localized: "textbox.submitAction.cancelPending", defaultValue: "Cancel Pending Launch"),
+                        systemImage: "xmark.circle"
+                    )
+                }
+                Divider()
+            }
             ForEach(submitActions) { action in
                 Button {
                     defaultSubmitActionID = action.id
