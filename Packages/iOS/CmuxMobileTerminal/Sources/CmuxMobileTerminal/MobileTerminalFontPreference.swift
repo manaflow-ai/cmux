@@ -21,9 +21,7 @@ public struct MobileTerminalFontPreference {
     /// the Retina pixel multiplier is applied separately via content scale.
     public static let defaultSize: Float32 = 10
     /// Smallest size the zoom controls (and `cmux mobile set-font`) will reach.
-    /// Low enough that wide fixed-width output (e.g. `neofetch`'s logo + info
-    /// columns, or wide tables) can be zoomed to fit the phone's narrow screen.
-    static let minimumSize: Float32 = 4
+    static let minimumSize: Float32 = 8
     /// Largest size the zoom controls will reach.
     static let maximumSize: Float32 = 28
 }
