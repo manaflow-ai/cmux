@@ -1332,6 +1332,10 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
     }
 
     private func writeClaudeTranscript(sessionId: String, transcriptURL: URL, cwd: URL) throws {
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try """
         {"type":"last-prompt","sessionId":"\(sessionId)"}
         {"type":"user","sessionId":"\(sessionId)","cwd":"\(cwd.path)","message":{"role":"user","content":"hello"}}
