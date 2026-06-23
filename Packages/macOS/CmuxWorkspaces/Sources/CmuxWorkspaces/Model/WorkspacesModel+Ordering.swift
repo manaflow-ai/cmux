@@ -33,11 +33,9 @@ extension WorkspacesModel {
 
     /// The sidebar's top-level row ids in `tabs[]` order (group anchors and
     /// ungrouped workspaces). Optionally inserts a grouped workspace being
-    /// promoted to top level as close to its group's row as its pin tier allows.
+    /// promoted to top level right after its group's row.
     func sidebarTopLevelWorkspaceIds(promotingWorkspaceId promotedWorkspaceId: UUID? = nil) -> [UUID] {
         let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
-        let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
-        let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
         var emittedGroupIds = Set<UUID>()
         var ids: [UUID] = []
         ids.reserveCapacity(tabs.count)
@@ -53,20 +51,11 @@ extension WorkspacesModel {
         }
         if let promotedWorkspaceId,
            !ids.contains(promotedWorkspaceId),
-           let tab = tabsById[promotedWorkspaceId],
+           let tab = tabs.first(where: { $0.id == promotedWorkspaceId }),
            let groupId = tab.groupId,
            let group = groupsById[groupId],
            let groupIndex = ids.firstIndex(of: group.anchorWorkspaceId) {
-            ids.insert(
-                promotedWorkspaceId,
-                at: promotedTopLevelInsertionIndex(
-                    ids: ids,
-                    groupIndex: groupIndex,
-                    promotedIsPinned: tab.isPinned,
-                    tabsById: tabsById,
-                    groupsByAnchorId: groupsByAnchorId
-                )
-            )
+            ids.insert(promotedWorkspaceId, at: min(groupIndex + 1, ids.count))
         }
         return ids
     }
@@ -105,50 +94,25 @@ extension WorkspacesModel {
 
     /// The pinned subset of the top-level rows (pinned groups by group pin,
     /// ungrouped workspaces by workspace pin).
-    func sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: UUID? = nil) -> Set<UUID> {
+    func sidebarTopLevelPinnedWorkspaceIds() -> Set<UUID> {
         let groupsByAnchorId = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.anchorWorkspaceId, $0) })
         let tabsById = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        return Set(sidebarTopLevelWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId).filter { id in
-            topLevelWorkspaceIdIsPinned(id, tabsById: tabsById, groupsByAnchorId: groupsByAnchorId)
-        })
-    }
-
-    private func promotedTopLevelInsertionIndex(
-        ids: [UUID],
-        groupIndex: Int,
-        promotedIsPinned: Bool,
-        tabsById: [UUID: Tab],
-        groupsByAnchorId: [UUID: WorkspaceGroup]
-    ) -> Int {
-        let desiredIndex = min(groupIndex + 1, ids.count)
-        let pinnedCount = ids.reduce(into: 0) { count, id in
-            if topLevelWorkspaceIdIsPinned(id, tabsById: tabsById, groupsByAnchorId: groupsByAnchorId) {
-                count += 1
+        return Set(sidebarTopLevelWorkspaceIds().filter { id in
+            if let group = groupsByAnchorId[id] {
+                return group.isPinned
             }
-        }
-        return promotedIsPinned ? min(desiredIndex, pinnedCount) : max(desiredIndex, pinnedCount)
-    }
-
-    private func topLevelWorkspaceIdIsPinned(
-        _ id: UUID,
-        tabsById: [UUID: Tab],
-        groupsByAnchorId: [UUID: WorkspaceGroup]
-    ) -> Bool {
-        if let group = groupsByAnchorId[id] {
-            return group.isPinned
-        }
-        return tabsById[id]?.isPinned == true
+            return tabsById[id]?.isPinned == true
+        })
     }
 
     /// Clamps a requested top-level reorder index into the mover's pin tier.
     func clampedTopLevelReorderIndex(
         forWorkspaceId workspaceId: UUID,
         targetIndex: Int,
-        topLevelIds: [UUID],
-        promotingWorkspaceId: UUID? = nil
+        topLevelIds: [UUID]
     ) -> Int {
         let clamped = max(0, min(targetIndex, max(0, topLevelIds.count - 1)))
-        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds(promotingWorkspaceId: promotingWorkspaceId)
+        let pinnedIds = sidebarTopLevelPinnedWorkspaceIds()
         let pinnedCount = topLevelIds.reduce(into: 0) { count, id in
             if pinnedIds.contains(id) {
                 count += 1
