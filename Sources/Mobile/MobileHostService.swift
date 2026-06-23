@@ -1440,6 +1440,11 @@ final class MobileHostService {
             return nil
         case "workspace.create":
             return nil
+        case "workspace.action", "workspace.close":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.group.collapse", "workspace.group.expand":
             // Display-only group state. Keyed by `group_id` (not a workspace or
             // terminal selection), so it is Mac-scoped like the workspace list and
@@ -1466,6 +1471,24 @@ final class MobileHostService {
         default:
             return scopedTicketError
         }
+    }
+
+    private static func ticketWorkspaceAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        workspaceSelection: String?
+    ) -> MobileHostRPCError? {
+        if let workspaceSelection,
+           authorization.createdWorkspaceIDs.contains(workspaceSelection) {
+            return nil
+        }
+        let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ticketWorkspaceID.isEmpty {
+            return nil
+        }
+        guard workspaceSelection == ticketWorkspaceID else {
+            return scopedTicketError
+        }
+        return nil
     }
 
     private static func ticketTerminalAuthorizationError(

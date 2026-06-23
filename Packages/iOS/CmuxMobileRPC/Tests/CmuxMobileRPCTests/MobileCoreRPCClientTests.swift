@@ -428,6 +428,49 @@ import Testing
         #expect(frame.hasAuth)
     }
 
+    @Test func trustedNetworkScrollCarriesAttachTokenWithoutStackToken() async throws {
+        let route = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.20", port: 58465)
+        let transport = QueuedCancellationProbeTransport()
+        let runtime = TestMobileSyncRuntime(
+            transportFactory: QueuedCancellationProbeTransportFactory(transport: transport),
+            stackAccessToken: "test-stack-token"
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(60),
+            authToken: "ticket-secret"
+        )
+        let client = MobileCoreRPCClient(
+            runtime: runtime,
+            route: route,
+            ticket: ticket,
+            allowsStackAuthFallback: true,
+            trustedNetworkAuthConfirmed: true
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.terminal.scroll",
+            params: [
+                "workspace_id": "workspace-main",
+                "terminal_id": "terminal-main",
+                "delta_rows": 4,
+            ]
+        )
+        let task = Task { try await client.sendRequest(request) }
+        let sent = try await transport.waitForSentRequestCount(1)
+        task.cancel()
+        _ = try? await task.value
+
+        let frame = try #require(sent.first)
+        #expect(frame.method == "mobile.terminal.scroll")
+        #expect(frame.attachToken == "ticket-secret")
+        #expect(frame.stackAccessToken == nil)
+        #expect(frame.hasAuth)
+    }
+
     @Test func confirmedTrustedNetworkCanMintAttachTicketWithoutStackToken() async throws {
         let route = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.20", port: 58465)
         let transport = QueuedCancellationProbeTransport()

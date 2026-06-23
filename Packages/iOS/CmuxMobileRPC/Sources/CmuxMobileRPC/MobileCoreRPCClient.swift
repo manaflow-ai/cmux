@@ -345,7 +345,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
              "mobile.terminal.paste", "terminal.paste",
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
-             "mobile.terminal.viewport", "terminal.viewport":
+             "mobile.terminal.viewport", "terminal.viewport",
+             "mobile.terminal.scroll", "terminal.scroll":
             return !ticketCoverage.ticketCoversTerminalRequest(
                 ticket: ticket,
                 workspaceSelection: workspaceSelection.value,
