@@ -456,6 +456,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_WORKSPACE_ID"] = workspaceID
         environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
         environment["CMUX_FAKE_SSH_ARGS"] = capturedArgsPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
@@ -480,10 +481,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
             decodedRemoteBootstrap.contains("cmux-cloud-$cmux_cloud_tty_scope"),
             decodedRemoteBootstrap
         )
-        XCTAssertFalse(
-            decodedRemoteBootstrap.contains("CMUX_CLOUD_TMUX_SESSION:-cmux-cloud}"),
+        XCTAssertTrue(
+            decodedRemoteBootstrap.contains("unset CMUX_CLOUD_TMUX_SESSION"),
             decodedRemoteBootstrap
         )
+        XCTAssertTrue(decodedRemoteBootstrap.contains("if [ \"$cmux_cloud_tty_scope\" = default ]; then"), decodedRemoteBootstrap)
     }
 
     func decodedReusableShellStartupCommand(_ command: String) -> String {

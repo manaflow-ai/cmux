@@ -10695,7 +10695,14 @@ struct CMUXCLI {
             cmux_cloud_tty_scope="${cmux_cloud_tty_scope#-}"
             cmux_cloud_tty_scope="${cmux_cloud_tty_scope%-}"
             [ -n "$cmux_cloud_tty_scope" ] || cmux_cloud_tty_scope=default
-            export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud-$cmux_cloud_tty_scope}"
+            if [ "$cmux_cloud_tty_scope" != default ] && [ "${CMUX_CLOUD_TMUX_SESSION:-}" = "cmux-cloud" ]; then
+              unset CMUX_CLOUD_TMUX_SESSION
+            fi
+            if [ "$cmux_cloud_tty_scope" = default ]; then
+              export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud}"
+            else
+              export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud-$cmux_cloud_tty_scope}"
+            fi
             if ! tmux has-session -t "$CMUX_CLOUD_TMUX_SESSION" >/dev/null 2>&1; then
               tmux new-session -d -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l" >/dev/null 2>&1 || true
             fi
