@@ -2607,6 +2607,12 @@ final class Workspace: Identifiable, ObservableObject {
         return entry.lowercased().contains("remote proxy unavailable")
     }
 
+    private func clearProxyOnlyRemoteSidebarArtifacts() {
+        statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
+        logEntries.removeAll(where: Self.isProxyOnlyRemoteLogEntry)
+        remoteLastErrorFingerprint = nil
+    }
+
     private func remoteNotificationCooldownKey(target: String) -> String? {
         let rawTarget = (remoteConfiguration?.destination ?? target)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -5792,6 +5798,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
+        if suppressesProxyOnlySidebarErrorWhileSSHTerminalIsAlive {
+            clearProxyOnlyRemoteSidebarArtifacts()
+        }
         applyPendingRemoteSurfaceTTYIfNeeded(to: panelId)
         _ = applyPendingRemoteSurfacePortKickIfNeeded(to: panelId)
     }
@@ -6593,9 +6602,7 @@ final class Workspace: Identifiable, ObservableObject {
         applyBrowserRemoteWorkspaceStatusToPanels()
 
         if suppressProxyOnlySidebarError {
-            statusEntries.removeValue(forKey: Self.remoteErrorStatusKey)
-            logEntries.removeAll(where: Self.isProxyOnlyRemoteLogEntry)
-            remoteLastErrorFingerprint = nil
+            clearProxyOnlyRemoteSidebarArtifacts()
             if proxyOnlyError || state == .connecting || state == .reconnecting {
                 return
             }
