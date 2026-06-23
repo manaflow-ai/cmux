@@ -28924,6 +28924,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "PreCompact",
         "PostCompact",
         "SessionStart",
+        "SubagentStart",
+        "SubagentStop",
         "UserPromptSubmit",
         "Stop",
     ]
@@ -28936,6 +28938,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "PreCompact": return "pre_compact"
         case "PostCompact": return "post_compact"
         case "SessionStart": return "session_start"
+        case "SubagentStart": return "subagent_start"
+        case "SubagentStop": return "subagent_stop"
         case "UserPromptSubmit": return "user_prompt_submit"
         case "Stop": return "stop"
         default: return nil
@@ -28944,7 +28948,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     private static func codexHookEventUsesMatcher(_ eventName: String) -> Bool {
         switch eventName {
-        case "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "PostCompact", "SessionStart":
+        case "PreToolUse",
+             "PermissionRequest",
+             "PostToolUse",
+             "PreCompact",
+             "PostCompact",
+             "SessionStart",
+             "SubagentStart",
+             "SubagentStop":
             return true
         default:
             return false
@@ -32913,9 +32924,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
 
+        let commandEvent = optionValue(commandArgs, name: "--event")
+
         // Read stdin. Claude, Codex, and the other agents all pipe hook
-        // JSON through stdin; unknown inputs fall through to `{}`.
-        let stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        // JSON through stdin; unknown inputs fall through to `{}`. Codex feed
+        // events are telemetry, and native lifecycle hooks can carry arbitrary
+        // transcript fragments or tool output, so cap every Codex feed
+        // invocation before JSON decoding without changing other agents'
+        // actionable hook reads.
+        let stdinData: Data
+        let shouldBoundCodexFeedStdin = source == "codex"
+        if shouldBoundCodexFeedStdin {
+            guard let boundedData = Self.readBoundedFeedHookStdin() else {
+                print("{}")
+                return
+            }
+            stdinData = boundedData
+        } else {
+            stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        }
         guard !stdinData.isEmpty,
               let stdinObj = try? JSONSerialization.jsonObject(with: stdinData) as? [String: Any]
         else {
@@ -32927,7 +32954,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
         let rawEvent = (stdinObj["hook_event_name"] as? String)
             ?? (stdinObj["event"] as? String)
-            ?? optionValue(commandArgs, name: "--event")
+            ?? commandEvent
             ?? ""
         let toolCall = stdinObj["toolCall"] as? [String: Any]
         let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
@@ -32974,16 +33001,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let toolRequestInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        let postToolUseResponseInput = stdinObj["tool_response"]
+            ?? stdinObj["toolResponse"]
+            ?? stdinObj["tool_result"]
+            ?? stdinObj["toolResult"]
+        let shouldUseCodexPostToolUseResponse = source == "codex"
+            && hookEventName == "PostToolUse"
+            && postToolUseResponseInput != nil
+        let feedToolInput = shouldUseCodexPostToolUseResponse
+            ? postToolUseResponseInput
+            : toolRequestInput
         if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
             ?? firstWorkspacePath(in: stdinObj)
-            ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
+            ?? (toolRequestInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
             eventDict["cwd"] = cwd
         }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput {
-            eventDict["tool_input"] = toolInput
+        if let feedToolInput {
+            eventDict["tool_input"] = shouldUseCodexPostToolUseResponse
+                ? Self.sanitizedPostToolUseFeedValue(feedToolInput)
+                : feedToolInput
         }
         if let context = feedContextForEvent(
             source: source,
@@ -33108,6 +33147,159 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         print("{}")
+    }
+
+    private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+
+    private static func readBoundedFeedHookStdin(
+        handle: FileHandle = .standardInput
+    ) -> Data? {
+        var data = Data()
+        while data.count <= feedHookMaxStdinBytes {
+            let remainingBytes = feedHookMaxStdinBytes + 1 - data.count
+            let chunkSize = min(64 * 1024, remainingBytes)
+            let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
+            guard !chunk.isEmpty else { return data }
+            data.append(chunk)
+        }
+        guard data.count <= feedHookMaxStdinBytes else {
+            while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
+            return nil
+        }
+        return data
+    }
+
+    private static let feedPostToolUseScalarStringLimitBytes = 512
+    private static let feedPostToolUseMetadataKeys: Set<String> = [
+        "exitcode",
+        "status",
+        "signal",
+        "durationms",
+        "timedout",
+        "success",
+    ]
+    private static let feedPostToolUseOutputKeys: Set<String> = [
+        "stdout",
+        "stderr",
+        "output",
+        "text",
+        "result",
+        "message",
+        "error",
+    ]
+
+    private static func sanitizedPostToolUseFeedValue(_ value: Any) -> Any {
+        var summary: [String: Any] = [
+            "_cmux_sanitized": true,
+        ]
+
+        if let dictionary = value as? [String: Any] {
+            summary["_cmux_original_key_count"] = dictionary.count
+            var summarizedKeys = Set<String>()
+
+            for (key, rawValue) in dictionary {
+                let normalizedKey = normalizedPostToolUseSummaryKey(key)
+                if feedPostToolUseMetadataKeys.contains(normalizedKey),
+                   let scalarValue = boundedPostToolUseScalarValue(rawValue) {
+                    summary[key] = scalarValue.value
+                    if scalarValue.truncated {
+                        summary["\(key)_truncated"] = true
+                    }
+                    summarizedKeys.insert(key)
+                }
+                if feedPostToolUseOutputKeys.contains(normalizedKey) {
+                    summarizePostToolUseOmittedField(
+                        key: key,
+                        rawValue: rawValue,
+                        into: &summary
+                    )
+                    summarizedKeys.insert(key)
+                }
+            }
+
+            let omittedKeys = dictionary.keys.filter { !summarizedKeys.contains($0) }.count
+            if omittedKeys > 0 {
+                summary["_cmux_omitted_key_count"] = omittedKeys
+            }
+        } else if let array = value as? [Any] {
+            summary["_cmux_array_count"] = array.count
+        } else if value is String {
+            summary["_cmux_text_omitted"] = true
+        } else if let scalarValue = boundedPostToolUseScalarValue(value) {
+            summary["_cmux_value"] = scalarValue.value
+            if scalarValue.truncated {
+                summary["_cmux_value_truncated"] = true
+            }
+        }
+
+        return summary
+    }
+
+    private static func normalizedPostToolUseSummaryKey(_ key: String) -> String {
+        key
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .lowercased()
+    }
+
+    private static func summarizePostToolUseOmittedField(
+        key: String,
+        rawValue: Any,
+        into summary: inout [String: Any]
+    ) {
+        if rawValue is String {
+            summary["\(key)_text_omitted"] = true
+            return
+        }
+        if let array = rawValue as? [Any] {
+            summary["\(key)_array_count"] = array.count
+            summary["\(key)_omitted"] = true
+            return
+        }
+        if let dictionary = rawValue as? [String: Any] {
+            summary["\(key)_object_key_count"] = dictionary.count
+            summary["\(key)_omitted"] = true
+            return
+        }
+        summary["\(key)_omitted"] = true
+    }
+
+    private static func boundedPostToolUseScalarValue(_ rawValue: Any) -> (value: Any, truncated: Bool)? {
+        if rawValue is NSNull {
+            return (NSNull(), false)
+        }
+        if let bool = rawValue as? Bool {
+            return (bool, false)
+        }
+        if let number = rawValue as? NSNumber {
+            return (number, false)
+        }
+        if let string = rawValue as? String {
+            let preview = feedUTF8Prefix(
+                string,
+                maxBytes: feedPostToolUseScalarStringLimitBytes
+            )
+            return (preview.value, preview.truncated)
+        }
+        return nil
+    }
+
+    private static func feedUTF8Prefix(
+        _ value: String,
+        maxBytes: Int
+    ) -> (value: String, truncated: Bool) {
+        var usedBytes = 0
+        var endIndex = value.startIndex
+        while endIndex < value.endIndex {
+            let nextIndex = value.index(after: endIndex)
+            let characterBytes = value[endIndex..<nextIndex].utf8.count
+            if usedBytes + characterBytes > maxBytes {
+                return (String(value[..<endIndex]), true)
+            }
+            usedBytes += characterBytes
+            endIndex = nextIndex
+        }
+        return (value, false)
     }
 
     private static func shouldSuppressKiroFeedEvent(
@@ -34330,18 +34522,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         """
     }
 
-#if DEBUG
-    func debugUsageTextForTesting() -> String {
-        usage()
-    }
-
-    func debugFormatDebugTerminalsPayloadForTesting(
-        _ payload: [String: Any],
-        idFormat: CLIIDFormat = .refs
-    ) -> String {
-        formatDebugTerminalsPayload(payload, idFormat: idFormat)
-    }
-#endif
 }
 
 private enum CMUXCLIOutput {
