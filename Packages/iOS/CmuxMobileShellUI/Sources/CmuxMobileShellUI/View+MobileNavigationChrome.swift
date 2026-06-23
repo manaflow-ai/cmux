@@ -24,8 +24,8 @@ extension View {
     ///
     /// iOS 18 has no per-element glass, so keep a translucent material bar as the
     /// backing (which also backs the title); `mobileGlassNavigationTitle` is a
-    /// no-op there. Keep the dark color scheme so the title and toolbar buttons
-    /// stay light and legible over the dark panes.
+    /// visual no-op there. Keep the dark color scheme so the title and toolbar
+    /// buttons stay light and legible over the dark panes.
     @ViewBuilder
     func mobileTerminalNavigationChrome() -> some View {
         #if os(iOS)

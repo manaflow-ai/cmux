@@ -49,8 +49,10 @@ extension View {
     /// so the pane shows through the whole header, which leaves a plain title
     /// floating over busy terminal text and hard to read. Wrap the title in this
     /// so it sits on its own Liquid Glass pill (iOS 26+). On iOS 18 the bar keeps
-    /// a translucent material background, so the title is already backed and this
-    /// is a no-op.
+    /// a translucent material background, so this is visually a no-op. The
+    /// principal title is visual chrome only; `navigationTitle` still carries the
+    /// semantic title, so it must not participate in toolbar hit-testing or it can
+    /// intercept taps meant for trailing bar controls.
     @ViewBuilder
     func mobileGlassNavigationTitle() -> some View {
         #if os(iOS)
@@ -63,11 +65,14 @@ extension View {
                 // multi-line chat header pill can still grow.
                 .padding(.vertical, 9)
                 .glassEffect(.regular, in: .capsule)
+                .allowsHitTesting(false)
         } else {
             self
+                .allowsHitTesting(false)
         }
         #else
         self
+            .allowsHitTesting(false)
         #endif
     }
 
