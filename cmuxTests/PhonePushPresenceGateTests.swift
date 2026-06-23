@@ -269,11 +269,11 @@ import Testing
         body(defaults)
     }
 
-    @Test func modeDefaultsToOnlyWhenAwayWhenUnset() throws {
-        // The default applies to everyone, including users who already had
-        // forwarding enabled before the mode existed.
+    @Test func modeDefaultsToAlwaysWhenUnset() throws {
+        // Once phone forwarding is enabled, the phone should keep receiving
+        // notifications even if the Mac was recently used.
         try withScratchDefaults { defaults in
-            #expect(PhoneForwardingMode.fromDefaults(defaults) == .onlyWhenAway)
+            #expect(PhoneForwardingMode.fromDefaults(defaults) == .always)
         }
     }
 
@@ -290,8 +290,77 @@ import Testing
     @Test func modeFallsBackToDefaultOnUnrecognizedValue() throws {
         try withScratchDefaults { defaults in
             defaults.set("sometimes", forKey: PhonePushSettings.forwardModeKey)
-            #expect(PhoneForwardingMode.fromDefaults(defaults) == .onlyWhenAway)
+            #expect(PhoneForwardingMode.fromDefaults(defaults) == .always)
         }
+    }
+
+    @Test func mobileHostAdvertisesNotificationSettingsSyncCapability() {
+        #expect(MobileHostService.mobileHostCapabilities.contains("notification.settings.v1"))
+    }
+
+    @Test func attachTicketsMaySyncNotificationSettings() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "workspace-docs",
+            terminalID: "terminal-notes",
+            macDeviceID: "test-mac",
+            macDisplayName: "Test Mac",
+            routes: [],
+            expiresAt: Self.now,
+            authToken: "ticket"
+        )
+        let request = MobileHostRPCRequest(
+            id: "settings",
+            method: "notification.settings.set",
+            params: [
+                "enabled": true,
+                "mode": PhoneForwardingMode.always.rawValue,
+                "hide_content": false,
+            ],
+            auth: nil
+        )
+
+        #expect(MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request) == nil)
+    }
+
+    @MainActor
+    @Test func mobileNotificationSettingsRPCUpdatesForwardingDefaults() {
+        let defaults = UserDefaults.standard
+        let savedEnabled = defaults.object(forKey: PhonePushSettings.forwardEnabledKey)
+        let savedMode = defaults.object(forKey: PhonePushSettings.forwardModeKey)
+        let savedHideContent = defaults.object(forKey: PhonePushSettings.hideContentKey)
+        defer {
+            restore(savedEnabled, key: PhonePushSettings.forwardEnabledKey, defaults: defaults)
+            restore(savedMode, key: PhonePushSettings.forwardModeKey, defaults: defaults)
+            restore(savedHideContent, key: PhonePushSettings.hideContentKey, defaults: defaults)
+        }
+
+        defaults.set(false, forKey: PhonePushSettings.forwardEnabledKey)
+        defaults.set(PhoneForwardingMode.onlyWhenAway.rawValue, forKey: PhonePushSettings.forwardModeKey)
+        defaults.set(false, forKey: PhonePushSettings.hideContentKey)
+
+        let request = MobileHostRPCRequest(
+            id: "settings",
+            method: "notification.settings.set",
+            params: [
+                "enabled": true,
+                "mode": PhoneForwardingMode.always.rawValue,
+                "hide_content": true,
+            ],
+            auth: nil
+        )
+
+        guard case let .ok(payload) = await TerminalController.shared.mobileHostHandleRPC(request),
+              let object = payload as? [String: Any] else {
+            Issue.record("expected notification.settings.set to succeed")
+            return
+        }
+
+        #expect(object["enabled"] as? Bool == true)
+        #expect(object["mode"] as? String == PhoneForwardingMode.always.rawValue)
+        #expect(object["hide_content"] as? Bool == true)
+        #expect(defaults.bool(forKey: PhonePushSettings.forwardEnabledKey))
+        #expect(PhoneForwardingMode.fromDefaults(defaults) == .always)
+        #expect(defaults.bool(forKey: PhonePushSettings.hideContentKey))
     }
 
     // MARK: - willForwardReplacement (superseded-banner buffering gate)
@@ -355,6 +424,14 @@ import Testing
             t = t.addingTimeInterval(step)
             client.presenceMonitor = monitor(at: t, hardwareIdleSeconds: 3_600) // away
             #expect(client.willForwardReplacement(defaults: defaults))
+        }
+    }
+
+    private func restore(_ value: Any?, key: String, defaults: UserDefaults) {
+        if let value {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
         }
     }
 }
