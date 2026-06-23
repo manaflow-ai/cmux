@@ -1946,7 +1946,12 @@ final class TerminalOutputCollector {
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+    await store.connectManualHost(
+        name: "Work Mac",
+        host: "192.168.1.77",
+        port: CmxMobileDefaults.defaultHostPort,
+        trustedNetworkAuthConfirmed: true
+    )
 
     let route = try #require(store.activeRoute)
     #expect(store.phase == .workspaces)
