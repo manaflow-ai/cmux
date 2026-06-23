@@ -5523,6 +5523,7 @@ final class Workspace: Identifiable, ObservableObject {
             payload["has_ssh_options"] = !remoteConfiguration.sshOptions.isEmpty
             payload["local_proxy_port"] = remoteConfiguration.localProxyPort ?? NSNull()
             payload["persistent_daemon_slot"] = remoteConfiguration.persistentDaemonSlot ?? NSNull()
+            payload["managed_cloud_vm_id"] = remoteConfiguration.managedCloudVMID ?? NSNull()
         } else {
             payload["transport"] = NSNull()
             payload["destination"] = NSNull()
@@ -6168,7 +6169,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var isDefaultFreestyleSSHDRemoteWorkspace: Bool {
         guard remoteConfiguration?.skipDaemonBootstrap == true,
               remoteConfiguration?.persistentDaemonSlot == "cmux-default-freestyle-sshd-v1",
-              remoteConfiguration?.destination.hasSuffix("+cmux@vm-ssh.freestyle.sh") == true else {
+              remoteConfiguration?.managedCloudVMID != nil else {
             return false
         }
         return true

@@ -129,6 +129,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let configureParams = try XCTUnwrap(configureRequest["params"] as? [String: Any])
         XCTAssertEqual(configureParams["workspace_id"] as? String, workspaceID)
         XCTAssertEqual(configureParams["destination"] as? String, "cmux@gateway.freestyle.sh")
+        XCTAssertEqual(configureParams["managed_cloud_vm_id"] as? String, vmID)
         XCTAssertEqual(configureParams["port"] as? Int, 2222)
         XCTAssertEqual(configureParams["local_socket_path"] as? String, socketPath)
         XCTAssertEqual(configureParams["skip_daemon_bootstrap"] as? Bool, true)

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +21,11 @@ const defaultCloudCLIBridgeSocketPath = "/tmp/cmux-cloud-cli.sock"
 type cloudCLIResponse struct {
 	data []byte
 	err  string
+}
+
+type cloudCLIForwardTarget struct {
+	server    *rpcServer
+	requestID string
 }
 
 type cloudCLIBridge struct {
@@ -123,51 +129,101 @@ func (b *cloudCLIBridge) handleConn(conn net.Conn) {
 }
 
 func (b *cloudCLIBridge) forward(request []byte) ([]byte, error) {
-	server, requestID, responseCh := b.reserveRequest()
-	if server == nil {
+	targets, responseCh := b.reserveRequests()
+	if len(targets) == 0 {
 		return nil, errors.New("no cmux app is attached to this cloud VM")
 	}
-	if err := server.frameWriter.writeEvent(rpcEvent{
-		Event:      "cli.request",
-		RequestID:  requestID,
-		DataBase64: base64.StdEncoding.EncodeToString(request),
-	}); err != nil {
-		b.forgetRequest(requestID)
-		return nil, err
-	}
-	select {
-	case response := <-responseCh:
-		if response.err != "" {
-			return nil, errors.New(response.err)
+
+	dataBase64 := base64.StdEncoding.EncodeToString(request)
+	sentTargets := make([]cloudCLIForwardTarget, 0, len(targets))
+	var writeErr error
+	for _, target := range targets {
+		if err := target.server.frameWriter.writeEvent(rpcEvent{
+			Event:      "cli.request",
+			RequestID:  target.requestID,
+			DataBase64: dataBase64,
+		}); err != nil {
+			b.forgetRequest(target.requestID)
+			writeErr = err
+			continue
 		}
-		return response.data, nil
-	case <-time.After(15 * time.Second):
-		b.forgetRequest(requestID)
-		return nil, errors.New("timed out waiting for cmux app response")
+		sentTargets = append(sentTargets, target)
 	}
+	if len(sentTargets) == 0 {
+		if writeErr != nil {
+			return nil, writeErr
+		}
+		return nil, errors.New("no cmux app accepted cloud CLI request")
+	}
+
+	defer b.forgetRequests(sentTargets)
+	var firstRoutingRejection []byte
+	var firstResponseErr string
+	pending := len(sentTargets)
+	timeout := time.After(15 * time.Second)
+	select {
+	case <-timeout:
+		return nil, errors.New("timed out waiting for cmux app response")
+	default:
+	}
+	for pending > 0 {
+		select {
+		case response := <-responseCh:
+			pending--
+			if response.err != "" {
+				if firstResponseErr == "" {
+					firstResponseErr = response.err
+				}
+				continue
+			}
+			if len(sentTargets) > 1 && isCloudCLIWorkspaceRoutingRejection(response.data) {
+				if firstRoutingRejection == nil {
+					firstRoutingRejection = response.data
+				}
+				continue
+			}
+			return response.data, nil
+		case <-timeout:
+			return nil, errors.New("timed out waiting for cmux app response")
+		}
+	}
+	if firstRoutingRejection != nil {
+		return firstRoutingRejection, nil
+	}
+	if firstResponseErr != "" {
+		return nil, errors.New(firstResponseErr)
+	}
+	return nil, errors.New("cmux app rejected cloud CLI request")
 }
 
-func (b *cloudCLIBridge) reserveRequest() (*rpcServer, string, chan cloudCLIResponse) {
+func (b *cloudCLIBridge) reserveRequests() ([]cloudCLIForwardTarget, chan cloudCLIResponse) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	var server *rpcServer
-	for candidate := range b.servers {
-		server = candidate
-		break
+	if len(b.servers) == 0 {
+		return nil, nil
 	}
-	if server == nil {
-		return nil, "", nil
+	responseCh := make(chan cloudCLIResponse, len(b.servers))
+	targets := make([]cloudCLIForwardTarget, 0, len(b.servers))
+	for server := range b.servers {
+		b.nextID++
+		requestID := fmt.Sprintf("cli-%d", b.nextID)
+		b.pending[requestID] = responseCh
+		targets = append(targets, cloudCLIForwardTarget{server: server, requestID: requestID})
 	}
-	b.nextID++
-	requestID := fmt.Sprintf("cli-%d", b.nextID)
-	responseCh := make(chan cloudCLIResponse, 1)
-	b.pending[requestID] = responseCh
-	return server, requestID, responseCh
+	return targets, responseCh
 }
 
 func (b *cloudCLIBridge) forgetRequest(requestID string) {
 	b.mu.Lock()
 	delete(b.pending, requestID)
+	b.mu.Unlock()
+}
+
+func (b *cloudCLIBridge) forgetRequests(targets []cloudCLIForwardTarget) {
+	b.mu.Lock()
+	for _, target := range targets {
+		delete(b.pending, target.requestID)
+	}
 	b.mu.Unlock()
 }
 
@@ -220,6 +276,23 @@ func (s *rpcServer) handleCLIResponse(req rpcRequest) rpcResponse {
 		return rpcResponse{ID: req.ID, OK: false, Error: &rpcError{Code: "not_found", Message: "cloud CLI request not found"}}
 	}
 	return rpcResponse{ID: req.ID, OK: true, Result: map[string]any{"delivered": true}}
+}
+
+func isCloudCLIWorkspaceRoutingRejection(data []byte) bool {
+	var envelope struct {
+		OK    bool `json:"ok"`
+		Error *struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return false
+	}
+	if envelope.OK || envelope.Error == nil {
+		return false
+	}
+	return envelope.Error.Code == "remote_cli_workspace_denied" ||
+		envelope.Error.Code == "remote_cli_unscoped"
 }
 
 func stringsTrimSpaceOrDefault(value string, fallback string) string {

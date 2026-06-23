@@ -94,6 +94,7 @@ struct WorkspaceRemoteConfigurationValueTests {
         relayPort: Int? = nil,
         preserveAfterTerminalExit: Bool = false,
         persistentDaemonSlot: String? = nil,
+        managedCloudVMID: String? = nil,
         skipDaemonBootstrap: Bool = false
     ) -> WorkspaceRemoteConfiguration {
         WorkspaceRemoteConfiguration(
@@ -107,6 +108,7 @@ struct WorkspaceRemoteConfigurationValueTests {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
+            managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: preserveAfterTerminalExit,
             persistentDaemonSlot: persistentDaemonSlot,
@@ -139,11 +141,19 @@ struct WorkspaceRemoteConfigurationValueTests {
             destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            managedCloudVMID: "71smiccrg35sw9pydt8k",
             skipDaemonBootstrap: true
         )
 
         #expect(configuration.displayTarget == "cloud VM")
         #expect(configuration.destination.contains("vm-ssh.freestyle.sh"))
+        let plainSSH = makeConfiguration(
+            destination: "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh",
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+            skipDaemonBootstrap: true
+        )
+        #expect(plainSSH.displayTarget == "71smiccrg35sw9pydt8k+cmux@vm-ssh.freestyle.sh")
     }
 
     @Test("proxy broker transport key separates bootstrap modes and ignores transient options")

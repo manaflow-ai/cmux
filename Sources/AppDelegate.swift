@@ -7498,18 +7498,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func currentCloudVMId(tabManager: TabManager) -> String? {
         guard let workspaceId = tabManager.selectedTabId,
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }),
-              let destination = workspace.remoteConfiguration?.destination else {
+              let vmID = workspace.remoteConfiguration?.managedCloudVMID?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !vmID.isEmpty else {
             return nil
         }
-        return Self.cloudVMId(fromRemoteDestination: destination)
-    }
-
-    nonisolated static func cloudVMId(fromRemoteDestination destination: String) -> String? {
-        let trimmed = destination.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasSuffix("@vm-ssh.freestyle.sh") else { return nil }
-        let userAndHost = trimmed.split(separator: "@", maxSplits: 1).first.map(String.init) ?? ""
-        let vmId = userAndHost.split(separator: "+", maxSplits: 1).first.map(String.init) ?? ""
-        return vmId.isEmpty ? nil : vmId
+        return vmID
     }
 
     private func promptForCloudVMSnapshotId(preferredWindow: NSWindow?) -> String? {

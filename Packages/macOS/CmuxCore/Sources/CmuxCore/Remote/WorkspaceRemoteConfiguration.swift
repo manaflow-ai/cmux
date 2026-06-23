@@ -29,6 +29,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let localSocketPath: String?
     /// Local workspace that owns VM-originated CLI bridge requests.
     public let ownerWorkspaceID: UUID?
+    /// Provider-issued Cloud VM id for cmux-managed Cloud VM workspaces.
+    public let managedCloudVMID: String?
     /// Startup command run in new terminal surfaces for this workspace.
     public let terminalStartupCommand: String?
     /// One-shot token gating auto-connect on foreground SSH authentication.
@@ -62,6 +64,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         relayToken: String?,
         localSocketPath: String?,
         ownerWorkspaceID: UUID? = nil,
+        managedCloudVMID: String? = nil,
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
@@ -81,6 +84,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.relayToken = relayToken
         self.localSocketPath = localSocketPath
         self.ownerWorkspaceID = ownerWorkspaceID
+        self.managedCloudVMID = Self.normalizedOptionalValue(managedCloudVMID)
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
         self.agentSocketPath = Self.normalizedAgentSocketPath(agentSocketPath)
@@ -90,6 +94,49 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             ? Self.normalizedPersistentDaemonSlot(persistentDaemonSlot)
             : nil
         self.skipDaemonBootstrap = skipDaemonBootstrap
+    }
+
+    public init(
+        transport: WorkspaceRemoteTransport = .ssh,
+        destination: String,
+        port: Int?,
+        identityFile: String?,
+        sshOptions: [String],
+        localProxyPort: Int?,
+        relayPort: Int?,
+        relayID: String?,
+        relayToken: String?,
+        localSocketPath: String?,
+        ownerWorkspaceID: UUID? = nil,
+        terminalStartupCommand: String?,
+        foregroundAuthToken: String? = nil,
+        agentSocketPath: String? = nil,
+        daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
+        preserveAfterTerminalExit: Bool = false,
+        persistentDaemonSlot: String? = nil,
+        skipDaemonBootstrap: Bool = false
+    ) {
+        self.init(
+            transport: transport,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: ownerWorkspaceID,
+            managedCloudVMID: nil,
+            terminalStartupCommand: terminalStartupCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
+        )
     }
 
     /// Resolves the SSH agent socket to use for a remote configuration from an explicit socket or durable options.
@@ -117,8 +164,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     private var isManagedCloudVMSSHD: Bool {
         skipDaemonBootstrap &&
             persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
-            destination.trimmingCharacters(in: .whitespacesAndNewlines)
-                .hasSuffix("+cmux@vm-ssh.freestyle.sh")
+            managedCloudVMID != nil
     }
 
     /// The stable key the proxy broker uses to share one daemon tunnel across
@@ -135,6 +181,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
         let normalizedOwnerWorkspaceID = ownerWorkspaceID?.uuidString.lowercased() ?? ""
+        let normalizedManagedCloudVMID = managedCloudVMID ?? ""
         return [
             normalizedTransport,
             normalizedBootstrapMode,
@@ -147,6 +194,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             normalizedRequiredCapabilities,
             normalizedPersistentDaemonSlot,
             normalizedOwnerWorkspaceID,
+            normalizedManagedCloudVMID,
         ]
             .joined(separator: "\u{1e}")
     }
@@ -172,6 +220,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             && port == other.port
             && relayPort == other.relayPort
             && ownerWorkspaceID == other.ownerWorkspaceID
+            && managedCloudVMID == other.managedCloudVMID
             && Self.normalizedIdentityPath(identityFile)
                 == Self.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
@@ -194,6 +243,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             relayToken: relayToken,
             localSocketPath: localSocketPath,
             ownerWorkspaceID: workspaceID,
+            managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: terminalStartupCommand,
             foregroundAuthToken: foregroundAuthToken,
             agentSocketPath: agentSocketPath,
@@ -247,7 +297,8 @@ extension WorkspaceRemoteConfiguration {
             preserveAfterTerminalExit: preserveAfterTerminalExit ? true : nil,
             skipDaemonBootstrap: skipDaemonBootstrap,
             relayPort: preserveAfterTerminalExit ? relayPort : nil,
-            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil
+            persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
+            managedCloudVMID: managedCloudVMID
         )
     }
 }

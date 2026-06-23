@@ -60,3 +60,55 @@ func TestCloudCLIBridgeForwardsRequestThroughRPCEvent(t *testing.T) {
 		t.Fatalf("response = %q, want pong newline", string(response))
 	}
 }
+
+func TestCloudCLIBridgeSkipsWrongWorkspaceResponses(t *testing.T) {
+	bridge := newCloudCLIBridge()
+	deniedServer := &rpcServer{cliBridge: bridge}
+	acceptedServer := &rpcServer{cliBridge: bridge}
+
+	deniedServer.frameWriter = testCLIBridgeFrameWriter{onEvent: func(event rpcEvent) error {
+		response := base64.StdEncoding.EncodeToString([]byte(`{"ok":false,"error":{"code":"remote_cli_workspace_denied","message":"wrong workspace"}}` + "\n"))
+		resp := deniedServer.handleCLIResponse(rpcRequest{
+			ID:     "denied-response",
+			Method: "cli.response",
+			Params: map[string]any{
+				"request_id":  event.RequestID,
+				"ok":          true,
+				"data_base64": response,
+			},
+		})
+		if !resp.OK {
+			t.Fatalf("denied cli.response failed: %+v", resp)
+		}
+		return nil
+	}}
+	acceptedServer.frameWriter = testCLIBridgeFrameWriter{onEvent: func(event rpcEvent) error {
+		response := base64.StdEncoding.EncodeToString([]byte(`{"ok":true,"result":{"delivered":true}}` + "\n"))
+		resp := acceptedServer.handleCLIResponse(rpcRequest{
+			ID:     "accepted-response",
+			Method: "cli.response",
+			Params: map[string]any{
+				"request_id":  event.RequestID,
+				"ok":          true,
+				"data_base64": response,
+			},
+		})
+		if !resp.OK {
+			t.Fatalf("accepted cli.response failed: %+v", resp)
+		}
+		return nil
+	}}
+
+	unregisterDenied := bridge.register(deniedServer)
+	defer unregisterDenied()
+	unregisterAccepted := bridge.register(acceptedServer)
+	defer unregisterAccepted()
+
+	response, err := bridge.forward([]byte("notify\n"))
+	if err != nil {
+		t.Fatalf("forward failed: %v", err)
+	}
+	if string(response) != `{"ok":true,"result":{"delivered":true}}`+"\n" {
+		t.Fatalf("response = %q, want accepted response", string(response))
+	}
+}

@@ -46,6 +46,13 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly billingTeamId: string;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  readonly reservePausedResume: (input: {
+    readonly id: string;
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly providerVmId: string;
+    readonly maxActiveVms: number;
+  }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
   readonly markProviderObservedStatus: (input: {
     readonly id: string;
     readonly providerVmId: string;
@@ -62,6 +69,12 @@ export type VmRepositoryShape = {
     readonly code: string;
     readonly message: string;
   }) => Effect.Effect<void, VmDatabaseError>;
+  readonly hasOwnedSnapshot: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly findUserVm: (input: {
     readonly userId: string;
     readonly providerVmId: string;
@@ -317,6 +330,66 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         );
     }),
 
+  reservePausedResume: (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const db = cloudDb();
+        return await db.transaction(async (tx) => {
+          const lockKey = input.billingTeamId ?? `user:${input.userId}`;
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+
+          const [current] = await tx
+            .select()
+            .from(cloudVms)
+            .where(
+              and(
+                eq(cloudVms.id, input.id),
+                eq(cloudVms.userId, input.userId),
+                eq(cloudVms.providerVmId, input.providerVmId),
+              ),
+            )
+            .limit(1);
+          if (!current || current.status !== "paused") return current ?? null;
+
+          const teamScope = input.billingTeamId
+            ? or(
+                eq(cloudVms.billingTeamId, input.billingTeamId),
+                and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId)),
+              )
+            : and(isNull(cloudVms.billingTeamId), eq(cloudVms.userId, input.userId));
+          const [active] = await tx
+            .select({ total: count() })
+            .from(cloudVms)
+            .where(and(inArray(cloudVms.status, ["provisioning", "running"]), teamScope));
+          const activeCount = Number(active?.total ?? 0);
+          if (activeCount >= input.maxActiveVms) {
+            throw new VmLimitExceededError({
+              kind: "active_vms",
+              billingTeamId: input.billingTeamId ?? input.userId,
+              limit: input.maxActiveVms,
+            });
+          }
+
+          const [reserved] = await tx
+            .update(cloudVms)
+            .set({ status: "running", updatedAt: new Date() })
+            .where(
+              and(
+                eq(cloudVms.id, input.id),
+                eq(cloudVms.status, "paused"),
+                eq(cloudVms.providerVmId, input.providerVmId),
+              ),
+            )
+            .returning();
+          return reserved ?? current;
+        });
+      },
+      catch: (cause) =>
+        isVmLimitExceededError(cause)
+          ? cause
+          : new VmDatabaseError({ operation: "reservePausedResume", cause }),
+    }),
+
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
@@ -370,6 +443,28 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));
+    }),
+
+  hasOwnedSnapshot: (input) =>
+    dbEffect("hasOwnedSnapshot", async () => {
+      const db = cloudDb();
+      const teamScope = input.billingTeamId
+        ? eq(cloudVmUsageEvents.billingTeamId, input.billingTeamId)
+        : isNull(cloudVmUsageEvents.billingTeamId);
+      const [event] = await db
+        .select({ id: cloudVmUsageEvents.id })
+        .from(cloudVmUsageEvents)
+        .where(
+          and(
+            eq(cloudVmUsageEvents.userId, input.userId),
+            teamScope,
+            eq(cloudVmUsageEvents.provider, input.provider),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+          ),
+        )
+        .limit(1);
+      return !!event;
     }),
 
   findUserVm: (input) =>

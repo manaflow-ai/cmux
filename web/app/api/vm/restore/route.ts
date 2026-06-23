@@ -12,6 +12,7 @@ import {
   isVmCreateFailedError,
   isVmCreateInProgressError,
   isVmLimitExceededError,
+  isVmSnapshotNotFoundError,
 } from "../../../../services/vms/errors";
 import {
   isVmBillingTeamResolutionError,
@@ -156,6 +157,15 @@ function createLikeErrorResponse(err: unknown): Response | null {
       action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before restoring another.",
       extra: { limit: err.limit },
       details: { limit: err.limit },
+    });
+  }
+  if (isVmSnapshotNotFoundError(err)) {
+    return vmErrorResponse({
+      error: "vm_snapshot_not_found",
+      status: 404,
+      message: "Cloud VM snapshot was not found for this account.",
+      action: "Create a snapshot from one of this team's Cloud VMs, then retry restore with that snapshot id.",
+      details: { snapshotId: err.snapshotId },
     });
   }
   if (isVmCreateCreditsInsufficientError(err)) {

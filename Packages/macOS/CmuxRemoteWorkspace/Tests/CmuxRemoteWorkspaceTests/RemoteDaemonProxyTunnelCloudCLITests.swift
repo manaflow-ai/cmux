@@ -39,6 +39,33 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(params["prefer_tty"] == nil)
     }
 
+    @Test("unscoped notify is constrained to the owner workspace")
+    func unscopedNotifyTargetsOwnerWorkspace() throws {
+        let workspaceID = UUID()
+        let request = try jsonData([
+            "id": "request-owner",
+            "method": "notification.create",
+            "params": [
+                "title": "cmux",
+                "body": "done",
+            ],
+        ])
+
+        let validation = RemoteDaemonProxyTunnel.validateCloudCLIRequest(request, ownerWorkspaceID: workspaceID)
+
+        guard case .forward(let forwarded) = validation else {
+            Issue.record("expected request to be forwarded")
+            return
+        }
+        let envelope = try jsonObject(forwarded)
+        #expect(envelope["method"] as? String == "notification.create")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["workspace_id"] as? String == workspaceID.uuidString)
+        #expect(params["surface_id"] == nil)
+        #expect(params["title"] as? String == "cmux")
+        #expect(params["body"] as? String == "done")
+    }
+
     @Test("notify targeting another workspace is rejected before the local socket")
     func crossWorkspaceNotifyIsRejected() throws {
         let ownerWorkspaceID = UUID()
@@ -88,6 +115,18 @@ struct RemoteDaemonProxyTunnelCloudCLITests {
         #expect(envelope["ok"] as? Bool == false)
         let error = try #require(envelope["error"] as? [String: Any])
         #expect(error["code"] as? String == "remote_cli_method_denied")
+    }
+
+    @Test("socket auth request is JSON-RPC auth.login")
+    func authLoginRequestUsesSocketAuthProtocol() throws {
+        let request = try RemoteDaemonProxyTunnel.cloudCLIAuthLoginRequest(password: "secret")
+        let envelope = try jsonObject(request)
+        #expect(envelope["id"] as? String == "cloud-cli-auth")
+        #expect(envelope["method"] as? String == "auth.login")
+        let params = try #require(envelope["params"] as? [String: Any])
+        #expect(params["password"] as? String == "secret")
+        #expect(RemoteDaemonProxyTunnel.cloudCLIAuthResponseSucceeded(Data(#"{"ok":true,"result":{"authenticated":true}}"#.utf8)))
+        #expect(!RemoteDaemonProxyTunnel.cloudCLIAuthResponseSucceeded(Data(#"{"ok":false,"error":{"code":"unauthorized"}}"#.utf8)))
     }
 
     private func jsonData(_ object: [String: Any]) throws -> Data {

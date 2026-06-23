@@ -1,5 +1,6 @@
 public import CmuxCore
 public import CmuxRemoteDaemon
+internal import CmuxSettings
 internal import Darwin
 internal import Foundation
 import Network
@@ -328,15 +329,29 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 params: params,
                 ownerWorkspaceID: ownerWorkspaceID,
                 workspaceKey: "preferred_workspace_id",
-                surfaceKey: "preferred_surface_id"
+                surfaceKey: "preferred_surface_id",
+                requireWorkspace: true,
+                requireSurface: true
             )
-        case "notification.create", "notification.create_for_target":
+        case "notification.create_for_target":
             return validateCloudCLINotification(
                 requestID: requestID,
                 params: params,
                 ownerWorkspaceID: ownerWorkspaceID,
                 workspaceKey: "workspace_id",
-                surfaceKey: "surface_id"
+                surfaceKey: "surface_id",
+                requireWorkspace: true,
+                requireSurface: true
+            )
+        case "notification.create":
+            return validateCloudCLINotification(
+                requestID: requestID,
+                params: params,
+                ownerWorkspaceID: ownerWorkspaceID,
+                workspaceKey: "workspace_id",
+                surfaceKey: "surface_id",
+                requireWorkspace: false,
+                requireSurface: false
             )
         default:
             return .reject(cloudCLIErrorResponse(
@@ -352,15 +367,29 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         params: [String: Any],
         ownerWorkspaceID: UUID,
         workspaceKey: String,
-        surfaceKey: String
+        surfaceKey: String,
+        requireWorkspace: Bool,
+        requireSurface: Bool
     ) -> CloudCLIRequestValidation {
-        guard let workspaceRaw = params[workspaceKey] as? String,
-              let requestedWorkspaceID = UUID(uuidString: workspaceRaw) else {
+        let requestedWorkspaceID: UUID
+        if let workspaceRaw = (params[workspaceKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspaceRaw.isEmpty {
+            guard let parsedWorkspaceID = UUID(uuidString: workspaceRaw) else {
+                return .reject(cloudCLIErrorResponse(
+                    id: requestID,
+                    code: "invalid_params",
+                    message: "Cloud CLI notification requires a valid workspace_id"
+                ))
+            }
+            requestedWorkspaceID = parsedWorkspaceID
+        } else if requireWorkspace {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
                 code: "invalid_params",
                 message: "Cloud CLI notification requires a valid workspace_id"
             ))
+        } else {
+            requestedWorkspaceID = ownerWorkspaceID
         }
         guard requestedWorkspaceID == ownerWorkspaceID else {
             return .reject(cloudCLIErrorResponse(
@@ -369,19 +398,34 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 message: "Cloud CLI notification target does not match this workspace"
             ))
         }
-        guard let surfaceRaw = params[surfaceKey] as? String,
-              UUID(uuidString: surfaceRaw) != nil else {
+
+        let surfaceRaw: String?
+        if let raw = (params[surfaceKey] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !raw.isEmpty {
+            guard UUID(uuidString: raw) != nil else {
+                return .reject(cloudCLIErrorResponse(
+                    id: requestID,
+                    code: "invalid_params",
+                    message: "Cloud CLI notification requires a valid surface_id"
+                ))
+            }
+            surfaceRaw = raw
+        } else if requireSurface {
             return .reject(cloudCLIErrorResponse(
                 id: requestID,
                 code: "invalid_params",
                 message: "Cloud CLI notification requires a valid surface_id"
             ))
+        } else {
+            surfaceRaw = nil
         }
 
         var forwardedParams: [String: Any] = [
             "workspace_id": ownerWorkspaceID.uuidString,
-            "surface_id": surfaceRaw,
         ]
+        if let surfaceRaw {
+            forwardedParams["surface_id"] = surfaceRaw
+        }
         for key in ["title", "subtitle", "body"] {
             if let value = params[key] as? String {
                 forwardedParams[key] = value
@@ -389,7 +433,7 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
         }
         let forwarded: [String: Any] = [
             "id": requestID ?? NSNull(),
-            "method": "notification.create_for_target",
+            "method": surfaceRaw == nil ? "notification.create" : "notification.create_for_target",
             "params": forwardedParams,
         ]
         guard JSONSerialization.isValidJSONObject(forwarded),
@@ -417,6 +461,31 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return Data("{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}\n".utf8)
         }
         return data + Data([0x0A])
+    }
+
+    internal static func cloudCLIAuthLoginRequest(password: String) throws -> Data {
+        let request: [String: Any] = [
+            "id": "cloud-cli-auth",
+            "method": "auth.login",
+            "params": [
+                "password": password,
+            ],
+        ]
+        guard JSONSerialization.isValidJSONObject(request) else {
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 7, userInfo: [
+                NSLocalizedDescriptionKey: "failed to encode local cmux socket auth request",
+            ])
+        }
+        return try JSONSerialization.data(withJSONObject: request, options: []) + Data([0x0A])
+    }
+
+    internal static func cloudCLIAuthResponseSucceeded(_ response: Data) -> Bool {
+        let trimmed = Data(response.split(separator: 0x0A).first ?? response[...])
+        guard let object = try? JSONSerialization.jsonObject(with: trimmed, options: []),
+              let envelope = object as? [String: Any] else {
+            return false
+        }
+        return envelope["ok"] as? Bool == true
     }
 
     private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
@@ -462,7 +531,25 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             ])
         }
 
-        try request.withUnsafeBytes { rawBuffer in
+        if let socketPassword = SocketControlPasswordStore().configuredPassword(allowLazyKeychainFallback: true),
+           !socketPassword.isEmpty {
+            try writeAll(cloudCLIAuthLoginRequest(password: socketPassword), to: fd)
+            let authResponse = try readLineFromUnixSocket(fd: fd)
+            guard cloudCLIAuthResponseSucceeded(authResponse) else {
+                throw NSError(domain: "cmux.remote.cli-bridge", code: 8, userInfo: [
+                    NSLocalizedDescriptionKey: "local cmux socket auth rejected cloud CLI bridge",
+                ])
+            }
+        }
+
+        try writeAll(request, to: fd)
+        _ = shutdown(fd, SHUT_WR)
+
+        return try readRemainingFromUnixSocket(fd: fd)
+    }
+
+    private static func writeAll(_ data: Data, to fd: Int32) throws {
+        try data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
             var bytesRemaining = rawBuffer.count
             var pointer = baseAddress
@@ -477,8 +564,38 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
                 pointer = pointer.advanced(by: written)
             }
         }
-        _ = shutdown(fd, SHUT_WR)
+    }
 
+    private static func readLineFromUnixSocket(fd: Int32) throws -> Data {
+        var response = Data()
+        var scratch = [UInt8](repeating: 0, count: 1024)
+        while true {
+            let count = Darwin.read(fd, &scratch, scratch.count)
+            if count > 0 {
+                response.append(scratch, count: count)
+                if scratch.prefix(count).contains(0x0A) {
+                    return response
+                }
+                continue
+            }
+            if count == 0 {
+                return response
+            }
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                if !response.isEmpty {
+                    return response
+                }
+                throw NSError(domain: "cmux.remote.cli-bridge", code: 5, userInfo: [
+                    NSLocalizedDescriptionKey: "timed out waiting for local cmux response",
+                ])
+            }
+            throw NSError(domain: "cmux.remote.cli-bridge", code: 6, userInfo: [
+                NSLocalizedDescriptionKey: "failed to read local cmux response",
+            ])
+        }
+    }
+
+    private static func readRemainingFromUnixSocket(fd: Int32) throws -> Data {
         var response = Data()
         var scratch = [UInt8](repeating: 0, count: 4096)
         while true {

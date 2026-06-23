@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxCore
 import CmuxFoundation
 import XCTest
 import AppKit
@@ -893,12 +894,35 @@ final class CommandPaletteCloudCommandTests: XCTestCase {
         XCTAssertTrue(commandIds.contains(ContentView.commandPaletteCloudHandoffCommandId))
     }
 
-    func testCloudVMIdParsingUsesFreestyleGatewayDestination() {
-        XCTAssertEqual(
-            AppDelegate.cloudVMId(fromRemoteDestination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh"),
-            "nncop8f8h6w9blhns6sy"
+    func testCloudVMIdentityIsExplicitMetadata() {
+        let cloudConfig = WorkspaceRemoteConfiguration(
+            destination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            managedCloudVMID: " nncop8f8h6w9blhns6sy ",
+            terminalStartupCommand: nil
         )
-        XCTAssertNil(AppDelegate.cloudVMId(fromRemoteDestination: "lawrence@example.com"))
+        XCTAssertEqual(cloudConfig.managedCloudVMID, "nncop8f8h6w9blhns6sy")
+
+        let plainSSHConfig = WorkspaceRemoteConfiguration(
+            destination: "nncop8f8h6w9blhns6sy+cmux@vm-ssh.freestyle.sh",
+            port: 22,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: nil
+        )
+        XCTAssertNil(plainSSHConfig.managedCloudVMID)
     }
 }
 

@@ -33,10 +33,8 @@ extension SessionRemoteWorkspaceSnapshot {
         let fallbackSSHOptions = preserveSSHOptions
             ? Self.normalizedSSHOptions(preservedOptions)
             : preservedOptions
-        let defaultFreestyleVMID = Self.defaultFreestyleVMID(
-            destination: normalizedDestination,
-            skipDaemonBootstrap: skipDaemonBootstrap == true
-        )
+        let managedCloudVMID = WorkspaceRemoteConfiguration.normalizedOptionalValue(managedCloudVMID)
+        let defaultFreestyleVMID = skipDaemonBootstrap == true ? managedCloudVMID : nil
         let effectivePersistentDaemonSlot = normalizedPersistentDaemonSlot
             ?? (defaultFreestyleVMID == nil ? nil : Self.defaultFreestylePersistentDaemonSlot)
         let preservePTYSession =
@@ -79,6 +77,7 @@ extension SessionRemoteWorkspaceSnapshot {
             relayID: restoredRelayID,
             relayToken: restoredRelayToken,
             localSocketPath: preservePTYSession ? normalizedLocalSocketPath : nil,
+            managedCloudVMID: managedCloudVMID,
             terminalStartupCommand: {
                 if preservePTYSession {
                     return SSHPTYAttachStartupCommandBuilder.command(
@@ -158,24 +157,6 @@ extension SessionRemoteWorkspaceSnapshot {
     }
 
     private static let defaultFreestylePersistentDaemonSlot = "cmux-default-freestyle-sshd-v1"
-
-    private static func defaultFreestyleVMID(
-        destination normalizedDestination: String,
-        skipDaemonBootstrap: Bool
-    ) -> String? {
-        guard skipDaemonBootstrap,
-              normalizedDestination.hasSuffix("+cmux@vm-ssh.freestyle.sh") else {
-            return nil
-        }
-        let vmID = String(normalizedDestination.prefix { $0 != "+" })
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard vmID.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
-              vmID != ".",
-              vmID != ".." else {
-            return nil
-        }
-        return vmID
-    }
 
     private static func defaultFreestyleSSHAttachCommand(vmID: String) -> String {
         let lines = [

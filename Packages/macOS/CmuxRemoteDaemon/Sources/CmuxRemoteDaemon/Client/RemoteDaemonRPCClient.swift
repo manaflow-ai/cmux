@@ -59,6 +59,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     /// Wire capability required for resize notifications
     /// (`pty.resize.notification`; value is test-pinned, do not change).
     public static let requiredPTYResizeNotificationCapability = RemoteDaemonCapability.ptyResizeNotification.rawValue
+    static let maxCloudCLIRequestsInFlight = 4
 
     // Subscription records pair the caller's delivery queue with its handler.
     // @unchecked Sendable: the handler is only ever invoked via
@@ -82,6 +83,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     let onUnexpectedTermination: (String) -> Void
     let writeQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.write.\(UUID().uuidString)")
     let stateQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.state.\(UUID().uuidString)")
+    let cliRequestQueue = DispatchQueue(label: "com.cmux.remote-ssh.daemon-rpc.cli.\(UUID().uuidString)", qos: .utility, attributes: .concurrent)
     let pendingCalls = RemoteDaemonPendingCallRegistry()
 
     var process: Process?
@@ -104,6 +106,7 @@ public final class RemoteDaemonRPCClient: @unchecked Sendable {
     var stderrBuffer = ""
     var streamSubscriptions: [String: StreamSubscription] = [:]
     var ptySubscriptions: [String: PTYSubscription] = [:]
+    var cliRequestsInFlight = 0
 
     /// Creates a client for one daemon transport.
     ///

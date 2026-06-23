@@ -204,9 +204,20 @@ extension RemoteDaemonRPCClient {
             sendCLIResponse(requestID: requestID, data: nil, error: "cloud CLI bridge is not configured")
             return true
         }
+        guard cliRequestsInFlight < Self.maxCloudCLIRequestsInFlight else {
+            sendCLIResponse(requestID: requestID, data: nil, error: "cloud CLI bridge is busy")
+            return true
+        }
+        cliRequestsInFlight += 1
         let request = Self.decodeBase64Data(payload["data_base64"])
-        DispatchQueue.global(qos: .utility).async { [weak self] in
+        cliRequestQueue.async { [weak self] in
             guard let self else { return }
+            defer {
+                self.stateQueue.async { [weak self] in
+                    guard let self else { return }
+                    self.cliRequestsInFlight = max(0, self.cliRequestsInFlight - 1)
+                }
+            }
             do {
                 self.sendCLIResponse(requestID: requestID, data: try cliRequestHandler(request), error: nil)
             } catch {

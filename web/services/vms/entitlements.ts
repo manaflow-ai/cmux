@@ -44,7 +44,7 @@ export function resolveVmEntitlements(
     planId,
     billingCustomerType: billing.billingCustomerType,
     billingTeamId: billing.billingTeamId,
-    maxActiveVms: activeVmLimitForPlan(planId, env),
+    maxActiveVms: maxActiveVmsForPlan(planId, env),
   };
 }
 
@@ -106,6 +106,13 @@ function resolveBillingContext(
     billingTeamId: user.billingTeamId,
     billingPlanId: user.userBillingPlanId,
   };
+}
+
+export function maxActiveVmsForPlan(
+  planId: string | null | undefined,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
 }
 
 function activeVmLimitForPlan(planId: string, env: Record<string, string | undefined>): number {

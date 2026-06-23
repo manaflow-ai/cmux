@@ -22,11 +22,13 @@ import {
   VmCreateInProgressError,
   VmNotFoundError,
   VmProviderOperationError,
+  VmSnapshotNotFoundError,
   isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
+import { maxActiveVmsForPlan } from "./entitlements";
 import { isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import {
@@ -226,7 +228,7 @@ export function snapshotVm(input: {
       provider: vm.provider,
       imageId: vm.imageId,
       metadata: { snapshotId: snapshot.id, named: !!input.name, name: input.name ?? null },
-    }).pipe(Effect.catchAll(() => Effect.void));
+    });
     return snapshot;
   });
 }
@@ -242,17 +244,29 @@ export function restoreVm(input: {
   readonly idempotencyKey?: string;
   readonly timing?: VmTimingSink;
 }) {
-  return createVm({
-    userId: input.userId,
-    billingCustomerType: input.billingCustomerType,
-    billingTeamId: input.billingTeamId,
-    billingPlanId: input.billingPlanId,
-    maxActiveVms: input.maxActiveVms,
-    provider: input.provider,
-    image: input.snapshotId,
-    imageVersion: null,
-    idempotencyKey: input.idempotencyKey,
-    timing: input.timing,
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const hasSnapshot = yield* repo.hasOwnedSnapshot({
+      userId: input.userId,
+      billingTeamId: input.billingTeamId,
+      provider: input.provider,
+      snapshotId: input.snapshotId,
+    });
+    if (!hasSnapshot) {
+      return yield* Effect.fail(new VmSnapshotNotFoundError({ snapshotId: input.snapshotId }));
+    }
+    return yield* createVm({
+      userId: input.userId,
+      billingCustomerType: input.billingCustomerType,
+      billingTeamId: input.billingTeamId,
+      billingPlanId: input.billingPlanId,
+      maxActiveVms: input.maxActiveVms,
+      provider: input.provider,
+      image: input.snapshotId,
+      imageVersion: null,
+      idempotencyKey: input.idempotencyKey,
+      timing: input.timing,
+    });
   });
 }
 
@@ -276,6 +290,7 @@ export function forkVm(input: {
       repo,
       providers,
       "fork",
+      input.maxActiveVms,
     );
 
     if (source.provider === "freestyle" && providers.fork) {
@@ -665,19 +680,36 @@ function ensureUserVmRunning(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   resumeSource: "attach" | "ssh" | "fork",
+  maxActiveVms: number = maxActiveVmsForPlan(vm.billingPlanId),
 ): Effect.Effect<CloudVmRow, VmWorkflowError, never> {
   return Effect.gen(function* () {
     if (vm.status !== "paused") return vm;
     if (!vm.providerVmId) return vm;
+    const providerVmId = vm.providerVmId;
     const resume = providers.resume;
     if (!resume) return vm;
 
-    yield* resume(vm.provider, vm.providerVmId);
-    const didUpdate = yield* repo.markProviderObservedStatus({
+    const reserved = yield* repo.reservePausedResume({
       id: vm.id,
-      providerVmId: vm.providerVmId,
-      status: "running",
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      providerVmId,
+      maxActiveVms,
     });
+    if (!reserved || reserved.status !== "running") return reserved ?? vm;
+
+    yield* resume(vm.provider, providerVmId).pipe(
+      Effect.catchAll((err) =>
+        repo.markProviderObservedStatus({
+          id: vm.id,
+          providerVmId,
+          status: "paused",
+        }).pipe(
+          Effect.catchAll(() => Effect.void),
+          Effect.andThen(Effect.fail(err)),
+        ),
+      ),
+    );
     yield* repo.recordUsageEvent({
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
@@ -688,7 +720,7 @@ function ensureUserVmRunning(
       imageId: vm.imageId,
       metadata: { source: resumeSource },
     }).pipe(Effect.catchAll(() => Effect.void));
-    return didUpdate ? { ...vm, status: "running" as const, updatedAt: new Date() } : vm;
+    return reserved;
   });
 }
 

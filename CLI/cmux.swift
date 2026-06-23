@@ -9008,7 +9008,7 @@ struct CMUXCLI {
             initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
-        let reusableTerminalStartupCommand: String; let reusableTerminalRecoveryCommand: String
+        let reusableTerminalStartupCommand: String
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
             let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -9018,7 +9018,6 @@ struct CMUXCLI {
                     executablePath: executablePath
                 )
                 reusableTerminalStartupCommand = splitAttachCommand
-                reusableTerminalRecoveryCommand = splitAttachCommand
                 initialSSHStartupCommand = reusableTerminalStartupCommand; remoteTerminalSSHStartupCommand = reusableTerminalStartupCommand
             } else {
                 let splitAttachCommand = [
@@ -9038,10 +9037,9 @@ struct CMUXCLI {
                     remoteRelayPort: 0,
                     reconnectLimitDefault: 86400
                 )
-                reusableTerminalRecoveryCommand = "while true; do \(splitAttachCommand); s=$?; [ \"$s\" = 255 ] || exit \"$s\"; sleep 2; done"
             }
         } else {
-            reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand; reusableTerminalRecoveryCommand = remoteTerminalSSHStartupCommand
+            reusableTerminalStartupCommand = remoteTerminalSSHStartupCommand
         }
         cliDebugLog(
             "cli.ssh.start target=\(sshOptions.displayDestination) port=\(sshOptions.port.map(String.init) ?? "nil") " +
@@ -9053,7 +9051,13 @@ struct CMUXCLI {
 
         let normalizedWorkspaceName = sshOptions.workspaceName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let existingPinnedWorkspace = sshOptions.pinWorkspaceToTop
-            ? try reusableNamedWorkspace(named: normalizedWorkspaceName, windowRaw: sshOptions.windowRaw, client: client)
+            ? try reusableNamedWorkspace(
+                named: normalizedWorkspaceName,
+                windowRaw: sshOptions.windowRaw,
+                expectedManagedCloudVMID: usesPersistentFreestyleCloud ? vmIDForSplitAttach : nil,
+                expectedPersistentDaemonSlot: usesPersistentFreestyleCloud ? persistentDaemonSlot : nil,
+                client: client
+            )
             : nil
         let workspaceId: String
         let workspaceWindowId: String?
@@ -9164,6 +9168,9 @@ struct CMUXCLI {
                 configureParams["daemon_websocket_expires_at_unix"] = daemon.expiresAtUnix
                 configureParams["local_socket_path"] = sshOptions.localSocketPath
             }
+            if let vmIDForSplitAttach {
+                configureParams["managed_cloud_vm_id"] = vmIDForSplitAttach
+            }
             configureParams["terminal_startup_command"] = reusableTerminalStartupCommand
             if sshOptions.skipDaemonBootstrap {
                 configureParams["skip_daemon_bootstrap"] = true
@@ -9207,9 +9214,6 @@ struct CMUXCLI {
                     "workspace=\(String(workspaceId.prefix(8))) surface=\(String(surfaceId.prefix(8))) " +
                     "stage=workspace.remote.reconnect elapsedMs=\(Int(Date().timeIntervalSince(reconnectStartedAt) * 1000))"
                 )
-                if usesPersistentFreestyleCloud {
-                    try recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: workspaceId, surfaceId: surfaceId, vmID: vmIDForSplitAttach ?? "", command: reusableTerminalRecoveryCommand, client: client)
-                }
             }
             let remoteState = ((configuredPayload["remote"] as? [String: Any])?["state"] as? String) ?? "unknown"
             cliDebugLog(
@@ -9272,6 +9276,8 @@ struct CMUXCLI {
     private func reusableNamedWorkspace(
         named rawName: String?,
         windowRaw: String?,
+        expectedManagedCloudVMID: String? = nil,
+        expectedPersistentDaemonSlot: String? = nil,
         client: SocketClient
     ) throws -> (workspaceId: String, windowId: String?)? {
         guard let name = rawName, !name.isEmpty else { return nil }
@@ -9281,14 +9287,22 @@ struct CMUXCLI {
         let workspaces = payload["workspaces"] as? [[String: Any]] ?? []
         var firstMatch: [String: Any]?
         var firstPinnedMatch: [String: Any]?
+        let requiresRemoteIdentity = expectedManagedCloudVMID != nil || expectedPersistentDaemonSlot != nil
         for workspace in workspaces {
             guard (workspace["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) == name else {
                 continue
             }
+            if requiresRemoteIdentity {
+                let remote = workspace["remote"] as? [String: Any]
+                guard expectedManagedCloudVMID == normalizedOptionalWorkspaceString(remote?["managed_cloud_vm_id"]),
+                      expectedPersistentDaemonSlot == normalizedOptionalWorkspaceString(remote?["persistent_daemon_slot"]) else {
+                    continue
+                }
+            }
             if firstMatch == nil {
                 firstMatch = workspace
             }
-            if firstPinnedMatch == nil, (workspace["is_pinned"] as? Bool) == true {
+            if firstPinnedMatch == nil, workspaceIsPinned(workspace) {
                 firstPinnedMatch = workspace
             }
             if firstPinnedMatch != nil {
@@ -9301,6 +9315,15 @@ struct CMUXCLI {
         }
         let windowId = (match?["window_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (workspaceId, windowId?.isEmpty == false ? windowId : nil)
+    }
+
+    private func workspaceIsPinned(_ workspace: [String: Any]) -> Bool {
+        (workspace["pinned"] as? Bool) == true || (workspace["is_pinned"] as? Bool) == true
+    }
+
+    private func normalizedOptionalWorkspaceString(_ value: Any?) -> String? {
+        let trimmed = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     private func pinWorkspaceToTop(workspaceId: String, windowId: String?, client: SocketClient) throws {
@@ -9316,22 +9339,6 @@ struct CMUXCLI {
         var moveParams = params
         moveParams["action"] = "move_top"
         _ = try client.sendV2(method: "workspace.action", params: moveParams)
-    }
-
-    private func recoverStaleFreestyleSSHPromptIfNeeded(workspaceId: String, surfaceId: String, vmID: String, command: String, client: SocketClient) throws {
-        let target: [String: Any] = ["workspace_id": workspaceId, "surface_id": surfaceId]
-        let surfaces = (try client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId])["surfaces"] as? [[String: Any]]) ?? []
-        let surface = surfaces.first { ($0["id"] as? String) == surfaceId || ($0["ref"] as? String) == surfaceId } ?? [:]
-        let payload = try client.sendV2(method: "surface.read_text", params: target.merging(["scrollback": true, "lines": 80]) { _, new in new })
-        let text = ((payload["text"] as? String) ?? "").lowercased()
-        let title = ((surface["title"] as? String) ?? "").lowercased()
-        let initialCommand = ((surface["initial_command"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let vmNeedle = vmID.lowercased(); let lastStale = ["password:", "input_userauth_error", "permission denied"].compactMap { text.range(of: $0, options: .backwards)?.lowerBound }.max()
-        let lastPrompt = ["cmux@\(vmNeedle):", "cmux@\(vmNeedle)", "cmux@"].compactMap { text.range(of: $0, options: .backwards)?.lowerBound }.max(); let alreadyOnVM = !vmNeedle.isEmpty && (title.contains(vmNeedle) || lastPrompt != nil); let staleAuth = lastStale.map { stale in lastPrompt.map { $0 < stale } ?? true } ?? false
-        guard staleAuth || (!alreadyOnVM && initialCommand.isEmpty) else { return }
-        do {
-            _ = try client.sendV2(method: "surface.send_key", params: target.merging(["key": "ctrl+c"]) { _, new in new }); usleep(300000); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command + "\n"]) { _, new in new })
-        } catch let error as CLIError where error.message.contains("process_exited") { _ = try client.sendV2(method: "surface.respawn", params: target.merging(["command": "/bin/zsh -l"]) { _, new in new }); usleep(300000); _ = try client.sendV2(method: "surface.send_text", params: target.merging(["text": command + "\n"]) { _, new in new }) }
     }
 
     private func parseSSHCommandOptions(
@@ -10524,9 +10531,15 @@ struct CMUXCLI {
                 )
             } catch {
                 if usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) {
-                    vmID = try recreateDefaultFreestyleSSHDVM(client: client)
-                    attempt = 0
-                    continue
+                    throw CLIError(message: """
+                        The Cloud VM attached to this workspace no longer exists.
+
+                        What to do:
+                          Close this workspace and open a fresh Cloud VM workspace with the cloud button or `cmux vm new`.
+
+                        Details:
+                          cmux will not recreate the VM from inside an attached terminal because that would leave the workspace's saved Cloud VM id stale.
+                        """)
                 }
                 guard usesDefaultFreestyleSSHD,
                       Self.isRetryableCloudVMServiceError(error),
@@ -10566,22 +10579,6 @@ struct CMUXCLI {
 
     private static func writeStderrLine(_ text: String) {
         FileHandle.standardError.write(Data((text + "\n").utf8))
-    }
-
-    private func recreateDefaultFreestyleSSHDVM(client: SocketClient) throws -> String {
-        let response = try client.sendV2(
-            method: "vm.create",
-            params: [
-                "provider": "freestyle",
-                "idempotency_key": Self.persistentFreestyleCloudIdempotencyKey,
-            ],
-            responseTimeout: Self.vmCreateResponseTimeoutSeconds
-        )
-        guard let id = (response["id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !id.isEmpty else {
-            throw CLIError(message: "vm ssh-attach could not recreate the default Cloud VM")
-        }
-        return id
     }
 
     private func bootstrapFreestyleZshEnvironmentIfPossible(
@@ -10941,6 +10938,7 @@ struct CMUXCLI {
             "terminal_startup_command": splitStartupCommand,
             "skip_daemon_bootstrap": true,
             "local_socket_path": client.socketPath,
+            "managed_cloud_vm_id": id,
         ]
         if let daemon = endpoint.daemon {
             configureParams["daemon_websocket_url"] = daemon.url

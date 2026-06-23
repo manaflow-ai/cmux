@@ -3081,7 +3081,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             preserveAfterTerminalExit: nil,
             skipDaemonBootstrap: true,
             relayPort: nil,
-            persistentDaemonSlot: nil
+            persistentDaemonSlot: nil,
+            managedCloudVMID: "nncop8f8h6w9blhns6sy"
         )
 
         let configuration = try XCTUnwrap(snapshot.workspaceConfiguration())
@@ -3090,6 +3091,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.preserveAfterTerminalExit, true)
         XCTAssertEqual(configuration.persistentDaemonSlot, "cmux-default-freestyle-sshd-v1")
         XCTAssertEqual(configuration.skipDaemonBootstrap, true)
+        XCTAssertEqual(configuration.managedCloudVMID, "nncop8f8h6w9blhns6sy")
         XCTAssertNil(configuration.relayPort)
         XCTAssertNil(configuration.localSocketPath)
         XCTAssertFalse(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
@@ -3121,6 +3123,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             relayID: nil,
             relayToken: nil,
             localSocketPath: nil,
+            managedCloudVMID: "nncop8f8h6w9blhns6sy",
             terminalStartupCommand: "old raw ssh attach",
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
