@@ -57,7 +57,7 @@ permissions:
 jobs:
   decide:
     name: Decide whether a TestFlight upload is needed
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
