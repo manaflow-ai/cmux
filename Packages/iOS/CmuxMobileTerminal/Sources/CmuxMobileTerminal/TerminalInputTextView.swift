@@ -244,7 +244,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// glass capsule grows to fill the full strip height. The horizontal inset is
     /// trimmed so the capsule hugs its glyph.
     private static let accessoryButtonContentInsets = NSDirectionalEdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
-    private static let accessoryButtonCornerRadius: CGFloat = 6
     /// Button height. Equal to ``dockedNubSize`` so the capsule fills the strip
     /// vertically: the buttons are as tall as the section, with the breathing
     /// room living BELOW the strip (``dockedBottomPadding``) instead of inside it.
@@ -283,7 +282,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// hug their icon tightly; the taller capsule supplies the tap area that a
     /// wider button used to.
     private static let accessoryButtonMinWidth: CGFloat = 32
-    private static let accessoryButtonNormalBackground = UIColor(white: 0.35, alpha: 1)
+    private let accessoryButtonAppearance = AccessoryButtonAppearance()
     private var accessoryBackgroundLeadingConstraint: NSLayoutConstraint?
     private var accessoryBackgroundTrailingConstraint: NSLayoutConstraint?
     private var accessoryDismissLeadingConstraint: NSLayoutConstraint?
@@ -974,7 +973,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     ) {
         let usesStableScrollableAppearance = (button as? AccessoryActionButton)?
             .usesStableScrollableAppearance ?? true
-        var config = accessoryButtonConfiguration(
+        var config = accessoryButtonAppearance.configuration(
             armed: armed,
             sticky: sticky,
             useLiquidGlass: !usesStableScrollableAppearance
@@ -1026,36 +1025,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
                 actionButton.isStickyLocked = false
             }
         }
-    }
-
-    private func accessoryButtonConfiguration(
-        armed: Bool,
-        sticky: Bool,
-        useLiquidGlass: Bool
-    ) -> UIButton.Configuration {
-        if #available(iOS 26.0, *), useLiquidGlass {
-            var config: UIButton.Configuration = (armed || sticky) ? .prominentGlass() : .glass()
-            config.baseForegroundColor = .white
-            if armed || sticky {
-                config.baseBackgroundColor = .systemBlue
-            }
-            return config
-        }
-        var config = UIButton.Configuration.plain()
-        var background = UIBackgroundConfiguration.clear()
-        if sticky {
-            background.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.85)
-            background.strokeColor = .white
-            background.strokeWidth = 2
-        } else if armed {
-            background.backgroundColor = .systemBlue
-        } else {
-            background.backgroundColor = Self.accessoryButtonNormalBackground
-        }
-        background.cornerRadius = Self.accessoryButtonCornerRadius
-        config.background = background
-        config.baseForegroundColor = .white
-        return config
     }
 
     private func handleAccessoryAction(_ action: TerminalInputAccessoryAction) {
