@@ -14,13 +14,17 @@ export function HeroScreenshot() {
     <div
       className={`relative transition-opacity duration-700 ${loaded ? "opacity-100" : "opacity-0"}`}
     >
+      {/* drop-shadow (not box-shadow): box-shadow traces the rectangular
+          element box and would square off the corners, showing through the
+          image's transparent rounded corners. drop-shadow follows the alpha
+          channel, so the shadow hugs the real window corners. */}
       <Image
         src={landingImage}
         alt="cmux terminal app screenshot"
         priority
         quality={100}
         onLoad={() => setLoaded(true)}
-        className="w-full shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65)]"
+        className="w-full [filter:drop-shadow(0_24px_44px_rgba(0,0,0,0.55))]"
       />
       <HeroPhone />
     </div>
