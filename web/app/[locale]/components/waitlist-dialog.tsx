@@ -145,9 +145,13 @@ function WaitlistBody({
     <div className="relative">
       <form
         onSubmit={handleSubmit}
-        aria-hidden={done}
+        // `inert` when done keeps the form mounted (it defines the dialog
+        // height for zero layout shift) but removes its controls from the tab
+        // order and the accessibility tree, so keyboard users can't reach the
+        // hidden inputs under the success overlay.
+        inert={done}
         className={`flex flex-col transition-opacity duration-300 ease-out ${
-          done ? "pointer-events-none opacity-0" : "opacity-100"
+          done ? "opacity-0" : "opacity-100"
         }`}
       >
         <Dialog.Title className="text-lg font-semibold tracking-tight">
