@@ -125,7 +125,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: metrics.chevronFontSize, weight: .semibold))
+                .cmuxFont(size: metrics.chevronFontSize, weight: .semibold)
                 .foregroundStyle(.secondary)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
                 .contentShape(Rectangle())
@@ -141,18 +141,18 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
 
             HStack(spacing: 6) {
                 Image(systemName: displayedIconSymbol)
-                    .font(.system(size: metrics.iconFontSize, weight: .semibold))
+                    .cmuxFont(size: metrics.iconFontSize, weight: .semibold)
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
                     .accessibilityHidden(true)
                 Text(name)
-                    .font(.system(size: metrics.nameFontSize, weight: .semibold))
+                    .cmuxFont(size: metrics.nameFontSize, weight: .semibold)
                     .foregroundStyle(isAnchorActive ? Color.primary : Color.primary.opacity(0.9))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if anchorUnreadCount > 0 {
                     Text("\(anchorUnreadCount)")
-                        .font(.system(size: metrics.unreadFontSize, weight: .semibold))
+                        .cmuxFont(size: metrics.unreadFontSize, weight: .semibold)
                         .foregroundStyle(.white)
                         .padding(.horizontal, metrics.unreadHorizontalPadding)
                         .padding(.vertical, metrics.unreadVerticalPadding)
@@ -179,7 +179,7 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             )
             Button(action: onTapPlus) {
                 Image(systemName: "plus")
-                    .font(.system(size: metrics.plusFontSize, weight: .medium))
+                    .cmuxFont(size: metrics.plusFontSize, weight: .medium)
                     .foregroundStyle(.secondary)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)
                     .contentShape(Rectangle())

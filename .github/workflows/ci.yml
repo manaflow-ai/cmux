@@ -130,6 +130,9 @@ jobs:
       - name: Validate Xcode SourcePackages cache sanitizer
         run: python3 tests/test_ci_sanitize_xcode_source_packages_cache.py
 
+      - name: Validate TestFlight notes generator
+        run: python3 tests/test_ios_testflight_notes.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -380,25 +383,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -749,25 +734,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -861,6 +828,22 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
+            CmuxAuthRuntime)
+              suite_list="$(
+                find "$pkgdir/Tests" -name '*.swift' -print0 \
+                  | xargs -0 perl -ne 'print "$1\n" if /^\s*@Suite(?:\([^)]*\))?\s+struct\s+([A-Za-z0-9_]+)/' \
+                  | sort -u
+              )"
+              if [ -z "$suite_list" ]; then
+                echo "::error::no Swift Testing suites found for $pkg"
+                exit 1
+              fi
+              while IFS= read -r suite; do
+                [ -n "$suite" ] || continue
+                echo "swift test $pkgdir --filter $suite"
+                swift test --package-path "$pkgdir" --filter "$suite"
+              done <<< "$suite_list"
+              ;;
             CmuxTerminal|CmuxTerminalCore)
               test_status=0
               output="$(swift test --package-path "$pkgdir" 2>&1)" || test_status=$?
@@ -962,25 +945,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Prepare isolated DerivedData
         run: |
@@ -1332,26 +1297,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+          ./scripts/select-ci-xcode.sh
 
       - name: Capture Ghostty revision
         id: ghostty-revision
@@ -1494,26 +1440,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(
-              find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
-                | sort \
-                | tail -n 1 \
-                || true
-            )"
-            if [ -n "$XCODE_APP" ]; then
-              XCODE_DIR="$XCODE_APP/Contents/Developer"
-            else
-              echo "No Xcode.app found under /Applications" >&2
-              exit 1
-            fi
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-path
+          ./scripts/select-ci-xcode.sh
 
       - name: Prepare isolated DerivedData
         run: |

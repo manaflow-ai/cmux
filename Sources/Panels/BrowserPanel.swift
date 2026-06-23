@@ -1,6 +1,7 @@
 import Foundation
 import CmuxCore
 import CmuxBrowser
+import CmuxFoundation
 import CmuxSettings
 import Combine
 import CmuxAppKitSupportUI
@@ -3070,28 +3071,49 @@ final class BrowserPanel: Panel, ObservableObject {
             reevaluateHiddenWebViewDiscardScheduling(reason: "media_playback_changed")
         }
     }
-    /// Document ids of the frames currently reporting playing media. The pane is
-    /// kept alive while this is non-empty.
+    /// Live media activity. ``Workspace`` publishes it to tab/sidebar surfaces.
+    private(set) var mediaActivity = BrowserMediaActivity()
+    var isPlayingAudio: Bool { mediaActivity.isPlayingAudio }
+    var isUsingMicrophone: Bool { mediaActivity.isUsingMicrophone }
+    var isUsingCamera: Bool { mediaActivity.isUsingCamera }
+    var onMediaActivityChanged: ((BrowserMediaActivity) -> Void)?
+    /// Frame ids reporting playing media; keeps hidden panes alive while non-empty.
     private var playingMediaFrameIDs: Set<String> = []
+    private var audibleMediaFrameIDs: Set<String> = []
     var mediaPlaybackMessageHandler: BrowserMediaPlaybackMessageHandler?
 
-    /// Folds a per-frame playback report into ``isPlayingMedia``. Lives here so
-    /// the `private(set)` setter stays confined to this file.
-    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool) {
-        if isPlaying {
-            playingMediaFrameIDs.insert(frameID)
-        } else {
-            playingMediaFrameIDs.remove(frameID)
-        }
-        isPlayingMedia = !playingMediaFrameIDs.isEmpty
+    private func setMediaActivity(
+        isPlayingAudio: Bool? = nil,
+        isUsingMicrophone: Bool? = nil,
+        isUsingCamera: Bool? = nil,
+        reason: String
+    ) {
+        var next = mediaActivity
+        if let isPlayingAudio { next.isPlayingAudio = isPlayingAudio }
+        if let isUsingMicrophone { next.isUsingMicrophone = isUsingMicrophone }
+        if let isUsingCamera { next.isUsingCamera = isUsingCamera }
+        guard next != mediaActivity else { return }
+        mediaActivity = next
+        onMediaActivityChanged?(next)
+        reevaluateHiddenWebViewDiscardScheduling(reason: reason)
     }
 
-    /// Clears all tracked playing frames (new webview bind or main-frame
-    /// navigation, where the prior frame hooks are gone).
-    func resetMediaPlaybackTracking() {
-        playingMediaFrameIDs.removeAll()
-        isPlayingMedia = false
+    /// Folds a per-frame playback report into retention and audio-glyph state.
+    func applyMediaPlaybackReport(frameID: String, isPlaying: Bool, isAudible: Bool) {
+        if isPlaying { playingMediaFrameIDs.insert(frameID) } else { playingMediaFrameIDs.remove(frameID) }
+        if isPlaying && isAudible { audibleMediaFrameIDs.insert(frameID) } else { audibleMediaFrameIDs.remove(frameID) }
+        isPlayingMedia = !playingMediaFrameIDs.isEmpty
+        refreshAudioMediaActivity(reason: "media_audibility_changed")
     }
+
+    /// Clears tracked frames after a webview bind or main-frame navigation.
+    func resetMediaPlaybackTracking() {
+        (playingMediaFrameIDs, audibleMediaFrameIDs) = ([], [])
+        isPlayingMedia = false
+        refreshAudioMediaActivity(reason: "media_playback_reset")
+    }
+
+    private func refreshAudioMediaActivity(reason: String) { setMediaActivity(isPlayingAudio: !audibleMediaFrameIDs.isEmpty && !isMuted, reason: reason) }
     var pendingReactGrabReturnTargetPanelId: UUID?
     var pendingReactGrabRoundTripToken: String?
     let reactGrabBridgeSessionUpdaterName = "__cmuxReactGrabBridgeSync_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
@@ -3124,9 +3146,14 @@ final class BrowserPanel: Panel, ObservableObject {
     private var developerToolsVisibilityLossCheckWorkItem: DispatchWorkItem?
     private let developerToolsTransitionSettleDelay: TimeInterval = 0.15
     private let developerToolsAttachedManualCloseDetectionDelay: TimeInterval = 0.35
+    private let developerToolsDetachedWindowCloseResolutionMaxDuration: TimeInterval = 2.0
     private var developerToolsLastAttachedHostAt: Date?
     private var developerToolsLastKnownVisibleAt: Date?
     private var detachedDeveloperToolsWindowCloseObserver: NSObjectProtocol?
+    // One-shot DispatchSourceTimer bridges WebKit's synchronous window-close
+    // callback to a bounded redock deadline.
+    private var detachedDeveloperToolsWindowCloseResolutionTimer: DispatchSourceTimer?
+    private var detachedDeveloperToolsWindowCloseResolutionGeneration: UInt64 = 0
     private var preferredAttachedDeveloperToolsWidth: CGFloat?
     private var preferredAttachedDeveloperToolsWidthFraction: CGFloat?
     private var browserThemeMode: BrowserThemeMode
@@ -3201,7 +3228,7 @@ final class BrowserPanel: Panel, ObservableObject {
             restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
             drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
-            scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
+            scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
         }
     }
 
@@ -3283,8 +3310,8 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
-    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
-        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
+    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String, now: Date = Date()) {
+        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason, now: now)
     }
 
     private func cancelHiddenWebViewDiscard() {
@@ -3328,8 +3355,7 @@ final class BrowserPanel: Panel, ObservableObject {
         loadingGeneration &+= 1
         cancelPendingInteractiveBrowserPrompts(reason: "discardHiddenWebView")
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
@@ -3369,6 +3395,11 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
         return true
+    }
+
+    @discardableResult
+    func discardHiddenWebViewForSystemMemoryPressure(now: Date = Date()) -> Bool {
+        hiddenWebViewDiscardManager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now)
     }
 
     @discardableResult
@@ -4350,8 +4381,7 @@ final class BrowserPanel: Panel, ObservableObject {
         _ = hideDeveloperTools()
         cancelDeveloperToolsRestoreRetry()
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearWebContentTerminationRecovery()
         clearBrowserFocusMode(reason: "profileSwitch")
         faviconTask?.cancel()
@@ -4497,16 +4527,12 @@ final class BrowserPanel: Panel, ObservableObject {
             setOmnibarVisible(snapshot.omnibarVisible ?? false)
             currentURL = diffURL
             let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
-            shouldRenderWebView = shouldRenderRestoredWebView
             guard shouldRenderRestoredWebView else {
+                shouldRenderWebView = false
                 refreshNavigationAvailability()
                 return
             }
-            navigateWithoutInsecureHTTPPrompt(
-                to: diffURL,
-                recordTypedNavigation: false,
-                preserveRestoredSessionHistory: false
-            )
+            deferRestoredWebViewLoadUntilVisible(url: diffURL, reason: "session_restore.diff")
             return
         }
 
@@ -4523,20 +4549,23 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 
         currentURL = restoredURL
-        shouldRenderWebView = shouldRenderRestoredWebView
 
         guard shouldRenderRestoredWebView, let restoredURL else {
+            shouldRenderWebView = false
             refreshNavigationAvailability()
             return
         }
 
-        navigateWithoutInsecureHTTPPrompt(
-            to: restoredURL,
-            recordTypedNavigation: false,
-            preserveRestoredSessionHistory: true
-        )
+        deferRestoredWebViewLoadUntilVisible(url: restoredURL, reason: "session_restore")
     }
 
+    private func deferRestoredWebViewLoadUntilVisible(url: URL, reason: String) {
+        currentURL = url
+        shouldRenderWebView = false
+        hiddenWebViewDiscardManager.markDiscarded(reason: reason, now: Date())
+        refreshNavigationAvailability()
+        refreshWebViewLifecycleState()
+    }
     func shouldRenderWebViewForSessionSnapshot() -> Bool {
         // Diff viewer URLs are "temporary" so `preferredURLStringForSessionSnapshot()`
         // is nil, but they are restorable via their token, so honor their render
@@ -4544,6 +4573,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard preferredURLStringForSessionSnapshot() != nil || diffViewerSessionComponents() != nil else {
             return false
         }
+        // Deferred restore keeps the live WebView hidden while preserving the persisted render intent.
         return hiddenWebViewDiscardManager.restoredSessionShouldRenderWebView ?? shouldRenderWebView
     }
 
@@ -4589,6 +4619,19 @@ final class BrowserPanel: Panel, ObservableObject {
             return value
         }
         return nil
+    }
+
+    /// Tears down every live web-view observer (Swift key-path KVO + Combine
+    /// subscriptions) and clears the derived
+    /// media-activity flags. Invoked at each point a web view is released or
+    /// replaced, so a discarded/closed pane never shows a stale
+    /// speaker/mic/camera glyph; the next `setupObservers` re-seeds the flags
+    /// from the fresh web view.
+    private func detachWebViewObservers() {
+        webViewObservers.removeAll()
+        resetMediaPlaybackTracking()
+        setMediaActivity(isUsingMicrophone: false, isUsingCamera: false, reason: "media_capture_changed")
+        webViewCancellables.removeAll()
     }
 
     private func setupObservers(for webView: WKWebView) {
@@ -4692,20 +4735,29 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.append(fullscreenObserver)
 
         let cameraCaptureObserver = webView.observe(\.cameraCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingCamera = webView.cameraCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingCamera: isUsingCamera, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(cameraCaptureObserver)
 
         let microphoneCaptureObserver = webView.observe(\.microphoneCaptureState, options: [.new]) { [weak self] webView, _ in
+            let isUsingMicrophone = webView.microphoneCaptureState != .none
             Task { @MainActor in
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
-                self.reevaluateHiddenWebViewDiscardScheduling(reason: "media_capture_changed")
+                self.setMediaActivity(isUsingMicrophone: isUsingMicrophone, reason: "media_capture_changed")
             }
         }
         webViewObservers.append(microphoneCaptureObserver)
+
+        // The capture observers above fire only on `.new`; seed the freshly
+        // bound web view's current capture state so a pane that rebinds while a
+        // call is live shows the glyph without waiting for the next transition.
+        let initialIsUsingCamera = webView.cameraCaptureState != .none
+        let initialIsUsingMicrophone = webView.microphoneCaptureState != .none
+        setMediaActivity(isUsingMicrophone: initialIsUsingMicrophone, isUsingCamera: initialIsUsingCamera, reason: "media_capture_changed")
 
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
@@ -4915,8 +4967,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
 #endif
 
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         clearBrowserFocusMode(reason: reason)
         faviconTask?.cancel()
         faviconTask = nil
@@ -5128,8 +5179,7 @@ final class BrowserPanel: Panel, ObservableObject {
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         faviconTask?.cancel()
         faviconTask = nil
     }
@@ -5784,9 +5834,13 @@ final class BrowserPanel: Panel, ObservableObject {
         developerToolsTransitionSettleWorkItem = nil
         developerToolsVisibilityLossCheckWorkItem?.cancel()
         developerToolsVisibilityLossCheckWorkItem = nil
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionTimer = nil
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
         if let detachedDeveloperToolsWindowCloseObserver {
             NotificationCenter.default.removeObserver(detachedDeveloperToolsWindowCloseObserver)
         }
+        // `deinit` is nonisolated, so tear observers down inline.
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
@@ -5933,8 +5987,7 @@ extension BrowserPanel {
         lockedPortalHost = nil
 
         let oldWebView = webView
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
+        detachWebViewObservers()
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
@@ -6041,6 +6094,7 @@ extension BrowserPanel {
         let applied = applyMuteState(muted, to: webView, reason: "setMuted")
         if applied, isMuted != muted {
             isMuted = muted
+            refreshAudioMediaActivity(reason: "audio_mute_changed")
         }
         return applied
     }
@@ -6269,6 +6323,14 @@ extension BrowserPanel {
         }
     }
 
+    private func detachedDeveloperToolsWindowsForPanel() -> [NSWindow] {
+        detachedDeveloperToolsWindows().filter(detachedDeveloperToolsWindowBelongsToPanel)
+    }
+
+    private var hasPendingDetachedDeveloperToolsWindowCloseResolution: Bool {
+        detachedDeveloperToolsWindowCloseResolutionTimer != nil
+    }
+
     private func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
         return Self.visibleDescendants(in: container)
@@ -6314,31 +6376,26 @@ extension BrowserPanel {
             guard Thread.isMainThread else { return }
             let handledDetachedInspector = MainActor.assumeIsolated {
                 guard Self.isDetachedInspectorWindow(window) else { return false }
-                return self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
+                return self.handleDetachedDeveloperToolsWindowWillClose(window)
             }
-            guard handledDetachedInspector else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                guard self.preferredDeveloperToolsPresentation == .detached else { return }
-                guard self.preferredDeveloperToolsVisible else { return }
-                guard !self.isDeveloperToolsVisible() else { return }
-                self.developerToolsDetachedOpenGraceDeadline = nil
-                self.setPreferredDeveloperToolsVisible(false)
-                self.reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
-                self.cancelDeveloperToolsRestoreRetry()
-#if DEBUG
-                cmuxDebugLog(
-                    "browser.devtools detachedClose.manual panel=\(self.id.uuidString.prefix(5)) " +
-                    "\(self.debugDeveloperToolsStateSummary()) \(self.debugDeveloperToolsGeometrySummary())"
-                )
-#endif
-            }
+            _ = handledDetachedInspector
         }
     }
 
     @discardableResult
-    private func closeDeveloperToolsFromDetachedInspectorWindowWillClose(_ window: NSWindow) -> Bool {
-        closeDeveloperToolsFromDetachedInspectorWindow(window, source: "willClose")
+    private func handleDetachedDeveloperToolsWindowWillClose(_ window: NSWindow) -> Bool {
+        guard detachedDeveloperToolsWindowBelongsToPanel(window) else { return false }
+        // Explicit user closes are intercepted in AppDelegate before AppKit posts
+        // willClose. A raw willClose can also be WebKit's redock path, where
+        // closing _inspector here tears down the frontend while attach continues.
+        scheduleDetachedDeveloperToolsWindowCloseResolution(source: "willClose")
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools detachedClose.defer panel=\(id.uuidString.prefix(5)) " +
+            "window=\(window.windowNumber) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
+        return true
     }
 
     @discardableResult
@@ -6363,6 +6420,84 @@ extension BrowserPanel {
         )
 #endif
         return closed
+    }
+
+    private func scheduleDetachedDeveloperToolsWindowCloseResolution(
+        source: String,
+        startedAt: Date = Date()
+    ) {
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
+        let generation = detachedDeveloperToolsWindowCloseResolutionGeneration
+        let delayNanoseconds = Int(developerToolsAttachedManualCloseDetectionDelay * 1_000_000_000)
+        // WebKit exposes no completion callback for re-dock. It closes the
+        // detached window before the attached frontend/layout is observable.
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .nanoseconds(delayNanoseconds))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            guard self.detachedDeveloperToolsWindowCloseResolutionTimer != nil else { return }
+            guard self.detachedDeveloperToolsWindowCloseResolutionGeneration == generation else { return }
+            self.detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+            self.detachedDeveloperToolsWindowCloseResolutionTimer = nil
+            self.resolveDetachedDeveloperToolsWindowClose(source: source, startedAt: startedAt)
+        }
+        detachedDeveloperToolsWindowCloseResolutionTimer = timer
+        timer.resume()
+    }
+
+    private func resolveDetachedDeveloperToolsWindowClose(source: String, startedAt: Date) {
+        guard detachedDeveloperToolsWindowsForPanel().isEmpty else { return }
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+
+        let visible = isDeveloperToolsVisible()
+        let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
+        if visible || hasAttachedLayout {
+            developerToolsDetachedOpenGraceDeadline = nil
+            setPreferredDeveloperToolsVisible(true)
+            if hasAttachedLayout {
+                setPreferredDeveloperToolsPresentation(.attached)
+            } else {
+                syncDeveloperToolsPresentationPreferenceFromUI()
+                if detachedDeveloperToolsWindowsForPanel().isEmpty {
+                    setPreferredDeveloperToolsPresentation(.attached)
+                }
+            }
+            developerToolsLastKnownVisibleAt = Date()
+            cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+            cmuxDebugLog(
+                "browser.devtools detachedClose.redock panel=\(id.uuidString.prefix(5)) " +
+                "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+            )
+#endif
+            return
+        }
+
+        let elapsed = Date().timeIntervalSince(startedAt)
+        // WebKit's attach path is not reflected in cmux's transition flag, so a
+        // no-window/no-layout state remains ambiguous until the bounded deadline.
+        if preferredDeveloperToolsVisible,
+           elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
+            scheduleDetachedDeveloperToolsWindowCloseResolution(
+                source: "\(source).ambiguous",
+                startedAt: startedAt
+            )
+            return
+        }
+
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = nil
+        forceDeveloperToolsRefreshOnNextAttach = false
+        setPreferredDeveloperToolsVisible(false)
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+        cancelDeveloperToolsRestoreRetry()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools detachedClose.manual panel=\(id.uuidString.prefix(5)) " +
+            "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
@@ -6634,6 +6769,9 @@ extension BrowserPanel {
         developerToolsTransitionSettleWorkItem = nil
         pendingDeveloperToolsTransitionTargetVisible = nil
         developerToolsTransitionTargetVisible = nil
+        detachedDeveloperToolsWindowCloseResolutionTimer?.cancel()
+        detachedDeveloperToolsWindowCloseResolutionTimer = nil
+        detachedDeveloperToolsWindowCloseResolutionGeneration &+= 1
         developerToolsDetachedOpenGraceDeadline = nil
         developerToolsLastKnownVisibleAt = nil
         forceDeveloperToolsRefreshOnNextAttach = false
@@ -6668,6 +6806,9 @@ extension BrowserPanel {
             setPreferredDeveloperToolsVisible(true)
             developerToolsLastKnownVisibleAt = Date()
             cancelDeveloperToolsRestoreRetry()
+            return
+        }
+        if hasPendingDetachedDeveloperToolsWindowCloseResolution {
             return
         }
         if preserveVisibleIntent && preferredDeveloperToolsVisible {
@@ -6777,11 +6918,10 @@ extension BrowserPanel {
             return
         }
 
-        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
-        forceDeveloperToolsRefreshOnNextAttach = false
-
         let visible = inspector.cmuxCallBool(selector: NSSelectorFromString("isVisible")) ?? false
         if visible {
+            let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+            forceDeveloperToolsRefreshOnNextAttach = false
             developerToolsDetachedOpenGraceDeadline = nil
             syncDeveloperToolsPresentationPreferenceFromUI()
             developerToolsLastKnownVisibleAt = Date()
@@ -6795,6 +6935,11 @@ extension BrowserPanel {
         }
 
         let detachedOpenStillSettling = developerToolsDetachedOpenGraceDeadline.map { $0 > Date() } ?? false
+        if hasPendingDetachedDeveloperToolsWindowCloseResolution {
+            return
+        }
+        let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
+        forceDeveloperToolsRefreshOnNextAttach = false
         if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
             setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
@@ -6870,6 +7015,7 @@ extension BrowserPanel {
             (
                 forceDeveloperToolsRefreshOnNextAttach ||
                 developerToolsRestoreRetryWorkItem != nil ||
+                hasPendingDetachedDeveloperToolsWindowCloseResolution ||
                 webView.superview == nil ||
                 webView.window == nil
             )
@@ -9032,6 +9178,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 
@@ -10691,6 +10838,8 @@ final class BrowserDataImportCoordinator {
         private let backButton = NSButton(title: "", target: nil, action: nil)
         private let cancelButton = NSButton(title: "", target: nil, action: nil)
         private let primaryButton = NSButton(title: "", target: nil, action: nil)
+        private var staticFontActions: [() -> Void] = []
+        private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
         init(
             browsers: [InstalledBrowserCandidate],
@@ -10716,6 +10865,9 @@ final class BrowserDataImportCoordinator {
             )
             super.init()
             setupUI()
+            globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+                self?.handleGlobalFontMagnificationChanged()
+            }
             configureInitialState()
         }
 
@@ -10869,6 +11021,39 @@ final class BrowserDataImportCoordinator {
             updatePanelSize()
         }
 
+        private func registerStaticFont(_ label: NSTextField, size: CGFloat, weight: NSFont.Weight = .regular) {
+            let action: () -> Void = { [weak label] in
+                label?.font = GlobalFontMagnification.systemFont(ofSize: size, weight: weight)
+            }
+            staticFontActions.append(action)
+            action()
+        }
+
+        private func registerStaticControlFont(_ control: NSControl, size: CGFloat = NSFont.systemFontSize) {
+            let action: () -> Void = { [weak control] in
+                control?.font = GlobalFontMagnification.systemFont(ofSize: size)
+            }
+            staticFontActions.append(action)
+            action()
+        }
+
+        private func applyDynamicControlFont(_ control: NSControl, size: CGFloat = NSFont.systemFontSize) {
+            control.font = GlobalFontMagnification.systemFont(ofSize: size)
+        }
+
+        private func handleGlobalFontMagnificationChanged() {
+            staticFontActions.forEach { $0() }
+            switch step {
+            case .source:
+                break
+            case .sourceProfiles:
+                refreshSourceProfilesList()
+            case .dataTypes:
+                rebuildStep3DestinationUI()
+            }
+            updatePanelSize()
+        }
+
         private func setupUI() {
             panel.title = String(
                 localized: "browser.import.title",
@@ -10889,16 +11074,16 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Import Browser Data"
                 )
             )
-            titleLabel.font = NSFont.systemFont(ofSize: 22, weight: .semibold)
+            registerStaticFont(titleLabel, size: 22, weight: .semibold)
 
-            stepLabel.font = NSFont.systemFont(ofSize: 13, weight: .semibold)
+            registerStaticFont(stepLabel, size: 13, weight: .semibold)
             stepLabel.textColor = .secondaryLabelColor
 
             setupSourceContainer()
             setupSourceProfilesContainer()
             setupDataTypesContainer()
 
-            validationLabel.font = NSFont.systemFont(ofSize: 12, weight: .regular)
+            registerStaticFont(validationLabel, size: 12, weight: .regular)
             validationLabel.textColor = .systemRed
             validationLabel.isHidden = true
             validationLabel.lineBreakMode = .byWordWrapping
@@ -10909,18 +11094,21 @@ final class BrowserDataImportCoordinator {
             backButton.action = #selector(handleBack)
             backButton.bezelStyle = .rounded
             backButton.title = String(localized: "browser.import.back", defaultValue: "Back")
+            registerStaticControlFont(backButton)
 
             cancelButton.target = self
             cancelButton.action = #selector(handleCancel)
             cancelButton.bezelStyle = .rounded
             cancelButton.title = String(localized: "common.cancel", defaultValue: "Cancel")
             cancelButton.keyEquivalent = "\u{1b}"
+            registerStaticControlFont(cancelButton)
 
             primaryButton.target = self
             primaryButton.action = #selector(handlePrimary)
             primaryButton.bezelStyle = .rounded
             primaryButton.title = String(localized: "browser.import.next", defaultValue: "Next")
             primaryButton.keyEquivalent = "\r"
+            registerStaticControlFont(primaryButton)
 
             let buttonSpacer = NSView(frame: .zero)
 
@@ -10981,9 +11169,11 @@ final class BrowserDataImportCoordinator {
             let sourceLabel = NSTextField(
                 labelWithString: String(localized: "browser.import.source", defaultValue: "Source")
             )
+            registerStaticFont(sourceLabel, size: NSFont.systemFontSize)
             sourceLabel.alignment = .right
             sourceLabel.frame.size.width = 64
 
+            registerStaticControlFont(sourcePopup)
             sourcePopup.setContentHuggingPriority(.defaultLow, for: .horizontal)
             sourcePopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -10996,7 +11186,7 @@ final class BrowserDataImportCoordinator {
             let detectedLabel = NSTextField(
                 wrappingLabelWithString: installedBrowserDetector.summaryText(for: browsers)
             )
-            detectedLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(detectedLabel, size: 11)
             detectedLabel.textColor = .secondaryLabelColor
             detectedLabel.maximumNumberOfLines = 2
             detectedLabel.preferredMaxLayoutWidth = 500
@@ -11015,14 +11205,14 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Source Profiles"
                 )
             )
-            sourceProfilesTitle.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+            registerStaticFont(sourceProfilesTitle, size: 12, weight: .semibold)
 
             sourceProfilesList.orientation = .vertical
             sourceProfilesList.spacing = 6
             sourceProfilesList.alignment = .leading
             sourceProfilesList.translatesAutoresizingMaskIntoConstraints = false
 
-            sourceProfilesEmptyLabel.font = NSFont.systemFont(ofSize: 12)
+            registerStaticFont(sourceProfilesEmptyLabel, size: 12)
             sourceProfilesEmptyLabel.textColor = .secondaryLabelColor
             sourceProfilesEmptyLabel.maximumNumberOfLines = 0
             sourceProfilesEmptyLabel.preferredMaxLayoutWidth = 500
@@ -11050,7 +11240,7 @@ final class BrowserDataImportCoordinator {
                 equalTo: sourceProfilesContainer.widthAnchor
             )
 
-            sourceProfilesHelpLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(sourceProfilesHelpLabel, size: 11)
             sourceProfilesHelpLabel.textColor = .secondaryLabelColor
             sourceProfilesHelpLabel.maximumNumberOfLines = 2
             sourceProfilesHelpLabel.lineBreakMode = .byWordWrapping
@@ -11097,6 +11287,9 @@ final class BrowserDataImportCoordinator {
             cookiesCheckbox.setAccessibilityIdentifier("BrowserImportCookiesCheckbox")
             historyCheckbox.setAccessibilityIdentifier("BrowserImportHistoryCheckbox")
             additionalDataCheckbox.setAccessibilityIdentifier("BrowserImportAdditionalDataCheckbox")
+            registerStaticControlFont(cookiesCheckbox)
+            registerStaticControlFont(historyCheckbox)
+            registerStaticControlFont(additionalDataCheckbox)
             separateProfilesRadio.title = String(
                 localized: "browser.import.destinationMode.separate",
                 defaultValue: "Keep profiles separate"
@@ -11109,6 +11302,8 @@ final class BrowserDataImportCoordinator {
             separateProfilesRadio.action = #selector(handleDestinationModeChanged(_:))
             mergeProfilesRadio.target = self
             mergeProfilesRadio.action = #selector(handleDestinationModeChanged(_:))
+            registerStaticControlFont(separateProfilesRadio)
+            registerStaticControlFont(mergeProfilesRadio)
 
             destinationModeContainer.orientation = .vertical
             destinationModeContainer.spacing = 6
@@ -11118,6 +11313,7 @@ final class BrowserDataImportCoordinator {
 
             mergeDestinationPopup.target = self
             mergeDestinationPopup.action = #selector(handleMergeDestinationChanged(_:))
+            registerStaticControlFont(mergeDestinationPopup)
             mergeDestinationPopup.setContentHuggingPriority(.defaultLow, for: .horizontal)
             mergeDestinationPopup.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -11129,7 +11325,7 @@ final class BrowserDataImportCoordinator {
             mergeDestinationRow.spacing = 6
             mergeDestinationRow.alignment = .centerY
 
-            destinationHelpLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(destinationHelpLabel, size: 11)
             destinationHelpLabel.textColor = .secondaryLabelColor
             destinationHelpLabel.maximumNumberOfLines = 2
             destinationHelpLabel.preferredMaxLayoutWidth = 500
@@ -11139,6 +11335,7 @@ final class BrowserDataImportCoordinator {
                 defaultValue: "Optional domains only (e.g. github.com, openai.com)"
             )
             domainField.stringValue = ""
+            registerStaticControlFont(domainField)
             domainField.setContentHuggingPriority(.defaultLow, for: .horizontal)
             domainField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
@@ -11148,11 +11345,12 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "cmux destination"
                 )
             )
-            destinationTitleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+            registerStaticFont(destinationTitleLabel, size: 12, weight: .semibold)
 
             let domainLabel = NSTextField(
                 labelWithString: String(localized: "browser.import.domain", defaultValue: "Limit to")
             )
+            registerStaticFont(domainLabel, size: NSFont.systemFontSize)
             domainLabel.alignment = .right
             domainLabel.frame.size.width = 72
 
@@ -11166,7 +11364,7 @@ final class BrowserDataImportCoordinator {
                 localized: "browser.import.additionalData.note",
                 defaultValue: "Bookmarks, settings, and extensions import are not available yet."
             )
-            additionalDataNoteLabel.font = NSFont.systemFont(ofSize: 11)
+            registerStaticFont(additionalDataNoteLabel, size: 11)
             additionalDataNoteLabel.textColor = .secondaryLabelColor
             additionalDataNoteLabel.maximumNumberOfLines = 2
             additionalDataNoteLabel.preferredMaxLayoutWidth = 500
@@ -11274,6 +11472,7 @@ final class BrowserDataImportCoordinator {
                 checkbox.identifier = NSUserInterfaceItemIdentifier(profile.id)
                 checkbox.state = selectedIDs.contains(profile.id) ? .on : .off
                 checkbox.lineBreakMode = .byTruncatingTail
+                applyDynamicControlFont(checkbox)
                 sourceProfilesList.addArrangedSubview(checkbox)
                 sourceProfileCheckboxes.append(checkbox)
             }
@@ -11419,10 +11618,12 @@ final class BrowserDataImportCoordinator {
             for (index, entry) in plan.entries.enumerated() {
                 guard let sourceProfile = entry.sourceProfiles.first else { continue }
                 let sourceLabel = NSTextField(labelWithString: sourceProfile.displayName)
+                sourceLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
                 sourceLabel.alignment = .right
                 sourceLabel.frame.size.width = 110
 
                 let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+                applyDynamicControlFont(popup)
                 popup.target = self
                 popup.action = #selector(handleSeparateDestinationChanged(_:))
                 popup.tag = index
@@ -11478,6 +11679,7 @@ final class BrowserDataImportCoordinator {
                     defaultValue: "Import into"
                 )
             )
+            destinationLabel.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
             destinationLabel.alignment = .right
             destinationLabel.frame.size.width = 110
 
@@ -11631,8 +11833,9 @@ final class BrowserDataImportCoordinator {
         content.addSubview(spinner)
 
         let titleLabel = NSTextField(labelWithString: message)
-        titleLabel.frame = NSRect(x: 52, y: 56, width: 340, height: 20)
-        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
+        let titleFont = GlobalFontMagnification.systemFont(ofSize: 13, weight: .medium)
+        titleLabel.font = titleFont
+        titleLabel.frame = NSRect(x: 52, y: 56, width: 340, height: ceil(titleFont.ascender - titleFont.descender + titleFont.leading) + 4)
         content.addSubview(titleLabel)
 
         let subtitleLabel = NSTextField(
@@ -11641,8 +11844,9 @@ final class BrowserDataImportCoordinator {
                 defaultValue: "This can take a few seconds for large profiles."
             )
         )
-        subtitleLabel.frame = NSRect(x: 52, y: 34, width: 340, height: 16)
-        subtitleLabel.font = NSFont.systemFont(ofSize: 11)
+        let subtitleFont = GlobalFontMagnification.systemFont(ofSize: 11)
+        subtitleLabel.font = subtitleFont
+        subtitleLabel.frame = NSRect(x: 52, y: 34, width: 340, height: ceil(subtitleFont.ascender - subtitleFont.descender + subtitleFont.leading) + 4)
         subtitleLabel.textColor = .secondaryLabelColor
         content.addSubview(subtitleLabel)
 

@@ -1,3 +1,4 @@
+import CmuxFoundation
 import AppKit
 import CMUXMobileCore
 import CmuxAuthRuntime
@@ -53,9 +54,9 @@ struct MobilePairingView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone"))
-                .font(.title2.weight(.semibold))
+                .cmuxFont(.title2, weight: .semibold)
             Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."))
-                .font(.callout)
+                .cmuxFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -91,7 +92,7 @@ struct MobilePairingView: View {
                     String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
                     destination: Self.tailscaleDownloadURL
                 )
-                .font(.callout)
+                .cmuxFont(.callout)
             }
         }
     }
@@ -124,9 +125,9 @@ struct MobilePairingView: View {
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout.weight(.medium))
+                Text(title).cmuxFont(.callout, weight: .medium)
                 Text(subtitle)
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -164,7 +165,7 @@ struct MobilePairingView: View {
     private var needsTailscaleContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "network.slash")
-                .font(.system(size: 28))
+                .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
             Text(String(localized: "mobile.pairing.needsTailscale.body", defaultValue: "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."))
                 .multilineTextAlignment(.center)
@@ -187,7 +188,7 @@ struct MobilePairingView: View {
     private var signedOut: some View {
         VStack(spacing: 12) {
             Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 28))
+                .cmuxFont(size: 28)
                 .foregroundStyle(.tint)
             Text(String(localized: "mobile.pairing.signIn.prompt", defaultValue: "Sign in with your cmux account to pair your iPhone."))
                 .multilineTextAlignment(.center)
@@ -259,7 +260,7 @@ struct MobilePairingView: View {
     private func failure(message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 28))
+                .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
             Text(message)
                 .multilineTextAlignment(.center)
@@ -297,7 +298,7 @@ struct MobilePairingView: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
                 Text(String(localized: "mobile.pairing.waiting", defaultValue: "Waiting for your iPhone…"))
-                    .font(.callout)
+                    .cmuxFont(.callout)
                     .foregroundStyle(.secondary)
             }
         }
@@ -319,10 +320,10 @@ struct MobilePairingView: View {
     private func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 36))
+                .cmuxFont(size: 36)
                 .foregroundStyle(.green)
             Text(String(localized: "mobile.pairing.connected.title", defaultValue: "iPhone connected"))
-                .font(.title3.weight(.semibold))
+                .cmuxFont(.title3, weight: .semibold)
             Text(String(localized: "mobile.pairing.connected.subtitle", defaultValue: "Your terminal workspaces are now syncing to your iPhone. You can close this window."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -337,13 +338,13 @@ struct MobilePairingView: View {
             HStack(spacing: 4) {
                 Spacer(minLength: 30)
                 Text(String(localized: "mobile.pairing.getApp.prompt", defaultValue: "Don't have it yet?"))
-                    .font(.caption)
+                    .cmuxFont(.caption)
                     .foregroundStyle(.secondary)
                 Link(
                     String(localized: "mobile.pairing.getApp.link", defaultValue: "Get cmux for iPhone"),
                     destination: Self.iphoneAppURL
                 )
-                .font(.caption)
+                .cmuxFont(.caption)
                 Spacer(minLength: 0)
             }
             step(2, String(localized: "mobile.pairing.step.signIn", defaultValue: "Sign in with the same account you use on this Mac."))
@@ -355,12 +356,12 @@ struct MobilePairingView: View {
     private func step(_ number: Int, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text("\(number)")
-                .font(.caption.weight(.bold))
+                .cmuxFont(.caption, weight: .bold)
                 .foregroundStyle(.white)
                 .frame(width: 20, height: 20)
                 .background(Color.accentColor, in: Circle())
             Text(text)
-                .font(.callout)
+                .cmuxFont(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
@@ -370,11 +371,11 @@ struct MobilePairingView: View {
     private func manualFallback(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
-                .font(.caption.weight(.semibold))
+                .cmuxFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
             ForEach(ready.tailscaleLines, id: \.self) { line in
                 Text(line)
-                    .font(.system(.caption, design: .monospaced))
+                    .cmuxFont(.caption, design: .monospaced)
                     .textSelection(.enabled)
                     .foregroundStyle(.secondary)
             }
@@ -414,7 +415,7 @@ struct MobilePairingView: View {
                         : label
                 )
             }
-            .font(.caption)
+            .cmuxFont(.caption)
         }
         .buttonStyle(.bordered)
         .controlSize(.small)

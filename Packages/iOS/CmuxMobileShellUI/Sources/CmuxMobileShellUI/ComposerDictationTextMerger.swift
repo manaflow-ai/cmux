@@ -59,7 +59,7 @@ enum ComposerDictationState: Equatable {
     var isStopping: Bool { self == .stopping }
 }
 
-/// Pure text-merge for live dictation, factored out so it is host-testable
+/// Pure text merger for live dictation, factored out so it is host-testable
 /// without Speech / AVFoundation.
 ///
 /// At start the controller captures the composer's existing text as the
@@ -67,7 +67,7 @@ enum ComposerDictationState: Equatable {
 /// composer always reads `base` + the latest transcript and never accumulates
 /// stale partials. The base is preserved verbatim so text the user typed before
 /// starting is never clobbered.
-struct ComposerDictationTextMerger {
+struct ComposerDictationTextMerger: Sendable {
     init() {}
 
     /// Combine the captured base text with the current transcript.

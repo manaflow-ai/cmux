@@ -314,8 +314,7 @@ public struct SocketControlSettings {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
         let length = readlink(path, &buffer, buffer.count - 1)
         guard length > 0 else { return nil }
-        buffer[Int(length)] = 0
-        let target = String(cString: buffer)
+        let target = String(decoding: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
         if target.hasPrefix("/") {
             return target
         }
