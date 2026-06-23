@@ -213,11 +213,11 @@ final class KeyboardShortcutContextTests: XCTestCase {
         let sidebarFiles = KeyboardShortcutSettings.Action.switchRightSidebarToFiles.defaultShortcut
 
         // Re-recording the factory default ⌃1 for Select Surface 1…9 must not be
-        // rejected against Show Sidebar Files (⌃1): the key router resolves the
-        // overlap by priority. The sidebar action owns focused-sidebar digits in
-        // split layout, while Canvas mode lets the surface digit family own the
-        // same stroke so pane selection keeps working there. The shipped defaults
-        // rely on exactly this coexistence.
+        // rejected against Show Sidebar Files (⌃1): the key router consumes the
+        // sidebar-mode shortcuts before general shortcut matching whenever the
+        // right sidebar is focused, so the pair is resolved by priority — the
+        // sidebar action owns the overlap and the digit family keeps every other
+        // context. The shipped defaults rely on exactly this coexistence.
         XCTAssertFalse(
             KeyboardShortcutSettings.Action.switchRightSidebarToFiles.conflicts(
                 with: surfaceDigits,

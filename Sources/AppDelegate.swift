@@ -13554,9 +13554,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "←",
             arrowKeyCode: 123
         ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedManager, window: shortcutRoutingKeyWindow)
-            routedManager?.movePaneFocus(direction: .left)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            routedTabs?.movePaneFocus(direction: .left)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
 #endif
@@ -13568,9 +13568,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "→",
             arrowKeyCode: 124
         ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedManager, window: shortcutRoutingKeyWindow)
-            routedManager?.movePaneFocus(direction: .right)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            routedTabs?.movePaneFocus(direction: .right)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
 #endif
@@ -13582,9 +13582,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "↑",
             arrowKeyCode: 126
         ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedManager, window: shortcutRoutingKeyWindow)
-            routedManager?.movePaneFocus(direction: .up)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            routedTabs?.movePaneFocus(direction: .up)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
 #endif
@@ -13596,9 +13596,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             arrowGlyph: "↓",
             arrowKeyCode: 125
         ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
-            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedManager, window: shortcutRoutingKeyWindow)
-            routedManager?.movePaneFocus(direction: .down)
+            let routedTabs = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: routedTabs, window: shortcutRoutingKeyWindow)
+            routedTabs?.movePaneFocus(direction: .down)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)
 #endif
