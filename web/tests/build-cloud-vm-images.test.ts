@@ -119,6 +119,15 @@ describe("Cloud VM image build helpers", () => {
     expect(smoke).toContain("gh --version");
     expect(smoke).toContain("htop --version");
     expect(smoke).toContain("btop --version");
+    expect(smoke).toContain("tmux -V");
+    expect(smoke).toContain("zsh --version");
+    expect(smoke).toContain("/usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh");
+  });
+
+  test("image smoke checks require the VM-local cmux CLI on PATH", () => {
+    const smoke = cloudImageSmokeTestCommands().join("\n");
+    expect(smoke).toContain("test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux");
+    expect(smoke).toContain("cmux --help");
   });
 
   test("snapshot recovery window tolerates provider clock skew", () => {

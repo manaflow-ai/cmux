@@ -10629,14 +10629,24 @@ struct CMUXCLI {
         """
         \(suppressWelcome ? "export CMUX_CLOUD_WELCOME=0" : ":")
         \(freestyleCloudContextExports(workspaceID: workspaceID, surfaceID: surfaceID))
-        if ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
+        export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
+        if [ ! -x /usr/local/bin/cmux ] && [ -x /usr/local/bin/cmuxd-remote ]; then
+          if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+            sudo -n ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux >/dev/null 2>&1 || true
+          fi
+        fi
+        if ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1 || ! command -v cmux >/dev/null 2>&1; then
           if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
             if command -v apt-get >/dev/null 2>&1; then
               sudo -n apt-get update >/dev/null 2>&1 || true
               sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop tmux >/dev/null 2>&1 || true
             fi
+            if [ ! -x /usr/local/bin/cmux ] && [ -x /usr/local/bin/cmuxd-remote ]; then
+              sudo -n ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux >/dev/null 2>&1 || true
+            fi
           fi
         fi
+        hash -r 2>/dev/null || true
         if command -v zsh >/dev/null 2>&1; then
           touch "$HOME/.hushlogin" 2>/dev/null || true
           if [ ! -e "$HOME/.zshrc" ] || grep -q "cmux-managed zsh defaults" "$HOME/.zshrc" 2>/dev/null; then
@@ -10719,22 +10729,29 @@ struct CMUXCLI {
         let quotedUsername = shellQuote(username)
         return """
         set -u
+        export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
         cmux_user=\(quotedUsername)
         cmux_home="$(getent passwd "$cmux_user" 2>/dev/null | awk -F: '{print $6}')"
         if [ -z "$cmux_home" ]; then
           cmux_home="/home/$cmux_user"
         fi
 
-        if [ ! -f /etc/cmux/zsh-bootstrap-v4 ] || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
+        if [ ! -f /etc/cmux/zsh-bootstrap-v5 ] || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1 || ! command -v cmux >/dev/null 2>&1; then
           if command -v apt-get >/dev/null 2>&1; then
             apt-get update >/dev/null 2>&1 || true
             DEBIAN_FRONTEND=noninteractive apt-get install -y zsh zsh-autosuggestions gh htop btop tmux >/dev/null 2>&1 || true
           fi
         fi
 
+        if [ ! -x /usr/local/bin/cmux ] && [ -x /usr/local/bin/cmuxd-remote ]; then
+          ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux >/dev/null 2>&1 || true
+        fi
+        hash -r 2>/dev/null || true
+
         mkdir -p /etc/cmux "$cmux_home/.config/cmux"
         cat > /etc/cmux/zshrc <<'CMUX_ZSHRC'
         # cmux default zsh profile. Put personal overrides in ~/.zshrc.local.
+        export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
         export SHELL="$(command -v zsh)"
         autoload -Uz colors 2>/dev/null && colors
         setopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true
@@ -10787,7 +10804,7 @@ struct CMUXCLI {
 
         if command -v zsh >/dev/null 2>&1; then
           chsh -s "$(command -v zsh)" "$cmux_user" >/dev/null 2>&1 || true
-          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 /etc/cmux/zsh-bootstrap-v3 /etc/cmux/zsh-bootstrap-v4 2>/dev/null || true
+          touch /etc/cmux/zsh-bootstrap-v1 /etc/cmux/zsh-bootstrap-v2 /etc/cmux/zsh-bootstrap-v3 /etc/cmux/zsh-bootstrap-v4 /etc/cmux/zsh-bootstrap-v5 2>/dev/null || true
         fi
         touch "$cmux_home/.hushlogin" 2>/dev/null || true
         chown "$cmux_user:$cmux_user" "$cmux_home/.zshrc" "$cmux_home/.zshrc.local" 2>/dev/null || true

@@ -36,8 +36,11 @@ const CLOUD_SHELL_PACKAGES = [
   "openssl",
   "python3",
   "sudo",
+  "tmux",
   "unzip",
   "xz-utils",
+  "zsh",
+  "zsh-autosuggestions",
 ];
 const PRIMARY_LINUX_USER = "cmux";
 const NODE_MAJOR = String(positiveIntFromEnv("CMUX_CLOUD_IMAGE_NODE_MAJOR", 22));
@@ -360,7 +363,7 @@ export async function waitForFreestyleSnapshotByName(
 function cloudRootSetupCommands(): string[] {
   return [
     `printf 'LANG=${UTF8_LOCALE}\\nLC_ALL=${UTF8_LOCALE}\\n' > /etc/default/locale`,
-    `useradd -m -s /bin/bash ${PRIMARY_LINUX_USER} || true`,
+    `useradd -m -s /bin/zsh ${PRIMARY_LINUX_USER} || true`,
     `printf '${PRIMARY_LINUX_USER} ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/90-${PRIMARY_LINUX_USER}-nopasswd`,
     `chmod 0440 /etc/sudoers.d/90-${PRIMARY_LINUX_USER}-nopasswd`,
     "if id -u user >/dev/null 2>&1; then printf 'user ALL=(ALL) NOPASSWD:ALL\\n' > /etc/sudoers.d/91-user-nopasswd && chmod 0440 /etc/sudoers.d/91-user-nopasswd; fi",
@@ -378,11 +381,15 @@ export function cloudImageSmokeTestCommands(): string[] {
     "gh --version >/tmp/cmux-gh-version.txt 2>&1",
     "htop --version >/tmp/cmux-htop-version.txt 2>&1",
     "btop --version >/tmp/cmux-btop-version.txt 2>&1",
+    "tmux -V >/tmp/cmux-tmux-version.txt 2>&1",
+    "zsh --version >/tmp/cmux-zsh-version.txt 2>&1",
+    "test -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh",
     "python3 -X faulthandler -c 'import ssl; print(ssl.OPENSSL_VERSION)'",
     "python3 -m http.server --help >/dev/null",
     "node --version >/tmp/cmux-node-version.txt 2>&1",
     "npm --version >/tmp/cmux-npm-version.txt 2>&1",
     "bun --version >/tmp/cmux-bun-version.txt 2>&1",
+    "test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux",
     "cmux --help >/tmp/cmux-cli-help.txt 2>&1",
     "cmux --socket /tmp/cmux-browser-smoke.sock browser >/tmp/cmux-browser-help.txt 2>&1; status=$?; test \"$status\" -eq 2 && grep -q 'requires a subcommand' /tmp/cmux-browser-help.txt",
     "cmuxd-remote version >/tmp/cmuxd-remote-version.txt 2>&1",

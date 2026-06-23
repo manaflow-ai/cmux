@@ -478,6 +478,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_WORKSPACE_ID='\(workspaceID)'"), decodedRemoteBootstrap)
         XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_SURFACE_ID='\(surfaceID)'"), decodedRemoteBootstrap)
         XCTAssertTrue(
+            decodedRemoteBootstrap.contains("ln -sf /usr/local/bin/cmuxd-remote /usr/local/bin/cmux"),
+            decodedRemoteBootstrap
+        )
+        XCTAssertTrue(
+            decodedRemoteBootstrap.contains("! command -v cmux >/dev/null 2>&1"),
+            decodedRemoteBootstrap
+        )
+        XCTAssertTrue(
             decodedRemoteBootstrap.contains("cmux-cloud-$cmux_cloud_tty_scope"),
             decodedRemoteBootstrap
         )
