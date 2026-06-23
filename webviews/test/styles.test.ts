@@ -9,6 +9,9 @@ test("toolbar and files pane keep structural surfaces transparent", () => {
   expect(styles).toMatch(/#files-sidebar\s*\{[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
   expect(styles).toMatch(/#files-header\s*\{[^}]*border-bottom: 1px solid var\(--cmux-diff-border\)[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
   expect(styles).toMatch(/#file-list\s*\{[^}]*background: var\(--cmux-diff-sidebar-bg\)/s);
+  const rendererHostBlock = String(styles).match(/#viewer diffs-container\s*\{(?<body>[^}]*)\}/s)?.groups?.body ?? "";
+  expect(rendererHostBlock).toContain("height: 100%");
+  expect(rendererHostBlock).not.toContain("background: var(--cmux-diff-bg)");
   expect(styles).toContain("--trees-bg-override: var(--cmux-diff-sidebar-bg)");
   expect(styles).toMatch(/\.toolbar-actions\s*\{[^}]*gap: 4px;/s);
   expect(styles).toMatch(/\.toolbar-icon\s*\{[^}]*width: 20px;[^}]*height: 20px;/s);
