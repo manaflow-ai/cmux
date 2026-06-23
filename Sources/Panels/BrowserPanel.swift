@@ -6481,37 +6481,24 @@ extension BrowserPanel {
 
         let visible = isDeveloperToolsVisible()
         let hasAttachedLayout = hasAttachedDeveloperToolsLayout()
-        if visible || hasAttachedLayout {
-            developerToolsDetachedOpenGraceDeadline = nil
-            setPreferredDeveloperToolsVisible(true)
-            if hasAttachedLayout {
-                setPreferredDeveloperToolsPresentation(.attached)
-            } else {
-                syncDeveloperToolsPresentationPreferenceFromUI()
-                if detachedDeveloperToolsWindowsForPanel().isEmpty {
-                    setPreferredDeveloperToolsPresentation(.attached)
-                }
-            }
-            developerToolsLastKnownVisibleAt = Date()
-            cancelDeveloperToolsRestoreRetry()
-#if DEBUG
-            cmuxDebugLog(
-                "browser.devtools detachedClose.redock panel=\(id.uuidString.prefix(5)) " +
-                "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
-            )
-#endif
+        if hasAttachedLayout {
+            closeUnsupportedAttachedDeveloperToolsRedock(source: source)
             return
         }
 
         let elapsed = Date().timeIntervalSince(startedAt)
         // WebKit's attach path is not reflected in cmux's transition flag, so a
         // no-window/no-layout state remains ambiguous until the bounded deadline.
-        if preferredDeveloperToolsVisible,
+        if (preferredDeveloperToolsVisible || visible),
            elapsed < developerToolsDetachedWindowCloseResolutionMaxDuration {
             scheduleDetachedDeveloperToolsWindowCloseResolution(
                 source: "\(source).ambiguous",
                 startedAt: startedAt
             )
+            return
+        }
+        if visible {
+            closeUnsupportedAttachedDeveloperToolsRedock(source: source)
             return
         }
 
@@ -6525,6 +6512,23 @@ extension BrowserPanel {
 #if DEBUG
         cmuxDebugLog(
             "browser.devtools detachedClose.manual panel=\(id.uuidString.prefix(5)) " +
+            "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
+        )
+#endif
+    }
+
+    private func closeUnsupportedAttachedDeveloperToolsRedock(source: String) {
+        developerToolsDetachedOpenGraceDeadline = nil
+        developerToolsLastKnownVisibleAt = nil
+        forceDeveloperToolsRefreshOnNextAttach = false
+        developerToolsPreservedVisibleIntentForNextAttach = false
+        setPreferredDeveloperToolsVisible(false)
+        cancelDeveloperToolsRestoreRetry()
+        _ = WebViewInspectorTeardown.closeInspector(for: webView)
+        reevaluateHiddenWebViewDiscardAfterDeveloperToolsHidden()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools detachedClose.redockUnsupported panel=\(id.uuidString.prefix(5)) " +
             "source=\(source) \(debugDeveloperToolsStateSummary()) \(debugDeveloperToolsGeometrySummary())"
         )
 #endif
