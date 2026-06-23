@@ -29,7 +29,7 @@ struct TextBoxSubmitActionPresentation: Equatable {
     }
 
     var backgroundColor: Color {
-        Color(hex: action.backgroundColorHex.trimmingCharacters(in: .whitespacesAndNewlines)) ?? .white
+        Self.color(hex: action.backgroundColorHex) ?? .white
     }
 
     static func localizedTitle(for action: TextBoxSubmitAction) -> String {
@@ -47,5 +47,39 @@ struct TextBoxSubmitActionPresentation: Equatable {
         default:
             return action.title
         }
+    }
+
+    static func color(hex rawHex: String) -> Color? {
+        var hex = rawHex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+        guard (hex.count == 6 || hex.count == 8),
+              let value = UInt64(hex, radix: 16) else {
+            return nil
+        }
+
+        let red: UInt64
+        let green: UInt64
+        let blue: UInt64
+        let alpha: UInt64
+        if hex.count == 8 {
+            red = (value >> 24) & 0xFF
+            green = (value >> 16) & 0xFF
+            blue = (value >> 8) & 0xFF
+            alpha = value & 0xFF
+        } else {
+            red = (value >> 16) & 0xFF
+            green = (value >> 8) & 0xFF
+            blue = value & 0xFF
+            alpha = 0xFF
+        }
+
+        return Color(
+            red: Double(red) / 255.0,
+            green: Double(green) / 255.0,
+            blue: Double(blue) / 255.0,
+            opacity: Double(alpha) / 255.0
+        )
     }
 }

@@ -2571,8 +2571,8 @@ struct TextBoxInputContainer: View {
         .task(id: configuredSubmitActionsJSON) {
             await refreshSubmitActionsCache(raw: configuredSubmitActionsJSON)
         }
-        .task(id: submitActionImagePathCacheKey) {
-            await refreshSubmitActionImageCache(paths: submitActionImagePaths)
+        .task(id: submitActionImageCacheTaskKey) {
+            await refreshSubmitActionImageCache(keys: submitActionImageCacheKeys)
         }
         .onChange(of: terminalAgentContext) { _, terminalAgentContext in
             if TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext) {

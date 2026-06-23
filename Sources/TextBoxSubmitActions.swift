@@ -6,19 +6,23 @@ extension TextBoxInputContainer {
         submitActionsCache
     }
 
-    var submitActionImagePaths: [String] {
-        let paths = submitActions.compactMap { action -> String? in
+    var submitActionImageCacheKeys: [String] {
+        let keys = submitActions.compactMap { action -> String? in
             guard let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !path.isEmpty else {
+                if let assetName = action.assetName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !assetName.isEmpty {
+                    return submitActionAssetImageCacheKey(assetName)
+                }
                 return nil
             }
-            return expandedSubmitActionImagePath(path)
+            return submitActionPathImageCacheKey(expandedSubmitActionImagePath(path))
         }
-        return Array(Set(paths)).sorted()
+        return Array(Set(keys)).sorted()
     }
 
-    var submitActionImagePathCacheKey: String {
-        submitActionImagePaths.joined(separator: "\u{1F}")
+    var submitActionImageCacheTaskKey: String {
+        submitActionImageCacheKeys.joined(separator: "\u{1F}")
     }
 
     var selectedSubmitAction: TextBoxSubmitAction {
@@ -199,30 +203,35 @@ extension TextBoxInputContainer {
     }
 
     func submitActionNSImage(for action: TextBoxSubmitAction) -> NSImage? {
-        if let path = action.imagePath,
-           let image = submitActionImageCache[expandedSubmitActionImagePath(path)] {
-            return TextBoxSubmitActionImageSupport.fixedSizeImage(image)
+        if let path = action.imagePath?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            return submitActionImageCache[submitActionPathImageCacheKey(expandedSubmitActionImagePath(path))]
         }
-        if let assetName = action.assetName,
-           let image = NSImage(named: assetName) {
-            return TextBoxSubmitActionImageSupport.fixedSizeImage(image)
+        if let assetName = action.assetName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !assetName.isEmpty {
+            return submitActionImageCache[submitActionAssetImageCacheKey(assetName)]
         }
         return nil
     }
 
     @MainActor
-    func refreshSubmitActionImageCache(paths: [String]) async {
-        let pathSet = Set(paths)
-        submitActionImageCache = submitActionImageCache.filter { pathSet.contains($0.key) }
+    func refreshSubmitActionImageCache(keys: [String]) async {
+        let keySet = Set(keys)
+        submitActionImageCache = submitActionImageCache.filter { keySet.contains($0.key) }
 
-        for path in paths where submitActionImageCache[path] == nil {
-            let data = await Task.detached(priority: .utility) {
-                TextBoxSubmitActionImageSupport.imageData(atPath: path)
-            }.value
-            guard !Task.isCancelled else { return }
-            if let data,
-               let image = NSImage(data: data) {
-                submitActionImageCache[path] = image
+        for key in keys where submitActionImageCache[key] == nil {
+            if let path = submitActionPath(fromCacheKey: key) {
+                let data = await Task.detached(priority: .utility) {
+                    TextBoxSubmitActionImageSupport.imageData(atPath: path)
+                }.value
+                guard !Task.isCancelled else { return }
+                if let data,
+                   let image = NSImage(data: data) {
+                    submitActionImageCache[key] = TextBoxSubmitActionImageSupport.fixedSizeImage(image)
+                }
+            } else if let assetName = submitActionAssetName(fromCacheKey: key),
+                      let image = NSImage(named: assetName) {
+                submitActionImageCache[key] = TextBoxSubmitActionImageSupport.fixedSizeImage(image)
             }
         }
     }
@@ -238,6 +247,24 @@ extension TextBoxInputContainer {
 
     func expandedSubmitActionImagePath(_ path: String) -> String {
         NSString(string: path).expandingTildeInPath
+    }
+
+    func submitActionPathImageCacheKey(_ path: String) -> String {
+        "path:\(path)"
+    }
+
+    func submitActionAssetImageCacheKey(_ assetName: String) -> String {
+        "asset:\(assetName)"
+    }
+
+    func submitActionPath(fromCacheKey key: String) -> String? {
+        guard key.hasPrefix("path:") else { return nil }
+        return String(key.dropFirst("path:".count))
+    }
+
+    func submitActionAssetName(fromCacheKey key: String) -> String? {
+        guard key.hasPrefix("asset:") else { return nil }
+        return String(key.dropFirst("asset:".count))
     }
 
     struct SubmitDispatchPlan {
