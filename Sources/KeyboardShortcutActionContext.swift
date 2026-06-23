@@ -65,8 +65,7 @@ extension KeyboardShortcutSettings.Action {
                 || (self == .nonBrowserPanel && other == .markdownPanel) {
                 return true
             }
-            return (self == .canvasLayout && other == .nonBrowserPanel)
-                || (self == .nonBrowserPanel && other == .canvasLayout)
+            return self == .canvasLayout || other == .canvasLayout
         }
     }
 

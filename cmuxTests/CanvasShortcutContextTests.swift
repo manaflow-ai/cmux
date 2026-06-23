@@ -40,6 +40,8 @@ struct CanvasShortcutContextTests {
         let canvas = KeyboardShortcutSettings.Action.canvasOverview.shortcutContext
         let nonBrowser = KeyboardShortcutSettings.Action.renameTab.shortcutContext
         let browser = KeyboardShortcutSettings.Action.browserReload.shortcutContext
+        let markdown = KeyboardShortcutSettings.Action.markdownZoomIn.shortcutContext
+        let sidebar = KeyboardShortcutSettings.Action.fileExplorerOpenSelection.shortcutContext
 
         #expect(canvas == .canvasLayout)
         #expect(nonBrowser == .nonBrowserPanel)
@@ -57,6 +59,11 @@ struct CanvasShortcutContextTests {
         ))
         #expect(canvas.overlaps(nonBrowser))
         #expect(nonBrowser.overlaps(canvas))
-        #expect(!canvas.overlaps(browser))
+        #expect(canvas.overlaps(browser))
+        #expect(browser.overlaps(canvas))
+        #expect(canvas.overlaps(markdown))
+        #expect(markdown.overlaps(canvas))
+        #expect(canvas.overlaps(sidebar))
+        #expect(sidebar.overlaps(canvas))
     }
 }
