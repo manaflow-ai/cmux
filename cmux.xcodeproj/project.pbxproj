@@ -958,6 +958,7 @@
 		C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */; };
 		C0DE7B370000000000000001 /* TextBoxSubmitAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */; };
 		C0DE7B390000000000000001 /* TextBoxSubmitActionImageSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */; };
+		C0DE7B3A0000000000000001 /* TextBoxSubmitActionKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B3A0000000000000002 /* TextBoxSubmitActionKind.swift */; };
 		C0DE7B380000000000000001 /* TextBoxSubmitActionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B380000000000000002 /* TextBoxSubmitActionPresentation.swift */; };
 		C0DE7B340000000000000001 /* TextBoxSubmitActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B340000000000000002 /* TextBoxSubmitActions.swift */; };
 		C0DE7B350000000000000001 /* TextBoxSubmitActionSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE7B350000000000000002 /* TextBoxSubmitActionSettings.swift */; };
@@ -2024,6 +2025,7 @@
 		C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxProcessTerminationStatus.swift; sourceTree = "<group>"; };
 		C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TextBoxSubmitAction.swift; sourceTree = "<group>"; };
 		C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionImageSupport.swift; sourceTree = "<group>"; };
+		C0DE7B3A0000000000000002 /* TextBoxSubmitActionKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TextBoxSubmitActionKind.swift; sourceTree = "<group>"; };
 		C0DE7B380000000000000002 /* TextBoxSubmitActionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActionPresentation.swift; sourceTree = "<group>"; };
 		C0DE7B340000000000000002 /* TextBoxSubmitActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextBoxSubmitActions.swift; sourceTree = "<group>"; };
 		C0DE7B350000000000000002 /* TextBoxSubmitActionSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TextBoxSubmitActionSettings.swift; sourceTree = "<group>"; };
@@ -2531,6 +2533,7 @@
 				C0DE7B290000000000000002 /* TextBoxProcessTerminationStatus.swift */,
 				C0DE7B100000000000000002 /* TextBoxInput.swift */,
 				C0DE7B370000000000000002 /* TextBoxSubmitAction.swift */,
+				C0DE7B3A0000000000000002 /* TextBoxSubmitActionKind.swift */,
 				C0DE7B340000000000000002 /* TextBoxSubmitActions.swift */,
 				C0DE7B390000000000000002 /* TextBoxSubmitActionImageSupport.swift */,
 				C0DE7B380000000000000002 /* TextBoxSubmitActionPresentation.swift */,
@@ -4290,6 +4293,7 @@
 				C0DE7B290000000000000001 /* TextBoxProcessTerminationStatus.swift in Sources */,
 				C0DE7B370000000000000001 /* TextBoxSubmitAction.swift in Sources */,
 				C0DE7B390000000000000001 /* TextBoxSubmitActionImageSupport.swift in Sources */,
+				C0DE7B3A0000000000000001 /* TextBoxSubmitActionKind.swift in Sources */,
 				C0DE7B380000000000000001 /* TextBoxSubmitActionPresentation.swift in Sources */,
 				C0DE7B340000000000000001 /* TextBoxSubmitActions.swift in Sources */,
 				C0DE7B350000000000000001 /* TextBoxSubmitActionSettings.swift in Sources */,

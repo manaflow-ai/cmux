@@ -1,14 +1,9 @@
 import Foundation
 
 struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
-    enum Kind: String, Codable, Sendable {
-        case textEntry
-        case commandTemplate
-    }
-
     let id: String
     let title: String
-    let kind: Kind
+    let kind: TextBoxSubmitActionKind
     let commandTemplate: String?
     let preservePromptAfterLaunch: Bool?
     let systemImage: String
@@ -19,7 +14,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     init(
         id: String,
         title: String,
-        kind: Kind,
+        kind: TextBoxSubmitActionKind,
         commandTemplate: String? = nil,
         preservePromptAfterLaunch: Bool? = nil,
         systemImage: String,
