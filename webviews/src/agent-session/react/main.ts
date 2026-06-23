@@ -271,7 +271,7 @@ export function AgentSessionApp() {
   return h(SessionSurface, { state, dispatch, renderer: "React" });
 }
 
-function SessionSurface({
+export function SessionSurface({
   state,
   dispatch,
   renderer,
