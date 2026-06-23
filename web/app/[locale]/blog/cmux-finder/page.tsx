@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
 
 export async function generateMetadata({
@@ -39,6 +40,7 @@ export default function CmuxFinderPage() {
 
   return (
     <>
+      <BlogSchema postKey="cmuxFinder" path="/blog/cmux-finder" datePublished="2026-05-22T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"
