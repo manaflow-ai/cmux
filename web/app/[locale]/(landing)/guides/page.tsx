@@ -16,9 +16,14 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
 const ARTICLES = [
   { href: "/best-terminal-for-mac", titleKey: "bestTerminal.title", descKey: "bestTerminal.metaDescription" },
   { href: "/built-on-ghostty", titleKey: "ghostty.title", descKey: "ghostty.metaDescription" },
+  { href: "/agents", titleKey: "agents.title", descKey: "agents.metaDescription" },
   { href: "/claude-code-terminal", titleKey: "claude.title", descKey: "claude.metaDescription" },
   { href: "/codex-cli", titleKey: "codex.title", descKey: "codex.metaDescription" },
   { href: "/opencode", titleKey: "opencode.title", descKey: "opencode.metaDescription" },
+  { href: "/gemini-cli", titleKey: "geminiCli.title", descKey: "geminiCli.metaDescription" },
+  { href: "/aider", titleKey: "aider.title", descKey: "aider.metaDescription" },
+  { href: "/amp", titleKey: "amp.title", descKey: "amp.metaDescription" },
+  { href: "/cursor-cli", titleKey: "cursorCli.title", descKey: "cursorCli.metaDescription" },
 ] as const;
 
 export default function GuidesPage() {
