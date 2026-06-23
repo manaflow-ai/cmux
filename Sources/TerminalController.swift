@@ -5257,6 +5257,15 @@ class TerminalController {
         let webView: WKWebView
     }
 
+    private nonisolated func v2BrowserPanelFields(_ ctx: V2BrowserPanelContext, adding fields: [String: Any] = [:]) -> [String: Any] {
+        var result: [String: Any] = [
+            "workspace_id": ctx.workspaceId.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+            "surface_id": ctx.surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
+        ]
+        fields.forEach { result[$0.key] = $0.value }
+        return result
+    }
+
     /// Off-main counterpart of v2BrowserWithPanel for the socket-worker browser
     /// methods: the panel is resolved inside v2MainSync, but `body` runs on the
     /// calling (worker) thread so blocking JavaScript waits never hold the main
@@ -8254,13 +8263,7 @@ class TerminalController {
                     v2MainSync {
                         v2BrowserFrameSelectorBySurface[surfaceId] = selector
                     }
-                    return .ok([
-                        "workspace_id": ctx.workspaceId.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                        "surface_id": surfaceId.uuidString,
-                        "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                        "frame_selector": selector
-                    ])
+                    return .ok(v2BrowserPanelFields(ctx, adding: ["frame_selector": selector]))
                 }
                 if let dict = value as? [String: Any],
                    let errorText = dict["error"] as? String,
@@ -8342,15 +8345,11 @@ class TerminalController {
                     return .err(code: "not_found", message: "No pending dialog", data: ["pending": pending])
                 }
 
-                return .ok([
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": ctx.surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "accepted": accept,
                     "dialog": v2NormalizeJSValue(dict["dialog"]),
                     "remaining": v2OrNull(dict["remaining"])
-                ])
+                ]))
             }
         }
     }
@@ -8898,13 +8897,7 @@ class TerminalController {
                 cookies = cookies.filter { $0.path == path }
             }
 
-            return .ok([
-                "workspace_id": ctx.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                "surface_id": ctx.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
-                "cookies": cookies.map(v2BrowserCookieDict)
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cookies": cookies.map(v2BrowserCookieDict)]))
         }
     }
 
@@ -8950,13 +8943,7 @@ class TerminalController {
                 }
             }
 
-            return .ok([
-                "workspace_id": ctx.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                "surface_id": ctx.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
-                "set": setCount
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["set": setCount]))
         }
     }
 
@@ -8986,13 +8973,7 @@ class TerminalController {
                 }
             }
 
-            return .ok([
-                "workspace_id": ctx.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                "surface_id": ctx.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
-                "cleared": removed
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["cleared": removed]))
         }
     }
 
@@ -9014,15 +8995,11 @@ class TerminalController {
                       ok else {
                     return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
                 }
-                return .ok([
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": ctx.surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "type": storageType,
                     "key": v2OrNull(key),
                     "value": v2NormalizeJSValue(dict["value"])
-                ])
+                ]))
             }
         }
     }
@@ -9048,14 +9025,10 @@ class TerminalController {
                       ok else {
                     return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
                 }
-                return .ok([
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": ctx.surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "type": storageType,
                     "key": key
-                ])
+                ]))
             }
         }
     }
@@ -9073,14 +9046,10 @@ class TerminalController {
                       ok else {
                     return .err(code: "invalid_state", message: "Storage unavailable", data: ["type": storageType])
                 }
-                return .ok([
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": ctx.surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "type": storageType,
                     "cleared": true
-                ])
+                ]))
             }
         }
     }
@@ -9291,14 +9260,10 @@ class TerminalController {
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
-                return .ok([
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": ctx.surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "entries": items.map(v2NormalizeJSValue),
                     "count": items.count
-                ])
+                ]))
             }
         }
     }
@@ -9329,14 +9294,10 @@ class TerminalController {
             case .success(let value):
                 let dict = value as? [String: Any]
                 let items = (dict?["items"] as? [Any]) ?? []
-                return .ok([
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": ctx.surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+                return .ok(v2BrowserPanelFields(ctx, adding: [
                     "errors": items.map(v2NormalizeJSValue),
                     "count": items.count
-                ])
+                ]))
             }
         }
     }
@@ -9418,14 +9379,10 @@ class TerminalController {
                 return .err(code: "internal_error", message: "Failed to write state file", data: ["path": path, "error": error.localizedDescription])
             }
 
-            return .ok([
-                "workspace_id": ctx.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                "surface_id": ctx.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+            return .ok(v2BrowserPanelFields(ctx, adding: [
                 "path": path,
                 "cookies": cookies.count
-            ])
+            ]))
         }
     }
 
@@ -9493,14 +9450,10 @@ class TerminalController {
                 _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
             }
 
-            return .ok([
-                "workspace_id": ctx.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                "surface_id": ctx.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
+            return .ok(v2BrowserPanelFields(ctx, adding: [
                 "path": path,
                 "loaded": true
-            ])
+            ]))
         }
     }
 
@@ -9520,13 +9473,7 @@ class TerminalController {
             }
             _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: script, timeout: 10.0)
 
-            return .ok([
-                "workspace_id": ctx.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                "surface_id": ctx.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
-                "scripts": scriptsCount
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["scripts": scriptsCount]))
         }
     }
 
@@ -9539,13 +9486,7 @@ class TerminalController {
             case .failure(let message):
                 return .err(code: "js_error", message: message, data: nil)
             case .success(let value):
-                return .ok([
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": ctx.surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
-                    "value": v2NormalizeJSValue(value)
-                ])
+                return .ok(v2BrowserPanelFields(ctx, adding: ["value": v2NormalizeJSValue(value)]))
             }
         }
     }
@@ -9576,13 +9517,7 @@ class TerminalController {
             }
             _ = v2RunBrowserJavaScript(ctx.webView, surfaceId: ctx.surfaceId, script: source, timeout: 10.0)
 
-            return .ok([
-                "workspace_id": ctx.workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                "surface_id": ctx.surfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId),
-                "styles": stylesCount
-            ])
+            return .ok(v2BrowserPanelFields(ctx, adding: ["styles": stylesCount]))
         }
     }
 
