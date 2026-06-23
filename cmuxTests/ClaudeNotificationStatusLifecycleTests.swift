@@ -84,6 +84,25 @@ struct ClaudeNotificationStatusLifecycleTests {
         )
     }
 
+    @Test func unrecognizedAttentionNotificationFailsClosedToNeedsInput() throws {
+        // Fail closed: a notification that is neither a recognized idle/completion
+        // reminder nor a permission prompt must keep the pane live, so a blocking
+        // prompt phrased without a known cue is never hibernated while Claude waits.
+        let snapshot = try runClaudeNotification(
+            name: "claude-notify-unrecognized",
+            ttyName: "ttys-claude-notify-unrecognized",
+            message: "Please confirm to continue"
+        )
+        #expect(
+            snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
+            "Expected an unrecognized attention notification to fail closed to needsInput, saw \(snapshot)"
+        )
+        #expect(
+            !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
+            "An unrecognized attention notification must not resolve to idle, saw \(snapshot)"
+        )
+    }
+
     @Test func deferredBlockingToolNotificationKeepsRecordedNeedsInput() throws {
         // AskUserQuestion / ExitPlanMode (non-bypass) record `.needsInput` + a saved
         // body in PreToolUse, then defer the bell to the following Notification, whose

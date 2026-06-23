@@ -25758,7 +25758,7 @@ struct CMUXCLI {
                 return (
                     classified.subtitle,
                     classified.body,
-                    Self.claudeNotificationLifecycle(signal: fallback, message: fallback)
+                    claudeNotificationLifecycle(signal: fallback, message: fallback)
                 )
             }
             // A bare "waiting for input" reminder is an idle agent, not a blocking prompt.
@@ -25784,7 +25784,7 @@ struct CMUXCLI {
         return (
             classified.subtitle,
             classified.body,
-            Self.claudeNotificationLifecycle(signal: signal, message: normalizedMessage)
+            claudeNotificationLifecycle(signal: signal, message: normalizedMessage)
         )
     }
 
@@ -25794,20 +25794,34 @@ struct CMUXCLI {
     /// prompts and as a plain "waiting for your input" reminder once it has gone
     /// idle after finishing a turn. The handler previously hard-set `.needsInput`
     /// for every notification, which clobbered the `.idle` that the Stop hook had
-    /// just recorded, so a Claude pane never became hibernation-eligible (only
-    /// codex, which keeps reporting idle, ever hibernated). Only a permission /
-    /// approval prompt is a real blocking state; everything else is the idle agent
-    /// waiting, so it resolves to `.idle`. This affects hibernation eligibility
-    /// only: the user-facing notification, bell, and sidebar status are unchanged.
-    static func claudeNotificationLifecycle(
+    /// just recorded, so a Claude pane never became hibernation-eligible off-screen
+    /// (only codex, which keeps reporting idle, ever hibernated).
+    ///
+    /// This fails closed: hibernation eligibility is positive-evidence-only. A
+    /// notification reports `.idle` only when it is a positively identified idle or
+    /// completion reminder; a permission/approval prompt, an error, or any
+    /// unrecognized attention-style notification stays `.needsInput` so a blocking
+    /// prompt phrased without a known cue is never hibernated mid-wait. This affects
+    /// hibernation eligibility only: the user notification, bell, and sidebar status
+    /// are unchanged.
+    private func claudeNotificationLifecycle(
         signal: String,
         message: String
     ) -> AgentHibernationLifecycleState {
         let lower = "\(signal) \(message)".lowercased()
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") {
+        // Blocking or error: keep the pane live so the user can act.
+        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval")
+            || lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
             return .needsInput
         }
-        return .idle
+        // Positively identified idle/completion reminders are the only idle case:
+        // Claude's routine "waiting for your input" reminder fires after it has gone
+        // idle, and a completion notice means the turn finished.
+        if containsCompletionCue(lower) || lower.contains("waiting") || lower.contains("idle") {
+            return .idle
+        }
+        // Fail closed: an unrecognized attention notification keeps the pane live.
+        return .needsInput
     }
 
     private func summarizeAgentHookNotification(
