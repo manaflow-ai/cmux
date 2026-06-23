@@ -6326,12 +6326,12 @@ extension BrowserPanel {
             if let mainWindow, candidate === mainWindow {
                 return false
             }
-            return Self.isDetachedInspectorWindow(candidate)
+            return (candidate.isVisible || candidate.isMiniaturized) && Self.isDetachedInspectorWindow(candidate)
         }
     }
 
     private func detachedDeveloperToolsWindowsForPanel() -> [NSWindow] {
-        NSApp.windows.filter(detachedDeveloperToolsWindowBelongsToPanel)
+        NSApp.windows.filter { ($0.isVisible || $0.isMiniaturized) && detachedDeveloperToolsWindowBelongsToPanel($0) }
     }
 
     private var hasPendingDetachedDeveloperToolsWindowCloseResolution: Bool {

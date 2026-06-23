@@ -3247,6 +3247,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "A raw detached Web Inspector willClose can be WebKit's redock path, so cmux must not synchronously close _inspector before WebKit reports the final state"
         )
         XCTAssertTrue(panel.isDeveloperToolsVisible())
+        XCTAssertFalse(window.isVisible)
+        XCTAssertTrue(NSApp.windows.contains { $0 === window })
 
         inspector.close()
         waitForDetachedDeveloperToolsCloseResolutionDeadline {
