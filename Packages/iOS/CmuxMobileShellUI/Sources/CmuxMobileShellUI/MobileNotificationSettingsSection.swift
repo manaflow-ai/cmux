@@ -175,6 +175,7 @@ struct MobileNotificationSettingsSection: View {
     private func toggleNotifications() {
         guard !notificationSettingsSyncing else { return }
         let shouldDisable = receivesNotifications
+        let shouldRefreshBeforeEnable = notificationSettingsRefreshing
         notificationSettingsSyncing = true
         Task { @MainActor in
             defer { notificationSettingsSyncing = false }
@@ -182,9 +183,17 @@ struct MobileNotificationSettingsSection: View {
                 await pushCoordinator.disable()
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
             } else {
+                var forwardingMode = notificationMode
+                var hidesContent = hideNotificationContent
+                if shouldRefreshBeforeEnable {
+                    let preferences = await pushCoordinator.reconcileNotificationPreferencesWithMac()
+                    loadNotificationPreferences(preferences)
+                    forwardingMode = preferences.forwardingMode
+                    hidesContent = preferences.hidesContent
+                }
                 let enabled = await pushCoordinator.enable(
-                    forwardingMode: notificationMode,
-                    hidesContent: hideNotificationContent
+                    forwardingMode: forwardingMode,
+                    hidesContent: hidesContent
                 )
                 notificationsLocallyEnabled = enabled
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
