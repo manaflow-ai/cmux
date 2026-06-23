@@ -350,8 +350,9 @@ def test_codex_stop_without_turn_keeps_session_wide_monitor(cli_path: str, root:
 def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str, root: Path) -> None:
     socket_path = root / "cmux-monitor-lease-failure.sock"
     transcript_path = root / "codex-session-lease-failure.jsonl"
-    bad_state_dir = root / "hook-state-file"
-    bad_state_dir.write_text("not a directory", encoding="utf-8")
+    state_dir = root / "hook-state-lease-failure"
+    state_dir.mkdir()
+    (state_dir / "codex-monitor-leases").write_text("not a directory", encoding="utf-8")
     transcript_path.write_text("", encoding="utf-8")
 
     session_id = f"codex-monitor-lease-failure-session-{os.getpid()}"
@@ -360,7 +361,7 @@ def test_codex_prompt_submit_starts_monitor_when_lease_write_fails(cli_path: str
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
-    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(bad_state_dir)
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
 
     with FakeCmuxSocket(socket_path, None):
         try:
