@@ -4367,7 +4367,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     func testPortalBindDoesNotMoveInspectorFrontendOutOfDetachedWindowOwner() {
-        let (panel, inspector) = makePanelWithInspector()
+        let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
@@ -4390,12 +4390,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.webView.frame = sourceSlot.bounds
         sourceSlot.addSubview(panel.webView)
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72),
-            configuration: WKWebViewConfiguration()
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: sourceSlot.bounds.width, height: 72)
         )
-        sourceSlot.addSubview(frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        sourceSlot.addSubview(inspectorView)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -4410,13 +4408,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "The page web view should move to the portal host for this regression setup"
         )
         XCTAssertTrue(
-            frontendWebView.superview === sourceSlot,
+            inspectorView.superview === sourceSlot,
             "The portal must not reparent WKInspector frontend views; WebKit owns their window/controller lifecycle"
         )
     }
 
     func testPortalBindDoesNotMoveTransferRootContainingInspectorFrontend() {
-        let (panel, inspector) = makePanelWithInspector()
+        let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 520, height: 320),
@@ -4439,12 +4437,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         sourceSlot.addSubview(webKitWrapper)
         panel.webView.frame = webKitWrapper.bounds
         webKitWrapper.addSubview(panel.webView)
-        let frontendWebView = WKInspectorProbeWebView(
-            frame: NSRect(x: 0, y: 0, width: webKitWrapper.bounds.width, height: 72),
-            configuration: WKWebViewConfiguration()
+        let inspectorView = WKInspectorProbeView(
+            frame: NSRect(x: 0, y: 0, width: webKitWrapper.bounds.width, height: 72)
         )
-        webKitWrapper.addSubview(frontendWebView)
-        inspector.setFrontendWebView(frontendWebView)
+        webKitWrapper.addSubview(inspectorView)
 
         window.makeKeyAndOrderFront(nil)
         window.displayIfNeeded()
@@ -4459,7 +4455,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             "The page web view should still move to the portal host"
         )
         XCTAssertTrue(
-            frontendWebView.superview === webKitWrapper,
+            inspectorView.superview === webKitWrapper,
             "The portal must not move a direct transfer root that also contains WebKit's inspector frontend"
         )
     }
