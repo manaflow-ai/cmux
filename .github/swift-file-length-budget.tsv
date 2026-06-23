@@ -18,7 +18,7 @@
 6217	cmuxTests/GhosttyConfigTests.swift
 6183	Sources/TabManager.swift
 6084	Sources/TextBoxInput.swift
-5962	cmuxTests/BrowserConfigTests.swift
+5964	cmuxTests/BrowserConfigTests.swift
 5915	cmuxTests/TerminalAndGhosttyTests.swift
 5507	Packages/iOS/CmuxMobileShell/Sources/CmuxMobileShell/MobileShellComposite.swift
 4487	Sources/Panels/FilePreviewPanel.swift

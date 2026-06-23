@@ -30,10 +30,12 @@ import CmuxSidebar
 // type for theme tests and the package type for browser search settings.
 private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
+private typealias StoredShortcut = cmux_DEV.StoredShortcut
 #elseif canImport(cmux)
 @testable import cmux
 private typealias BrowserThemeMode = cmux.BrowserThemeMode
 private typealias BrowserSearchEngine = CmuxSettings.BrowserSearchEngine
+private typealias StoredShortcut = cmux.StoredShortcut
 #endif
 
 var cmuxUnitTestInspectorAssociationKey: UInt8 = 0
