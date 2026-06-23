@@ -111,6 +111,15 @@ public struct AppSection: View {
 
     private static let columnWidth: CGFloat = 196
     private static let notificationSoundControlWidth: CGFloat = 280
+    static var customNotificationSoundAllowedContentTypes: [UTType] {
+        [
+            UTType(filenameExtension: "aiff"),
+            UTType(filenameExtension: "wav"),
+            UTType(filenameExtension: "caf"),
+            UTType(filenameExtension: "m4a"),
+            UTType(filenameExtension: "mp3"),
+        ].compactMap { $0 }
+    }
 
     /// Languages legacy `AppLanguage` exposes (cmuxApp.swift line
     /// 4338). The shared `CmuxSettings.AppLanguage` adds `.vi` for a
@@ -800,13 +809,7 @@ public struct AppSection: View {
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = [
-            UTType(filenameExtension: "aiff"),
-            UTType(filenameExtension: "wav"),
-            UTType(filenameExtension: "caf"),
-            UTType(filenameExtension: "m4a"),
-            UTType(filenameExtension: "mp3"),
-        ].compactMap { $0 }
+        panel.allowedContentTypes = Self.customNotificationSoundAllowedContentTypes
         panel.title = String(localized: "settings.notifications.sound.custom.panelTitle", defaultValue: "Choose Notification Sound")
         if panel.runModal() == .OK, let url = panel.url {
             model.set(url.path)
