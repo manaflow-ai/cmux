@@ -103,26 +103,27 @@ struct ClaudeNotificationStatusLifecycleTests {
         )
     }
 
-    @Test func deferredBlockingToolNotificationKeepsRecordedNeedsInput() throws {
-        // AskUserQuestion / ExitPlanMode (non-bypass) record `.needsInput` + a saved
-        // body in PreToolUse, then defer the bell to the following Notification, whose
-        // generic text ("needs your input") would otherwise reclassify to `.idle`. The
-        // handler must keep the session's already-recorded `.needsInput` so the pane is
-        // not hibernated while the user still owes an answer / plan approval.
+    @Test func savedBodyReusePathDoesNotInheritStaleIdle() throws {
+        // The saved-body reuse path fires for generic "needs your input/attention"
+        // notifications. A session record's `agentLifecycle` is sticky (an earlier
+        // Stop/idle can leave it `.idle`), so reusing it here would downgrade a fresh
+        // generic blocking notification to idle and hibernate the pane while Claude is
+        // waiting. The handler must keep the freshly classified lifecycle, which fails
+        // closed to `.needsInput` for this generic text.
         let snapshot = try runClaudeNotification(
-            name: "claude-notify-blocking-tool",
-            ttyName: "ttys-claude-notify-blocking-tool",
+            name: "claude-notify-stale-idle",
+            ttyName: "ttys-claude-notify-stale-idle",
             message: "Claude needs your input",
-            seededLifecycle: "needsInput",
+            seededLifecycle: "idle",
             seededBody: "Which option do you want?"
         )
         #expect(
             snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
-            "Expected a deferred blocking-tool notification to keep needsInput, saw \(snapshot)"
+            "Expected the saved-body reuse path to keep needsInput, not inherit stale idle, saw \(snapshot)"
         )
         #expect(
             !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
-            "A deferred blocking-tool notification must not downgrade to idle, saw \(snapshot)"
+            "The saved-body reuse path must not downgrade a generic blocking notification to idle, saw \(snapshot)"
         )
     }
 
