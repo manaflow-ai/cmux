@@ -152,7 +152,7 @@ wait_for_socket() {
 }
 
 cmux_tagged() {
-  CMUX_TAG="$BUILD_TAG" scripts/cmux-debug-cli.sh "$@"
+  CMUX_QUIET=1 CMUX_TAG="$BUILD_TAG" scripts/cmux-debug-cli.sh "$@"
 }
 
 json_field() {
