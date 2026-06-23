@@ -27,11 +27,6 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
-    /// Pop back to the workspace list, shown in the compact header's back button.
-    /// Nil when there is no pushed stack to pop (e.g. the iPad split layout).
-    var onBack: (() -> Void)? = nil
-    /// Other-workspace unread count, folded into the compact header back button.
-    var unreadWorkspaceCount: Int = 0
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
@@ -76,10 +71,12 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
-    /// Extra blank top padding for the terminal/chat, on top of the safe area.
-    /// The compact header (safeAreaInset) already sits directly above the grid,
-    /// so no extra gap is needed — the grid starts flush under the header.
-    private var terminalTopPadding: CGFloat { 0 }
+    /// Extra blank top padding for the terminal/chat, on top of the safe area. The
+    /// grid already sits below the nav bar (inside the top safe area), so this is
+    /// pure blank space between the header and the first row. Keep it minimal — a
+    /// hairline so the first row is not jammed against the bar's bottom edge,
+    /// nothing more.
+    private var terminalTopPadding: CGFloat { 4 }
 
     /// The active browser surface for this workspace, when a browser pane is open.
     private var activeBrowser: BrowserSurfaceState? {
@@ -166,17 +163,15 @@ struct WorkspaceDetailView: View {
         // would otherwise stay on the old session).
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Same compact header as the terminal so toggling chat mode doesn't swap
-        // the system bar in/out. WorkspaceChatPane's principal-toolbar header is
-        // a no-op while the bar is hidden; the workspace name + filled toggle
-        // carry the context here.
-        .toolbar(.hidden, for: .navigationBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            MobileCompactWorkspaceHeader(
-                title: workspace.name,
-                onBack: onBack,
-                unreadCount: unreadWorkspaceCount
-            ) {
+        // Extra top inset so the first transcript rows clear the Dynamic Island /
+        // nav bar instead of hiding behind the opaque top; content still scrolls
+        // up under the glass.
+        .safeAreaPadding(.top, terminalTopPadding)
+        .mobileTerminalNavigationChrome()
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                // Chat toggle stays top-level next to the picker (lets you flip
+                // back to the terminal); New Workspace lives in the picker menu.
                 chatToggleButton
                 terminalPickerToolbarButton
             }
@@ -279,13 +274,12 @@ struct WorkspaceDetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { contentWidth = $0 }
         .navigationTitle(browser.title ?? workspace.name)
-        .toolbar(.hidden, for: .navigationBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            MobileCompactWorkspaceHeader(
-                title: browser.title ?? workspace.name,
-                onBack: onBack,
-                unreadCount: unreadWorkspaceCount
-            ) {
+        .mobileTerminalNavigationChrome()
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                glassTitle(browser.title ?? workspace.name)
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
                 terminalPickerToolbarButton
             }
@@ -410,28 +404,25 @@ struct WorkspaceDetailView: View {
         .background(TerminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
+        .mobileTerminalNavigationChrome()
         #if os(iOS)
-        // Hide the ~44pt system inline bar and render a ~30pt compact header
-        // instead, so the terminal grid reclaims the difference.
-        .toolbar(.hidden, for: .navigationBar)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            MobileCompactWorkspaceHeader(
-                title: workspace.name,
-                onBack: onBack,
-                unreadCount: unreadWorkspaceCount
-            ) {
+        .task(id: chatRefreshKey) { await refreshChatSessions() }
+        #endif
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .principal) {
+                glassTitle(workspace.name)
+            }
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 chatToggleButton
                 terminalPickerToolbarButton
             }
-        }
-        .task(id: chatRefreshKey) { await refreshChatSessions() }
-        #else
-        .toolbar {
+            #else
             ToolbarItem {
                 terminalToolbarButtons
             }
-        }
         #endif
+        }
         .closeWorkspaceConfirmation(
             isPresented: $isConfirmingClose,
             confirm: confirmCloseWorkspaceFromMenu

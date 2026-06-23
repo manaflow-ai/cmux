@@ -70,14 +70,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    private var shouldShowWorkspaceDetailLayoutPreview: Bool {
-        #if os(iOS) && DEBUG
-        return UITestConfig.workspaceDetailLayoutPreviewEnabled
-        #else
-        return false
-        #endif
-    }
-
     @ViewBuilder private var terminalLayoutPreview: some View {
         #if os(iOS) && DEBUG
         TerminalLayoutPreviewView()
@@ -93,16 +85,6 @@ struct CMUXMobileRootView: View {
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
-        #else
-        EmptyView()
-        #endif
-    }
-
-    // DEBUG-only simulator screenshot fixture; gated like the previews above so
-    // Release compiles to `EmptyView`.
-    @ViewBuilder private var workspaceDetailLayoutPreview: some View {
-        #if os(iOS) && DEBUG
-        WorkspaceDetailLayoutPreviewView()
         #else
         EmptyView()
         #endif
@@ -198,8 +180,6 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
-        } else if shouldShowWorkspaceDetailLayoutPreview {
-            workspaceDetailLayoutPreview
         } else if shouldShowRestoringSession {
             RestoringSessionView()
         } else if !isAuthenticated {
