@@ -148,18 +148,21 @@ enum TerminalTextBoxInputSettings {
     }
 
     static func submitActions(defaults: UserDefaults = .standard) -> [TextBoxSubmitAction] {
-        let configuredActions: [TextBoxSubmitAction]
         if let data = defaults.data(forKey: submitActionsKey),
            let decoded = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) {
-            configuredActions = decoded
-        } else if let raw = defaults.string(forKey: submitActionsKey),
-                  let data = raw.data(using: .utf8),
-                  let decoded = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) {
-            configuredActions = decoded
-        } else {
-            configuredActions = []
+            return TextBoxSubmitAction.normalizedCatalog(decoded)
         }
-        return TextBoxSubmitAction.normalizedCatalog(configuredActions)
+        return submitActions(configuredJSON: defaults.string(forKey: submitActionsKey))
+    }
+
+    static func submitActions(configuredJSON raw: String?) -> [TextBoxSubmitAction] {
+        guard let raw,
+              !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) else {
+            return TextBoxSubmitAction.builtInActions
+        }
+        return TextBoxSubmitAction.normalizedCatalog(decoded)
     }
 
     static func defaultSubmitActionIDValue(defaults: UserDefaults = .standard) -> String {

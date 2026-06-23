@@ -1254,6 +1254,22 @@ struct TextBoxSubmitActionPresentation: Equatable {
     }
 }
 
+private enum TextBoxSubmitActionImageLoader {
+    static let maximumImageBytes = 2 * 1024 * 1024
+
+    static func imageData(atPath path: String) -> Data? {
+        let url = URL(fileURLWithPath: path, isDirectory: false)
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true,
+              let fileSize = values.fileSize,
+              fileSize > 0,
+              fileSize <= maximumImageBytes else {
+            return nil
+        }
+        return try? Data(contentsOf: url, options: [.mappedIfSafe])
+    }
+}
+
 func shouldHandleTextBoxPlainArrowLocally(
     keyCode: UInt16,
     firstResponderHasMarkedText: Bool,
@@ -2729,6 +2745,7 @@ struct TextBoxInputContainer: View {
     private var defaultSubmitActionID = TerminalTextBoxInputSettings.defaultSubmitActionID
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     private var configuredSubmitActionsJSON = ""
+    @State private var submitActionsCache = TextBoxSubmitAction.builtInActions
     @State private var submitActionImageCache: [String: NSImage] = [:]
 
     @Binding var text: String
@@ -2758,11 +2775,7 @@ struct TextBoxInputContainer: View {
     }
 
     private var submitActions: [TextBoxSubmitAction] {
-        if let data = configuredSubmitActionsJSON.data(using: .utf8),
-           let configuredActions = try? JSONDecoder().decode([TextBoxSubmitAction].self, from: data) {
-            return TextBoxSubmitAction.normalizedCatalog(configuredActions)
-        }
-        return TextBoxSubmitAction.builtInActions
+        submitActionsCache
     }
 
     private var submitActionImagePaths: [String] {
@@ -2920,6 +2933,9 @@ struct TextBoxInputContainer: View {
         )
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .task(id: configuredSubmitActionsJSON) {
+            await refreshSubmitActionsCache(raw: configuredSubmitActionsJSON)
+        }
         .task(id: submitActionImagePathCacheKey) {
             await refreshSubmitActionImageCache(paths: submitActionImagePaths)
         }
@@ -3043,7 +3059,7 @@ struct TextBoxInputContainer: View {
 
         for path in paths where submitActionImageCache[path] == nil {
             let data = await Task.detached(priority: .utility) {
-                try? Data(contentsOf: URL(fileURLWithPath: path, isDirectory: false))
+                TextBoxSubmitActionImageLoader.imageData(atPath: path)
             }.value
             guard !Task.isCancelled else { return }
             if let data,
@@ -3051,6 +3067,15 @@ struct TextBoxInputContainer: View {
                 submitActionImageCache[path] = image
             }
         }
+    }
+
+    @MainActor
+    private func refreshSubmitActionsCache(raw: String) async {
+        let actions = await Task.detached(priority: .utility) {
+            TerminalTextBoxInputSettings.submitActions(configuredJSON: raw)
+        }.value
+        guard !Task.isCancelled else { return }
+        submitActionsCache = actions
     }
 
     private func expandedSubmitActionImagePath(_ path: String) -> String {
