@@ -1,4 +1,5 @@
-import XCTest
+import Foundation
+@_implementationOnly import XCTest
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
