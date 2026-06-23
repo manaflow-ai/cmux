@@ -26795,6 +26795,7 @@ struct CMUXCLI {
                 if record.surfaceId != forkSurfaceId {
                     return true
                 }
+                continue
             }
             if failClosedForStoredSelectorSessions {
                 return true

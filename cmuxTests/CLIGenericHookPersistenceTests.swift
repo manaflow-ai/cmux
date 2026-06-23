@@ -3647,14 +3647,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     "runtimeStatus": "active",
                     "startedAt": now,
                     "updatedAt": now,
-                    "launchCommand": [
-                        "launcher": "codex",
-                        "executablePath": "/usr/local/bin/codex",
-                        "arguments": ["/usr/local/bin/codex"],
-                        "workingDirectory": root.path,
-                        "capturedAt": now,
-                        "source": "test",
-                    ],
                 ],
             ],
         ]
