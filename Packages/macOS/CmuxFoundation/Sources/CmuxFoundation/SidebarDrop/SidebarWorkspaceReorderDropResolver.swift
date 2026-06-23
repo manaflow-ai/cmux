@@ -120,6 +120,8 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             return nil
         }
         guard candidate.isAmbiguous else { return candidate.groupId }
+        // Ambiguous group/root dividers use a coarse hierarchy lane: the left
+        // half of the sidebar means root, the right half means the group.
         return request.point.x >= sidebarHorizontalMidpoint(targets: request.targets)
             ? candidate.groupId
             : nil

@@ -104,6 +104,22 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
         expectEqual(rootLanePlan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.topLevel)
     }
 
+    @Test func AmbiguousGroupBoundaryUsesSidebarMidpoint() throws {
+        let fixture = reorderFixture()
+
+        let rootLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 89, y: 121))
+        ))
+        let groupLanePlan = try require(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 90, y: 121))
+        ))
+
+        expectEqual(rootLanePlan.indicator, SidebarDropIndicator(tabId: fixture.rootAfter, edge: .top))
+        expectEqual(rootLanePlan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.topLevel)
+        expectEqual(groupLanePlan.indicator, SidebarDropIndicator(tabId: fixture.child, edge: .bottom))
+        expectEqual(groupLanePlan.indicatorScope, SidebarWorkspaceReorderDropIndicatorScope.group(fixture.groupId))
+    }
+
     @Test func GapBetweenVisibleGroupChildrenUsesClosestGroupGap() throws {
         let fixture = multiChildReorderFixture()
 
@@ -676,8 +692,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
                         isGroupHeader: false,
                         frame: CGRect(x: 0, y: 160, width: 180, height: 32)
                     )
-                ],
-                memberIndent: 12
+                ]
             )
         }
     }
@@ -743,8 +758,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
                         isGroupHeader: false,
                         frame: CGRect(x: 0, y: 200, width: 180, height: 32)
                     )
-                ],
-                memberIndent: 12
+                ]
             )
         }
     }
@@ -796,8 +810,7 @@ private func require<T>(_ value: T?, _ message: String? = nil) throws -> T {
                         isGroupHeader: false,
                         frame: CGRect(x: 0, y: 120, width: 180, height: 32)
                     )
-                ],
-                memberIndent: 12
+                ]
             )
         }
     }
