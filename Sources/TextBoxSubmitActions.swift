@@ -58,7 +58,6 @@ extension TextBoxInputContainer {
 
     var isProviderLaunchAwaitingAgentOrCommand: Bool {
         pendingProviderLaunchAction != nil
-            && allowsCommandTemplateSubmit
             && !TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
     }
 
