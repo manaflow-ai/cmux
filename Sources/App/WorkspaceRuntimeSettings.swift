@@ -190,6 +190,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     let title: String
     let kind: Kind
     let commandTemplate: String?
+    let sendPromptAfterLaunch: Bool?
     let systemImage: String
     let assetName: String?
     let imagePath: String?
@@ -200,6 +201,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         title: String,
         kind: Kind,
         commandTemplate: String? = nil,
+        sendPromptAfterLaunch: Bool? = nil,
         systemImage: String,
         assetName: String? = nil,
         imagePath: String? = nil,
@@ -209,6 +211,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         self.title = title
         self.kind = kind
         self.commandTemplate = commandTemplate
+        self.sendPromptAfterLaunch = sendPromptAfterLaunch
         self.systemImage = systemImage
         self.assetName = assetName
         self.imagePath = imagePath
@@ -228,7 +231,8 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "claude",
             title: "Claude",
             kind: .commandTemplate,
-            commandTemplate: "claude -- {{prompt}}",
+            commandTemplate: "claude",
+            sendPromptAfterLaunch: true,
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
             backgroundColorHex: "#F6D5C8"
@@ -237,7 +241,8 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "codex",
             title: "Codex",
             kind: .commandTemplate,
-            commandTemplate: "codex -- {{prompt}}",
+            commandTemplate: "codex",
+            sendPromptAfterLaunch: true,
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",
             backgroundColorHex: "#8FDBFF"
@@ -246,7 +251,8 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "opencode",
             title: "OpenCode",
             kind: .commandTemplate,
-            commandTemplate: "opencode run -- {{prompt}}",
+            commandTemplate: "opencode run",
+            sendPromptAfterLaunch: true,
             systemImage: "curlybraces",
             assetName: "AgentIcons/OpenCode",
             backgroundColorHex: "#B5E48C"
@@ -255,7 +261,8 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "pi",
             title: "Pi",
             kind: .commandTemplate,
-            commandTemplate: "pi -- {{prompt}}",
+            commandTemplate: "pi",
+            sendPromptAfterLaunch: true,
             systemImage: "brain.head.profile",
             assetName: "AgentIcons/Pi",
             backgroundColorHex: "#D0B3FF"
@@ -281,14 +288,56 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     }
 
     var isValid: Bool {
-        !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && (kind == .textEntry || commandTemplate?.contains("{{prompt}}") == true)
+        guard !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        switch kind {
+        case .textEntry:
+            return true
+        case .commandTemplate:
+            guard let commandTemplate,
+                  !commandTemplate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return false
+            }
+            return commandTemplate.contains("{{prompt}}") || shouldSendPromptAfterLaunch
+        }
+    }
+
+    var shouldSendPromptAfterLaunch: Bool {
+        sendPromptAfterLaunch == true
+    }
+
+    var launchedAgentContext: String {
+        switch id {
+        case "claude":
+            return "restoredAgent:claude"
+        case "codex":
+            return "restoredAgent:codex"
+        case "opencode":
+            return "restoredAgent:opencode"
+        case "pi":
+            return "restoredAgent:pi"
+        default:
+            return ""
+        }
+    }
+
+    func launchCommand() -> String? {
+        guard kind == .commandTemplate,
+              shouldSendPromptAfterLaunch,
+              let commandTemplate,
+              !commandTemplate.contains("{{prompt}}") else {
+            return nil
+        }
+        let command = commandTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
+        return command.isEmpty ? nil : command
     }
 
     func command(forPrompt prompt: String) -> String? {
         guard kind == .commandTemplate,
-              let commandTemplate else {
+              let commandTemplate,
+              commandTemplate.contains("{{prompt}}") else {
             return nil
         }
         return commandTemplate.replacingOccurrences(

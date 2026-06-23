@@ -1195,17 +1195,34 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
     }
 
-    func testBuiltInTextBoxSubmitActionsTerminateProviderOptionsBeforePrompt() throws {
-        let commandsByID = Dictionary(
+    func testBuiltInTextBoxSubmitActionsUsePromptFreeLaunchCommands() throws {
+        let launchCommandsByID = Dictionary(
             uniqueKeysWithValues: TextBoxSubmitAction.builtInActions.compactMap { action in
-                action.command(forPrompt: "--dangerously-skip-permissions").map { (action.id, $0) }
+                action.launchCommand().map { (action.id, $0) }
             }
         )
 
-        XCTAssertEqual(commandsByID["claude"], "claude -- '--dangerously-skip-permissions'")
-        XCTAssertEqual(commandsByID["codex"], "codex -- '--dangerously-skip-permissions'")
-        XCTAssertEqual(commandsByID["opencode"], "opencode run -- '--dangerously-skip-permissions'")
-        XCTAssertEqual(commandsByID["pi"], "pi -- '--dangerously-skip-permissions'")
+        XCTAssertEqual(launchCommandsByID["claude"], "claude")
+        XCTAssertEqual(launchCommandsByID["codex"], "codex")
+        XCTAssertEqual(launchCommandsByID["opencode"], "opencode run")
+        XCTAssertEqual(launchCommandsByID["pi"], "pi")
+        XCTAssertTrue(TextBoxSubmitAction.builtInActions.allSatisfy { $0.command(forPrompt: "secret") == nil })
+    }
+
+    func testLaunchThenPromptSubmitEventsKeepPromptOutOfLaunchCommand() {
+        XCTAssertEqual(
+            TextBoxSubmit.launchThenPromptDispatchEvents(
+                launchCommand: "codex",
+                promptParts: [.text("--dangerously-skip-permissions")],
+                terminalAgentContext: "restoredAgent:codex"
+            ),
+            [
+                .pasteText("codex"),
+                .namedKey("return"),
+                .pasteText("--dangerously-skip-permissions"),
+                .namedKey("return"),
+            ]
+        )
     }
 
     func testTextBoxForceTextEntryUsesShellEligibilityOverStaleAgentMetadata() {

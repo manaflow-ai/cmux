@@ -1823,6 +1823,17 @@ enum TextBoxSubmit {
         return [.pasteText(pastePayload), .namedKey(submitKey)]
     }
 
+    static func launchThenPromptDispatchEvents(
+        launchCommand: String,
+        promptParts: [TextBoxSubmissionPart],
+        terminalAgentContext: String
+    ) -> [DispatchEvent] {
+        [
+            .pasteText(launchCommand),
+            .namedKey(TextBoxTerminalKey.returnKey.rawValue),
+        ] + dispatchEvents(for: promptParts, terminalAgentContext: terminalAgentContext)
+    }
+
     static func send(
         _ text: String,
         via surface: TerminalSurface,
@@ -1840,6 +1851,14 @@ enum TextBoxSubmit {
         onComplete: ((CompletionContext) -> Void)? = nil
     ) {
         let events = dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext)
+        TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
+    }
+
+    static func sendEvents(
+        _ events: [DispatchEvent],
+        via surface: TerminalSurface,
+        onComplete: ((CompletionContext) -> Void)? = nil
+    ) {
         TextBoxSubmitEventRunner.run(events, via: surface, onComplete: onComplete)
     }
 
@@ -3226,12 +3245,10 @@ struct TextBoxInputContainer: View {
             text: "",
             attachmentCount: 0
         )
-        let action = effectiveSubmitAction
-        let actionParts = submitParts(partsToSend, applying: action)
-        TextBoxSubmit.send(
-            actionParts,
+        let submitPlan = dispatchPlan(for: partsToSend, applying: effectiveSubmitAction)
+        TextBoxSubmit.sendEvents(
+            submitPlan.events,
             via: surface,
-            terminalAgentContext: action.kind == .textEntry ? terminalAgentContext : ""
         ) { completionContext in
             guard completionContext.didSubmit else {
                 if let poolWorkspaceId, !pendingComments.isEmpty {
@@ -3271,22 +3288,51 @@ struct TextBoxInputContainer: View {
             submittedTextView?.cleanupCopiedDraftFilesForPreservedLocalPathSubmissions(submittedAttachments)
             let cleanupAttachments = TextBoxSubmit.cleanupAttachmentsAfterSubmit(
                 from: submittedParts,
-                terminalAgentContext: terminalAgentContext,
+                terminalAgentContext: submitPlan.cleanupTerminalAgentContext,
                 completionContext: completionContext
             )
             submittedTextView?.cleanupDisposableAttachmentFiles(cleanupAttachments)
         }
     }
 
-    private func submitParts(
+    private struct SubmitDispatchPlan {
+        let events: [TextBoxSubmit.DispatchEvent]
+        let cleanupTerminalAgentContext: String
+    }
+
+    private func dispatchPlan(
         _ parts: [TextBoxSubmissionPart],
         applying action: TextBoxSubmitAction
-    ) -> [TextBoxSubmissionPart] {
-        guard !shouldForceTextEntrySubmit,
-              let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
-            return parts
+    ) -> SubmitDispatchPlan {
+        guard !shouldForceTextEntrySubmit else {
+            return SubmitDispatchPlan(
+                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext),
+                cleanupTerminalAgentContext: terminalAgentContext
+            )
         }
-        return [.text(command)]
+
+        if let launchCommand = action.launchCommand() {
+            let launchedAgentContext = action.launchedAgentContext
+            return SubmitDispatchPlan(
+                events: TextBoxSubmit.launchThenPromptDispatchEvents(
+                    launchCommand: launchCommand,
+                    promptParts: parts,
+                    terminalAgentContext: launchedAgentContext
+                ),
+                cleanupTerminalAgentContext: launchedAgentContext
+            )
+        }
+
+        guard let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
+            return SubmitDispatchPlan(
+                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext),
+                cleanupTerminalAgentContext: terminalAgentContext
+            )
+        }
+        return SubmitDispatchPlan(
+            events: TextBoxSubmit.dispatchEvents(for: [.text(command)], terminalAgentContext: ""),
+            cleanupTerminalAgentContext: terminalAgentContext
+        )
     }
 
     private func cycleSubmitAction() {
