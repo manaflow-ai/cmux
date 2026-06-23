@@ -99,7 +99,7 @@
     "faqCustomizeQ": "Czy mogę dostosować cmux?",
     "faqCustomizeA": "Tak. Renderowanie terminala korzysta z Twojej konfiguracji Ghostty, więc motywy, czcionki, kolory i kursor przenoszą się bezpośrednio. Własne ustawienia cmux w <path>~/.config/cmux/cmux.json</path> sterują paskiem bocznym, paskiem kart, dzielonymi panelami i zachowaniem, a każdy <shortcutsLink>skrót klawiszowy</shortcutsLink> jest edytowalny. Zobacz <link>konfigurację</link>.",
     "faqIosQ": "Czy jest aplikacja na iOS?",
-    "faqIosA": "Tak, w wersji beta. Sparuj iPhone'a z Makiem w oknie Mobile Connect i podłączaj się do terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala. Dostępna na TestFlight jako cmux BETA.",
+    "faqIosA": "Tak, w wersji beta. Sparuj iPhone'a z Makiem w oknie Mobile Connect i podłączaj się do terminali z telefonu, z opcjonalnym przekazywaniem powiadomień terminala. Dostępna na TestFlight jako cmux BETA. Wczesny dostęp jest wliczony w <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "Czy cmux ma skille?",
     "faqSkillsA": "Tak. Skille to wielokrotnego użytku przepływy pracy, które możesz dać dowolnemu agentowi działającemu w cmux, do takich rzeczy jak sterowanie CLI, automatyzacja workspace'ów, ustawienia i powierzchnie przeglądarki. Przeglądaj otwartą kolekcję na <skillsLink>cmux-skills</skillsLink> lub przeczytaj <link>dokumentację skilli</link>.",
     "faqBrowserQ": "Co potrafi wbudowana przeglądarka?",

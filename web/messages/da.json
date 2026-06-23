@@ -99,7 +99,7 @@
     "faqCustomizeQ": "Kan jeg tilpasse cmux?",
     "faqCustomizeA": "Ja. Terminalgengivelsen bruger din Ghostty-konfiguration, så temaer, skrifttyper, farver og cursor overføres direkte. cmux' egne indstillinger i <path>~/.config/cmux/cmux.json</path> styrer sidebar, fanelinje, delte paneler og adfærd, og hver <shortcutsLink>tastaturgenvej</shortcutsLink> kan redigeres. Se <link>konfiguration</link>.",
     "faqIosQ": "Findes der en iOS-app?",
-    "faqIosA": "Ja, i beta. Par din iPhone med din Mac fra Mobile Connect-vinduet, og tilslut dig dine terminaler fra din telefon, med valgfri videresendelse af terminalnotifikationer. Den udgives på TestFlight som cmux BETA.",
+    "faqIosA": "Ja, i beta. Par din iPhone med din Mac fra Mobile Connect-vinduet, og tilslut dig dine terminaler fra din telefon, med valgfri videresendelse af terminalnotifikationer. Den udgives på TestFlight som cmux BETA. Tidlig adgang er inkluderet i <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "Har cmux skills?",
     "faqSkillsA": "Ja. Skills er genbrugelige workflows, du kan give enhver agent, der kører i cmux, til ting som CLI-styring, automatisering af arbejdsområdet, indstillinger og browserflader. Gennemse den åbne samling på <skillsLink>cmux-skills</skillsLink>, eller læs <link>skills-dokumentationen</link>.",
     "faqBrowserQ": "Hvad kan den indbyggede browser?",

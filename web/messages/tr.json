@@ -99,7 +99,7 @@
     "faqCustomizeQ": "cmux'u özelleştirebilir miyim?",
     "faqCustomizeA": "Evet. Terminal işleme sizin Ghostty yapılandırmanızı kullanır, bu yüzden temalar, yazı tipleri, renkler ve imleç doğrudan aktarılır. cmux'un kendi ayarları <path>~/.config/cmux/cmux.json</path> içinde kenar çubuğunu, sekme çubuğunu, bölünmüş panelleri ve davranışı kontrol eder ve her <shortcutsLink>klavye kısayolu</shortcutsLink> düzenlenebilir. <link>yapılandırma</link> bölümüne bakın.",
     "faqIosQ": "Bir iOS uygulaması var mı?",
-    "faqIosA": "Evet, beta aşamasında. iPhone'unuzu Mobile Connect penceresinden Mac'inizle eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini de iletebilirsiniz. TestFlight üzerinde cmux BETA olarak sunulur.",
+    "faqIosA": "Evet, beta aşamasında. iPhone'unuzu Mobile Connect penceresinden Mac'inizle eşleştirin ve terminallerinize telefonunuzdan bağlanın; isteğe bağlı olarak terminal bildirimlerini de iletebilirsiniz. TestFlight üzerinde cmux BETA olarak sunulur. Erken erişim <foundersLink>cmux Founders Edition</foundersLink> ile birlikte gelir.",
     "faqSkillsQ": "cmux'un becerileri var mı?",
     "faqSkillsA": "Evet. Beceriler, CLI kontrolü, çalışma alanı otomasyonu, ayarlar ve tarayıcı panelleri gibi şeyler için cmux'ta çalışan herhangi bir ajana verebileceğiniz yeniden kullanılabilir iş akışlarıdır. Açık koleksiyona <skillsLink>cmux-skills</skillsLink> üzerinden göz atın ya da <link>beceriler belgelerini</link> okuyun.",
     "faqBrowserQ": "Yerleşik tarayıcı neler yapabilir?",

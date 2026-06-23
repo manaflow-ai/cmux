@@ -217,7 +217,18 @@ function HomeContent() {
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
-              <p className="text-muted">{t("faqIosA")}</p>
+              <p className="text-muted">
+                {t.rich("faqIosA", {
+                  foundersLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqAgentsQ")}</p>

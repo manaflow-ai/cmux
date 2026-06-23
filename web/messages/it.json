@@ -99,7 +99,7 @@
     "faqCustomizeQ": "Posso personalizzare cmux?",
     "faqCustomizeA": "Sì. Il rendering del terminale usa la tua configurazione di Ghostty, quindi temi, font, colori e cursore vengono ereditati direttamente. Le impostazioni proprie di cmux in <path>~/.config/cmux/cmux.json</path> controllano la barra laterale, la barra dei tab, i pannelli divisi e il comportamento, e ogni <shortcutsLink>scorciatoia da tastiera</shortcutsLink> è modificabile. Vedi <link>configurazione</link>.",
     "faqIosQ": "Esiste un'app per iOS?",
-    "faqIosA": "Sì, in beta. Abbina il tuo iPhone al tuo Mac dalla finestra Mobile Connect e connettiti ai tuoi terminali dal telefono, con inoltro facoltativo delle notifiche del terminale. Viene distribuita su TestFlight come cmux BETA.",
+    "faqIosA": "Sì, in beta. Abbina il tuo iPhone al tuo Mac dalla finestra Mobile Connect e connettiti ai tuoi terminali dal telefono, con inoltro facoltativo delle notifiche del terminale. Viene distribuita su TestFlight come cmux BETA. L’accesso anticipato è incluso con <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSkillsQ": "cmux ha le skill?",
     "faqSkillsA": "Sì. Le skill sono flussi di lavoro riutilizzabili che puoi assegnare a qualsiasi agente in esecuzione in cmux, per cose come il controllo della CLI, l'automazione dello spazio di lavoro, le impostazioni e le superfici del browser. Sfoglia la raccolta aperta su <skillsLink>cmux-skills</skillsLink>, oppure leggi la <link>documentazione delle skill</link>.",
     "faqBrowserQ": "Cosa può fare il browser integrato?",

@@ -99,7 +99,7 @@
     "faqCustomizeQ": "cmux를 커스터마이징할 수 있나요?",
     "faqCustomizeA": "네. 터미널 렌더링은 당신의 Ghostty 설정을 사용하므로 테마, 글꼴, 색상, 커서가 그대로 이어집니다. cmux 고유의 설정은 <path>~/.config/cmux/cmux.json</path>에 있으며 사이드바, 탭 바, 분할 패널, 동작을 제어하고, 모든 <shortcutsLink>키보드 단축키</shortcutsLink>를 편집할 수 있습니다. <link>구성</link>을 참고하세요.",
     "faqIosQ": "iOS 앱이 있나요?",
-    "faqIosA": "네, 베타로 제공됩니다. Mobile Connect 창에서 iPhone을 Mac과 페어링하면 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림 전달도 선택할 수 있습니다. TestFlight에 cmux BETA로 배포됩니다.",
+    "faqIosA": "네, 베타로 제공됩니다. Mobile Connect 창에서 iPhone을 Mac과 페어링하면 휴대폰에서 터미널에 연결할 수 있으며, 터미널 알림 전달도 선택할 수 있습니다. TestFlight에 cmux BETA로 배포됩니다. 앞서 사용해 볼 수 있는 권한은 <foundersLink>cmux Founders Edition</foundersLink>에 포함됩니다.",
     "faqSkillsQ": "cmux에 스킬이 있나요?",
     "faqSkillsA": "네. 스킬은 cmux에서 실행되는 모든 agent에 줄 수 있는 재사용 가능한 워크플로로, CLI 제어, 워크스페이스 자동화, 설정, 브라우저 서피스 같은 작업에 사용합니다. <skillsLink>cmux-skills</skillsLink>에서 공개 컬렉션을 둘러보거나 <link>스킬 문서</link>를 읽어보세요.",
     "faqBrowserQ": "내장 브라우저로 무엇을 할 수 있나요?",
