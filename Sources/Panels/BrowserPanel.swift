@@ -1286,7 +1286,7 @@ func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
     if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
         return true
     }
-    guard url.fragment == "cmux-diff-viewer",
+    guard (url.fragment == "cmux-diff-viewer" || url.fragment == "/cmux-diff-viewer"),
           url.scheme?.lowercased() == "http",
           let host = url.host else {
         return false
@@ -2355,10 +2355,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
     }
 
-    /// Loads the registered files for a token's on-disk manifest, or `nil` when
-    /// the manifest is missing, empty, or references remote patch entries
-    /// (`remote_url` / empty `file_path`) that the local-file scheme handler
-    /// cannot serve. Streamed remote PR diffs fall into the latter case.
     private func localManifestFiles(token: String) -> [RegisteredFile]? {
         guard Self.isValidToken(token) else { return nil }
         let manifestURL = trustedRootURL.appendingPathComponent(".manifest-\(token).json", isDirectory: false)
@@ -2380,13 +2376,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return files
     }
 
-    /// Whether a diff viewer surface can be restored through the custom scheme.
-    /// Requires a local-only manifest and an entry page that is neither a
-    /// pending placeholder nor a redirect stub. Pending pages poll a
-    /// deferred-load wait endpoint, and redirect pages bounce to the original
-    /// `http://127.0.0.1:<port>` URL; both only work against the local HTTP
-    /// server, which is gone after restart, so they would fail under the
-    /// custom scheme.
     func diffViewerRestorable(token: String, requestPath: String) -> Bool {
         guard let files = localManifestFiles(token: token),
               let entry = files.first(where: { $0.requestPath == requestPath }),
@@ -2402,9 +2391,15 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return true
     }
 
-    /// Extracts the diff viewer `(token, requestPath)` from a live diff viewer
-    /// URL, accepting both the custom scheme (`cmux-diff-viewer://<token>/<path>`)
-    /// and the local HTTP server form (`http://127.0.0.1:<port>/<token>/<path>#cmux-diff-viewer`).
+    func restorableSchemeURL(for url: URL?) -> URL? {
+        guard let components = Self.diffViewerComponents(from: url),
+              diffViewerRestorable(token: components.token, requestPath: components.requestPath),
+              registerFromManifest(token: components.token) else {
+            return nil
+        }
+        return Self.diffViewerURL(token: components.token, requestPath: components.requestPath)
+    }
+
     static func diffViewerComponents(from url: URL?) -> (token: String, requestPath: String)? {
         guard let url else { return nil }
         if url.scheme == scheme, let token = url.host, isValidToken(token) {
@@ -2413,7 +2408,7 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         }
         if (url.scheme == "http" || url.scheme == "https"),
            url.host == "127.0.0.1",
-           url.fragment == Self.scheme {
+           (url.fragment == Self.scheme || url.fragment == "/\(Self.scheme)") {
             let rawPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath ?? url.path
             let parts = rawPath.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
             guard parts.count >= 2, isValidToken(parts[0]) else { return nil }
@@ -2424,9 +2419,6 @@ final class CmuxDiffViewerURLSchemeHandler: NSObject, WKURLSchemeHandler {
         return nil
     }
 
-    /// Builds the app-owned custom-scheme URL used to restore a diff viewer
-    /// surface, decoupled from the local HTTP server. No fragment, so
-    /// `registeredFile(for:)` serves it.
     static func diffViewerURL(token: String, requestPath: String) -> URL? {
         guard isValidToken(token), isValidRequestPath(requestPath) else { return nil }
         var components = URLComponents()
@@ -3793,7 +3785,8 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
             MainActor.assumeIsolated {
-                guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
+                guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return false }
+                if self.recoverFailedDiffViewerNavigation(failedURL: failedURL, in: failedWebView) { return true }
                 self.isMainFrameProvisionalNavigationActive = false
                 if let url = URL(string: failedURL) {
                     self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
@@ -3806,6 +3799,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.applyMuteState(to: failedWebView, reason: "navigationFail")
                 // Keep find-in-page open and clear stale counters on failed loads.
                 self.restoreFindStateAfterNavigation(replaySearch: false)
+                return false
             }
         }
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView in
@@ -3816,6 +3810,16 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.refreshBackgroundAppearance()
             }
         }
+    }
+
+    private func recoverFailedDiffViewerNavigation(failedURL: String, in webView: WKWebView) -> Bool {
+        guard let recoveredURL = CmuxDiffViewerURLSchemeHandler.shared.restorableSchemeURL(for: URL(string: failedURL)) else { return false }
+        isMainFrameProvisionalNavigationActive = false
+        currentURL = recoveredURL
+        navigationDelegate?.lastAttemptedURL = recoveredURL
+        refreshBackgroundAppearance()
+        webView.load(URLRequest(url: recoveredURL))
+        return true
     }
 
     private func publishCommittedURL(from webView: WKWebView) {
@@ -4536,7 +4540,7 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
 
-        let restoredURL = Self.sanitizedSessionHistoryURL(snapshot.urlString)
+        let restoredURL = snapshot.urlString.flatMap { CmuxDiffViewerURLSchemeHandler.shared.restorableSchemeURL(for: URL(string: $0)) } ?? Self.sanitizedSessionHistoryURL(snapshot.urlString)
         let shouldRenderRestoredWebView = snapshot.shouldRenderWebView && BrowserAvailabilitySettings.isEnabled()
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(snapshot.shouldRenderWebView)
         setMuted(snapshot.isMuted)
@@ -5618,11 +5622,14 @@ final class BrowserPanel: Panel, ObservableObject {
         if !preserveRestoredSessionHistory {
             abandonRestoredSessionHistoryIfNeeded()
         }
-        let effectiveRequest = remoteProxyPreparedRequest(from: request, logScope: "rewrite")
+        let loadURL = CmuxDiffViewerURLSchemeHandler.shared.restorableSchemeURL(for: originalURL) ?? originalURL
+        var loadRequest = request
+        if loadURL != originalURL { loadRequest.url = loadURL; currentURL = loadURL }
+        let effectiveRequest = remoteProxyPreparedRequest(from: loadRequest, logScope: "rewrite")
         // Some installs can end up with a legacy Chrome UA override; keep this pinned.
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
-        navigationDelegate?.lastAttemptedURL = originalURL
+        navigationDelegate?.lastAttemptedURL = loadURL
         refreshBackgroundAppearance()
         shouldRenderWebView = true
         if shouldPreloadInitialNavigationInBackground {
@@ -5630,7 +5637,7 @@ final class BrowserPanel: Panel, ObservableObject {
             ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
         }
         if recordTypedNavigation {
-            historyStore.recordTypedNavigation(url: originalURL)
+            historyStore.recordTypedNavigation(url: loadURL)
         }
         browserLoadRequest(effectiveRequest, in: webView)
     }
@@ -8583,7 +8590,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
-    var didFailNavigation: ((WKWebView, String) -> Void)?
+    var didFailNavigation: ((WKWebView, String) -> Bool)?
     var didCancelProvisionalNavigation: ((WKWebView) -> Void)?
     var didTerminateWebContentProcess: ((WKWebView) -> Void)?
     var openInNewTab: ((URL) -> Void)?
@@ -8615,7 +8622,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // Treat committed-navigation failures the same as provisional ones so
         // stale favicon/title state from the prior page gets cleared.
         let failedURL = webView.url?.absoluteString ?? ""
-        didFailNavigation?(webView, failedURL)
+        _ = didFailNavigation?(webView, failedURL)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -8639,7 +8646,9 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        didFailNavigation?(webView, failedURL)
+        if didFailNavigation?(webView, failedURL) == true {
+            return
+        }
         loadErrorPage(in: webView, failedURL: failedURL, error: nsError)
     }
 
