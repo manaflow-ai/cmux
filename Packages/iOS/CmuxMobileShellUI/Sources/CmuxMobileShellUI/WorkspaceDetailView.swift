@@ -19,6 +19,7 @@ struct WorkspaceDetailView: View {
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
+    let canCreateWorkspace: Bool
     let createTerminal: () -> Void
     /// Close this workspace on the Mac. When `nil` (older Macs without the
     /// `workspace.close.v1` capability, or previews) the close affordance is
@@ -27,6 +28,7 @@ struct WorkspaceDetailView: View {
     let reportTerminalViewport: (MobileWorkspacePreview.ID, MobileTerminalPreview.ID, MobileTerminalViewportSize) -> Void
     let sendTerminalInput: (String) -> Void
     let safeAreaContext: MobileTerminalSafeAreaContext
+    let signOut: (() -> Void)?
     /// Phone-local browser surfaces, injected from the app root. When this
     /// workspace has an active browser surface the detail view presents a
     /// browser pane in place of the terminal; otherwise it shows the terminal.
@@ -119,6 +121,14 @@ struct WorkspaceDetailView: View {
     #endif
 
     var body: some View {
+        Group {
+            detailSurfaceContent
+        }
+        .mobileConnectionRecoveryOverlay(store: store, signOut: signOut)
+    }
+
+    @ViewBuilder
+    private var detailSurfaceContent: some View {
         #if os(iOS)
         if isChatMode, let session = chosenChatSession {
             chatContent(session)
@@ -136,8 +146,6 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    /// Agent chat rendered in place of the terminal while chat mode is on.
-    /// Carries the same toolbar so the toggle (now filled) flips back.
     @ViewBuilder
     private func chatContent(_ session: ChatSessionDescriptor) -> some View {
         WorkspaceChatPane(
@@ -156,20 +164,12 @@ struct WorkspaceDetailView: View {
                 pinnedChatSessionID = nil
             }
         )
-        // Bind the pane's identity to the session so a session change
-        // rebuilds ChatScreen (its store is captured in @State at init and
-        // would otherwise stay on the old session).
         .id(session.id)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // Extra top inset so the first transcript rows clear the Dynamic Island /
-        // nav bar instead of hiding behind the opaque top; content still scrolls
-        // up under the glass.
         .safeAreaPadding(.top, terminalTopPadding)
         .mobileTerminalNavigationChrome()
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
-                // Chat toggle stays top-level next to the picker (lets you flip
-                // back to the terminal); New Workspace lives in the picker menu.
                 chatToggleButton
                 terminalPickerToolbarButton
             }
@@ -182,12 +182,6 @@ struct WorkspaceDetailView: View {
         )
     }
 
-    /// Top-level toolbar toggle between terminal and chat. Shown only when the
-    /// currently visible tab has an agent session (or chat is already on), so the
-    /// toggle tracks the tab the user is looking at. Surface ids are stable across
-    /// relaunch/restore, so this per-tab match survives a restart. It sits next to
-    /// the terminal picker (where New Workspace used to be); the glass title pill
-    /// keeps the center readable even with the button present.
     @ViewBuilder
     private var chatToggleButton: some View {
         if isChatMode || sessionForSelectedTerminal != nil {
@@ -493,6 +487,7 @@ struct WorkspaceDetailView: View {
                 .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
+        .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
@@ -543,6 +538,7 @@ struct WorkspaceDetailView: View {
             Button(action: createWorkspaceFromToolbar) {
                 Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
             }
+            .disabled(!canCreateWorkspace)
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
 
             Button(action: createTerminalFromToolbar) {
@@ -796,6 +792,7 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createWorkspaceFromToolbar() {
+        guard canCreateWorkspace else { return }
         dismissTerminalKeyboardForChrome()
         createWorkspace()
     }

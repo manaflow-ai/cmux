@@ -108,8 +108,8 @@ struct CMUXMobileRootView: View {
             // If the view mounts already authenticated (cached session, or a
             // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
             // so kick off the stored-Mac reconnect here too. Without this the
-            // restoring gate could stay on RestoringSessionView forever because
-            // nothing ever resolves `didFinishStoredMacReconnectAttempt`.
+            // workspace list's initial-connection status could never resolve
+            // because nothing updates `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
         #if os(iOS)
@@ -190,20 +190,15 @@ struct CMUXMobileRootView: View {
             terminalLayoutPreview
         } else if shouldShowWorkspaceListLayoutPreview {
             workspaceListLayoutPreview
-        } else if shouldShowRestoringSession {
-            RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
-            if store.hasKnownPairedMac || store.isReconnectingStoredMac {
-                // We know a Mac is being reconnected: it is honest to say so.
-                RestoringSessionView()
-            } else {
-                // Still determining whether a paired Mac exists (install predating
-                // the hint, or a fresh sign-in): a neutral spinner, since we do not
-                // yet know if there is a session to restore.
-                MobilePairedMacDeterminingView()
-            }
+            RestoringStoredMacWorkspaceShell(
+                store: store,
+                signOut: signOut,
+                showAddDevice: showAddDevice,
+                reconnectStoredMac: reconnectStoredMacIfNeeded
+            )
         } else if shouldShowOnboarding {
             // Placed after the reconnect-determining branch so `hasKnownPairedMac`
             // has resolved: a genuine first run (never onboarded, never paired)
@@ -326,14 +321,6 @@ struct CMUXMobileRootView: View {
         MobileRootAuthGate.isAuthenticated(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication
-        )
-    }
-
-    private var shouldShowRestoringSession: Bool {
-        MobileRootAuthGate.shouldShowRestoringSession(
-            stackAuthenticated: authManager.isAuthenticated,
-            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
-            isRestoringSession: authManager.isRestoringSession
         )
     }
 
