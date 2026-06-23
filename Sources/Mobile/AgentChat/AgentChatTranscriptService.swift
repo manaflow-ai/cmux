@@ -42,10 +42,74 @@ final class AgentChatTranscriptService {
         }
     }
 
+    /// A `(session, surface)` resume re-bind cmux authored during session
+    /// restore, buffered until the service is live (restore can run before app
+    /// setup assigns this service, so a direct call would be a silent no-op).
+    private struct PendingResumeIntent {
+        let sessionID: String
+        let source: String
+        let surfaceID: String?
+        let workspaceID: String?
+        let workingDirectory: String?
+    }
+
+    /// Resume re-binds recorded before ``start()`` wired the live instance.
+    private static var pendingResumeIntents: [PendingResumeIntent] = []
+    /// The started service, used to apply resume re-binds immediately once live.
+    private static weak var liveInstance: AgentChatTranscriptService?
+
+    /// Records, from cmux's own authority, that it is resuming `sessionID` onto
+    /// `surfaceID` (see
+    /// ``AgentChatSessionRegistry/noteResumeInitiated(sessionID:source:surfaceID:workspaceID:workingDirectory:)``).
+    /// Static so the restore path need not hold a service reference: before the
+    /// service starts (restore can run first) the intent is buffered and flushed
+    /// in ``start()``; after, it applies immediately.
+    static func recordResumeIntent(
+        sessionID: String,
+        source: String,
+        surfaceID: String?,
+        workspaceID: String?,
+        workingDirectory: String?
+    ) {
+        if let live = liveInstance {
+            live.noteResumeInitiated(
+                sessionID: sessionID,
+                source: source,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory
+            )
+        } else {
+            pendingResumeIntents.append(PendingResumeIntent(
+                sessionID: sessionID,
+                source: source,
+                surfaceID: surfaceID,
+                workspaceID: workspaceID,
+                workingDirectory: workingDirectory
+            ))
+        }
+    }
+
     /// Seeds the session registry from the on-disk hook stores. Call once
     /// at app startup. Sessions are tracked only via the reliable hook-event
     /// path thereafter; cmux does not detect agents that never fire a hook.
     func start() {
+        Self.liveInstance = self
+        // Apply resume re-binds buffered before the service was wired. The seed
+        // only creates records that don't already exist, so an intent applied
+        // here is preserved (the seed skips it) and one applied after flips the
+        // seeded `.ended` record to `.idle`: either order converges.
+        let buffered = Self.pendingResumeIntents
+        Self.pendingResumeIntents.removeAll()
+        for intent in buffered {
+            registry.noteResumeInitiated(
+                sessionID: intent.sessionID,
+                source: intent.source,
+                surfaceID: intent.surfaceID,
+                workspaceID: intent.workspaceID,
+                workingDirectory: intent.workingDirectory
+            )
+        }
         // Seeding reads+parses the hook-store JSON off the main actor; kick it
         // off and return. Live hook events also populate the registry, and the
         // seed converges within milliseconds.
@@ -105,6 +169,27 @@ final class AgentChatTranscriptService {
     @discardableResult
     func refreshSessionBindings(sessionID: String) async -> AgentChatSessionRecord? {
         await registry.refreshBindingsFromHookStore(sessionID: sessionID)
+    }
+
+    /// cmux-authored resume re-bind (see
+    /// ``AgentChatSessionRegistry/noteResumeInitiated(sessionID:source:surfaceID:workspaceID:workingDirectory:)``).
+    /// Called from the session-restore path when cmux auto-resumes an agent, so
+    /// the GUI reflects the live session immediately instead of waiting for a
+    /// SessionStart hook the agent (codex) does not fire on resume.
+    func noteResumeInitiated(
+        sessionID: String,
+        source: String,
+        surfaceID: String?,
+        workspaceID: String?,
+        workingDirectory: String?
+    ) {
+        registry.noteResumeInitiated(
+            sessionID: sessionID,
+            source: source,
+            surfaceID: surfaceID,
+            workspaceID: workspaceID,
+            workingDirectory: workingDirectory
+        )
     }
 
     /// Re-stamps a session's stored workspace id to the workspace its surface

@@ -302,6 +302,69 @@ final class AgentChatSessionRegistry {
         return record
     }
 
+    /// Records, from cmux's own authority, that it is resuming `rawSessionID`
+    /// onto `surfaceID`. Resume is ALWAYS cmux-initiated, and some agents (codex)
+    /// fire NO SessionStart hook on resume, so the hook-driven path would keep the
+    /// stale pre-relaunch record: its pid is already dead, the exit watcher flips
+    /// it to `.ended`, and the GUI shows it read-only with no composer (and can't
+    /// recover, since you can't submit a prompt from a hidden composer). cmux
+    /// holds the `(session, surface)` pair at resume time, so it writes that fact
+    /// directly instead of waiting for a hook the agent will never send.
+    ///
+    /// Clearing the pid is essential: re-stamping the record while it still
+    /// carries the DEAD pre-relaunch pid would re-arm the exit watcher on that pid
+    /// and immediately re-end the session. With pid cleared, no watcher arms and
+    /// the session is shown live/editable; the live pid backfills later from the
+    /// agent's own hooks (when it has them), which is the safe direction.
+    func noteResumeInitiated(
+        sessionID rawSessionID: String,
+        source: String,
+        surfaceID: String?,
+        workspaceID: String?,
+        workingDirectory: String?
+    ) {
+        let sessionID = Self.normalizedSessionID(rawSessionID, source: source)
+        let now = Date()
+        cmuxDebugLog(
+            "agentChat.resumeInitiated session=\(sessionID.prefix(8)) source=\(source) "
+            + "surface=\((surfaceID ?? "nil").prefix(8)) existed=\(records[sessionID] != nil)"
+        )
+        let normalizedSurface = surfaceID.flatMap { $0.isEmpty ? nil : $0 }
+        let normalizedWorkspace = workspaceID.flatMap { $0.isEmpty ? nil : $0 }
+        let normalizedCwd = workingDirectory.flatMap { $0.isEmpty ? nil : $0 }
+        if records[sessionID] != nil {
+            update(sessionID: sessionID) { record in
+                if let normalizedSurface { record.surfaceID = normalizedSurface }
+                if let normalizedWorkspace { record.workspaceID = normalizedWorkspace }
+                if let normalizedCwd { record.workingDirectory = normalizedCwd }
+                record.pid = nil
+                record.state = .idle
+                record.lastActivityAt = now
+            }
+            return
+        }
+        // The seed has not created this record yet (or it was pruned). Create it
+        // live so the GUI shows the resumed session immediately; the transcript
+        // path resolves on demand from the session id.
+        var record = AgentChatSessionRecord(
+            sessionID: sessionID,
+            agentKind: ChatAgentKind(source: source),
+            workspaceID: normalizedWorkspace,
+            surfaceID: normalizedSurface,
+            workingDirectory: normalizedCwd,
+            transcriptPath: nil,
+            state: .idle,
+            lastActivityAt: now,
+            title: nil,
+            pid: nil
+        )
+        stampVersion(&record)
+        records[sessionID] = record
+        syncProcessExitWatch(for: record)
+        updateLiveSessionIndex(previous: nil, current: record)
+        onRecordChanged?(record, nil)
+    }
+
     /// Reads one session's hook-store entry OFF the main actor and applies any
     /// still-missing bindings on the main actor. The hot path (`noteHookEvent`)
     /// returns immediately; bindings land a moment later via `update`, which
