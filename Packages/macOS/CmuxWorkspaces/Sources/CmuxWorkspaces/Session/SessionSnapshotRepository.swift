@@ -39,8 +39,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     ///     composition root). Falls back to `com.cmuxterm.app` when nil or
     ///     blank.
     ///   - repairLoadedSnapshot: Optional app-owned repair pass for decoded
-    ///     snapshots. The repository persists a repaired snapshot when the
-    ///     callback reports a change.
+    ///     snapshots. Explicit load paths persist a repaired snapshot when the
+    ///     callback reports a change; `loadOutcome(fileURL:)` remains a
+    ///     read-only inspection path.
     ///   - appSupportDirectory: Overrides the discovered user Application
     ///     Support directory (tests pass a temporary directory).
     ///   - fileManager: File system access, injected for testability.
@@ -61,6 +62,13 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     }
 
     public func loadOutcome(fileURL: URL) -> SessionSnapshotLoadOutcome<SnapshotValue> {
+        loadOutcome(fileURL: fileURL, persistRepair: false)
+    }
+
+    private func loadOutcome(
+        fileURL: URL,
+        persistRepair: Bool
+    ) -> SessionSnapshotLoadOutcome<SnapshotValue> {
         guard fileManager.fileExists(atPath: fileURL.path) else { return .missing }
         guard let data = try? Data(contentsOf: fileURL) else { return .unusable }
         let decoder = JSONDecoder()
@@ -68,7 +76,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         guard snapshot.version == schemaVersion else { return .unusable }
         guard snapshot.hasWindows else { return .unusable }
         let repairResult = repairLoadedSnapshot(snapshot)
-        if repairResult.didRepair {
+        if persistRepair && repairResult.didRepair {
             _ = save(repairResult.snapshot, fileURL: fileURL)
         }
         return .loaded(repairResult.snapshot)
@@ -76,7 +84,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
 
     public func load(fileURL: URL? = nil) -> SnapshotValue? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
-        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL) else { return nil }
+        guard case .loaded(let snapshot) = loadOutcome(fileURL: fileURL, persistRepair: true) else { return nil }
         return snapshot
     }
 
@@ -133,7 +141,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
 
     public func loadStartupSnapshot() -> SnapshotValue? {
         guard let primaryURL = defaultSnapshotFileURL() else { return nil }
-        switch loadOutcome(fileURL: primaryURL) {
+        switch loadOutcome(fileURL: primaryURL, persistRepair: true) {
         case .loaded(let snapshot):
             return snapshot
         case .missing:

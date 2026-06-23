@@ -28,11 +28,15 @@ struct SessionSnapshotRepositoryTests {
 
     private func makeRepository(
         appSupport: URL,
-        bundleIdentifier: String? = "com.cmuxterm.tests"
+        bundleIdentifier: String? = "com.cmuxterm.tests",
+        repairLoadedSnapshot: @escaping @Sendable (SnapshotFixture) -> (snapshot: SnapshotFixture, didRepair: Bool) = {
+            (snapshot: $0, didRepair: false)
+        }
     ) -> SessionSnapshotRepository<SnapshotFixture> {
         SessionSnapshotRepository(
             schemaVersion: schemaVersion,
             bundleIdentifier: bundleIdentifier,
+            repairLoadedSnapshot: repairLoadedSnapshot,
             appSupportDirectory: appSupport
         )
     }
@@ -102,6 +106,32 @@ struct SessionSnapshotRepositoryTests {
 
         #expect(repository.save(makeSnapshot(windowNames: []), fileURL: fileURL))
         #expect(repository.load(fileURL: fileURL) == nil)
+    }
+
+    @Test("loadOutcome returns repaired snapshots without rewriting the inspected file")
+    func loadOutcomeIsReadOnlyForRepairedSnapshots() throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let repository = makeRepository(appSupport: dir) { snapshot in
+            var repaired = snapshot
+            repaired.windows[0].name = "repaired"
+            return (snapshot: repaired, didRepair: true)
+        }
+        let fileURL = try #require(repository.defaultSnapshotFileURL())
+        let original = makeSnapshot(windowNames: ["old"])
+        let repaired = makeSnapshot(windowNames: ["repaired"])
+
+        #expect(repository.save(original, fileURL: nil))
+        let beforeProbe = try Data(contentsOf: fileURL)
+        guard case .loaded(let probed) = repository.loadOutcome(fileURL: fileURL) else {
+            Issue.record("expected repaired loaded snapshot")
+            return
+        }
+        #expect(probed == repaired)
+        #expect(try Data(contentsOf: fileURL) == beforeProbe)
+
+        #expect(repository.load(fileURL: fileURL) == repaired)
+        #expect(try JSONDecoder().decode(SnapshotFixture.self, from: Data(contentsOf: fileURL)) == repaired)
     }
 
     @Test("saving identical content does not rewrite the file")
