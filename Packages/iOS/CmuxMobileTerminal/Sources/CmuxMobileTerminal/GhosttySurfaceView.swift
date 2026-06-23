@@ -1153,10 +1153,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// flush with the grid bottom (no gap) and its bottom rests on the keyboard
     /// edge (up) or above the home indicator (down).
     private weak var dockedToolbar: UIView?
-    /// Floating jump-to-bottom button shown when the Mac reports this viewport is
-    /// scrolled up into scrollback.
+    /// Floating jump-to-bottom button shown when either the Mac reports this viewport
+    /// is scrolled up or the local iOS mirror has been scrolled away from newest
+    /// output before the Mac's authoritative state catches up.
     private weak var scrollToBottomButton: ScrollToBottomButton?
-    private var scrolledUp = false
+    private var remoteScrolledUp = false
+    private var localScrollbackLineOffset: Double = 0
     /// Whether the iMessage-style composer is currently open. The surface owns the
     /// whole bottom dock (terminal grid / toolbar / composer band / keyboard) in ONE
     /// coordinate system, so `composerActive` only drives the first-responder
@@ -1348,6 +1350,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             self?.scrollToBottom()
         }
         addSubview(button)
+        bringSubviewToFront(button)
         scrollToBottomButton = button
     }
 
@@ -1814,14 +1817,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Updates whether the remote terminal viewport is away from the bottom.
     public func setScrolledUp(_ value: Bool) {
-        guard scrolledUp != value else { return }
-        scrolledUp = value
+        guard remoteScrolledUp != value else { return }
+        remoteScrolledUp = value
         layoutBottomDock()
         updateScrollToBottomButtonVisibility(animated: true)
     }
 
     private var scrollToBottomButtonShouldBeVisible: Bool {
-        scrolledUp && !chromeHidden
+        (remoteScrolledUp || localScrollbackLineOffset > 0.5) && !chromeHidden
     }
 
     private func updateScrollToBottomButtonVisibility(animated: Bool) {
@@ -1863,10 +1866,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         guard let button = scrollToBottomButton else { return }
         let size = ScrollToBottomButton.diameter
         let margin = Self.scrollToBottomButtonMargin
-        let referenceTop = chromeHidden ? bounds.height - safeAreaInsetsBottom : dockTop
+        let dockReferenceTop = chromeHidden ? bounds.height - safeAreaInsetsBottom : dockTop
+        let referenceTop = min(dockReferenceTop, bounds.height)
         let x = max(0, bounds.width - size - margin)
         let y = referenceTop - size - margin
         button.frame = CGRect(x: x, y: max(0, y), width: size, height: size)
+        bringSubviewToFront(button)
     }
 
     /// Animate the whole bottom dock (composer band + toolbar) in lockstep with a
@@ -1961,7 +1966,15 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         let cell = pendingScrollCell
         pendingScrollLines = 0
         applyLocalScrollbackScroll(lines: lines, col: cell.col, row: cell.row)
+        updateLocalScrollbackLineOffset(scrolledLines: lines)
         delegate?.ghosttySurfaceView(self, didScrollLines: lines, atCol: cell.col, row: cell.row)
+    }
+
+    private func updateLocalScrollbackLineOffset(scrolledLines lines: Double) {
+        let nextOffset = max(0, localScrollbackLineOffset + lines)
+        guard abs(nextOffset - localScrollbackLineOffset) > 0.01 else { return }
+        localScrollbackLineOffset = nextOffset
+        updateScrollToBottomButtonVisibility(animated: true)
     }
 
     /// A tap both raises the software keyboard (so the user can type) and
@@ -2219,6 +2232,29 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         syncSurfaceVisibility()
     }
 
+    public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        if let button = scrollToBottomButton,
+           !button.isHidden,
+           button.alpha > 0.01,
+           button.point(inside: convert(point, to: button), with: event) {
+            return button
+        }
+        return super.hitTest(point, with: event)
+    }
+
+    public override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        if super.point(inside: point, with: event) {
+            return true
+        }
+        if let button = scrollToBottomButton,
+           !button.isHidden,
+           button.alpha > 0.01,
+           button.point(inside: convert(point, to: button), with: event) {
+            return true
+        }
+        return false
+    }
+
     /// Re-seats the bottom dock and grid reservation when the safe-area inset
     /// changes.
     ///
@@ -2376,6 +2412,9 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     private func scrollToBottom() {
         guard let surface else { return }
+        remoteScrolledUp = false
+        localScrollbackLineOffset = 0
+        updateScrollToBottomButtonVisibility(animated: true)
         scrollToBottom(surface: surface)
         delegate?.ghosttySurfaceViewDidRequestScrollToBottom(self)
     }
