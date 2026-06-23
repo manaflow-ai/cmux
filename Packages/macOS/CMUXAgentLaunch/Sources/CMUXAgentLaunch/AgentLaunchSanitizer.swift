@@ -126,8 +126,8 @@ public enum AgentLaunchSanitizer {
             var tail = args
             while let first = tail.first {
                 let normalized = first.replacingOccurrences(of: "\\", with: "/")
-                let isInternalArgument = first == "tui-settings" || (normalized.contains("/$bunfs/") &&
-                    normalized.contains("/src/cli/cmd/tui/worker.js"))
+                let isInternalArgument = first == "tui-settings" ||
+                    (normalized.contains("/$bunfs/") && normalized.hasSuffix("/tui/worker.js"))
                 guard isInternalArgument else { break }
                 tail.removeFirst()
             }

@@ -78,10 +78,12 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    // `WorkspaceListLayoutPreviewView` is `#if DEBUG`-only (a simulator
-    // screenshot fixture), so referencing it directly in `rootContent` breaks the
-    // Release archive ("cannot find ... in scope"). Gate the reference here, the
-    // same way `terminalLayoutPreview` does, so Release compiles to `EmptyView`.
+    /// DEBUG-only wrapper so Release/iOS archives never reference the
+    /// `#if DEBUG`-gated `WorkspaceListLayoutPreviewView` type directly (a
+    /// simulator screenshot fixture). Swift type-checks every `rootContent`
+    /// branch even when `shouldShowWorkspaceListLayoutPreview` is statically
+    /// false in Release, so gate the reference here, the same way
+    /// `terminalLayoutPreview` does, and Release compiles to `EmptyView`.
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
@@ -125,6 +127,14 @@ struct CMUXMobileRootView: View {
             pushCoordinator.workspacesDidChange()
         }
         #endif
+        .onChange(of: authManager.selectedTeamID) { _, _ in
+            // The user switched Stack teams (from the nav drawer). Lazily re-scope
+            // the team-bound state (presence, registry, paired-Mac backup,
+            // aggregation) to the new team without dropping the live terminal. The
+            // drawer only writes `selectedTeamID`; this is the single observation
+            // point, so every entrypoint that changes the team flows through here.
+            store.currentTeamDidChange()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
@@ -207,7 +217,9 @@ struct CMUXMobileRootView: View {
             // paired-but-offline user (who can reach here after a failed
             // reconnect) is excluded by the gate and falls through to pairing.
             onboardingFlow
-        } else if store.connectionState != .connected {
+        } else if store.connectionState != .connected && !store.hasKnownPairedMac {
+            // ONLY when there are no saved Macs at all: the add-device flow (it
+            // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
@@ -215,11 +227,14 @@ struct CMUXMobileRootView: View {
                 setupHelpHighlight: disconnectedSetupHelpHighlight,
                 store: store
             )
-            .onAppear {
-                showAddDevice()
-            }
         } else {
-            WorkspaceShellView(store: store, signOut: signOut)
+            // Connected, OR we have saved Macs and are auto-connecting in the
+            // background: always show the integrated cross-Mac workspace list, so
+            // the user never sees a "Your Macs" picker screen. The list renders
+            // whatever workspaces have aggregated (foreground + live secondary
+            // subscriptions); the foreground connection is established without any
+            // tap. Opening a workspace attaches its Mac on demand.
+            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
         }
     }
 

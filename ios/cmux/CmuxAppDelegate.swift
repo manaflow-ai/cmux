@@ -57,7 +57,8 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         let ids = Self.cmuxIDs(from: notification.request.content.userInfo)
         let present = await pushCoordinator?.shouldPresentInForeground(
             workspaceId: ids.workspaceId,
-            surfaceId: ids.surfaceId
+            surfaceId: ids.surfaceId,
+            macDeviceId: ids.macDeviceId
         ) ?? true
         return present ? [.banner, .sound, .badge] : []
     }
@@ -70,15 +71,18 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         // A swipe/clear of a cmux banner delivers the custom dismiss action
         // (enabled via the `cmux.terminal` category's `.customDismissAction`).
         // Forward it to the Mac so the desktop banner + store entry clear too.
+        let ids = Self.cmuxIDs(from: request.content.userInfo)
         if response.actionIdentifier == UNNotificationDismissActionIdentifier {
             await pushCoordinator?.handleDismiss(
-                notificationId: Self.notificationID(from: request)
+                notificationId: Self.notificationID(from: request),
+                macDeviceId: ids.macDeviceId
             )
             return
         }
-        // A tap (default action) opens the workspace/terminal and marks the
-        // notification read on the Mac, mirroring the Mac's own tap path.
-        let ids = Self.cmuxIDs(from: request.content.userInfo)
+        // A tap (default action) deep-links to the workspace/terminal AND marks
+        // the notification read on the Mac, mirroring the Mac's own tap path
+        // (which opens + marks read). The two compose: deep-link locally, clear
+        // on the Mac.
         let appState = await UIApplication.shared.applicationState
         await analytics?.capture("ios_push_tapped", [
             "has_workspace_id": .bool(ids.workspaceId != nil),
@@ -87,10 +91,12 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         ])
         await pushCoordinator?.handleTap(
             workspaceId: ids.workspaceId,
-            surfaceId: ids.surfaceId
+            surfaceId: ids.surfaceId,
+            macDeviceId: ids.macDeviceId
         )
         await pushCoordinator?.handleDismiss(
-            notificationId: Self.notificationID(from: request)
+            notificationId: Self.notificationID(from: request),
+            macDeviceId: ids.macDeviceId
         )
     }
 
@@ -134,9 +140,13 @@ final class CmuxAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
 
     private nonisolated static func cmuxIDs(
         from userInfo: [AnyHashable: Any]
-    ) -> (workspaceId: String?, surfaceId: String?) {
-        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil) }
-        return (cmux["workspaceId"] as? String, cmux["surfaceId"] as? String)
+    ) -> (workspaceId: String?, surfaceId: String?, macDeviceId: String?) {
+        guard let cmux = userInfo["cmux"] as? [String: Any] else { return (nil, nil, nil) }
+        return (
+            cmux["workspaceId"] as? String,
+            cmux["surfaceId"] as? String,
+            cmux["macDeviceId"] as? String
+        )
     }
 
     /// The stable Mac-side notification id for a delivered request, or `nil` when

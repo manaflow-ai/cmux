@@ -1,4 +1,5 @@
 import Foundation
+import CmuxSettings
 @testable import CmuxControlSocket
 
 // Benign default implementations of the non-window domain seams, so a test fake
@@ -163,7 +164,7 @@ extension ControlNotificationContext {
 
 extension ControlWorkspaceGroupContext {
     func controlWorkspaceGroupStrings() -> ControlWorkspaceGroupStrings {
-        ControlWorkspaceGroupStrings(allChildrenAreAnchors: "", workspaceIsOtherGroupAnchor: "")
+        ControlWorkspaceGroupStrings(allChildrenAreAnchors: "", workspaceIsOtherGroupAnchor: "", invalidReferenceWorkspace: "invalid reference workspace")
     }
 
     func controlWorkspaceGroupList(
@@ -184,11 +185,7 @@ extension ControlWorkspaceGroupContext {
     func controlSetWorkspaceGroupCollapsed(routing: ControlRoutingSelectors, groupID: UUID, isCollapsed: Bool) -> Bool? { nil }
     func controlSetWorkspaceGroupPinned(routing: ControlRoutingSelectors, groupID: UUID, isPinned: Bool) -> Bool? { nil }
 
-    func controlAddWorkspaceToGroup(
-        routing: ControlRoutingSelectors,
-        groupID: UUID,
-        workspaceID: UUID
-    ) -> ControlWorkspaceGroupAddResolution { .tabManagerUnavailable }
+    func controlAddWorkspaceToGroup(routing: ControlRoutingSelectors, groupID: UUID, workspaceID: UUID, placement: WorkspaceGroupNewPlacement?, referenceWorkspaceID: UUID?) -> ControlWorkspaceGroupAddResolution { .tabManagerUnavailable }
 
     func controlRemoveWorkspaceFromGroup(routing: ControlRoutingSelectors, workspaceID: UUID) -> Bool? { nil }
     func controlSetWorkspaceGroupAnchor(routing: ControlRoutingSelectors, groupID: UUID, workspaceID: UUID) -> Bool? { nil }

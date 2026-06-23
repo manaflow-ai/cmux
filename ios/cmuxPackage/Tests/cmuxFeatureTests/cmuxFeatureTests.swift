@@ -2475,51 +2475,6 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func staleRenderGridReplaySchedulesFreshHistoryReplay() async throws {
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60)
-    )
-    let router = StaleReplayRetryRouter()
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: RequestAwareTransportFactory(router: router),
-        supportsServerPushEvents: true
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-    let collector = TerminalOutputCollector()
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    collector.mount(store: store, surfaceID: "live-terminal")
-
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where collector.lines.count < 1 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-
-    store.debugRequestTerminalReplayForTesting(surfaceID: "live-terminal")
-    _ = try await waitForRequestCount("mobile.terminal.replay", count: 3, router: router)
-    for _ in 0..<200 where collector.lines.count < 2 {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-
-    let initial = try terminalRenderGridReplacementText(seq: 20, text: "current")
-    let fresh = try terminalRenderGridReplacementText(seq: 22, text: "fresh")
-    #expect(collector.lines == [initial, fresh])
-    collector.unmount()
-}
-
-@MainActor
 @Test func terminalRenderGridEventsDriveMountedSink() async throws {
     let route = try CmxAttachRoute(
         id: "debug_loopback",
@@ -2550,9 +2505,7 @@ final class TerminalOutputCollector {
     #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"])
 
     collector.mount(store: store, surfaceID: "live-terminal")
-    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    #expect(replayRequests.first?.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope)
-    #expect(replayRequests.first?.maxScrollbackRows == MobileTerminalScrollbackBudget.fullReplayRows)
+    _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
     let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
     for _ in 0..<200 where !collector.lines.contains(liveText) {
         try await Task.sleep(nanoseconds: 1_000_000)
@@ -2562,57 +2515,6 @@ final class TerminalOutputCollector {
     #expect(collector.lines.last == liveText)
     #expect(liveText.contains("\u{1B}[0;1;4;38;2;255;0;0;48;2;0;0;255mlive"))
     #expect(liveText.contains("\u{1B}[6 q\u{1B}[?25h\u{1B}[2;3H"))
-    collector.unmount()
-}
-
-@MainActor
-@Test func mountedTerminalReplayRetriesAfterWorkspaceMappingArrives() async throws {
-    let route = try CmxAttachRoute(
-        id: "debug_loopback",
-        kind: .debugLoopback,
-        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
-    )
-    let ticket = try CmxAttachTicket(
-        workspaceID: "live-workspace",
-        terminalID: "live-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [route],
-        expiresAt: Date().addingTimeInterval(60)
-    )
-    let router = ReplayAfterWorkspaceMappingRouter()
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: RequestAwareTransportFactory(router: router),
-        supportsServerPushEvents: true
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-    let collector = TerminalOutputCollector()
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-    collector.mount(store: store, surfaceID: "late-terminal")
-
-    for _ in 0..<50 {
-        let replayRequests = await router.sentRequests().filter { $0.method == "mobile.terminal.replay" }
-        #expect(replayRequests.isEmpty)
-        if !replayRequests.isEmpty {
-            break
-        }
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-
-    await store.refreshWorkspaces()
-    let replayRequests = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    let replay = try #require(replayRequests.first)
-    #expect(replay.workspaceID == "live-workspace")
-    #expect(replay.terminalID == "late-terminal")
-    #expect(replay.scrollbackScope == MobileTerminalScrollbackReplayRequest.fullScope)
-    #expect(replay.maxScrollbackRows == MobileTerminalScrollbackBudget.fullReplayRows)
-    for _ in 0..<200 where collector.lines.isEmpty {
-        try await Task.sleep(nanoseconds: 1_000_000)
-    }
-    #expect(collector.lines.first?.contains("late") == true)
     collector.unmount()
 }
 
@@ -3506,99 +3408,6 @@ private actor TerminalRenderGridEventRouter: RequestAwareTransportRouter {
     }
 }
 
-private actor StaleReplayRetryRouter: RequestAwareTransportRouter {
-    private var requests: [RecordedRPCRequest] = []
-    private var replayCount = 0
-
-    func record(_ request: RecordedRPCRequest) {
-        requests.append(request)
-    }
-
-    func sentRequests() -> [RecordedRPCRequest] {
-        requests
-    }
-
-    func response(for request: RecordedRPCRequest) async throws -> Data? {
-        switch request.method {
-        case "workspace.list":
-            return try rpcWorkspaceListFrame(
-                workspaceID: "live-workspace",
-                title: "Live Workspace",
-                terminalID: "live-terminal"
-            )
-        case "mobile.host.status":
-            return try rpcHostStatusFrame(renderGrid: true)
-        case "mobile.events.subscribe":
-            return try rpcResultFrame(result: ["stream_id": "events"])
-        case "mobile.terminal.replay":
-            replayCount += 1
-            switch replayCount {
-            case 1:
-                return try rpcTerminalReplayFrame(
-                    seq: 20,
-                    rawText: "unused-tail",
-                    renderGridText: "current"
-                )
-            case 2:
-                return try rpcTerminalReplayFrame(
-                    seq: 10,
-                    rawText: "stale-tail",
-                    renderGridText: "stale"
-                )
-            default:
-                return try rpcTerminalReplayFrame(
-                    seq: 22,
-                    rawText: "fresh-tail",
-                    renderGridText: "fresh"
-                )
-            }
-        default:
-            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
-        }
-    }
-}
-
-private actor ReplayAfterWorkspaceMappingRouter: RequestAwareTransportRouter {
-    private var requests: [RecordedRPCRequest] = []
-
-    func record(_ request: RecordedRPCRequest) {
-        requests.append(request)
-    }
-
-    func sentRequests() -> [RecordedRPCRequest] {
-        requests
-    }
-
-    func response(for request: RecordedRPCRequest) async throws -> Data? {
-        switch request.method {
-        case "workspace.list":
-            return try rpcWorkspaceListFrame(
-                workspaceID: "live-workspace",
-                title: "Live Workspace",
-                terminalID: "live-terminal"
-            )
-        case "mobile.workspace.list":
-            return try rpcWorkspaceListFrame(
-                workspaceID: "live-workspace",
-                title: "Live Workspace",
-                terminalID: "late-terminal"
-            )
-        case "mobile.host.status":
-            return try rpcHostStatusFrame(renderGrid: true)
-        case "mobile.events.subscribe":
-            return try rpcResultFrame(result: ["stream_id": "events"])
-        case "mobile.terminal.replay":
-            return try rpcTerminalReplayFrame(
-                seq: 3,
-                rawText: "unused-tail",
-                renderGridText: "late"
-            )
-        default:
-            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
-        }
-    }
-}
-
 /// Router for the pull-to-refresh tests: the connect-time `workspace.list`
 /// returns `before-workspace`; the pull-driven `mobile.workspace.list` returns a
 /// different `after-workspace`, so the test can prove the pull re-fetched and
@@ -3763,7 +3572,6 @@ private actor ScriptedTransportResponses {
                 viewportColumns: params["viewport_columns"] as? Int,
                 viewportRows: params["viewport_rows"] as? Int,
                 maxScrollbackRows: params["max_scrollback_rows"] as? Int,
-                scrollbackScope: params[MobileTerminalScrollbackReplayRequest.scopeParameter] as? String,
                 clientID: params["client_id"] as? String,
                 text: params["text"] as? String,
                 topics: params["topics"] as? [String],
@@ -3783,7 +3591,6 @@ private struct RecordedRPCRequest: Sendable {
     var viewportColumns: Int?
     var viewportRows: Int?
     var maxScrollbackRows: Int?
-    var scrollbackScope: String?
     var clientID: String?
     var text: String?
     var topics: [String]?
@@ -3804,7 +3611,6 @@ private func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest
         viewportColumns: params["viewport_columns"] as? Int,
         viewportRows: params["viewport_rows"] as? Int,
         maxScrollbackRows: params["max_scrollback_rows"] as? Int,
-        scrollbackScope: params[MobileTerminalScrollbackReplayRequest.scopeParameter] as? String,
         clientID: params["client_id"] as? String,
         text: params["text"] as? String,
         topics: params["topics"] as? [String],
@@ -4122,9 +3928,9 @@ private func rpcErrorFrame(code: String? = nil, message: String) throws -> Data 
     return try MobileSyncFrameCodec.encodeFrame(envelopeData)
 }
 
-// MARK: - External terminal-target navigation
+// MARK: - Push notification deep-link
 
-/// Inert registration stub: terminal-target tests exercise routing only.
+/// Inert registration stub: deep-link tests exercise tap routing only.
 private struct InertPushRegistration: PushRegistering {
     var isEnabled: Bool {
         get async { false }
@@ -4136,7 +3942,7 @@ private struct InertPushRegistration: PushRegistering {
     func unregisterFromServer(accessToken: String?, refreshToken: String?) async {}
 }
 
-@MainActor private func terminalTargetTestStore() -> CMUXMobileShellStore {
+@MainActor private func deeplinkTestStore() -> CMUXMobileShellStore {
     CMUXMobileShellStore(
         runtime: testRuntime(
             transportFactory: RecordingNeverConnectTransportFactory(dials: TransportDialRecorder())
@@ -4145,45 +3951,20 @@ private struct InertPushRegistration: PushRegistering {
     )
 }
 
-@MainActor private final class MutableTerminalTargetTestClock {
-    var now: Date
-
-    init(now: Date) {
-        self.now = now
-    }
-}
-
 /// Cold launch from a notification tap: `didReceive` fires before the root
 /// view has mounted, so no store is bound yet. The tap must survive until the
 /// store binds and its workspace list loads, then navigate. Pre-fix the tap
 /// was dropped (`reason: no_store`) and the user landed on the workspaces
 /// home screen.
 @Test @MainActor func notificationTapBeforeStoreBindsNavigatesOnceWorkspacesLoad() async throws {
-    let coordinator = MobileTerminalTargetCoordinator()
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
 
     // Tap arrives first: nothing is bound.
-    coordinator.openTarget(workspaceId: "workspace-docs", surfaceId: "terminal-notes", source: .notification)
-
-    // Root view mounts: store binds already carrying the attached list.
-    let store = terminalTargetTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
-    coordinator.bind(store: store)
-
-    #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
-    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
-}
-
-@Test @MainActor func pushCoordinatorDelegatesNotificationTapsToTerminalTargets() async throws {
-    let terminalTargets = MobileTerminalTargetCoordinator()
-    let coordinator = MobilePushCoordinator(
-        registration: InertPushRegistration(),
-        terminalTargets: terminalTargets
-    )
-
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
 
-    let store = terminalTargetTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    // Root view mounts: store binds already carrying the attached list.
+    let store = deeplinkTestStore()
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4191,18 +3972,18 @@ private struct InertPushRegistration: PushRegistering {
 }
 
 /// Tap lands while the store is bound but the Mac attach has not delivered
-/// the workspace list yet: the terminal target applies when the list fills in,
+/// the workspace list yet: the deep link applies when the list fills in,
 /// driven by the root view's workspace-list change hook.
 @Test @MainActor func notificationTapBeforeAttachAppliesWhenWorkspaceArrives() async throws {
-    let coordinator = MobileTerminalTargetCoordinator()
-    let store = terminalTargetTestStore()
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
     coordinator.bind(store: store)
 
-    coordinator.openTarget(workspaceId: "workspace-docs", surfaceId: "terminal-notes", source: .notification)
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
     // Target not loaded yet: no navigation to an absent workspace.
     #expect(store.selectedWorkspaceID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4212,13 +3993,16 @@ private struct InertPushRegistration: PushRegistering {
 /// A parked tap expires: navigating minutes later would yank the user out of
 /// whatever they moved on to.
 @Test @MainActor func notificationTapExpiresInsteadOfNavigatingLate() async throws {
-    let clock = MutableTerminalTargetTestClock(now: Date(timeIntervalSince1970: 1_000_000))
-    let coordinator = MobileTerminalTargetCoordinator(now: { clock.now })
-    coordinator.openTarget(workspaceId: "workspace-docs", surfaceId: "terminal-notes", source: .notification)
+    nonisolated(unsafe) var currentTime = Date(timeIntervalSince1970: 1_000_000)
+    let coordinator = MobilePushCoordinator(
+        registration: InertPushRegistration(),
+        now: { currentTime }
+    )
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
 
-    clock.now = clock.now.addingTimeInterval(121)
-    let store = terminalTargetTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    currentTime = currentTime.addingTimeInterval(121)
+    let store = deeplinkTestStore()
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == nil)
@@ -4231,15 +4015,15 @@ private struct InertPushRegistration: PushRegistering {
 /// was selected against an empty store and the tap was discarded with no
 /// retry, stranding the user on the home screen.
 @Test @MainActor func surfaceOnlyNotificationTapWaitsForOwningWorkspace() async throws {
-    let coordinator = MobileTerminalTargetCoordinator()
-    let store = terminalTargetTestStore()
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
     coordinator.bind(store: store)
 
-    coordinator.openTarget(workspaceId: nil, surfaceId: "terminal-notes", source: .notification)
+    coordinator.handleTap(workspaceId: nil, surfaceId: "terminal-notes")
     // Nothing loaded yet: the tap must stay parked, not be spent.
     #expect(store.selectedTerminalID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4251,21 +4035,21 @@ private struct InertPushRegistration: PushRegistering {
 /// terminal part parked, selecting it when its snapshot arrives instead of
 /// pointing the store at a non-existent surface.
 @Test @MainActor func notificationTapKeepsTerminalParkedUntilItsSnapshotArrives() async throws {
-    let coordinator = MobileTerminalTargetCoordinator()
-    let store = terminalTargetTestStore()
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
     coordinator.bind(store: store)
 
-    coordinator.openTarget(workspaceId: "workspace-docs", surfaceId: "terminal-notes", source: .notification)
-    store.workspaces = [
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
+    store.setWorkspacesForTesting([
         MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
-    ]
+    ])
     coordinator.workspacesDidChange()
 
     // Workspace navigation happens now; the absent terminal is not selected.
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
@@ -4276,108 +4060,17 @@ private struct InertPushRegistration: PushRegistering {
 /// leaves an empty path untouched by design, which is what stranded
 /// cold-launch taps on the workspaces home screen.
 @Test @MainActor func notificationTapEmitsConsumableCompactNavigationIntent() async throws {
-    let coordinator = MobileTerminalTargetCoordinator()
-    let store = terminalTargetTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
+    let store = deeplinkTestStore()
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
-    coordinator.openTarget(workspaceId: "workspace-docs", surfaceId: nil, source: .notification)
+    coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: nil)
 
     let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
-    #expect(store.terminalTargetWorkspaceNavigationRequest?.workspaceID == target)
-    #expect(store.consumeTerminalTargetWorkspaceNavigationRequest() == target)
+    #expect(store.deeplinkWorkspaceNavigationRequest?.workspaceID == target)
+    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == target)
     // One-shot: a later layout remount cannot replay a stale push.
-    #expect(store.terminalTargetWorkspaceNavigationRequest == nil)
-    #expect(store.consumeTerminalTargetWorkspaceNavigationRequest() == nil)
-}
-
-/// Attach URLs carry the same kind of terminal target as push notifications.
-/// After pairing succeeds the root view feeds the store-owned active ticket
-/// target into the shared coordinator. That must emit the compact-stack
-/// navigation intent, not merely set `selectedWorkspaceID`, or the iPhone stays
-/// on the workspace list and never mounts the terminal surface/replay stream.
-@Test @MainActor func attachURLTargetEmitsConsumableCompactNavigationIntent() async throws {
-    let coordinator = MobileTerminalTargetCoordinator()
-    let store = terminalTargetTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
-    coordinator.bind(store: store)
-
-    coordinator.openTarget(
-        workspaceId: "workspace-docs",
-        surfaceId: "terminal-notes",
-        source: .attachURL
-    )
-
-    let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
-    #expect(store.selectedWorkspaceID == target)
-    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
-    #expect(store.terminalTargetWorkspaceNavigationRequest?.workspaceID == target)
-    #expect(store.consumeTerminalTargetWorkspaceNavigationRequest() == target)
-    #expect(store.terminalTargetWorkspaceNavigationRequest == nil)
-}
-
-/// The attach URL target can be known before the workspace list arrives. The
-/// coordinator owns that lifecycle and parks the target until the Mac topology
-/// arrives, then emits the same navigation request a resolved notification tap
-/// would emit.
-@Test @MainActor func attachURLTargetWaitsForWorkspaceListBeforeNavigating() async throws {
-    let coordinator = MobileTerminalTargetCoordinator()
-    let store = terminalTargetTestStore()
-    coordinator.bind(store: store)
-
-    coordinator.openTarget(
-        workspaceId: "workspace-docs",
-        surfaceId: "terminal-notes",
-        source: .attachURL
-    )
-    #expect(store.selectedWorkspaceID == nil)
-    #expect(store.terminalTargetWorkspaceNavigationRequest == nil)
-
-    store.workspaces = PreviewMobileHost.workspaces
-    coordinator.workspacesDidChange()
-
-    let target = MobileWorkspacePreview.ID(rawValue: "workspace-docs")
-    #expect(store.selectedWorkspaceID == target)
-    #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
-    #expect(store.terminalTargetWorkspaceNavigationRequest?.workspaceID == target)
-}
-
-/// Pairing remains the owner of attach URL decoding. The UI coordinator consumes
-/// the normalized active ticket target after connect, so route parsing does not
-/// get duplicated in the SwiftUI layer.
-@Test @MainActor func connectedAttachTicketExposesTerminalTargetForCoordinator() async throws {
-    let ticket = try CmxAttachTicket(
-        workspaceID: "ticket-workspace",
-        terminalID: "ticket-terminal",
-        macDeviceID: "test-mac",
-        macDisplayName: "Test Mac",
-        routes: [
-            try hostPortRoute(
-                kind: .debugLoopback,
-                host: "127.0.0.1",
-                port: CmxMobileDefaults.defaultHostPort
-            ),
-        ],
-        expiresAt: Date().addingTimeInterval(60),
-        authToken: "ticket-secret"
-    )
-    let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(
-            workspaceID: "ticket-workspace",
-            title: "Ticket Workspace",
-            terminalID: "ticket-terminal"
-        ),
-    ])
-    let runtime = testRuntime(
-        supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses)
-    )
-    let store = CMUXMobileShellStore.preview(runtime: runtime)
-
-    store.signIn()
-    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
-
-    let target = try #require(store.activeAttachTerminalTarget)
-    #expect(target.workspaceId == "ticket-workspace")
-    #expect(target.surfaceId == "ticket-terminal")
+    #expect(store.deeplinkWorkspaceNavigationRequest == nil)
+    #expect(store.consumeDeeplinkWorkspaceNavigationRequest() == nil)
 }

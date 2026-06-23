@@ -58,6 +58,15 @@ describe("applyHeartbeat", () => {
     expect(events).toEqual([{ type: "online", instance }]);
   });
 
+  it("carries the host bundleId so clients can label the build channel", () => {
+    const { instance } = applyHeartbeat(
+      undefined, beat({ bundleId: "com.cmuxterm.app.nightly" }), T0);
+    expect(instance.bundleId).toBe("com.cmuxterm.app.nightly");
+    // A later beat that omits it keeps the last known value (like displayName).
+    const next = applyHeartbeat(instance, beat(), T0 + HEARTBEAT_INTERVAL_MS).instance;
+    expect(next.bundleId).toBe("com.cmuxterm.app.nightly");
+  });
+
   it("repeat heartbeat on an online instance keeps onlineSince and emits only seen", () => {
     const first = applyHeartbeat(undefined, beat(), T0).instance;
     const { instance, events } = applyHeartbeat(first, beat(), T0 + HEARTBEAT_INTERVAL_MS);
