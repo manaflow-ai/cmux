@@ -67,7 +67,7 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published private(set) var directory: String = ""
 
     @Published private(set) var tmuxLayoutReport: TmuxPaneLayoutReport?
-    private(set) var shellActivityState: PanelShellActivityState = .unknown
+    let shellActivity = TerminalPanelShellActivityModel()
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
@@ -128,8 +128,8 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     func updateShellActivityState(_ state: PanelShellActivityState) {
-        guard shellActivityState != state else { return }
-        shellActivityState = state
+        guard shellActivity.state != state else { return }
+        shellActivity.state = state
     }
 
     var isDirty: Bool {

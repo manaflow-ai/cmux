@@ -35,7 +35,6 @@ struct CanvasHostedPanelContentView: View {
             customSidebarTabManager: customSidebarTabManager,
             hasUnreadNotification: false,
             terminalAgentContext: "",
-            shellActivityState: .unknown,
             onFocus: onRequestPanelFocus,
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: {},
