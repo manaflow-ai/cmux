@@ -8,22 +8,30 @@
 #
 # The attach URL is a bearer credential: callers must never print it.
 
-# slug: lowercase, non-alnum -> '-', trimmed/collapsed. Matches reload.sh +
-# cmux-debug-cli.sh socket/DerivedData naming.
+# Raw slug WITHOUT the empty-input fallback: lowercase, ASCII non-[a-z0-9] -> '-',
+# trimmed/collapsed. Empty when the tag has no ASCII alphanumerics. The ASCII
+# class is deliberate (matches reload.sh + cmux-debug-cli.sh socket/DerivedData
+# naming); a locale-sensitive class would keep non-ASCII letters the slug drops.
+cmux_attach__slug_raw() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
+}
+
+# slug: raw slug, falling back to "agent" only for an otherwise-empty result.
 cmux_attach__slug() {
   local cleaned
-  cleaned="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
+  cleaned="$(cmux_attach__slug_raw "$1")"
   [[ -n "$cleaned" ]] || cleaned="agent"
   printf '%s' "$cleaned"
 }
 
-# True iff the tag has at least one alphanumeric character, i.e. its slug is real
-# and not the empty-input fallback. Tag identity is correctness-critical (it
-# selects the bundle id / socket / Mac app), so entry points must reject tags
-# that would otherwise silently collapse onto the shared fallback identity and
-# target an unrelated app/socket. Callers should fail closed on a false result.
+# True iff the tag yields a real (non-empty) slug, i.e. it is not the empty-input
+# fallback. Uses the SAME ASCII transform as the slug (not locale-sensitive
+# [:alnum:], which would accept non-ASCII letters like "é" that the slug drops).
+# Tag identity is correctness-critical (it selects the bundle id / socket / Mac
+# app), so entry points must fail closed when this is false rather than let the
+# tag collapse onto the shared fallback identity and target an unrelated app.
 cmux_attach_tag_has_alnum() {
-  [[ -n "$(printf '%s' "$1" | tr -cd '[:alnum:]')" ]]
+  [[ -n "$(cmux_attach__slug_raw "$1")" ]]
 }
 
 # bundle id segment: lowercase, non-alnum -> '.', trimmed/collapsed.
