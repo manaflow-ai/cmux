@@ -1377,11 +1377,32 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            // A terminal whose startup command cds itself (agent resume, tmux
+            // attach, agent-hook) is spawned without a working directory, so its
+            // shell starts in the default directory and shell integration reports
+            // that directory (typically home) before the startup command cds into
+            // the saved one. Remember the saved directory so the spurious initial
+            // report is ignored instead of overwriting the restored workspace cwd
+            // (#6617). `shouldIgnoreRestoredGuardedDirectoryReport` decides how long
+            // to guard: once while the saved directory still exists, persistently
+            // while it is on an unmounted volume, and not at all once it has been
+            // deleted (the shell's reported cwd is then the real fallback).
+            //
+            // Only guard LOCAL terminals. That guard's existence check stats the
+            // local Mac, so a remote terminal's remote saved path (e.g.
+            // /home/dev/repo) would be misclassified as deleted and its remote
+            // home report wrongly honored. Remote restores keep the prior
+            // behavior (no guard), which matches the original unmounted-volume
+            // guard that was inherently local (/Volumes paths only).
+            let restoredDirectoryIsLocalPath =
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                snapshot.terminal?.isRemoteTerminal != true
             if startupHandlesWorkingDirectory,
                localWorkingDirectory == nil,
+               restoredDirectoryIsLocalPath,
                let guardedWorkingDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !guardedWorkingDirectory.isEmpty,
-               Self.unmountedVolumeRoot(for: guardedWorkingDirectory) != nil {
+               !guardedWorkingDirectory.isEmpty {
                 restoredGuardedWorkingDirectoriesByPanelId[terminalPanel.id] = guardedWorkingDirectory
             } else {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
@@ -4500,23 +4521,47 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if reportedDirectory == restoredDirectory {
+            // The resumed shell confirmed the restored directory; stop guarding so
+            // later navigation away from it is honored.
             restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             return false
         }
 
-        let missingVolumeRoot = Self.unmountedVolumeRoot(for: restoredDirectory)
-        guard missingVolumeRoot != nil else {
-            restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            return false
+        if Self.unmountedVolumeRoot(for: restoredDirectory) != nil {
+            // The restored directory is on an unmounted volume: the resumed shell
+            // fell back to its default directory. Keep ignoring spurious reports
+            // until the volume remounts and the shell reports the restored
+            // directory (#5278). The guard stays registered (persistent).
+#if DEBUG
+            cmuxDebugLog(
+                "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
+                "saved=\(restoredDirectory) reported=\(reportedDirectory)"
+            )
+#endif
+            return true
         }
 
+        // The restored directory is on a mounted volume and differs from the first
+        // report. The resumed shell spawns before its startup command cds, so the
+        // initial report (typically home) is spurious — but ONLY when the restored
+        // directory still exists for that command to cd into. If it was deleted
+        // between sessions the cd fails and the shell's reported directory is the
+        // real fallback location, so honor it instead of stranding
+        // panelDirectories/currentDirectory on the deleted path (which would make
+        // Cmd+T inherit an invalid cwd). Either way this is a one-shot guard. (#6617)
+        restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        var restoredDirectoryIsDirectory: ObjCBool = false
+        let restoredDirectoryStillExists = FileManager.default.fileExists(
+            atPath: restoredDirectory,
+            isDirectory: &restoredDirectoryIsDirectory
+        ) && restoredDirectoryIsDirectory.boolValue
 #if DEBUG
         cmuxDebugLog(
-            "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
-            "missingVolume=\(missingVolumeRoot ?? "") saved=\(restoredDirectory) reported=\(reportedDirectory)"
+            "session.restore.cwdReport.\(restoredDirectoryStillExists ? "ignoredOnce" : "accepted") " +
+            "panel=\(panelId.uuidString.prefix(5)) saved=\(restoredDirectory) reported=\(reportedDirectory)"
         )
 #endif
-        return true
+        return restoredDirectoryStillExists
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
