@@ -1513,4 +1513,82 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
             options: .atomic
         )
     }
+
+    // MARK: - ClaudeBackgroundAgentsQuery (#6622)
+
+    // The query's cache/TTL behaviour is decoupled from the `claude agents --json` subprocess
+    // via injected `probe` and `now` seams, so it is unit-testable without spawning a process.
+    func testClaudeBackgroundAgentsQueryCachesWithinTTLAndRefreshesAfter() {
+        let clock = TestClock(Date(timeIntervalSince1970: 1000))
+        let calls = CallCounter()
+        let query = ClaudeBackgroundAgentsQuery(
+            cacheTTL: 20,
+            now: { clock.current },
+            probe: { _ in
+                calls.increment()
+                return [ClaudeBackgroundAgentSnapshot(sessionId: "real", cwd: "/repo", kind: "background")]
+            }
+        )
+
+        XCTAssertEqual(query.live(configDir: "/cfg").first?.sessionId, "real")
+        _ = query.live(configDir: "/cfg")
+        XCTAssertEqual(calls.value, 1, "a second call within the TTL must reuse the cache, not re-probe")
+
+        clock.current = clock.current.addingTimeInterval(25)
+        _ = query.live(configDir: "/cfg")
+        XCTAssertEqual(calls.value, 2, "a call past the TTL must re-probe")
+    }
+
+    func testClaudeBackgroundAgentsQueryCachesPerConfigDir() {
+        let calls = CallCounter()
+        let query = ClaudeBackgroundAgentsQuery(
+            cacheTTL: 20,
+            now: { Date(timeIntervalSince1970: 1000) },
+            probe: { _ in calls.increment(); return [] }
+        )
+        _ = query.live(configDir: "/a")
+        _ = query.live(configDir: "/b")
+        _ = query.live(configDir: "/a")
+        XCTAssertEqual(calls.value, 2, "each distinct config dir probes once; the repeat is cached")
+    }
+
+    func testClaudeBackgroundAgentsQueryCachedOnlyRespectsTTLAndNeverProbes() {
+        let clock = TestClock(Date(timeIntervalSince1970: 1000))
+        let calls = CallCounter()
+        let query = ClaudeBackgroundAgentsQuery(
+            cacheTTL: 20,
+            now: { clock.current },
+            probe: { _ in
+                calls.increment()
+                return [ClaudeBackgroundAgentSnapshot(sessionId: "real", cwd: "/repo", kind: "background")]
+            }
+        )
+
+        XCTAssertTrue(query.cachedOnly(configDir: "/cfg").isEmpty, "cachedOnly must not probe a cold cache")
+        XCTAssertEqual(calls.value, 0)
+
+        _ = query.live(configDir: "/cfg")
+        XCTAssertEqual(query.cachedOnly(configDir: "/cfg").first?.sessionId, "real", "a warm cache is reused")
+
+        clock.current = clock.current.addingTimeInterval(25)
+        XCTAssertTrue(query.cachedOnly(configDir: "/cfg").isEmpty, "a stale entry degrades to no reconciliation")
+        XCTAssertEqual(calls.value, 1, "cachedOnly never spawns the probe")
+    }
+
+    private final class TestClock: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Date
+        init(_ value: Date) { self.value = value }
+        var current: Date {
+            get { lock.lock(); defer { lock.unlock() }; return value }
+            set { lock.lock(); value = newValue; lock.unlock() }
+        }
+    }
+
+    private final class CallCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func increment() { lock.lock(); count += 1; lock.unlock() }
+        var value: Int { lock.lock(); defer { lock.unlock() }; return count }
+    }
 }
