@@ -19,6 +19,7 @@ struct WorkspaceDetailView: View {
     let workspace: MobileWorkspacePreview
     @Bindable var store: CMUXMobileShellStore
     let createWorkspace: () -> Void
+    let canCreateWorkspace: Bool
     let createTerminal: () -> Void
     /// Close this workspace on the Mac. When `nil` (older Macs without the
     /// `workspace.close.v1` capability, or previews) the close affordance is
@@ -504,6 +505,7 @@ struct WorkspaceDetailView: View {
                 .labelStyle(.iconOnly)
         }
         .foregroundStyle(TerminalPalette.foreground)
+        .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
 
@@ -554,6 +556,7 @@ struct WorkspaceDetailView: View {
             Button(action: createWorkspaceFromToolbar) {
                 Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
             }
+            .disabled(!canCreateWorkspace)
             .accessibilityIdentifier("MobileNewWorkspaceMenuItem")
 
             Button(action: createTerminalFromToolbar) {
@@ -807,6 +810,7 @@ struct WorkspaceDetailView: View {
     #endif
 
     private func createWorkspaceFromToolbar() {
+        guard canCreateWorkspace else { return }
         dismissTerminalKeyboardForChrome()
         createWorkspace()
     }

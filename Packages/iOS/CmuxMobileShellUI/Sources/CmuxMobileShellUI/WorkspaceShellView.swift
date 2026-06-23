@@ -182,7 +182,7 @@ struct WorkspaceShellView: View {
                 profilePictureLeftShift: displaySettings.profilePictureLeftShift,
                 profilePictureSize: displaySettings.profilePictureSize,
                 selectWorkspace: selectWorkspace,
-                createWorkspace: store.createWorkspace,
+                createWorkspace: createWorkspaceIfConnected,
                 refresh: refreshWorkspacesClosure,
                 rescanQR: { store.disconnectAndForgetActiveMac() },
                 signOut: signOut,
@@ -202,7 +202,7 @@ struct WorkspaceShellView: View {
         } detail: {
             workspaceDestination(
                 for: store.selectedWorkspaceID,
-                createWorkspace: store.createWorkspace,
+                createWorkspace: createWorkspaceIfConnected,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
             )
         }
@@ -276,6 +276,10 @@ struct WorkspaceShellView: View {
         return { Task { await store.reconnectOrRefresh() } }
     }
 
+    private var canCreateWorkspace: Bool {
+        listConnectionStatus == .connected
+    }
+
     /// Group collapse/expand closure. Present when the Mac advertises
     /// `workspace.groups.v1` or has actually emitted group sections: a Mac that
     /// emits groups in the workspace list also handles collapse/expand (both
@@ -290,6 +294,7 @@ struct WorkspaceShellView: View {
     }
 
     private func createWorkspaceInCompactStack() {
+        guard canCreateWorkspace else { return }
         let existingWorkspaceIDs = Set(store.workspaces.map(\.id))
         pendingCompactCreateNavigationWorkspaceIDs = existingWorkspaceIDs
         store.createWorkspace()
@@ -301,6 +306,11 @@ struct WorkspaceShellView: View {
             pendingCompactCreateNavigationWorkspaceIDs = nil
             compactNavigationPath = createdPath
         }
+    }
+
+    private func createWorkspaceIfConnected() {
+        guard canCreateWorkspace else { return }
+        store.createWorkspace()
     }
 
     private func autoOpenSelectedWorkspaceForSoakIfNeeded() {
@@ -339,6 +349,7 @@ struct WorkspaceShellView: View {
             store: store,
             workspaceID: workspaceID,
             createWorkspace: createWorkspace,
+            canCreateWorkspace: canCreateWorkspace,
             safeAreaContext: safeAreaContext,
             signOut: signOut
         )

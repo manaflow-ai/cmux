@@ -13,6 +13,7 @@ struct WorkspaceDetailContainer: View {
     @Bindable var store: CMUXMobileShellStore
     let workspaceID: MobileWorkspacePreview.ID?
     let createWorkspace: () -> Void
+    let canCreateWorkspace: Bool
     let safeAreaContext: MobileTerminalSafeAreaContext
     let signOut: (() -> Void)?
 
@@ -42,6 +43,7 @@ struct WorkspaceDetailContainer: View {
                 workspace: workspace,
                 store: store,
                 createWorkspace: createWorkspace,
+                canCreateWorkspace: canCreateWorkspace,
                 createTerminal: { store.createTerminal(in: workspace.id) },
                 closeWorkspace: closeWorkspaceClosure,
                 reportTerminalViewport: store.reportTerminalViewport,
