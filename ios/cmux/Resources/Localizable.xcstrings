@@ -681,6 +681,23 @@
         }
       }
     },
+    "mobile.common.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
     "mobile.browser.addressPlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -3469,6 +3486,23 @@
         }
       }
     },
+    "mobile.recovery.lostDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry to restore live terminal updates."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブターミナルの更新を復元するには再試行してください。"
+          }
+        }
+      }
+    },
     "mobile.recovery.reconnecting": {
       "extractionState": "manual",
       "localizations": {
@@ -4468,6 +4502,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "セッションを復元しています"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoringMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking your saved session. Sign-in options are paused until this finishes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存済みセッションを確認しています。完了するまでサインイン操作は一時停止されます。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoreTimeoutMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not finish checking your saved session. Check your connection, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は保存済みセッションの確認を完了できませんでした。接続を確認してから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.signIn.restoreTimeoutTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still restoring session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだセッションを復元しています"
           }
         }
       }
@@ -6219,6 +6304,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d分"
+          }
+        }
+      }
+    },
+    "mobile.loading.timeout.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not finish restoring this session. Check that the Mac app is running, then retry or add this Mac again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのセッションの復元を完了できませんでした。Mac アプリが起動していることを確認してから、再試行するか、この Mac をもう一度追加してください。"
+          }
+        }
+      }
+    },
+    "mobile.loading.timeout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ読み込み中"
           }
         }
       }
