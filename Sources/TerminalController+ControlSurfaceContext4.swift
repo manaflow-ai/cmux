@@ -334,9 +334,8 @@ extension TerminalController {
             )
             if shouldPublish {
                 DispatchQueue.main.async {
-                    guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID) else { return }
-                    tabManager.updateSurfaceShellActivity(
-                        tabId: workspaceID,
+                    AppDelegate.shared?.recordReportedShellActivity(
+                        workspaceId: workspaceID,
                         surfaceId: requestedSurfaceID,
                         state: state
                     )

@@ -673,6 +673,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
 
+    // MARK: - Pending shell-activity reports (issue #6618)
+
+    /// Shell-activity reports (`report_shell_state`) that arrived over the control
+    /// socket before their workspace was reachable through any window's
+    /// `TabManager` — the common case during session restore, where the
+    /// `Workspace` and its panels already exist but have not yet been inserted into
+    /// a manager. The shell reports each transition exactly once and dedupes
+    /// locally (`_CMUX_SHELL_ACTIVITY_LAST`), so a dropped report would otherwise
+    /// leave `shellState` stuck at `.unknown` until the next transition (never, for
+    /// an idle terminal). We keep the latest reported state per surface and replay
+    /// it once the workspace registers.
+    ///
+    /// Grouped by workspace so a replay drains only that workspace's surfaces
+    /// (O(surfaces), not O(total buffer)) and any overflow eviction is confined to
+    /// a single workspace bucket.
+    private var pendingShellActivityStates: [UUID: [UUID: PanelShellActivityState]] = [:]
+    private let maxPendingShellActivityWorkspaces = 1024
+    private let maxPendingShellActivitySurfacesPerWorkspace = 256
+
+    /// Cheap early-out so the per-tabs-change replay skips the workspace scan in
+    /// the overwhelmingly common case where nothing is buffered.
+    var hasPendingShellActivityReports: Bool { !pendingShellActivityStates.isEmpty }
+
+    /// Shared apply-or-buffer entrypoint for every control-socket shell-activity
+    /// reporter. We only buffer when the workspace is *not yet reachable* through a
+    /// `TabManager` — the session-restore race this fixes. When the workspace is
+    /// reachable we apply directly and never buffer: a missing panel there is a
+    /// stale/bogus surface that no future registration will resolve, so buffering
+    /// it would only leak. The buffer therefore holds at most the reports a
+    /// workspace receives in the brief window before it registers, and
+    /// `drainPendingShellActivity` consumes that bucket whole on registration.
+    func recordReportedShellActivity(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        state: PanelShellActivityState
+    ) {
+        if let tabManager = tabManagerFor(tabId: workspaceId) {
+            tabManager.updateSurfaceShellActivity(tabId: workspaceId, surfaceId: surfaceId, state: state)
+            clearPendingShellActivity(workspaceId: workspaceId, surfaceId: surfaceId)
+            return
+        }
+        if pendingShellActivityStates[workspaceId] == nil,
+           pendingShellActivityStates.count >= maxPendingShellActivityWorkspaces,
+           let evictKey = pendingShellActivityStates.keys.first {
+            // Safety valve for the pathological case of thousands of distinct
+            // workspaces buffering reports without ever registering. Confined to
+            // one workspace bucket so a normal session restore never sheds others.
+            pendingShellActivityStates[evictKey] = nil
+        }
+        var bucket = pendingShellActivityStates[workspaceId] ?? [:]
+        if bucket[surfaceId] == nil,
+           bucket.count >= maxPendingShellActivitySurfacesPerWorkspace,
+           let evictSurface = bucket.keys.first {
+            // Defense-in-depth against a workspace that never registers while a
+            // shell streams reports for many distinct surface ids. Real workspaces
+            // hold far fewer panels than this cap.
+            bucket[evictSurface] = nil
+        }
+        bucket[surfaceId] = state
+        pendingShellActivityStates[workspaceId] = bucket
+    }
+
+    /// Replays buffered reports for a workspace that just became reachable, then
+    /// drops the whole bucket: by now every valid panel exists (panels are created
+    /// synchronously before the workspace joins `tabs`), so any report that did not
+    /// apply is stale and must not be retained.
+    func drainPendingShellActivity(
+        forWorkspaceId workspaceId: UUID,
+        apply: (UUID, PanelShellActivityState) -> Bool
+    ) {
+        guard let surfaces = pendingShellActivityStates[workspaceId] else { return }
+        for (surfaceId, state) in surfaces {
+            _ = apply(surfaceId, state)
+        }
+        pendingShellActivityStates[workspaceId] = nil
+    }
+
+    /// Drops every buffered report for a workspace (e.g. when it is gone for good,
+    /// or to keep test state clean).
+    func discardPendingShellActivity(forWorkspaceId workspaceId: UUID) {
+        pendingShellActivityStates[workspaceId] = nil
+    }
+
+    private func clearPendingShellActivity(workspaceId: UUID, surfaceId: UUID) {
+        guard pendingShellActivityStates[workspaceId] != nil else { return }
+        pendingShellActivityStates[workspaceId]?[surfaceId] = nil
+        if pendingShellActivityStates[workspaceId]?.isEmpty == true {
+            pendingShellActivityStates[workspaceId] = nil
+        }
+    }
+
     /// Notification jump/open navigation, extracted into `CmuxNotifications`.
     /// `AppDelegate` is the composition root: it conforms to every seam (see
     /// `AppDelegate+NotificationNavSeams.swift`) and injects itself. Built lazily
@@ -4704,6 +4795,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
+
+        // Registration makes this manager reachable through `tabManagerFor`, so it
+        // is also a replay trigger: reports that arrived after the restored `tabs`
+        // were assigned but before the window registered would otherwise sit
+        // buffered until an unrelated tabs change (issue #6618).
+        tabManager.flushPendingShellActivityForRegisteredWorkspaces()
     }
 
 #if DEBUG

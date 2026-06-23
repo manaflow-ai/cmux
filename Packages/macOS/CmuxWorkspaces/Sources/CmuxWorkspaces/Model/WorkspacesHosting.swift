@@ -25,6 +25,10 @@ public protocol WorkspacesHosting<Tab>: AnyObject {
 
     /// The `tabs` array is about to change (legacy `@Published tabs` willSet).
     func workspaceTabsWillChange(to newValue: [Tab])
+    /// The `tabs` array finished changing (`tabs` storage now holds the new
+    /// value). Use this for work that must observe the updated `tabs`, unlike the
+    /// `willChange` hook which still sees the old value.
+    func workspaceTabsDidChange(to newValue: [Tab])
     /// The `workspaceGroups` array is about to change (legacy `@Published
     /// workspaceGroups` willSet).
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup])
@@ -34,4 +38,12 @@ public protocol WorkspacesHosting<Tab>: AnyObject {
     /// The selected workspace id changed (legacy `@Published selectedTabId`
     /// didSet; the host runs the legacy selection side effects).
     func selectedWorkspaceIdDidChange(from oldValue: UUID?)
+}
+
+/// Default implementations for the optional post-change hooks, so conformers
+/// only override the ones they need.
+public extension WorkspacesHosting {
+    /// Default no-op so conformers that do not need post-change work (and the
+    /// legacy parity hooks) are unaffected.
+    func workspaceTabsDidChange(to newValue: [Tab]) {}
 }

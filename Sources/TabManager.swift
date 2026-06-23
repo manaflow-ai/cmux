@@ -248,6 +248,32 @@ class TabManager: ObservableObject {
         tabsPublisher.send(newValue)
     }
 
+    func workspaceTabsDidChange(to newValue: [Workspace]) {
+        replayPendingShellActivity(for: newValue)
+    }
+
+    /// Replays buffered shell-activity reports for this manager's current
+    /// workspaces. Called when the manager becomes reachable through
+    /// `AppDelegate` routing (`registerMainWindow`), covering reports that arrived
+    /// after a restored `tabs` assignment but before registration (issue #6618).
+    func flushPendingShellActivityForRegisteredWorkspaces() {
+        replayPendingShellActivity(for: tabs)
+    }
+
+    /// Replays shell-activity reports that arrived before their workspace was
+    /// reachable through any `TabManager` (issue #6618). Runs from the `didChange`
+    /// hook, where `tabs` already holds the new value, so the prompt-idle PR probe
+    /// scheduled by `updateSurfaceShellActivity` sees the restored workspace
+    /// instead of pruning its just-scheduled key.
+    private func replayPendingShellActivity(for workspaces: [Workspace]) {
+        guard let appDelegate = AppDelegate.shared, appDelegate.hasPendingShellActivityReports else { return }
+        for workspace in workspaces where !workspace.panels.isEmpty {
+            appDelegate.drainPendingShellActivity(forWorkspaceId: workspace.id) { surfaceId, state in
+                self.updateSurfaceShellActivity(workspace: workspace, surfaceId: surfaceId, state: state)
+            }
+        }
+    }
+
     /// Legacy `@Published workspaceGroups` willSet.
     func workspaceGroupsWillChange(to newValue: [WorkspaceGroup]) {
         objectWillChange.send()
@@ -1974,20 +2000,39 @@ class TabManager: ObservableObject {
         sidebarGitMetadataService.clearSurfaceGitBranch(workspaceId: tabId, panelId: surfaceId)
     }
 
+    @discardableResult
     func updateSurfaceShellActivity(
         tabId: UUID,
         surfaceId: UUID,
         state: PanelShellActivityState
-    ) {
-        guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.updatePanelShellActivityState(panelId: surfaceId, state: state)
+    ) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == tabId }) else { return false }
+        return updateSurfaceShellActivity(workspace: tab, surfaceId: surfaceId, state: state)
+    }
+
+    /// Applies a reported shell-activity state against an explicit workspace
+    /// object. Used by the buffered-report replay (issue #6618), which runs while
+    /// the workspace is being inserted and is therefore not yet findable through
+    /// `tabs`.
+    /// - Returns: `true` when the report landed on a live panel, `false` when the
+    ///   panel is still absent so the caller can keep the report buffered.
+    @discardableResult
+    func updateSurfaceShellActivity(
+        workspace: Workspace,
+        surfaceId: UUID,
+        state: PanelShellActivityState
+    ) -> Bool {
+        guard workspace.updatePanelShellActivityState(panelId: surfaceId, state: state) else {
+            return false
+        }
         if state == .promptIdle {
             pullRequestProbing.scheduleWorkspacePullRequestRefresh(
-                workspaceId: tabId,
+                workspaceId: workspace.id,
                 panelId: surfaceId,
                 reason: "shellPrompt"
             )
         }
+        return true
     }
 
     func handleWorkspacePullRequestCommandHint(

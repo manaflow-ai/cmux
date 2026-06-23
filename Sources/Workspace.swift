@@ -4564,10 +4564,15 @@ final class Workspace: Identifiable, ObservableObject {
         return restoredDirectoryStillExists
     }
 
-    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
-        guard panels[panelId] != nil else { return }
+    /// Records a reported shell-activity state for a panel.
+    /// - Returns: `true` when the panel exists and the state is recorded (or was
+    ///   already current), `false` when the panel is not present so the caller can
+    ///   buffer the report and replay it once the panel registers (issue #6618).
+    @discardableResult
+    func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) -> Bool {
+        guard panels[panelId] != nil else { return false }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
-        guard previousState != state else { return }
+        guard previousState != state else { return true }
         panelShellActivityStates[panelId] = state
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
@@ -4582,6 +4587,7 @@ final class Workspace: Identifiable, ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) from=\(previousState.rawValue) to=\(state.rawValue)"
         )
 #endif
+        return true
     }
 
     func setAgentLifecycle(
