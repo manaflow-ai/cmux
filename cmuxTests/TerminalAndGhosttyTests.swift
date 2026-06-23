@@ -1006,6 +1006,16 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testTerminalPanelPublishesShellActivityStateForTextBoxRouting() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        XCTAssertEqual(panel.shellActivityState, .unknown)
+        panel.updateShellActivityState(.promptIdle)
+        XCTAssertEqual(panel.shellActivityState, .promptIdle)
+        panel.updateShellActivityState(.commandRunning)
+        XCTAssertEqual(panel.shellActivityState, .commandRunning)
+    }
+
     func testPlainHostedViewWindowAttachmentCreatesRuntimeSurface() throws {
         let panel = TerminalPanel(workspaceId: UUID())
         XCTAssertEqual(panel.hostedView.debugSurfaceId, panel.surface.id)

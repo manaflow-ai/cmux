@@ -4567,8 +4567,16 @@ final class Workspace: Identifiable, ObservableObject {
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
         guard panels[panelId] != nil else { return }
         let previousState = panelShellActivityStates[panelId] ?? .unknown
-        guard previousState != state else { return }
+        if previousState == state {
+            if let terminalPanel = panels[panelId] as? TerminalPanel {
+                terminalPanel.updateShellActivityState(state)
+            }
+            return
+        }
         panelShellActivityStates[panelId] = state
+        if let terminalPanel = panels[panelId] as? TerminalPanel {
+            terminalPanel.updateShellActivityState(state)
+        }
         if let restoredAgent = restoredAgentSnapshotsByPanelId[panelId] {
             updateRestoredAgentResumeState(
                 panelId: panelId,

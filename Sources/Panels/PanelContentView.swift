@@ -21,7 +21,6 @@ struct PanelContentView: View {
     let customSidebarUnread: SidebarUnreadModel = TerminalNotificationStore.shared.sidebarUnread
     let hasUnreadNotification: Bool
     let terminalAgentContext: String
-    let allowsCommandTemplateSubmit: Bool
     let onFocus: () -> Void
     let onRequestPanelFocus: () -> Void
     let onResumeAgentHibernation: () -> Void
@@ -50,7 +49,6 @@ struct PanelContentView: View {
                     appearance: appearance,
                     hasUnreadNotification: hasUnreadNotification,
                     terminalAgentContext: terminalAgentContext,
-                    allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
                     onFocus: onFocus,
                     onResumeAgentHibernation: onResumeAgentHibernation,
                     onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
