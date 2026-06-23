@@ -34,6 +34,7 @@ struct CMUXMobileRootView: View {
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     @State private var rootLoadingTimedOut = false
+    @State private var rootLoadingRetryGeneration = 0
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -185,7 +186,7 @@ struct CMUXMobileRootView: View {
                 clearAttachTicketAuthenticationIfNeeded()
             }
         }
-        .task(id: isStoredMacLoadingGateActive) {
+        .task(id: rootLoadingDeadlineTaskID) {
             await updateRootLoadingDeadline(isActive: isStoredMacLoadingGateActive)
         }
     }
@@ -347,6 +348,10 @@ struct CMUXMobileRootView: View {
         isAuthenticated && shouldShowRestoringStoredMac
     }
 
+    private var rootLoadingDeadlineTaskID: Int {
+        (rootLoadingRetryGeneration &* 2) + (isStoredMacLoadingGateActive ? 1 : 0)
+    }
+
     private var hasActiveAttachTicketAuthentication: Bool {
         didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
@@ -480,6 +485,7 @@ struct CMUXMobileRootView: View {
 
     private func retryRootLoading() {
         rootLoadingTimedOut = false
+        rootLoadingRetryGeneration &+= 1
         syncShellAuthentication(isAuthenticated)
         store.resumeForegroundRefresh()
         Task {

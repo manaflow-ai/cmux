@@ -681,6 +681,23 @@
         }
       }
     },
+    "mobile.common.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
     "mobile.browser.addressPlaceholder": {
       "extractionState": "manual",
       "localizations": {
@@ -6219,6 +6236,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d分"
+          }
+        }
+      }
+    },
+    "mobile.loading.timeout.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not finish restoring this session. Check that the Mac app is running, then retry or add this Mac again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこのセッションの復元を完了できませんでした。Mac アプリが起動していることを確認してから、再試行するか、この Mac をもう一度追加してください。"
+          }
+        }
+      }
+    },
+    "mobile.loading.timeout.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still loading"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ読み込み中"
           }
         }
       }
