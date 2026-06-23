@@ -408,7 +408,8 @@ enum BrowserImportAutomation {
             )
         }
 
-        return await BrowserDataImporter.importData(
+        let importer = BrowserDataImporter(persistence: BrowserProfileImportPersistence())
+        return await importer.importData(
             from: browser,
             plan: realizedPlan,
             scope: .cookiesOnly,
