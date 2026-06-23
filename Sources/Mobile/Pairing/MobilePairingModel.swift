@@ -249,9 +249,6 @@ final class MobilePairingModel {
                     refreshReady: { self.refreshTrustedNetworkPairingSecret(for: $0) },
                     refreshManualOnly: { self.refreshTrustedNetworkPairingSecret(for: $0) }
                 )
-                if Self.shouldRevokeManualPairingGrant(from: current, to: next) {
-                    self.host.revokeManualPairingTicketMint()
-                }
                 self.state = next
             }
         }
@@ -283,15 +280,6 @@ final class MobilePairingModel {
             return .manualOnly(refreshManualOnly(manual))
         default:
             return current
-        }
-    }
-
-    static func shouldRevokeManualPairingGrant(from current: State, to next: State) -> Bool {
-        switch (current, next) {
-        case (.ready, .connected), (.manualOnly, .connectedManual):
-            return true
-        default:
-            return false
         }
     }
 

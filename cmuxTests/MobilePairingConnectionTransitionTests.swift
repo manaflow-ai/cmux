@@ -66,7 +66,6 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .connected(ready))
-        #expect(MobilePairingModel.shouldRevokeManualPairingGrant(from: .ready(ready), to: next))
     }
 
     @Test("A ready ticket with no new connections stays in the waiting state")
@@ -78,7 +77,6 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .ready(ready))
-        #expect(!MobilePairingModel.shouldRevokeManualPairingGrant(from: .ready(ready), to: next))
     }
 
     @Test("Pairing an additional device: an already-connected phone does not flip the new QR")
@@ -92,7 +90,6 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 1
         )
         #expect(stillWaiting == .ready(ready))
-        #expect(!MobilePairingModel.shouldRevokeManualPairingGrant(from: .ready(ready), to: stillWaiting))
         // A second device attaches (count rises above the baseline) -> connected.
         let connected = transition(
             from: .ready(ready),
@@ -100,7 +97,6 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 1
         )
         #expect(connected == .connected(ready))
-        #expect(MobilePairingModel.shouldRevokeManualPairingGrant(from: .ready(ready), to: connected))
     }
 
     @Test("Connected flips back to ready when the new connection drops to the baseline")
@@ -139,7 +135,6 @@ struct MobilePairingConnectionTransitionTests {
             baselineConnectionCount: 0
         )
         #expect(next == .connectedManual(manual))
-        #expect(MobilePairingModel.shouldRevokeManualPairingGrant(from: .manualOnly(manual), to: next))
     }
 
     @Test("Manual connected flips back when the connection drops")
