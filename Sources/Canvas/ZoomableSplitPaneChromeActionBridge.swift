@@ -10,7 +10,7 @@ struct ZoomableSplitPaneChromeActionBridge {
     func perform(_ event: NSEvent, in window: NSWindow) -> Bool {
         let rootPoint = rootView.convert(event.locationInWindow, from: nil)
         guard rootView.bounds.contains(rootPoint) else { return false }
-        let documentPoint = documentView.convert(rootPoint, from: rootView)
+        let documentPoint = documentView.convert(event.locationInWindow, from: nil)
         guard let workspace,
               let hit = ZoomableSplitRootView.splitActionButtonHit(
                 atDocumentPoint: documentPoint,

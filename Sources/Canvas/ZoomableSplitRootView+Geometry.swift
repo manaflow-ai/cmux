@@ -74,7 +74,7 @@ extension ZoomableSplitRootView {
         let buttons = appearance.splitButtons
         guard !buttons.isEmpty else { return nil }
         let tabBarHeight = appearance.tabBarHeight
-            let laneWidth = ZoomableSplitActionLaneMetrics.laneWidth(buttonCount: buttons.count)
+        let laneWidth = ZoomableSplitActionLaneMetrics.laneWidth(buttonCount: buttons.count)
         guard laneWidth > 0 else { return nil }
 
         for pane in snapshot.panes.reversed() {

@@ -197,14 +197,29 @@ struct ZoomableSplitViewportTests {
         )
         let appearance = BonsplitConfiguration.default.appearance
 
-        let hit = try #require(ZoomableSplitRootView.splitActionButtonHit(
-            atDocumentPoint: CGPoint(x: 123, y: appearance.tabBarHeight / 2),
+        let laneMinX = CGFloat(220) - ZoomableSplitActionLaneMetrics.laneWidth(buttonCount: appearance.splitButtons.count)
+        let terminalCenterX = laneMinX
+            + ZoomableSplitActionLaneMetrics.leadingPadding
+            + ZoomableSplitActionLaneMetrics.reservedButtonWidth / 2
+        let browserCenterX = terminalCenterX
+            + ZoomableSplitActionLaneMetrics.reservedButtonWidth
+            + ZoomableSplitActionLaneMetrics.spacing
+
+        let terminalHit = try #require(ZoomableSplitRootView.splitActionButtonHit(
+            atDocumentPoint: CGPoint(x: terminalCenterX, y: appearance.tabBarHeight / 2),
+            in: snapshot,
+            appearance: appearance
+        ))
+        let browserHit = try #require(ZoomableSplitRootView.splitActionButtonHit(
+            atDocumentPoint: CGPoint(x: browserCenterX, y: appearance.tabBarHeight / 2),
             in: snapshot,
             appearance: appearance
         ))
 
-        #expect(hit.paneId == PaneID(id: paneId))
-        #expect(hit.button.id == BonsplitConfiguration.SplitActionButton.newTerminal.id)
+        #expect(terminalHit.paneId == PaneID(id: paneId))
+        #expect(terminalHit.button.id == BonsplitConfiguration.SplitActionButton.newTerminal.id)
+        #expect(browserHit.paneId == PaneID(id: paneId))
+        #expect(browserHit.button.id == BonsplitConfiguration.SplitActionButton.newBrowser.id)
         #expect(ZoomableSplitRootView.splitActionButtonHit(
             atDocumentPoint: CGPoint(x: 24, y: appearance.tabBarHeight / 2),
             in: snapshot,
