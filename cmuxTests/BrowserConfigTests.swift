@@ -3305,6 +3305,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         inspectorWindow.makeKeyAndOrderFront(nil)
         mainWindow.displayIfNeeded()
         inspectorWindow.displayIfNeeded()
+        XCTAssertFalse(
+            panel.ownsDetachedDeveloperToolsWindow(mainWindow),
+            "A cmux/browser host window with an attached inspector frontend must not be treated as a detached inspector close target"
+        )
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())

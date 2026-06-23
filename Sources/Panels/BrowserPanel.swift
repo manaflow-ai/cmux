@@ -6538,14 +6538,33 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
-        if let mainWindow = webView.window, window === mainWindow {
-            return false
-        }
         guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
               let contentView = window.contentView else {
             return false
         }
+        guard isDetachedDeveloperToolsWindowCandidate(window, contentView: contentView) else { return false }
+        guard webView !== contentView, !webView.isDescendant(of: contentView) else { return false }
         return frontendWebView === contentView || frontendWebView.isDescendant(of: contentView)
+    }
+
+    private func isDetachedDeveloperToolsWindowCandidate(_ window: NSWindow, contentView: NSView) -> Bool {
+        if let mainWindow = webView.window, window === mainWindow {
+            return false
+        }
+        if window.identifier?.rawValue.hasPrefix("cmux.main.") == true {
+            return false
+        }
+        return !Self.windowContainsBrowserSlotView(contentView)
+    }
+
+    private static func windowContainsBrowserSlotView(_ root: NSView) -> Bool {
+        if root is WindowBrowserSlotView {
+            return true
+        }
+        for subview in root.subviews where windowContainsBrowserSlotView(subview) {
+            return true
+        }
+        return false
     }
 
     private func shouldDismissDetachedDeveloperToolsWindows() -> Bool {
