@@ -28,12 +28,4 @@ public struct MobileNotificationSettingsResponse: Decodable, Sendable {
             ?? MobileNotificationForwardingMode.defaultMode
         hidesContent = try container.decodeIfPresent(Bool.self, forKey: .hidesContent) ?? false
     }
-
-    /// Decode a settings response from the raw RPC result payload.
-    /// - Parameter data: The RPC result JSON.
-    /// - Returns: The decoded response.
-    /// - Throws: A decoding error if the payload is not a JSON object.
-    public static func decode(_ data: Data) throws -> MobileNotificationSettingsResponse {
-        try JSONDecoder().decode(Self.self, from: data)
-    }
 }

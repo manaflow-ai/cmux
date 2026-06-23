@@ -40,7 +40,7 @@ extension MobileShellComposite {
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else { return nil }
-            let response = try MobileNotificationSettingsResponse.decode(data)
+            let response = try JSONDecoder().decode(MobileNotificationSettingsResponse.self, from: data)
             return MobileNotificationPreferences(
                 isEnabled: preferences.isEnabled,
                 isForwardingEnabled: response.isEnabled,
@@ -66,7 +66,7 @@ extension MobileShellComposite {
             )
             let data = try await client.sendRequest(request)
             guard remoteClient === client else { return nil }
-            let response = try MobileNotificationSettingsResponse.decode(data)
+            let response = try JSONDecoder().decode(MobileNotificationSettingsResponse.self, from: data)
             return MobileNotificationPreferences(
                 isEnabled: false,
                 isForwardingEnabled: response.isEnabled,
