@@ -64,6 +64,81 @@ import Testing
         #expect(store.workspaceGroups.isEmpty)
     }
 
+    @Test func connectedWorkspaceSnapshotIsCacheableForReconnect() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            connectedHostName: "MacBook",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: "workspace-live",
+                    name: "Live",
+                    terminals: [MobileTerminalPreview(id: "terminal-live", name: "Terminal")]
+                ),
+            ]
+        )
+
+        #expect(store.hasCachedRemoteWorkspaceSnapshot)
+        #expect(!store.shouldPreserveWorkspaceShellDuringReconnect)
+    }
+
+    @Test func disconnectedInitialWorkspaceSnapshotIsNotCacheable() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .disconnected,
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: "workspace-stale",
+                    name: "Stale",
+                    terminals: [MobileTerminalPreview(id: "terminal-stale", name: "Terminal")]
+                ),
+            ]
+        )
+
+        #expect(!store.hasCachedRemoteWorkspaceSnapshot)
+        #expect(!store.shouldPreserveWorkspaceShellDuringReconnect)
+    }
+
+    @Test func signOutClearsCachedWorkspaceSnapshot() {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            connectedHostName: "MacBook",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: "workspace-live",
+                    name: "Live",
+                    terminals: [MobileTerminalPreview(id: "terminal-live", name: "Terminal")]
+                ),
+            ]
+        )
+
+        store.signOut()
+
+        #expect(!store.hasCachedRemoteWorkspaceSnapshot)
+        #expect(!store.shouldPreserveWorkspaceShellDuringReconnect)
+    }
+
+    @Test func pairingErrorDoesNotPreserveCachedWorkspaceShell() async {
+        let store = MobileShellComposite(
+            isSignedIn: true,
+            connectionState: .connected,
+            connectedHostName: "MacBook",
+            workspaces: [
+                MobileWorkspacePreview(
+                    id: "workspace-live",
+                    name: "Live",
+                    terminals: [MobileTerminalPreview(id: "terminal-live", name: "Terminal")]
+                ),
+            ]
+        )
+
+        await store.connectManualHost(name: "Bad Host", host: "bad host", port: 58465)
+
+        #expect(store.hasCachedRemoteWorkspaceSnapshot)
+        #expect(!store.shouldPreserveWorkspaceShellDuringReconnect)
+    }
+
     @Test func createWorkspaceSelectsNewWorkspaceAndTerminal() {
         let store = MobileShellComposite.preview()
         store.signIn()

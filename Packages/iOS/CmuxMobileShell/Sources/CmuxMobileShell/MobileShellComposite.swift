@@ -206,6 +206,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// groups (or is old enough not to emit them). Drives the collapsible group
     /// sections in the workspace list.
     public var workspaceGroups: [MobileWorkspaceGroupPreview] = []
+    /// True after a connected Mac has returned at least one workspace snapshot.
+    ///
+    /// Ordinary network drops intentionally keep the last ``workspaces`` value so
+    /// the UI can keep rendering the local Ghostty mirror while the transport
+    /// reconnects. This flag distinguishes that real cached snapshot from the
+    /// preview/empty shell state used before a Mac has ever connected.
+    public private(set) var hasCachedRemoteWorkspaceSnapshot: Bool
+    public var shouldPreserveWorkspaceShellDuringReconnect: Bool {
+        connectionState != .connected
+            && hasCachedRemoteWorkspaceSnapshot
+            && !connectionRequiresReauth
+            && (isRecoveringConnection || isReconnectingStoredMac)
+            && workspaces.contains { !$0.terminals.isEmpty }
+    }
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -699,6 +713,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.connectedHostName = connectedHostName
         self.pairingCode = pairingCode
         self.workspaces = workspaces
+        self.hasCachedRemoteWorkspaceSnapshot = connectionState == .connected
+            && workspaces.contains { !$0.terminals.isEmpty }
         self.terminalInputText = ""
         self.connectionError = nil
         self.connectionErrorGuidance = nil
@@ -843,6 +859,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
         // reconnect is superseded and can't re-set these flags after sign-out.
+        hasCachedRemoteWorkspaceSnapshot = false
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
@@ -2386,6 +2403,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // (and the current disconnected view) shows add-device immediately. Bump
         // the reconnect generation first so an in-flight reconnect can't re-set the
         // hint or the gate flags after the user forgot the Mac.
+        hasCachedRemoteWorkspaceSnapshot = false
         storedMacReconnectGeneration &+= 1
         hasKnownPairedMac = false
         isReconnectingStoredMac = false
@@ -5268,6 +5286,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // and initial sync use) carries authoritative group state.
         if !mergeExistingWorkspaces {
             workspaceGroups = response.groups.map { MobileWorkspaceGroupPreview(remote: $0) }
+        }
+        if workspaces.contains(where: { !$0.terminals.isEmpty }) {
+            hasCachedRemoteWorkspaceSnapshot = true
         }
         if preferActiveTicketTarget, selectActiveTicketTargetIfAvailable() {
             return

@@ -184,6 +184,8 @@ struct CMUXMobileRootView: View {
             RestoringSessionView()
         } else if !isAuthenticated {
             SignInView()
+        } else if store.shouldPreserveWorkspaceShellDuringReconnect {
+            WorkspaceShellView(store: store, signOut: signOut)
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
             if store.hasKnownPairedMac || store.isReconnectingStoredMac {
                 // We know a Mac is being reconnected: it is honest to say so.

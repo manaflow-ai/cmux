@@ -31,7 +31,7 @@ struct MobileConnectionRecoveryBanner: View {
                     showsRetry: true,
                     showsSpinner: false
                 )
-            } else if store.isRecoveringConnection {
+            } else if store.isRecoveringConnection || store.shouldPreserveWorkspaceShellDuringReconnect {
                 banner(
                     text: L10n.string(
                         "mobile.recovery.reconnecting",
