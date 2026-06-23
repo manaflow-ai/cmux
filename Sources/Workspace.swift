@@ -2133,48 +2133,6 @@ final class SharedLiveAgentIndex: ObservableObject {
     }
 }
 
-/// Process-wide, off-main cache for tmux surface resume bindings. The update
-/// relaunch path reads this cache instead of synchronously scanning every
-/// cmux-scoped process while Sparkle is waiting to quit the old app.
-@MainActor
-final class SharedSurfaceResumeBindingIndex {
-    static let shared = SharedSurfaceResumeBindingIndex()
-
-    private var index: SurfaceResumeBindingIndex?
-    private var loadedAt: Date?
-    private var refreshTask: Task<Void, Never>?
-
-    private static let cacheTTL: TimeInterval = 10.0
-
-    private init() {}
-
-    func currentIndexSchedulingRefresh() -> SurfaceResumeBindingIndex? {
-        scheduleRefreshIfStale()
-        return index
-    }
-
-    func replace(with index: SurfaceResumeBindingIndex) {
-        self.index = index
-        loadedAt = Date()
-    }
-
-    func scheduleRefreshIfStale() {
-        guard refreshTask == nil else { return }
-        if let loadedAt, Date().timeIntervalSince(loadedAt) < Self.cacheTTL {
-            return
-        }
-        refreshTask = Task { @MainActor [weak self] in
-            let newIndex = await Task.detached(priority: .utility) {
-                SurfaceResumeBindingIndex.loadProcessDetectedBindingsSynchronously()
-            }.value
-            guard let self else { return }
-            self.index = newIndex
-            self.loadedAt = Date()
-            self.refreshTask = nil
-        }
-    }
-}
-
 /// Workspace represents a sidebar tab.
 /// Each workspace contains one BonsplitController that manages split panes and nested surfaces.
 @MainActor

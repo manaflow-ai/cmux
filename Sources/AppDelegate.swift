@@ -1289,7 +1289,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // closedPanelHistoryEntry.
         if !isRunningUnderXCTest {
             SharedLiveAgentIndex.shared.scheduleRefreshIfStale()
-            SharedSurfaceResumeBindingIndex.shared.scheduleRefreshIfStale()
         }
 
         claimAuthCallbackURLSchemes()
@@ -4138,13 +4137,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         var resumeIndexesMs: Double = 0
         var saveSnapshotMs: Double = 0
         var closedHistoryFlushMs: Double = 0
-        var terminalStopMs: Double = 0
-        var restorableStateMs: Double = 0
 
+        let previousIsTerminatingApp = isTerminatingApp
         isTerminatingApp = true
+        defer { isTerminatingApp = previousIsTerminatingApp }
 
         let resumeIndexesStart = ProcessInfo.processInfo.systemUptime
-        let resumeIndexes = cachedResumeIndexesForTerminatingSessionSave()
+        let (resumeIndexes, resumeIndexesSource) = resumeIndexesForTerminatingSessionSave()
         resumeIndexesMs = Self.debugElapsedMs(since: resumeIndexesStart)
 
         let saveSnapshotStart = ProcessInfo.processInfo.systemUptime
@@ -4160,25 +4159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ClosedItemHistoryStore.shared.flushPendingSaves()
         closedHistoryFlushMs = Self.debugElapsedMs(since: closedHistoryFlushStart)
 
-        let terminalStopStart = ProcessInfo.processInfo.systemUptime
-        TerminalController.shared.stop()
-        terminalStopMs = Self.debugElapsedMs(since: terminalStopStart)
-
-        let restorableStateStart = ProcessInfo.processInfo.systemUptime
-        NSApp.invalidateRestorableState()
-        for window in NSApp.windows {
-            window.invalidateRestorableState()
-        }
-        restorableStateMs = Self.debugElapsedMs(since: restorableStateStart)
-
         return [
+            "destructive": false,
             "elapsed_ms": Self.debugElapsedMs(since: startedAt),
             "resume_indexes_ms": resumeIndexesMs,
-            "resume_indexes_source": "cache",
+            "resume_indexes_source": resumeIndexesSource,
             "save_session_snapshot_ms": saveSnapshotMs,
             "closed_history_flush_ms": closedHistoryFlushMs,
-            "terminal_stop_ms": terminalStopMs,
-            "restorable_state_ms": restorableStateMs,
             "shape": shape
         ]
     }
@@ -4323,7 +4310,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return
         }
-        SharedSurfaceResumeBindingIndex.shared.replace(with: resumeIndexes.surfaceResumeBindingIndex)
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
@@ -4373,10 +4359,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) -> Bool {
         let resumeIndexes: ProcessDetectedResumeIndexes
         if isTerminatingApp {
-            resumeIndexes = cachedResumeIndexesForTerminatingSessionSave()
+            resumeIndexes = resumeIndexesForTerminatingSessionSave().indexes
         } else {
             resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
-            SharedSurfaceResumeBindingIndex.shared.replace(with: resumeIndexes.surfaceResumeBindingIndex)
         }
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
@@ -4386,11 +4371,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func cachedResumeIndexesForTerminatingSessionSave() -> ProcessDetectedResumeIndexes {
-        ProcessDetectedResumeIndexes(
-            restorableAgentIndex: SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() ?? .empty,
-            surfaceResumeBindingIndex: SharedSurfaceResumeBindingIndex.shared.currentIndexSchedulingRefresh() ?? .empty
-        )
+    private func resumeIndexesForTerminatingSessionSave() -> (indexes: ProcessDetectedResumeIndexes, source: String) {
+        let ttyScope = liveSurfaceTTYNamesByPanelKeyForSessionSnapshot()
+        guard ttyScope.fullyVerified else {
+            let indexes = ProcessDetectedResumeIndexes.loadSynchronously()
+            return (indexes, "fresh_synchronous_scan_unverified_tty_fallback")
+        }
+        let indexes = ProcessDetectedResumeIndexes.loadSynchronously(panelTTYNamesByKey: ttyScope.panelTTYNamesByKey)
+        return (indexes, "fresh_tty_scoped_scan")
+    }
+
+    private func liveSurfaceTTYNamesByPanelKeyForSessionSnapshot()
+        -> (panelTTYNamesByKey: [RestorableAgentSessionIndex.PanelKey: String], fullyVerified: Bool) {
+        var ttyNamesByPanelKey: [RestorableAgentSessionIndex.PanelKey: String] = [:]
+        var seenTTYDevices = Set<Int64>()
+        for context in sortedMainWindowContextsForSessionSnapshot() {
+            for workspace in context.tabManager.tabs {
+                for panel in workspace.panels.values {
+                    guard let terminalPanel = panel as? TerminalPanel,
+                          terminalPanel.surface.hasLiveSurface else {
+                        continue
+                    }
+                    let trimmedTTYName = terminalPanel.surface.controllingTTYName()?
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard let trimmedTTYName, !trimmedTTYName.isEmpty else {
+                        return (ttyNamesByPanelKey, false)
+                    }
+                    guard let ttyDevice = CmuxTopProcessSnapshot.deviceIdentifier(forTTYName: trimmedTTYName),
+                          seenTTYDevices.insert(ttyDevice).inserted else {
+                        return (ttyNamesByPanelKey, false)
+                    }
+                    ttyNamesByPanelKey[
+                        RestorableAgentSessionIndex.PanelKey(workspaceId: workspace.id, panelId: terminalPanel.id)
+                    ] = trimmedTTYName
+                }
+            }
+        }
+        return (ttyNamesByPanelKey, true)
     }
 
     private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
