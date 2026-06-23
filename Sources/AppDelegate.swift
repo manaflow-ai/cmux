@@ -13872,51 +13872,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     private func closeDetachedInspectorWindowForCloseShortcut(event: NSEvent) -> Bool {
-        guard let window = detachedInspectorWindowForCloseShortcut(event: event) else { return false }
-        for panel in allBrowserPanelsForInspectorWindowClose() {
-            if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
-                window,
-                source: "shortcut.\(NSWindow.keyDescription(event))"
-            ) {
+        for window in closeShortcutWindowCandidates(event: event) {
+            for panel in allBrowserPanelsForInspectorWindowClose() {
+                if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+                    window,
+                    source: "shortcut.\(NSWindow.keyDescription(event))"
+                ) {
 #if DEBUG
-                cmuxDebugLog(
-                    "browser.devtools detachedClose.shortcut panel=\(panel.id.uuidString.prefix(5)) " +
-                    "event=\(NSWindow.keyDescription(event)) window=\(window.windowNumber)"
-                )
+                    cmuxDebugLog(
+                        "browser.devtools detachedClose.shortcut panel=\(panel.id.uuidString.prefix(5)) " +
+                        "event=\(NSWindow.keyDescription(event)) window=\(window.windowNumber)"
+                    )
 #endif
-                return true
+                    return true
+                }
             }
         }
         return false
     }
 
-    private func detachedInspectorWindowForCloseShortcut(event: NSEvent) -> NSWindow? {
+    private func closeShortcutWindowCandidates(event: NSEvent) -> [NSWindow] {
         var seen = Set<Int>()
-        func firstDetachedInspectorWindow(in candidates: [NSWindow?]) -> NSWindow? {
+        var windows: [NSWindow] = []
+        func append(_ candidates: [NSWindow?]) {
             for candidate in candidates {
                 guard let candidate else { continue }
                 let windowNumber = candidate.windowNumber
                 guard seen.insert(windowNumber).inserted else { continue }
-                if BrowserPanel.isDetachedInspectorWindow(candidate) {
-                    return candidate
-                }
+                windows.append(candidate)
             }
-            return nil
         }
 
-        if let focusedWindow = firstDetachedInspectorWindow(in: [
+        append([
             shortcutRoutingKeyWindow,
             NSApp.keyWindow,
             shortcutRoutingActiveWindow,
             NSApp.mainWindow,
-        ]) {
-            return focusedWindow
-        }
-
-        return firstDetachedInspectorWindow(in: [
+        ])
+        append([
             event.window,
             event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil,
         ])
+        return windows
     }
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(
@@ -16551,8 +16548,6 @@ private extension AppDelegate {
                 sender: sender,
                 allowFallback: Self.allowsWindowFallback(for: action)
             ) else { return false }
-            let isInspectorWindow = BrowserPanel.isDetachedInspectorWindow(window)
-            guard isInspectorWindow else { return false }
 
             for panel in allBrowserPanelsForInspectorWindowClose() {
                 if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(

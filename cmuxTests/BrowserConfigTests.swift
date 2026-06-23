@@ -3500,7 +3500,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        inspectorWindow.title = "Web Inspector — example.com"
+        inspectorWindow.title = "Inspector Localized — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
             configuration: WKWebViewConfiguration()
@@ -3642,7 +3642,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
-        inspectorWindow.title = "Web Inspector — example.com"
+        inspectorWindow.title = "Inspector Localized — example.com"
         let frontendWebView = WKInspectorProbeWebView(
             frame: inspectorWindow.contentView?.bounds ?? .zero,
             configuration: WKWebViewConfiguration()

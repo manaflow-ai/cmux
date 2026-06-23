@@ -6331,7 +6331,7 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowsForPanel() -> [NSWindow] {
-        detachedDeveloperToolsWindows().filter(detachedDeveloperToolsWindowBelongsToPanel)
+        NSApp.windows.filter(detachedDeveloperToolsWindowBelongsToPanel)
     }
 
     private var hasPendingDetachedDeveloperToolsWindowCloseResolution: Bool {
@@ -6363,7 +6363,7 @@ extension BrowserPanel {
     }
 
     private func syncDeveloperToolsPresentationPreferenceFromUI() {
-        if !detachedDeveloperToolsWindows().isEmpty {
+        if !detachedDeveloperToolsWindowsForPanel().isEmpty {
             setPreferredDeveloperToolsPresentation(.detached)
         }
     }
@@ -6379,7 +6379,6 @@ extension BrowserPanel {
                   let window = notification.object as? NSWindow else { return }
             guard Thread.isMainThread else { return }
             let handledDetachedInspector = MainActor.assumeIsolated {
-                guard Self.isDetachedInspectorWindow(window) else { return false }
                 return self.handleDetachedDeveloperToolsWindowWillClose(window)
             }
             _ = handledDetachedInspector
@@ -6535,6 +6534,9 @@ extension BrowserPanel {
     }
 
     private func detachedDeveloperToolsWindowBelongsToPanel(_ window: NSWindow) -> Bool {
+        if let mainWindow = webView.window, window === mainWindow {
+            return false
+        }
         guard let frontendWebView = webView.cmuxInspectorFrontendWebView(),
               let contentView = window.contentView else {
             return false
@@ -6548,9 +6550,8 @@ extension BrowserPanel {
 
     private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
-              let mainWindow = webView.window else { return }
-        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+        for window in detachedDeveloperToolsWindowsForPanel() {
 #if DEBUG
             cmuxDebugLog(
                 "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
