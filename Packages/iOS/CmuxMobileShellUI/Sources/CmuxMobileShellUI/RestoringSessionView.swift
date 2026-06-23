@@ -8,7 +8,7 @@ struct RestoringSessionView: View {
     var timeoutSeconds: TimeInterval = 12
 
     @State private var didTimeout = false
-    @State private var timeoutTimer: Timer?
+    @State private var timeoutTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -67,18 +67,19 @@ struct RestoringSessionView: View {
             scheduleTimeout()
         }
         .onDisappear {
-            timeoutTimer?.invalidate()
-            timeoutTimer = nil
+            timeoutTask?.cancel()
+            timeoutTask = nil
         }
     }
 
     @MainActor
     private func scheduleTimeout() {
-        timeoutTimer?.invalidate()
-        timeoutTimer = Timer.scheduledTimer(withTimeInterval: timeoutSeconds, repeats: false) { _ in
-            MainActor.assumeIsolated {
-                didTimeout = true
-            }
+        timeoutTask?.cancel()
+        let timeoutNanoseconds = UInt64(max(0, timeoutSeconds) * 1_000_000_000)
+        timeoutTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            guard !Task.isCancelled else { return }
+            didTimeout = true
         }
     }
 }
