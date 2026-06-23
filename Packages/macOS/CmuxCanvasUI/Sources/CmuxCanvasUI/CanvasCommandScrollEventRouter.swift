@@ -10,6 +10,7 @@ public final class CanvasCommandScrollEventRouter {
     private weak var rootView: NSView?
     private weak var scrollView: NSScrollView?
     private let paneViewAtRootPoint: (CGPoint) -> NSView?
+    private let handleMagnifyEvent: ((NSEvent) -> Bool)?
     private let handleMagnify: () -> Void
     private let handleOptionScroll: (NSEvent) -> Void
     private let handlePlainScrollInPane: () -> Void
@@ -30,6 +31,7 @@ public final class CanvasCommandScrollEventRouter {
         rootView: NSView,
         scrollView: NSScrollView,
         paneViewAtRootPoint: @escaping (CGPoint) -> NSView?,
+        handleMagnifyEvent: ((NSEvent) -> Bool)? = nil,
         handleMagnify: @escaping () -> Void,
         handleOptionScroll: @escaping (NSEvent) -> Void,
         handlePlainScrollInPane: @escaping () -> Void
@@ -37,6 +39,7 @@ public final class CanvasCommandScrollEventRouter {
         self.rootView = rootView
         self.scrollView = scrollView
         self.paneViewAtRootPoint = paneViewAtRootPoint
+        self.handleMagnifyEvent = handleMagnifyEvent
         self.handleMagnify = handleMagnify
         self.handleOptionScroll = handleOptionScroll
         self.handlePlainScrollInPane = handlePlainScrollInPane
@@ -57,6 +60,9 @@ public final class CanvasCommandScrollEventRouter {
             guard rootView.bounds.contains(location) else { return event }
 
             if event.type == .magnify {
+                if self.handleMagnifyEvent?(event) == true {
+                    return nil
+                }
                 scrollView.magnify(with: event)
                 self.handleMagnify()
                 return nil

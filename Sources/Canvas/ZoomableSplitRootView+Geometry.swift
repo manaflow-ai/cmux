@@ -3,6 +3,17 @@ import Bonsplit
 import CmuxCanvas
 
 extension ZoomableSplitRootView {
+    var layoutRect: CGRect {
+        CGRect(origin: .zero, size: layoutSize)
+    }
+
+    var scaledDocumentSize: CGSize {
+        CGSize(
+            width: layoutSize.width * viewportMagnification,
+            height: layoutSize.height * viewportMagnification
+        )
+    }
+
     func canvasRect(from rect: CGRect) -> CanvasRect {
         CanvasRect(
             x: Double(rect.origin.x),

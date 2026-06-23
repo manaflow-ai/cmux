@@ -12,6 +12,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private let scrollView = ZoomableSplitScrollView()
     private let documentView = ZoomableSplitDocumentView()
     private let hostingView: NSHostingView<AnyView>
+    var layoutSize: CGSize = .zero
+    var viewportMagnification: CGFloat = 1
     private var commandScrollEventRouter: CanvasCommandScrollEventRouter?
     private var panePointerFocusMonitor: Any?
     private var clipBoundsObserver: (any NSObjectProtocol)?
@@ -36,13 +38,12 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
-    }
+    required init?(coder: NSCoder) { nil }
 
     func update(isWorkspaceInputActive: Bool, content: AnyView) {
         self.isWorkspaceInputActive = isWorkspaceInputActive
         hostingView.rootView = content
+        refreshHostedContent()
         workspace?.zoomableSplitViewport = self
         updateCommandScrollMonitor()
         updatePanePointerFocusMonitor()
@@ -99,7 +100,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
             viewportSize: canvasSize(from: visible.size),
             margin: Self.revealMargin
         )
-        let target = cgPoint(from: origin)
+        let target = CGPoint(x: CGFloat(origin.x) * viewportMagnification, y: CGFloat(origin.y) * viewportMagnification)
         guard target != visible.origin else { return }
         setClipOrigin(target, animated: animated)
     }
@@ -110,7 +111,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.25
                 context.allowsImplicitAnimation = true
-                scrollView.animator().magnification = restore.magnification
+                viewportMagnification = restore.magnification
+                refreshHostedContent()
                 scrollView.contentView.animator().setBoundsOrigin(restore.origin)
                 scrollView.reflectScrolledClipView(scrollView.contentView)
             }
@@ -118,25 +120,22 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
             return
         }
 
-        let content = documentView.bounds
+        let content = layoutRect
         guard content.width > 1, content.height > 1 else { return }
-        overviewRestore = (scrollView.magnification, scrollView.contentView.bounds.origin)
+        overviewRestore = (viewportMagnification, scrollView.contentView.bounds.origin)
         let viewportSize = scrollView.contentSize
         let fit = CGFloat(CanvasViewportMath().magnificationToFit(
-            canvasRect(from: content),
+            canvasRect(from: layoutRect),
             in: canvasSize(from: viewportSize),
             padding: 0,
             range: Double(scrollView.minMagnification)...Double(scrollView.maxMagnification)
         ))
-        let clipSize = CGSize(width: viewportSize.width / fit, height: viewportSize.height / fit)
-        let targetOrigin = CGPoint(
-            x: content.midX - clipSize.width / 2,
-            y: content.midY - clipSize.height / 2
-        )
+        let targetOrigin = CGPoint(x: content.midX * fit - viewportSize.width / 2, y: content.midY * fit - viewportSize.height / 2)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.25
             context.allowsImplicitAnimation = true
-            scrollView.animator().magnification = fit
+            viewportMagnification = fit
+            refreshHostedContent()
             scrollView.contentView.animator().setBoundsOrigin(targetOrigin)
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -145,7 +144,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     func zoom(by factor: CGFloat) {
         overviewRestore = nil
-        let target = clampedMagnification(scrollView.magnification * factor)
+        let target = clampedMagnification(viewportMagnification * factor)
         setMagnification(target)
     }
 
@@ -156,22 +155,15 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     func setViewport(center: CGPoint, magnification: CGFloat?) {
         overviewRestore = nil
-        let targetMagnification = magnification.map(clampedMagnification) ?? scrollView.magnification
+        let targetMagnification = magnification.map(clampedMagnification) ?? viewportMagnification
         let viewportSize = scrollView.contentSize
-        let clipSize = CGSize(
-            width: viewportSize.width / targetMagnification,
-            height: viewportSize.height / targetMagnification
-        )
-        scrollView.magnification = targetMagnification
-        setClipOrigin(
-            CGPoint(x: center.x - clipSize.width / 2, y: center.y - clipSize.height / 2),
-            animated: false
-        )
+        let scaledCenter = CGPoint(x: center.x * targetMagnification, y: center.y * targetMagnification)
+        viewportMagnification = targetMagnification
+        refreshHostedContent()
+        setClipOrigin(CGPoint(x: scaledCenter.x - viewportSize.width / 2, y: scaledCenter.y - viewportSize.height / 2), animated: false)
     }
 
-    var currentMagnification: CGFloat {
-        scrollView.magnification
-    }
+    var currentMagnification: CGFloat { viewportMagnification }
 
     var currentCenterInCanvas: CGPoint {
         let visible = scrollView.contentView.documentVisibleRect
@@ -189,7 +181,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         scrollView.verticalScrollElasticity = .allowed
         scrollView.horizontalScrollElasticity = .allowed
         scrollView.usesPredominantAxisScrolling = false
-        scrollView.allowsMagnification = true
+        scrollView.allowsMagnification = false
         scrollView.minMagnification = Self.minMagnificationFloor
         scrollView.maxMagnification = Self.maxMagnificationCeiling
         scrollView.drawsBackground = false
@@ -211,15 +203,11 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     private func configureDocumentView() {
         documentView.wantsLayer = true
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = []
         hostingView.sizingOptions = []
         documentView.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.topAnchor.constraint(equalTo: documentView.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: documentView.bottomAnchor),
-            hostingView.leadingAnchor.constraint(equalTo: documentView.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: documentView.trailingAnchor),
-        ])
+        syncHostedContentGeometry()
     }
 
     private func installViewportObservers() {
@@ -265,6 +253,10 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
             paneViewAtRootPoint: { [weak self] point in
                 self?.paneView(atRootPoint: point)
             },
+            handleMagnifyEvent: { [weak self] event in
+                self?.zoomByMagnify(event)
+                return true
+            },
             handleMagnify: { [weak self] in
                 self?.synchronizeViewportGeometry()
             },
@@ -293,15 +285,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private func installPanePointerFocusMonitor() {
         guard panePointerFocusMonitor == nil else { return }
         panePointerFocusMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
-            guard let self,
-                  let window = self.window,
-                  event.window === window else {
-                return event
-            }
+            guard let self, let window = self.window, event.window === window else { return event }
 
-            if self.performBonsplitSplitActionButtonClick(event) {
-                return nil
-            }
             _ = self.focusPaneForPointerDown(event, in: window)
             return event
         }
@@ -319,10 +304,15 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     private func updateDocumentSize() {
         let contentSize = scrollView.contentSize
         guard contentSize.width > 1, contentSize.height > 1 else { return }
-        let documentSize = CGSize(width: contentSize.width, height: contentSize.height)
+        let nextLayoutSize = CGSize(width: contentSize.width, height: contentSize.height)
+        if layoutSize != nextLayoutSize {
+            layoutSize = nextLayoutSize
+            refreshHostedContent()
+        }
+        let documentSize = scaledDocumentSize
         if documentView.frame.size != documentSize {
             documentView.setFrameSize(documentSize)
-            hostingView.frame = documentView.bounds
+            syncHostedContentGeometry()
             let currentOrigin = scrollView.contentView.bounds.origin
             let nextOrigin = boundedOrigin(currentOrigin)
             if nextOrigin != currentOrigin {
@@ -334,19 +324,27 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     }
 
     private func setMagnification(_ magnification: CGFloat) {
-        guard magnification != scrollView.magnification else { return }
+        guard magnification != viewportMagnification else { return }
         let center = currentCenterInCanvas
         setViewport(center: center, magnification: magnification)
     }
 
     private func zoom(by factor: CGFloat, towardWindowLocation windowLocation: CGPoint) {
         overviewRestore = nil
-        let target = clampedMagnification(scrollView.magnification * factor)
-        guard target != scrollView.magnification else { return }
-        let anchor = scrollView.contentView.convert(windowLocation, from: nil)
-        scrollView.setMagnification(target, centeredAt: anchor)
+        let target = clampedMagnification(viewportMagnification * factor)
+        guard target != viewportMagnification else { return }
+        let layoutAnchor = documentView.convert(windowLocation, from: nil)
+        let clipAnchor = scrollView.contentView.convert(windowLocation, from: nil)
+        viewportMagnification = target
+        refreshHostedContent()
+        setClipOrigin(CGPoint(x: layoutAnchor.x * target - clipAnchor.x, y: layoutAnchor.y * target - clipAnchor.y), animated: false)
         scrollView.reflectScrolledClipView(scrollView.contentView)
         synchronizeViewportSettled()
+    }
+
+    private func zoomByMagnify(_ event: NSEvent) {
+        let factor = max(0.05, 1 + event.magnification)
+        zoom(by: factor, towardWindowLocation: event.locationInWindow)
     }
 
     private func zoomByScroll(_ event: NSEvent) {
@@ -375,8 +373,8 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     }
 
     private func boundedOrigin(_ origin: CGPoint) -> CGPoint {
-        let visible = scrollView.contentView.documentVisibleRect
-        let bounds = documentView.bounds
+        let visible = scrollView.contentView.bounds
+        let bounds = CGRect(origin: .zero, size: scaledDocumentSize)
         return CGPoint(
             x: min(max(origin.x, bounds.minX), max(bounds.maxX - visible.width, bounds.minX)),
             y: min(max(origin.y, bounds.minY), max(bounds.maxY - visible.height, bounds.minY))
@@ -389,25 +387,22 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
 
     private func updateMagnificationBounds() {
         let fit = fittedMagnification()
-        let maximum = max(Self.maxMagnificationCeiling, fit)
-        scrollView.maxMagnification = maximum
+        scrollView.maxMagnification = max(Self.maxMagnificationCeiling, fit)
         scrollView.minMagnification = fit
-        guard scrollView.magnification < fit else { return }
+        guard viewportMagnification < fit else { return }
 
-        scrollView.magnification = fit
+        viewportMagnification = fit
+        refreshHostedContent()
         let origin = boundedOrigin(scrollView.contentView.bounds.origin)
         scrollView.contentView.setBoundsOrigin(origin)
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private func fittedMagnification() -> CGFloat {
-        let content = documentView.bounds
+        let content = layoutRect
         let viewportSize = scrollView.contentSize
-        guard content.width > 0, content.height > 0, viewportSize.width > 0, viewportSize.height > 0 else {
-            return Self.minMagnificationFloor
-        }
-        // Zoomable splits are not a free canvas: the furthest zoomed-out state
-        // is the exact packed-layout fit, so wheel zoom cannot create empty space.
+        guard content.width > 0, content.height > 0, viewportSize.width > 0, viewportSize.height > 0 else { return Self.minMagnificationFloor }
+        // Furthest zoomed out is the exact packed-layout fit, so wheel zoom cannot create empty space.
         let fit = CGFloat(CanvasViewportMath().magnificationToFit(
             canvasRect(from: content),
             in: canvasSize(from: viewportSize),
@@ -423,24 +418,9 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
     }
 
     @discardableResult
-    private func performBonsplitSplitActionButtonClick(_ event: NSEvent) -> Bool {
-        let rootPoint = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(rootPoint) else { return false }
-        let documentPoint = documentView.convert(event.locationInWindow, from: nil)
-        guard documentView.bounds.contains(documentPoint),
-              let workspace else {
-            return false
-        }
-        return workspace.bonsplitController.performSplitActionButton(atLayoutPoint: documentPoint)
-    }
-
-    @discardableResult
     private func focusPaneForPointerDown(_ event: NSEvent, in window: NSWindow) -> Bool {
         let rootPoint = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(rootPoint),
-              pointerHitTargetsDocumentContent(event, in: window) else {
-            return false
-        }
+        guard bounds.contains(rootPoint), pointerHitTargetsDocumentContent(event, in: window) else { return false }
         let documentPoint = documentView.convert(rootPoint, from: self)
         return focusPane(atDocumentPoint: documentPoint)
     }
@@ -450,10 +430,7 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         let rootPoint = convert(event.locationInWindow, from: nil)
         let documentPoint = documentView.convert(rootPoint, from: self)
         if let workspace, Self.pointTargetsPaneChrome(atDocumentPoint: documentPoint, in: workspace.bonsplitController.layoutSnapshot()) { return false }
-        guard !Self.containsSplitDivider(
-            atWindowPoint: event.locationInWindow,
-            in: documentView
-        ) else { return false }
+        guard !Self.containsSplitDivider(atWindowPoint: event.locationInWindow, in: documentView) else { return false }
         let contentPoint = contentView.convert(event.locationInWindow, from: nil)
         guard let hitView = contentView.hitTest(contentPoint) else { return false }
         return hitView === documentView || hitView.isDescendant(of: documentView)
@@ -490,12 +467,20 @@ final class ZoomableSplitRootView: NSView, CanvasViewportControlling {
         }) ?? focusedPane(in: snapshot) else {
             return nil
         }
-        return CGRect(
-            x: pane.frame.x - snapshot.containerFrame.x,
-            y: pane.frame.y - snapshot.containerFrame.y,
-            width: pane.frame.width,
-            height: pane.frame.height
-        )
+        return CGRect(x: pane.frame.x - snapshot.containerFrame.x, y: pane.frame.y - snapshot.containerFrame.y, width: pane.frame.width, height: pane.frame.height)
+    }
+
+    private func refreshHostedContent() {
+        let documentSize = scaledDocumentSize
+        if documentView.frame.size != documentSize {
+            documentView.setFrameSize(documentSize)
+        }
+        syncHostedContentGeometry()
+    }
+
+    private func syncHostedContentGeometry() {
+        documentView.bounds = CGRect(origin: .zero, size: layoutSize)
+        hostingView.frame = layoutRect
     }
 
     // MARK: Portal Synchronization
