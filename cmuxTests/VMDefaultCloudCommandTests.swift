@@ -384,6 +384,108 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testDefaultFreestyleSSHAttachScopesTmuxSessionToCallerSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-attach-surface-tmux")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let vmID = "vm-persistent-freestyle"
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "33333333-3333-3333-3333-333333333333"
+        let tempDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cmux-fake-ssh-\(UUID().uuidString)", isDirectory: true)
+        let fakeSSHPath = tempDirectory.appendingPathComponent("ssh").path
+        let capturedArgsPath = tempDirectory.appendingPathComponent("ssh-args").path
+
+        try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        : > "$CMUX_FAKE_SSH_ARGS"
+        for arg in "$@"; do
+          printf '%s\\n' "$arg" >> "$CMUX_FAKE_SSH_ARGS"
+        done
+        exit 0
+        """.write(toFile: fakeSSHPath, atomically: true, encoding: .utf8)
+        chmod(fakeSSHPath, 0o755)
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: tempDirectory)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "vm.ssh_info":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "transport": "ssh",
+                        "host": "vm-ssh.freestyle.sh",
+                        "port": 22,
+                        "username": "\(vmID)+cmux",
+                        "credential": [
+                            "kind": "password",
+                            "value": "lease-token",
+                        ],
+                    ]
+                )
+            case "vm.exec":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["id"] as? String, vmID)
+                return self.v2Response(id: id, ok: true, result: ["exit_code": 0, "stdout": "", "stderr": ""])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceID
+        environment["CMUX_SURFACE_ID"] = surfaceID
+        environment["CMUX_FAKE_SSH_ARGS"] = capturedArgsPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "ssh-attach", "--id", vmID, "--default-freestyle-sshd"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let capturedArgs = try String(contentsOfFile: capturedArgsPath, encoding: .utf8)
+        let decodedRemoteBootstrap = try XCTUnwrap(decodedFirstEmbeddedStartupScript(capturedArgs), capturedArgs)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_WORKSPACE_ID='\(workspaceID)'"), decodedRemoteBootstrap)
+        XCTAssertTrue(decodedRemoteBootstrap.contains("export CMUX_SURFACE_ID='\(surfaceID)'"), decodedRemoteBootstrap)
+        XCTAssertTrue(
+            decodedRemoteBootstrap.contains("cmux-cloud-$cmux_cloud_tty_scope"),
+            decodedRemoteBootstrap
+        )
+        XCTAssertFalse(
+            decodedRemoteBootstrap.contains("CMUX_CLOUD_TMUX_SESSION:-cmux-cloud}"),
+            decodedRemoteBootstrap
+        )
+    }
+
     func decodedReusableShellStartupCommand(_ command: String) -> String {
         var decoded = command
         for _ in 0..<4 {
@@ -411,5 +513,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return command
         }
         return decoded
+    }
+
+    private func decodedFirstEmbeddedStartupScript(_ command: String) -> String? {
+        for markerText in ["printf %s ", "printf %%s "] {
+            guard let marker = command.range(of: markerText) else {
+                continue
+            }
+            let suffix = command[marker.upperBound...]
+            guard let end = suffix.firstIndex(where: { $0 == " " || $0 == "\n" || $0 == "'" }),
+                  end > suffix.startIndex else {
+                continue
+            }
+            let encoded = String(suffix[..<end])
+            guard let data = Data(base64Encoded: encoded),
+                  let decoded = String(data: data, encoding: .utf8) else {
+                continue
+            }
+            return decoded
+        }
+        return nil
     }
 }

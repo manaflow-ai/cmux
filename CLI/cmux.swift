@@ -10443,7 +10443,9 @@ struct CMUXCLI {
         let sshArguments = buildSSHCommandArguments(
             options,
             remoteBootstrapScript: Self.freestyleInteractiveShellScript(
-                suppressWelcome: ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
+                suppressWelcome: ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil,
+                workspaceID: ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"],
+                surfaceID: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
             )
         )
         guard let launchPath = sshArguments.first else {
@@ -10596,9 +10598,37 @@ struct CMUXCLI {
         }
     }
 
-    private static func freestyleInteractiveShellScript(suppressWelcome: Bool = false) -> String {
+    private static func normalizedCloudContextValue(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
+    private static func freestyleCloudContextExports(workspaceID: String?, surfaceID: String?) -> String {
+        var lines: [String] = []
+        if let workspaceID = normalizedCloudContextValue(workspaceID) {
+            lines.append("export CMUX_WORKSPACE_ID=\(shellSingleQuote(workspaceID))")
+            lines.append("export CMUX_TAB_ID=\"$CMUX_WORKSPACE_ID\"")
+        }
+        if let surfaceID = normalizedCloudContextValue(surfaceID) {
+            lines.append("export CMUX_SURFACE_ID=\(shellSingleQuote(surfaceID))")
+            lines.append("export CMUX_PANEL_ID=\"$CMUX_SURFACE_ID\"")
+        }
+        return lines.isEmpty ? ":" : lines.joined(separator: "\n")
+    }
+
+    private static func freestyleInteractiveShellScript(
+        suppressWelcome: Bool = false,
+        workspaceID: String? = nil,
+        surfaceID: String? = nil
+    ) -> String {
         """
         \(suppressWelcome ? "export CMUX_CLOUD_WELCOME=0" : ":")
+        \(freestyleCloudContextExports(workspaceID: workspaceID, surfaceID: surfaceID))
         if ! command -v zsh >/dev/null 2>&1 || ! command -v gh >/dev/null 2>&1 || ! command -v htop >/dev/null 2>&1 || ! command -v btop >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
           if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
             if command -v apt-get >/dev/null 2>&1; then
@@ -10657,7 +10687,15 @@ struct CMUXCLI {
         CMUX_LOCAL_ZSHRC
           fi
           if command -v tmux >/dev/null 2>&1; then
-            export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud}"
+            cmux_cloud_tty_scope="${CMUX_WORKSPACE_ID:-workspace}-${CMUX_SURFACE_ID:-surface}"
+            if [ "$cmux_cloud_tty_scope" = "workspace-surface" ]; then
+              cmux_cloud_tty_scope="default"
+            fi
+            cmux_cloud_tty_scope="$(printf '%s' "$cmux_cloud_tty_scope" | tr -c 'A-Za-z0-9_.-' '-')"
+            cmux_cloud_tty_scope="${cmux_cloud_tty_scope#-}"
+            cmux_cloud_tty_scope="${cmux_cloud_tty_scope%-}"
+            [ -n "$cmux_cloud_tty_scope" ] || cmux_cloud_tty_scope=default
+            export CMUX_CLOUD_TMUX_SESSION="${CMUX_CLOUD_TMUX_SESSION:-cmux-cloud-$cmux_cloud_tty_scope}"
             if ! tmux has-session -t "$CMUX_CLOUD_TMUX_SESSION" >/dev/null 2>&1; then
               tmux new-session -d -s "$CMUX_CLOUD_TMUX_SESSION" "exec zsh -l" >/dev/null 2>&1 || true
             fi
