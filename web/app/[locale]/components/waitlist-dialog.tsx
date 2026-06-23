@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
 import { useRef, useState } from "react";
 import {
+  WAITLIST_EARLY_ACCESS_FLAGS,
   WAITLIST_PLATFORMS,
   type WaitlistTarget,
 } from "../../lib/download";
@@ -91,9 +92,15 @@ function WaitlistBody({
       email: trimmed,
       location,
     });
-    posthog.setPersonProperties(
-      Object.fromEntries(platforms.map((p) => [`waitlist_${p}`, true])),
-    );
+    // Enroll the identified person in each platform's Early Access Feature so
+    // the signup shows up as a managed enrollee in PostHog, not just an event.
+    for (const p of platforms) {
+      posthog.updateEarlyAccessFeatureEnrollment(
+        WAITLIST_EARLY_ACCESS_FLAGS[p],
+        true,
+        "concept",
+      );
+    }
     timerRef.current = setTimeout(() => setStatus("done"), SUBMIT_DELAY_MS);
   };
 

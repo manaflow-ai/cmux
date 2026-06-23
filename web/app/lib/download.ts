@@ -45,3 +45,15 @@ export type WaitlistPlatform = (typeof WAITLIST_PLATFORMS)[number];
  * across every unreleased platform).
  */
 export type WaitlistTarget = WaitlistPlatform | "any";
+
+/**
+ * PostHog Early Access Feature flag keys (project 244066, stage "concept")
+ * backing each platform waitlist. Joining enrolls the identified person in the
+ * matching feature, so signups show up as that feature's enrollees in PostHog
+ * rather than only as a raw event.
+ */
+export const WAITLIST_EARLY_ACCESS_FLAGS: Record<WaitlistPlatform, string> = {
+  linux: "cmux-for-linux",
+  android: "cmux-for-android",
+  windows: "cmux-for-windows",
+};

@@ -76,12 +76,15 @@ export function DownloadButton({
   // that tint independently on hover. `overflow-hidden` clips the hover tint to
   // the rounded corners; the divider and caret are kept barely-there so the
   // split affordance only surfaces when you reach for it.
-  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.04] ${
+  // In dark mode the pill is light and the divider/caret are dark, which reads
+  // higher-contrast than the inverse in light mode, so dial those down further
+  // under `dark:` to keep the split affordance equally quiet.
+  const downloadZone = `flex items-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] ${
     isSmall
       ? "gap-2 pl-4 pr-3 py-1.5 text-xs"
       : "gap-2.5 pl-5 pr-4 py-2.5 text-[15px]"
   }`;
-  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.04] data-[popup-open]:bg-background/[0.04] ${
+  const caretZone = `group flex items-center justify-center transition-colors hover:bg-background/[0.04] dark:hover:bg-background/[0.03] data-[popup-open]:bg-background/[0.04] dark:data-[popup-open]:bg-background/[0.03] ${
     isSmall ? "px-2" : "px-2.5"
   }`;
 
@@ -119,7 +122,7 @@ export function DownloadButton({
       strokeWidth="2.25"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="opacity-40 transition-opacity group-hover:opacity-70 group-data-[popup-open]:opacity-70"
+      className="opacity-40 transition-opacity group-hover:opacity-70 group-data-[popup-open]:opacity-70 dark:opacity-30 dark:group-hover:opacity-55 dark:group-data-[popup-open]:opacity-55"
       aria-hidden="true"
     >
       <path d="m6 9 6 6 6-6" />
@@ -146,7 +149,7 @@ export function DownloadButton({
           </Link>
         )}
 
-        <div className="my-2.5 w-px bg-background/[0.07]" aria-hidden="true" />
+        <div className="my-2.5 w-px bg-background/[0.07] dark:bg-background/[0.05]" aria-hidden="true" />
 
         <Menu.Root>
           <Menu.Trigger
