@@ -176,6 +176,10 @@ extension TerminalController {
         let requestedFocus = v2Bool(params, "focus") ?? false
         return v2WorkspaceTasksCommand(params: params) { workspace, tabManager in
             let focus = v2FocusAllowed(requested: requestedFocus)
+            if focus {
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: workspace)
+            }
             guard let panel = workspace.openOrFocusWorkspaceTasksSurface(focus: focus) else {
                 return .err(
                     code: "unavailable",
