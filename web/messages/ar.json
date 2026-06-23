@@ -487,13 +487,13 @@
       },
       "cmuxHome": {
         "title": "cmux home",
-        "summary": "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
-        "date": "June 23, 2026",
-        "p1": "People keep asking whether we'll add git worktrees to cmux. We're not going to, because we don't want to impose worktrees on everyone. cmux is <link>a primitive, not a solution</link>.",
-        "p2": "Everyone works differently. Some projects live across several git repos. Some people keep many checkouts of the same repo (my cofounder has clones named cmux0 through cmux40, for reasons I still don't understand). Some people default to SSH and remote development.",
-        "p3": "cmux is just terminals and browsers, with a CLI to drive them. You can write a few bash scripts to manage worktrees, juggle multiple checkouts, or open remote sessions, and lay out your workspace however fits your head.",
-        "p4": "cmux should bend to your workflow instead of forcing one on you. We want cmux to feel like home.",
-        "p5": "<link>cmux-home</link> is one example of what that looks like. It's a small Rust TUI that starts Claude and Codex workspaces and watches their live status, built entirely on cmux primitives. The launcher uses command templates, so you can swap in your own scripts for creating worktrees, picking a checkout, or SSHing into a VM. Fork it and make it yours."
+        "summary": "لن نضيف الـ worktrees إلى cmux. إنه عنصر أساسي، لذا يمكنك كتابة سكربتات خاصة بك لإنشاء worktrees أو نسخ متعددة أو التطوير عن بُعد وتجعله مثل بيتك.",
+        "date": "23 يونيو 2026",
+        "p1": "يسألنا الناس باستمرار عمّا إذا كنا سنضيف worktrees الخاصة بـ git إلى cmux. لن نفعل، لأننا لا نريد فرض الـ worktrees على الجميع. cmux هو <link>عنصر أساسي وليس حلاً</link>.",
+        "p2": "كل شخص يعمل بطريقة مختلفة. بعض المشاريع موزعة على عدة مستودعات git. بعض الناس يحتفظون بعدة نسخ من المستودع نفسه (شريكي المؤسس لديه نسخ مسماة من cmux0 إلى cmux40، لأسباب لا أزال لا أفهمها). بعضهم يعتمد افتراضيًا على SSH والتطوير عن بُعد.",
+        "p3": "cmux مجرد طرفيات ومتصفحات، مع واجهة سطر أوامر للتحكم بها. يمكنك كتابة بضع سكربتات bash لإدارة الـ worktrees، أو التنقل بين نسخ متعددة، أو فتح جلسات عن بُعد، وترتيب مساحة عملك كما يناسبك.",
+        "p4": "ينبغي أن يتكيّف cmux مع سير عملك بدلاً من أن يفرض عليك واحدًا. نريد أن يشعرك cmux وكأنه بيتك.",
+        "p5": "<link>cmux-home</link> هو أحد الأمثلة على ذلك. إنه واجهة طرفية صغيرة مكتوبة بلغة Rust تُشغّل مساحات عمل Claude وCodex وتراقب حالتها مباشرةً، مبنية بالكامل على عناصر cmux الأساسية. يستخدم المُشغّل قوالب أوامر، لذا يمكنك استبدالها بسكربتاتك الخاصة لإنشاء worktrees أو اختيار نسخة أو الاتصال عبر SSH بجهاز افتراضي. انسخه (fork) واجعله ملكك."
       }
     },
     "zenOfCmux": {
@@ -626,7 +626,7 @@
     },
     "cmuxHome": {
       "metaTitle": "cmux home",
-      "metaDescription": "cmux won't impose worktrees on you. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make cmux feel like home."
+      "metaDescription": "لا يفرض cmux عليك الـ worktrees. إنه عنصر أساسي، لذا يمكنك كتابة سكربتات خاصة بك لإنشاء worktrees أو نسخ متعددة أو التطوير عن بُعد وتجعل cmux مثل بيتك."
     }
   },
   "docs": {

@@ -487,13 +487,13 @@
       },
       "cmuxHome": {
         "title": "cmux home",
-        "summary": "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
-        "date": "June 23, 2026",
-        "p1": "People keep asking whether we'll add git worktrees to cmux. We're not going to, because we don't want to impose worktrees on everyone. cmux is <link>a primitive, not a solution</link>.",
-        "p2": "Everyone works differently. Some projects live across several git repos. Some people keep many checkouts of the same repo (my cofounder has clones named cmux0 through cmux40, for reasons I still don't understand). Some people default to SSH and remote development.",
-        "p3": "cmux is just terminals and browsers, with a CLI to drive them. You can write a few bash scripts to manage worktrees, juggle multiple checkouts, or open remote sessions, and lay out your workspace however fits your head.",
-        "p4": "cmux should bend to your workflow instead of forcing one on you. We want cmux to feel like home.",
-        "p5": "<link>cmux-home</link> is one example of what that looks like. It's a small Rust TUI that starts Claude and Codex workspaces and watches their live status, built entirely on cmux primitives. The launcher uses command templates, so you can swap in your own scripts for creating worktrees, picking a checkout, or SSHing into a VM. Fork it and make it yours."
+        "summary": "Ne dodajemo worktree u cmux. To je primitiv, pa možeš sam skriptirati vlastite worktree, više checkout-a ili udaljeni razvoj i učiniti ga svojim domom.",
+        "date": "23. juni 2026.",
+        "p1": "Ljudi nas stalno pitaju hoćemo li dodati git worktree u cmux. Nećemo, jer ne želimo nikome nametati worktree. cmux je <link>primitiv, a ne rješenje</link>.",
+        "p2": "Svako radi drugačije. Neki projekti su raspoređeni preko više git repozitorija. Neki drže mnogo checkout-a istog repozitorija (moj suosnivač ima klonove nazvane od cmux0 do cmux40, iz razloga koje još uvijek ne razumijem). Neki podrazumijevano koriste SSH i udaljeni razvoj.",
+        "p3": "cmux su samo terminali i preglednici, uz CLI za upravljanje njima. Uz nekoliko bash skripti možeš upravljati worktree-jevima, žonglirati s više checkout-a ili otvarati udaljene sesije, i posložiti radni prostor onako kako tebi odgovara.",
+        "p4": "cmux bi se trebao prilagoditi tvom toku rada umjesto da ti nameće svoj. Želimo da se cmux osjeća kao dom.",
+        "p5": "<link>cmux-home</link> je jedan primjer toga. To je mali Rust TUI koji pokreće Claude i Codex radne prostore i prati njihov status uživo, u potpunosti izgrađen na cmux primitivama. Pokretač koristi predloške naredbi, pa možeš ubaciti vlastite skripte za kreiranje worktree-jeva, odabir checkout-a ili SSH povezivanje na VM. Forkaj ga i učini ga svojim."
       }
     },
     "zenOfCmux": {
@@ -626,7 +626,7 @@
     },
     "cmuxHome": {
       "metaTitle": "cmux home",
-      "metaDescription": "cmux won't impose worktrees on you. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make cmux feel like home."
+      "metaDescription": "cmux ti ne nameće worktree. To je primitiv, pa možeš sam skriptirati vlastite worktree, više checkout-a ili udaljeni razvoj i učiniti cmux svojim domom."
     }
   },
   "docs": {

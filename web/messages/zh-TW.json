@@ -487,13 +487,13 @@
       },
       "cmuxHome": {
         "title": "cmux home",
-        "summary": "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
-        "date": "June 23, 2026",
-        "p1": "People keep asking whether we'll add git worktrees to cmux. We're not going to, because we don't want to impose worktrees on everyone. cmux is <link>a primitive, not a solution</link>.",
-        "p2": "Everyone works differently. Some projects live across several git repos. Some people keep many checkouts of the same repo (my cofounder has clones named cmux0 through cmux40, for reasons I still don't understand). Some people default to SSH and remote development.",
-        "p3": "cmux is just terminals and browsers, with a CLI to drive them. You can write a few bash scripts to manage worktrees, juggle multiple checkouts, or open remote sessions, and lay out your workspace however fits your head.",
-        "p4": "cmux should bend to your workflow instead of forcing one on you. We want cmux to feel like home.",
-        "p5": "<link>cmux-home</link> is one example of what that looks like. It's a small Rust TUI that starts Claude and Codex workspaces and watches their live status, built entirely on cmux primitives. The launcher uses command templates, so you can swap in your own scripts for creating worktrees, picking a checkout, or SSHing into a VM. Fork it and make it yours."
+        "summary": "我們不會為 cmux 加入 worktree。它是一種基礎元件，你可以自己用腳本實作 worktree、多份檢出或遠端開發，把它變成自己的家。",
+        "date": "2026 年 6 月 23 日",
+        "p1": "常有人問我們會不會為 cmux 加入 git worktree。我們不會，因為我們不想把 worktree 強加給所有人。cmux 是<link>一種基礎元件，而不是一套方案</link>。",
+        "p2": "每個人的工作方式都不一樣。有些專案分散在多個 git 儲存庫裡。有些人會保留同一個儲存庫的許多份檢出（我的共同創辦人有從 cmux0 到 cmux40 命名的複製，原因我至今仍不明白）。有些人預設使用 SSH 與遠端開發。",
+        "p3": "cmux 只是終端機和瀏覽器，再加上一個用來操作它們的 CLI。你可以寫幾個 bash 腳本來管理 worktree、在多份檢出之間切換或開啟遠端工作階段，並依自己的習慣安排工作區。",
+        "p4": "cmux 應該順應你的工作流程，而不是強迫你接受某一種。我們希望 cmux 用起來像家一樣。",
+        "p5": "<link>cmux-home</link> 就是一個例子。它是一個小巧的 Rust TUI，用來啟動 Claude 和 Codex 工作區並即時查看它們的狀態，完全建構在 cmux 的基礎元件之上。啟動器使用命令範本，你可以換成自己的腳本來建立 worktree、選擇檢出或 SSH 連線到 VM。把它 fork 下來，變成你自己的。"
       }
     },
     "zenOfCmux": {
@@ -626,7 +626,7 @@
     },
     "cmuxHome": {
       "metaTitle": "cmux home",
-      "metaDescription": "cmux won't impose worktrees on you. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make cmux feel like home."
+      "metaDescription": "cmux 不會把 worktree 強加給你。它是一種基礎元件，你可以自己用腳本實作 worktree、多份檢出或遠端開發，把 cmux 變成自己的家。"
     }
   },
   "docs": {

@@ -487,13 +487,13 @@
       },
       "cmuxHome": {
         "title": "cmux home",
-        "summary": "We're not adding worktrees to cmux. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make it feel like home.",
-        "date": "June 23, 2026",
-        "p1": "People keep asking whether we'll add git worktrees to cmux. We're not going to, because we don't want to impose worktrees on everyone. cmux is <link>a primitive, not a solution</link>.",
-        "p2": "Everyone works differently. Some projects live across several git repos. Some people keep many checkouts of the same repo (my cofounder has clones named cmux0 through cmux40, for reasons I still don't understand). Some people default to SSH and remote development.",
-        "p3": "cmux is just terminals and browsers, with a CLI to drive them. You can write a few bash scripts to manage worktrees, juggle multiple checkouts, or open remote sessions, and lay out your workspace however fits your head.",
-        "p4": "cmux should bend to your workflow instead of forcing one on you. We want cmux to feel like home.",
-        "p5": "<link>cmux-home</link> is one example of what that looks like. It's a small Rust TUI that starts Claude and Codex workspaces and watches their live status, built entirely on cmux primitives. The launcher uses command templates, so you can swap in your own scripts for creating worktrees, picking a checkout, or SSHing into a VM. Fork it and make it yours."
+        "summary": "cmux에 워크트리를 추가하지 않습니다. 프리미티브이기 때문에 워크트리, 여러 체크아웃, 원격 개발을 직접 스크립트로 구성해 내 집처럼 만들 수 있습니다.",
+        "date": "2026년 6월 23일",
+        "p1": "cmux에 git 워크트리를 추가할지 자주 묻습니다. 추가하지 않습니다. 모두에게 워크트리를 강요하고 싶지 않기 때문입니다. cmux는 <link>해결책이 아니라 프리미티브</link>입니다.",
+        "p2": "사람마다 일하는 방식이 다릅니다. 여러 git 저장소에 걸친 프로젝트도 있습니다. 같은 저장소를 여러 번 체크아웃해 두는 사람도 있습니다(제 공동창업자는 cmux0부터 cmux40까지 이름 붙인 클론을 가지고 있는데, 이유는 아직도 모르겠습니다). SSH와 원격 개발을 기본으로 하는 사람도 있습니다.",
+        "p3": "cmux는 터미널과 브라우저, 그리고 그것들을 다루는 CLI일 뿐입니다. bash 스크립트 몇 개만 작성하면 워크트리를 관리하고, 여러 체크아웃을 오가고, 원격 세션을 열 수 있으며, 작업 공간을 자신에게 맞게 배치할 수 있습니다.",
+        "p4": "cmux는 워크플로를 강요하지 않고 당신의 워크플로에 맞춰져야 합니다. cmux가 집처럼 느껴지길 바랍니다.",
+        "p5": "<link>cmux-home</link>이 그 예입니다. Claude와 Codex 워크스페이스를 시작하고 실시간 상태를 지켜보는 작은 Rust TUI로, 전적으로 cmux 프리미티브 위에 만들어졌습니다. 런처는 명령 템플릿을 사용하므로 워크트리 생성, 체크아웃 선택, VM에 SSH 접속 같은 작업을 자신의 스크립트로 교체할 수 있습니다. 포크해서 당신의 것으로 만드세요."
       }
     },
     "zenOfCmux": {
@@ -626,7 +626,7 @@
     },
     "cmuxHome": {
       "metaTitle": "cmux home",
-      "metaDescription": "cmux won't impose worktrees on you. It's a primitive, so you can script your own worktrees, multiple checkouts, or remote dev and make cmux feel like home."
+      "metaDescription": "cmux는 워크트리를 강요하지 않습니다. 프리미티브이기 때문에 워크트리, 여러 체크아웃, 원격 개발을 직접 스크립트로 구성해 cmux를 내 집처럼 만들 수 있습니다."
     }
   },
   "docs": {
