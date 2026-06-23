@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Everything needed to establish and operate one remote-workspace connection:
 /// transport selection, SSH identity/options, relay and proxy wiring, and the
@@ -27,6 +27,8 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     public let relayToken: String?
     /// Local control-socket path forwarded over the relay.
     public let localSocketPath: String?
+    /// Local workspace that owns VM-originated CLI bridge requests.
+    public let ownerWorkspaceID: UUID?
     /// Startup command run in new terminal surfaces for this workspace.
     public let terminalStartupCommand: String?
     /// One-shot token gating auto-connect on foreground SSH authentication.
@@ -59,6 +61,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         relayID: String?,
         relayToken: String?,
         localSocketPath: String?,
+        ownerWorkspaceID: UUID? = nil,
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
         agentSocketPath: String? = nil,
@@ -77,6 +80,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         self.relayID = relayID
         self.relayToken = relayToken
         self.localSocketPath = localSocketPath
+        self.ownerWorkspaceID = ownerWorkspaceID
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
         self.agentSocketPath = Self.normalizedAgentSocketPath(agentSocketPath)
@@ -130,6 +134,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         let normalizedWebSocketDaemon = daemonWebSocketEndpoint?.proxyBrokerKeyComponent ?? ""
         let normalizedRequiredCapabilities = preserveAfterTerminalExit ? "pty.session" : ""
         let normalizedPersistentDaemonSlot = persistentDaemonSlot ?? ""
+        let normalizedOwnerWorkspaceID = ownerWorkspaceID?.uuidString.lowercased() ?? ""
         return [
             normalizedTransport,
             normalizedBootstrapMode,
@@ -141,6 +146,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             normalizedWebSocketDaemon,
             normalizedRequiredCapabilities,
             normalizedPersistentDaemonSlot,
+            normalizedOwnerWorkspaceID,
         ]
             .joined(separator: "\u{1e}")
     }
@@ -165,10 +171,37 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
                 == other.destination.trimmingCharacters(in: .whitespacesAndNewlines)
             && port == other.port
             && relayPort == other.relayPort
+            && ownerWorkspaceID == other.ownerWorkspaceID
             && Self.normalizedIdentityPath(identityFile)
                 == Self.normalizedIdentityPath(other.identityFile)
             && Self.proxyBrokerSSHOptions(sshOptions) == Self.proxyBrokerSSHOptions(other.sshOptions)
             && daemonWebSocketEndpoint?.proxyBrokerKeyComponent == other.daemonWebSocketEndpoint?.proxyBrokerKeyComponent
+    }
+
+    /// Returns a copy scoped to the local workspace that owns this remote
+    /// configuration. Remote CLI bridges use this to reject cross-workspace
+    /// requests before they reach the app control socket.
+    public func scopedToOwnerWorkspace(_ workspaceID: UUID) -> WorkspaceRemoteConfiguration {
+        WorkspaceRemoteConfiguration(
+            transport: transport,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions,
+            localProxyPort: localProxyPort,
+            relayPort: relayPort,
+            relayID: relayID,
+            relayToken: relayToken,
+            localSocketPath: localSocketPath,
+            ownerWorkspaceID: workspaceID,
+            terminalStartupCommand: terminalStartupCommand,
+            foregroundAuthToken: foregroundAuthToken,
+            agentSocketPath: agentSocketPath,
+            daemonWebSocketEndpoint: daemonWebSocketEndpoint,
+            preserveAfterTerminalExit: preserveAfterTerminalExit,
+            persistentDaemonSlot: persistentDaemonSlot,
+            skipDaemonBootstrap: skipDaemonBootstrap
+        )
     }
 }
 

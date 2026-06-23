@@ -262,8 +262,161 @@ public final class RemoteDaemonProxyTunnel: @unchecked Sendable {
             return nil
         }
         return { request in
-            try roundTripUnixSocket(socketPath: localSocketPath, request: request)
+            switch validateCloudCLIRequest(request, ownerWorkspaceID: configuration.ownerWorkspaceID) {
+            case .forward(let forwardedRequest):
+                return try roundTripUnixSocket(socketPath: localSocketPath, request: forwardedRequest)
+            case .reject(let response):
+                return response
+            }
         }
+    }
+
+    internal enum CloudCLIRequestValidation: Equatable {
+        case forward(Data)
+        case reject(Data)
+    }
+
+    /// Validates VM-originated CLI bridge requests before they hit the local
+    /// app socket. The websocket lease authenticates the daemon; this method
+    /// keeps VM processes from becoming arbitrary local cmux socket clients.
+    internal static func validateCloudCLIRequest(_ request: Data, ownerWorkspaceID: UUID?) -> CloudCLIRequestValidation {
+        let requestLimitBytes = 64 * 1024
+        guard request.count <= requestLimitBytes else {
+            return .reject(cloudCLIErrorResponse(
+                id: nil,
+                code: "remote_cli_request_too_large",
+                message: "Cloud CLI request is too large"
+            ))
+        }
+        guard let object = try? JSONSerialization.jsonObject(with: request, options: []),
+              let envelope = object as? [String: Any] else {
+            return .reject(cloudCLIErrorResponse(
+                id: nil,
+                code: "parse_error",
+                message: "Invalid JSON"
+            ))
+        }
+
+        let requestID = envelope["id"]
+        guard let ownerWorkspaceID else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "remote_cli_unscoped",
+                message: "Cloud CLI bridge is not scoped to a workspace"
+            ))
+        }
+        guard let method = (envelope["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !method.isEmpty else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_request",
+                message: "Missing method"
+            ))
+        }
+        guard let params = envelope["params"] as? [String: Any] else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: "Cloud CLI request params must be an object"
+            ))
+        }
+
+        switch method {
+        case "notification.create_for_caller":
+            return validateCloudCLINotification(
+                requestID: requestID,
+                params: params,
+                ownerWorkspaceID: ownerWorkspaceID,
+                workspaceKey: "preferred_workspace_id",
+                surfaceKey: "preferred_surface_id"
+            )
+        case "notification.create", "notification.create_for_target":
+            return validateCloudCLINotification(
+                requestID: requestID,
+                params: params,
+                ownerWorkspaceID: ownerWorkspaceID,
+                workspaceKey: "workspace_id",
+                surfaceKey: "surface_id"
+            )
+        default:
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "remote_cli_method_denied",
+                message: "Cloud CLI bridge only supports scoped notifications from the VM"
+            ))
+        }
+    }
+
+    private static func validateCloudCLINotification(
+        requestID: Any?,
+        params: [String: Any],
+        ownerWorkspaceID: UUID,
+        workspaceKey: String,
+        surfaceKey: String
+    ) -> CloudCLIRequestValidation {
+        guard let workspaceRaw = params[workspaceKey] as? String,
+              let requestedWorkspaceID = UUID(uuidString: workspaceRaw) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: "Cloud CLI notification requires a valid workspace_id"
+            ))
+        }
+        guard requestedWorkspaceID == ownerWorkspaceID else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "remote_cli_workspace_denied",
+                message: "Cloud CLI notification target does not match this workspace"
+            ))
+        }
+        guard let surfaceRaw = params[surfaceKey] as? String,
+              UUID(uuidString: surfaceRaw) != nil else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "invalid_params",
+                message: "Cloud CLI notification requires a valid surface_id"
+            ))
+        }
+
+        var forwardedParams: [String: Any] = [
+            "workspace_id": ownerWorkspaceID.uuidString,
+            "surface_id": surfaceRaw,
+        ]
+        for key in ["title", "subtitle", "body"] {
+            if let value = params[key] as? String {
+                forwardedParams[key] = value
+            }
+        }
+        let forwarded: [String: Any] = [
+            "id": requestID ?? NSNull(),
+            "method": "notification.create_for_target",
+            "params": forwardedParams,
+        ]
+        guard JSONSerialization.isValidJSONObject(forwarded),
+              let data = try? JSONSerialization.data(withJSONObject: forwarded, options: []) else {
+            return .reject(cloudCLIErrorResponse(
+                id: requestID,
+                code: "encode_error",
+                message: "Failed to encode Cloud CLI request"
+            ))
+        }
+        return .forward(data + Data([0x0A]))
+    }
+
+    private static func cloudCLIErrorResponse(id: Any?, code: String, message: String) -> Data {
+        let response: [String: Any] = [
+            "id": id ?? NSNull(),
+            "ok": false,
+            "error": [
+                "code": code,
+                "message": message,
+            ],
+        ]
+        guard JSONSerialization.isValidJSONObject(response),
+              let data = try? JSONSerialization.data(withJSONObject: response, options: []) else {
+            return Data("{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}\n".utf8)
+        }
+        return data + Data([0x0A])
     }
 
     private static func roundTripUnixSocket(socketPath: String, request: Data) throws -> Data {
