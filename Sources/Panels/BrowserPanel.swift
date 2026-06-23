@@ -6963,7 +6963,9 @@ extension BrowserPanel {
         }
         let shouldForceRefresh = forceDeveloperToolsRefreshOnNextAttach
         forceDeveloperToolsRefreshOnNextAttach = false
-        if preferredDeveloperToolsPresentation == .detached && !detachedOpenStillSettling {
+        if preferredDeveloperToolsPresentation == .detached &&
+            !detachedOpenStillSettling &&
+            !shouldForceRefresh {
             setPreferredDeveloperToolsVisible(false)
             developerToolsDetachedOpenGraceDeadline = nil
             cancelDeveloperToolsRestoreRetry()
