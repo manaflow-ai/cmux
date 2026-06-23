@@ -291,7 +291,6 @@ struct SidebarWorkspaceRowDropMetrics {
     static func titleTextWidth(
         sidebarWidth: CGFloat,
         unreadCount: Int,
-        hasMemoryWarning: Bool,
         isPinned: Bool,
         canCloseWorkspace: Bool,
         fontScale: CGFloat
@@ -307,9 +306,6 @@ struct SidebarWorkspaceRowDropMetrics {
 
         if unreadCount > 0 {
             addAccessory(width: 16 * scale)
-        }
-        if hasMemoryWarning {
-            addAccessory(width: 12 * scale)
         }
         if isPinned {
             addAccessory(width: 10 * scale)
@@ -390,7 +386,6 @@ struct SidebarWorkspaceRowDropMetrics {
         metadataBlocksAreExpanded: Bool,
         sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
         unreadCount: Int = 0,
-        hasMemoryWarning: Bool = false,
         canCloseWorkspace: Bool = true
     ) -> CGFloat {
         let visibleDetails = settings.visibleAuxiliaryDetails
@@ -400,7 +395,6 @@ struct SidebarWorkspaceRowDropMetrics {
         let resolvedTitleTextWidth = titleTextWidth(
             sidebarWidth: sidebarWidth,
             unreadCount: unreadCount,
-            hasMemoryWarning: hasMemoryWarning,
             isPinned: snapshot.isPinned,
             canCloseWorkspace: canCloseWorkspace,
             fontScale: scale
@@ -454,7 +448,6 @@ struct SidebarWorkspaceRowDropMetrics {
         metadataBlocksAreExpanded: Bool,
         sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth),
         unreadCount: Int = 0,
-        hasMemoryWarning: Bool = false,
         canCloseWorkspace: Bool = true
     ) -> CGFloat {
         return targetHeight(
@@ -465,7 +458,6 @@ struct SidebarWorkspaceRowDropMetrics {
             metadataBlocksAreExpanded: metadataBlocksAreExpanded,
             sidebarWidth: sidebarWidth,
             unreadCount: unreadCount,
-            hasMemoryWarning: hasMemoryWarning,
             canCloseWorkspace: canCloseWorkspace
         )
     }

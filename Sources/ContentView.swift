@@ -1830,9 +1830,6 @@ struct ContentView: View {
                 .accessibilityHidden(sidebarSelectionState.selection != .notifications)
         }
         .padding(.top, effectiveTitlebarPadding)
-        .overlay(alignment: .top) {
-            PaneMemoryGuardrailBanner(guardrail: PaneMemoryGuardrail.shared, tabManager: tabManager)
-        }
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {
@@ -12094,7 +12091,6 @@ struct VerticalTabsSidebar: View {
             target: contextMenuPinTarget
         )
         let liveUnreadCount = sidebarUnread.unreadCount(forWorkspaceId: tab.id)
-        let liveHasMemoryWarning = sidebarUnread.hasMemoryWarning(forWorkspaceId: tab.id)
         let liveLatestNotificationText: String? = showsSidebarNotificationMessage
             ? sidebarUnread.latestNotificationText(forWorkspaceId: tab.id)
             : nil
@@ -12166,7 +12162,6 @@ struct VerticalTabsSidebar: View {
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
             unreadCount: liveUnreadCount,
-            hasMemoryWarning: liveHasMemoryWarning,
             latestNotificationText: liveLatestNotificationText,
             rowSpacing: tabRowSpacing, sidebarWidth: rowSidebarWidth,
             setSelectionToTabs: { selection = .tabs },
@@ -12965,7 +12960,6 @@ struct TabItemView: View, Equatable {
         lhs.canCloseWorkspace == rhs.canCloseWorkspace &&
         lhs.accessibilityWorkspaceCount == rhs.accessibilityWorkspaceCount &&
         lhs.unreadCount == rhs.unreadCount &&
-        lhs.hasMemoryWarning == rhs.hasMemoryWarning &&
         lhs.latestNotificationText == rhs.latestNotificationText &&
         lhs.rowSpacing == rhs.rowSpacing && lhs.sidebarWidth == rhs.sidebarWidth &&
         lhs.showsModifierShortcutHints == rhs.showsModifierShortcutHints &&
@@ -13002,10 +12996,6 @@ struct TabItemView: View, Equatable {
     let canCloseWorkspace: Bool
     let accessibilityWorkspaceCount: Int
     let unreadCount: Int
-    /// True when any pane in this workspace is over the runaway-memory
-    /// threshold. Precomputed snapshot value (snapshot-boundary rule); drives
-    /// the orange warning badge alongside the unread badge.
-    let hasMemoryWarning: Bool
     let latestNotificationText: String?
     let rowSpacing: CGFloat, sidebarWidth: CGFloat
     let setSelectionToTabs: () -> Void
@@ -13407,7 +13397,7 @@ struct TabItemView: View, Equatable {
             metadataEntryIsExpanded: metadataRowsExpanded,
             metadataBlocksAreExpanded: metadataBlocksExpanded,
             sidebarWidth: sidebarWidth, unreadCount: unreadCount,
-            hasMemoryWarning: hasMemoryWarning, canCloseWorkspace: canCloseWorkspace
+            canCloseWorkspace: canCloseWorkspace
         )
         let scaledUnreadBadgeSize = 16 * fontScale
         let scaledCloseButtonHitSize = max(16, 16 * fontScale)
@@ -13427,20 +13417,6 @@ struct TabItemView: View, Equatable {
                             .foregroundColor(activeUnreadBadgeTextColor)
                     }
                     .frame(width: scaledUnreadBadgeSize, height: scaledUnreadBadgeSize)
-                }
-
-                if hasMemoryWarning {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(magnifiedFont(scaledFontSize(11), weight: .semibold))
-                        .foregroundColor(.orange)
-                        .safeHelp(String(
-                            localized: "sidebar.memoryWarning.tooltip",
-                            defaultValue: "A pane in this workspace is using a lot of memory"
-                        ))
-                        .accessibilityLabel(String(
-                            localized: "sidebar.memoryWarning.accessibilityLabel",
-                            defaultValue: "High memory warning"
-                        ))
                 }
 
                 if workspaceSnapshot.isPinned {
