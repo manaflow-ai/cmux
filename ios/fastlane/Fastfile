@@ -9,17 +9,16 @@ platform :ios do
   desc "CI overrides device names per Xcode version via SNAPSHOT_DEVICES (the model"
   desc "names in Snapfile drift between Xcode releases, so CI resolves them at runtime)."
   lane :screenshots do
-    opts = { scheme: "cmux-ios" }
-    # Comma-separated simulator names, e.g. "iPhone 17 Pro Max,iPad Pro 13-inch (M4)".
-    # Set by the CI device-resolution step so we always shoot the required
-    # 6.9" iPhone + 13" iPad classes on whatever Xcode the runner has.
-    if (devs = ENV["SNAPSHOT_DEVICES"]) && !devs.strip.empty?
-      opts[:devices] = devs.split(",").map(&:strip)
-    end
-    if (langs = ENV["SNAPSHOT_LANGUAGES"]) && !langs.strip.empty?
-      opts[:languages] = langs.split(",").map(&:strip)
-    end
-    capture_screenshots(opts)
+    # Devices/languages are the single source here (NOT the Snapfile) so the
+    # action params always win. CI sets SNAPSHOT_DEVICES to the exact simulators
+    # available on the runner (model names drift across Xcode versions); the
+    # local defaults below cover a typical current Xcode and can be overridden
+    # via env.
+    devices = (ENV["SNAPSHOT_DEVICES"] || "iPhone 16 Pro Max,iPad Pro 13-inch (M4)")
+              .split(",").map(&:strip).reject(&:empty?)
+    languages = (ENV["SNAPSHOT_LANGUAGES"] || "en-US,ja")
+                .split(",").map(&:strip).reject(&:empty?)
+    capture_screenshots(scheme: "cmux-ios", devices: devices, languages: languages)
     UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
   end
 

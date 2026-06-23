@@ -6,15 +6,11 @@
 # (knownRegions in cmux-ios.xcodeproj), so screenshots cover en-US + ja; adding
 # more store languages requires localizing the app first.
 
-devices([
-  "iPhone 16 Pro Max",        # 6.9" iPhone class
-  "iPad Pro 13-inch (M4)"     # 13" iPad class
-])
-
-languages([
-  "en-US",
-  "ja"
-])
+# Devices (6.9" iPhone + 13" iPad) and languages (en-US, ja) are provided by the
+# Fastfile so they can be overridden per environment via SNAPSHOT_DEVICES /
+# SNAPSHOT_LANGUAGES. CI resolves the exact simulator names available on the
+# runner (model names drift across Xcode versions); setting them here too would
+# override that, so they live only in the Fastfile.
 
 # Drives the shared scheme's UI test target; only the snapshot test runs.
 scheme("cmux-ios")
