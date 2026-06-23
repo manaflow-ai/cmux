@@ -2794,10 +2794,6 @@ struct TextBoxInputContainer: View {
         submitActionImagePaths.joined(separator: "\u{1F}")
     }
 
-    private var hasActiveAgentSession: Bool {
-        TextBoxAgentDetection.supportsAgentPrefixes(context: terminalAgentContext)
-    }
-
     private var selectedSubmitAction: TextBoxSubmitAction {
         if defaultSubmitActionID == TextBoxSubmitAction.textEntryAction.id {
             return TextBoxSubmitAction.textEntryAction
@@ -2811,7 +2807,17 @@ struct TextBoxInputContainer: View {
     }
 
     private var shouldForceTextEntrySubmit: Bool {
-        hasActiveAgentSession || !allowsCommandTemplateSubmit
+        Self.shouldForceTextEntrySubmit(
+            allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+            terminalAgentContext: terminalAgentContext
+        )
+    }
+
+    static func shouldForceTextEntrySubmit(
+        allowsCommandTemplateSubmit: Bool,
+        terminalAgentContext _: String
+    ) -> Bool {
+        !allowsCommandTemplateSubmit
     }
 
     private var effectiveSubmitAction: TextBoxSubmitAction {

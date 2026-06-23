@@ -1208,6 +1208,27 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(commandsByID["pi"], "pi -- '--dangerously-skip-permissions'")
     }
 
+    func testTextBoxForceTextEntryUsesShellEligibilityOverStaleAgentMetadata() {
+        XCTAssertFalse(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: "restoredAgent:claude"
+            )
+        )
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: "restoredAgent:claude"
+            )
+        )
+        XCTAssertTrue(
+            TextBoxInputContainer.shouldForceTextEntrySubmit(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: ""
+            )
+        )
+    }
+
     func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
         let defaults = UserDefaults.standard
         let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey

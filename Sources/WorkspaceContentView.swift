@@ -62,6 +62,50 @@ struct TmuxWorkspacePaneOverlayRenderState: Equatable {
     let flashReason: WorkspaceAttentionFlashReason?
 }
 
+private struct WorkspacePanelContentHostView: View {
+    let workspace: Workspace
+    let panel: any Panel
+    let paneId: PaneID
+    let isFocused: Bool
+    let isSelectedInPane: Bool
+    let isVisibleInUI: Bool
+    let portalPriority: Int
+    let isSplit: Bool
+    let appearance: PanelAppearance
+    let windowAppearance: WindowAppearanceSnapshot
+    let customSidebarTabManager: TabManager?
+    let hasUnreadNotification: Bool
+    let onFocus: () -> Void
+    let onRequestPanelFocus: () -> Void
+    let onResumeAgentHibernation: () -> Void
+    let onAutoResumeAgentHibernation: () -> Void
+    let onTriggerFlash: () -> Void
+
+    var body: some View {
+        PanelContentView(
+            panel: panel,
+            workspaceId: workspace.id,
+            paneId: paneId,
+            isFocused: isFocused,
+            isSelectedInPane: isSelectedInPane,
+            isVisibleInUI: isVisibleInUI,
+            portalPriority: portalPriority,
+            isSplit: isSplit,
+            appearance: appearance,
+            windowAppearance: windowAppearance,
+            customSidebarTabManager: customSidebarTabManager,
+            hasUnreadNotification: hasUnreadNotification,
+            terminalAgentContext: WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace),
+            allowsCommandTemplateSubmit: workspace.panelShellActivityStates[panel.id] == .promptIdle,
+            onFocus: onFocus,
+            onRequestPanelFocus: onRequestPanelFocus,
+            onResumeAgentHibernation: onResumeAgentHibernation,
+            onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
+            onTriggerFlash: onTriggerFlash
+        )
+    }
+}
+
 @MainActor
 final class TmuxWorkspacePaneOverlayModel: ObservableObject {
     @Published private(set) var unreadRects: [CGRect] = []
@@ -216,9 +260,9 @@ struct WorkspaceContentView: View {
                         workspace.bonsplitController.focusPane(paneId)
                     }
                 } else {
-                    PanelContentView(
+                    WorkspacePanelContentHostView(
+                        workspace: workspace,
                         panel: panel,
-                        workspaceId: workspace.id,
                         paneId: paneId,
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
@@ -227,8 +271,6 @@ struct WorkspaceContentView: View {
                         isSplit: isSplit,
                         appearance: appearance, windowAppearance: windowAppearance, customSidebarTabManager: workspace.owningTabManager,
                         hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
-                        terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
-                        allowsCommandTemplateSubmit: workspace.panelShellActivityStates[panel.id] == .promptIdle,
                         onFocus: {
                             // Keep bonsplit focus in sync with the AppKit first responder for the
                             // active workspace. This prevents divergence between the blue focused-tab
