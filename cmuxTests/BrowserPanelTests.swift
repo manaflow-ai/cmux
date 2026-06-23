@@ -429,11 +429,11 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         ))
     }
 
-    func testBrowserChromeDrawDecisionClearsTransparentInternalRealPagesWithTransparentGhosttyBackground() {
+    func testBrowserChromeDrawDecisionClearsTransparentInternalRealPagesWithOpaqueGhosttyBackground() {
         XCTAssertFalse(BrowserPanel.drawsWebViewBackground(
             isBlankPage: false,
             usesTransparentBackground: true,
-            opacity: 0.42,
+            opacity: 1.0,
             usesGhosttyGlassStyle: false,
             usesTransparentWindow: false
         ))
