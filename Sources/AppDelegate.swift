@@ -13039,6 +13039,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hasEventWindowContext = shortcutEventHasAddressableWindow(event)
         let didSynchronizeShortcutContext = synchronizeShortcutRoutingContext(event: event)
         if hasEventWindowContext && !didSynchronizeShortcutContext {
+            if handleDetachedInspectorCloseShortcutOutsideMainContext(event: event) {
+                return true
+            }
 #if DEBUG
             cmuxDebugLog("handleCustomShortcut: unresolved event window context; bypassing app shortcut handling")
 #endif
@@ -13914,6 +13917,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil,
         ])
         return windows
+    }
+
+    private func hasDetachedInspectorWindowForCloseShortcut(event: NSEvent) -> Bool {
+        for window in closeShortcutWindowCandidates(event: event) {
+            for panel in allBrowserPanelsForInspectorWindowClose() where panel.ownsDetachedDeveloperToolsWindow(window) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func handleDetachedInspectorCloseShortcutOutsideMainContext(event: NSEvent) -> Bool {
+        guard hasDetachedInspectorWindowForCloseShortcut(event: event) else { return false }
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(event: event, actions: [.closeTab]) {
+            return true
+        }
+        if matchConfiguredShortcut(event: event, action: .closeTab) {
+            return closeDetachedInspectorWindowForCloseShortcut(event: event)
+        }
+        return false
     }
 
     func shouldSuppressSplitShortcutForTransientTerminalFocusState(

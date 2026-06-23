@@ -2957,6 +2957,9 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     private final class WKInspectorProbeWebView: WKWebView {
     }
 
+    private final class WKTransferWrapperView: NSView {
+    }
+
     private final class FakeInspector: NSObject {
         enum HideBehavior {
             case unsupported
@@ -4426,7 +4429,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         let anchor = NSView(frame: NSRect(x: 280, y: 20, width: 220, height: 180))
         contentView.addSubview(anchor)
 
-        let webKitWrapper = NSView(frame: sourceSlot.bounds)
+        let webKitWrapper = WKTransferWrapperView(frame: sourceSlot.bounds)
         sourceSlot.addSubview(webKitWrapper)
         panel.webView.frame = webKitWrapper.bounds
         webKitWrapper.addSubview(panel.webView)

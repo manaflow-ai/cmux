@@ -6421,6 +6421,10 @@ extension BrowserPanel {
         return true
     }
 
+    func ownsDetachedDeveloperToolsWindow(_ window: NSWindow) -> Bool {
+        detachedDeveloperToolsWindowBelongsToPanel(window)
+    }
+
     @discardableResult
     private func noteDetachedDeveloperToolsWindowClosed(
         _ window: NSWindow,

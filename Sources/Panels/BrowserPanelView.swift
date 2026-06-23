@@ -7214,8 +7214,13 @@ struct WebViewRepresentable: NSViewRepresentable {
             append(primaryWebView)
         }
 
+        let inspectorFrontendWebView = primaryWebView.cmuxInspectorFrontendWebView()
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
+            if let inspectorFrontendWebView,
+               inspectorFrontendWebView === view || inspectorFrontendWebView.isDescendant(of: view) {
+                continue
+            }
             let className = String(describing: type(of: view))
             if cmuxIsWebInspectorClassName(className) || cmuxIsWebInspectorObject(view) {
                 continue
