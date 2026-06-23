@@ -1,18 +1,11 @@
 import SwiftUI
 import Foundation
-import Observation
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxTestSupport
 import CmuxTerminal
 import CmuxFoundation
-
-@MainActor
-@Observable
-final class TerminalPanelShellActivityModel {
-    var state: PanelShellActivityState = .unknown
-}
 
 /// View for rendering a terminal panel
 struct TerminalPanelView: View {
