@@ -249,7 +249,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 isVisible: bottomDropIndicatorVisible,
                 isFirstRow: false,
                 rowSpacing: rowSpacing,
-                isBottomEdge: true
+                isBottomEdge: true,
+                leadingInset: metrics.groupScopedBottomDropIndicatorLeadingInset
             )
         }
         .overlay {
