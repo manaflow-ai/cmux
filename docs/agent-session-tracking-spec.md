@@ -335,11 +335,15 @@ reviewable slices. Each runtime slice ends in a tagged build + dogfood handoff
 - **Slice C — Off-main parsing.** Move the hook-store JSON read off `@MainActor`
   (interim, before it is deleted) and assert no `Data(contentsOf:)` /
   `JSONSerialization` / `Codable` decode on the main actor in this subsystem.
-- **Slice D — Delete the heuristics.** Remove
+- **Slice D — Delete the unreliable heuristics. IN PROGRESS.** Remove
   `AgentChatTranscriptService+TitleDetection.swift`, `newestClaudeTranscript` +
-  claim/forced-retry machinery, the hook-store as read-side source of truth, and
-  the 30s throttle. Gated on Slices A-B proving the resolved-hook + pull path is
-  sufficient.
+  the claim/forced-retry machinery, provisional surface-keyed sessions, and the
+  title-key helpers. REVISED SCOPE: the hook-store stays — it is cmux-written,
+  deterministic binding data (the registry's persistence/seed layer), not an
+  unreliable guess like titles/mtime; its main-actor read is a threading concern
+  (Slice C: move off-main), not a deletion. The `kill(pid,0)` sweep was already
+  removed in Slice B. Transcript resolution by recorded path / exact session id
+  stays (reliable). Gated for MERGE on the A-B dogfood; implemented on-branch.
 - **Slice E — Surface-id invariance (only if needed).** Close the collision
   regeneration (restore-into-live / duplicate-workspace) so `CMUX_SURFACE_ID` is
   invariant; extend verbatim-rehydrate to non-terminal panels if the GUI uses an

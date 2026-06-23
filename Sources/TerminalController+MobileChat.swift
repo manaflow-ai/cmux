@@ -67,13 +67,6 @@ extension TerminalController {
         guard let service = agentChatTranscriptService else {
             return .err(code: "unavailable", message: Self.chatServiceUnavailableErrorMessage, data: nil)
         }
-        // Register coding agents cmux detects by terminal title but that never
-        // ran a hook (e.g. launched through a shell wrapper that bypasses
-        // cmux's hook injection), so they get a chat session and toggle like
-        // hook-registered agents.
-        if let workspaceID {
-            adoptDetectedAgentSessions(workspaceID: workspaceID)
-        }
         let descriptors = service.sessionRecords(workspaceID: workspaceID)
             .filter { mobileChatBindingIsCurrentAgent($0) }
             .map(\.descriptor)
@@ -107,86 +100,6 @@ extension TerminalController {
             )
         }
         return .ok(["session": encoded])
-    }
-
-    /// Scans a workspace's terminals for a running coding agent that has no
-    /// chat session yet (title- or launch-metadata-detected, no hook) and
-    /// adopts it. Adoption is a no-op once the surface has a session, so this
-    /// only touches the filesystem the first time an agent is seen. Called
-    /// both on a mobile session-list request and live from the terminal
-    /// title-change observer, so the toggle appears the moment an agent
-    /// launches, not only when the workspace is next opened.
-    func adoptDetectedAgentSessions(workspaceID: String) {
-        guard let resolved = mobileResolveWorkspaceAndSurface(
-            params: ["workspace_id": workspaceID],
-            requireTerminal: false
-        ) else { return }
-        adoptDetectedAgentSessions(workspace: resolved.workspace)
-    }
-
-    /// Surface-scoped title-change adoption path. Unlike the workspace-list
-    /// sweep, this handles live terminal title churn and must avoid rescanning
-    /// every terminal in the workspace.
-    @discardableResult
-    func adoptDetectedAgentSession(titleChange: GhosttyTitleChange) -> Bool {
-        guard let resolved = mobileResolveWorkspaceAndSurface(
-            params: [
-                "workspace_id": titleChange.tabId.uuidString,
-                "surface_id": titleChange.surfaceId.uuidString,
-            ],
-            requireTerminal: false
-        ),
-            let surfaceId = resolved.surfaceId,
-            let panel = resolved.workspace.terminalPanel(for: surfaceId) else {
-            return false
-        }
-        return adoptDetectedAgentSession(
-            workspace: resolved.workspace,
-            panel: panel,
-            title: titleChange.title
-        )
-    }
-
-    /// Workspace-typed core of ``adoptDetectedAgentSessions(workspaceID:)``,
-    /// for callers that already hold the `Workspace` (the workspace-list RPC
-    /// enumerates every workspace and adopts inline, so the toggle is known
-    /// before the user enters the workspace — no per-open resolution and no
-    /// pop-in). Each `adoptDetectedClaudeSession` short-circuits in memory
-    /// once the surface has a session, so a repeat scan of an already-adopted
-    /// workspace touches no filesystem.
-    func adoptDetectedAgentSessions(workspace: Workspace) {
-        for panel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
-            let title = workspace.panelTitle(panelId: panel.id) ?? panel.displayTitle
-            adoptDetectedAgentSession(workspace: workspace, panel: panel, title: title)
-        }
-    }
-
-    @discardableResult
-    private func adoptDetectedAgentSession(
-        workspace: Workspace,
-        panel: TerminalPanel,
-        title: String
-    ) -> Bool {
-        guard let service = agentChatTranscriptService else { return false }
-        let context = WorkspaceContentView.terminalAgentContext(panel: panel, workspace: workspace)
-        let normalizedTitle = title.lowercased()
-        // Claude is the case the wrapper-launched workflow hits; detect by
-        // launch metadata (hook PID key / initial command) or the live
-        // terminal title claude sets ("✳ Claude Code", then "✳ <ai-title>").
-        let isClaude = TextBoxAgentDetection.isClaudeCode(context: context)
-            || normalizedTitle.contains("claude")
-            || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
-        guard isClaude else { return false }
-        let cwd = workspace.panelDirectories[panel.id]
-            ?? (panel.directory.isEmpty ? nil : panel.directory)
-            ?? (workspace.currentDirectory.isEmpty ? nil : workspace.currentDirectory)
-        guard let cwd, !cwd.isEmpty else { return false }
-        return service.adoptDetectedClaudeSession(
-            workspaceID: workspace.id.uuidString,
-            surfaceID: panel.id.uuidString,
-            workingDirectory: cwd,
-            titleHint: title
-        )
     }
 
     /// `mobile.chat.history`: one transcript page for a session.

@@ -136,14 +136,6 @@ final class AgentChatSessionRegistry {
         return nil
     }
 
-    /// Every session id the registry already tracks. Title-detected adoption
-    /// passes this to the transcript resolver so a second hook-bypassed claude
-    /// in the same directory resolves to a *different* (unclaimed) transcript
-    /// instead of colliding on the newest file.
-    func claimedSessionIDs() -> Set<String> {
-        Set(records.keys)
-    }
-
     /// Re-reads the hook store for one session and adopts its bindings,
     /// for callers that just failed to resolve the recorded terminal (an
     /// app relaunch regenerates panel UUIDs; the store is rewritten by
@@ -225,54 +217,6 @@ final class AgentChatSessionRegistry {
                 updateLiveSessionIndex(previous: nil, current: record)
             }
         }
-    }
-
-    /// Registers a coding-agent session cmux detected by terminal title or
-    /// launch metadata rather than by an agent hook (e.g. an agent launched
-    /// through a shell wrapper that bypasses cmux's hook injection). Without
-    /// a hook we never learned the agent's session id, so the caller resolves
-    /// the transcript by working directory and passes its filename stem as
-    /// the id.
-    ///
-    /// No-op (returns the existing record) when a session with that id is
-    /// already known, or when any live session is already bound to the same
-    /// surface — a hook-registered record is authoritative and must not be
-    /// shadowed. A brand-new record fires `onRecordChanged` with `nil`, so it
-    /// pushes to listening clients exactly like a hook-created session.
-    ///
-    /// - Returns: The adopted or pre-existing record.
-    @discardableResult
-    func adoptDetectedSession(
-        sessionID: String,
-        agentKind: ChatAgentKind,
-        workspaceID: String,
-        surfaceID: String,
-        workingDirectory: String?,
-        transcriptPath: String?,
-        at timestamp: Date
-    ) -> AgentChatSessionRecord {
-        if let existing = records[sessionID] { return existing }
-        if let bound = liveSession(surfaceID: surfaceID) {
-            return bound
-        }
-        var record = AgentChatSessionRecord(
-            sessionID: sessionID,
-            agentKind: agentKind,
-            workspaceID: workspaceID,
-            surfaceID: surfaceID,
-            workingDirectory: workingDirectory,
-            transcriptPath: transcriptPath,
-            state: .idle,
-            lastActivityAt: timestamp,
-            title: nil,
-            pid: nil
-        )
-        stampVersion(&record)
-        records[sessionID] = record
-        syncProcessExitWatch(for: record)
-        updateLiveSessionIndex(previous: nil, current: record)
-        onRecordChanged?(record, nil)
-        return record
     }
 
     /// Ingests one hook event: creates or refreshes the session record and
