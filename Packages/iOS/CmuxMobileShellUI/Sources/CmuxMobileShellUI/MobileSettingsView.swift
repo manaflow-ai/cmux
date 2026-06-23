@@ -232,7 +232,7 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
-                    .disabled(notificationSettingsSyncing || store?.supportsNotificationSettings == false)
+                    .disabled(notificationSettingsSyncing)
 
                     if store?.supportsNotificationSettings == false {
                         Text(L10n.string("mobile.notifications.unsupportedHint", defaultValue: "Update cmux on this Mac to manage phone notifications from iPhone."))
@@ -429,7 +429,7 @@ struct MobileSettingsView: View {
     }
 
     private func toggleNotifications() {
-        guard !notificationSettingsSyncing, store?.supportsNotificationSettings != false else { return }
+        guard !notificationSettingsSyncing else { return }
         notificationSettingsSyncing = true
         Task { @MainActor in
             defer { notificationSettingsSyncing = false }
