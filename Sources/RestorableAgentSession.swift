@@ -2149,12 +2149,16 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
     }
 
     private static func fetch(configDir: String?) -> [ClaudeBackgroundAgentSnapshot] {
-        guard let executableURL = resolvedClaudeExecutableURL() else { return [] }
+        guard let plan = resolvedClaudeLaunchPlan() else { return [] }
 
         let process = Process()
-        process.executableURL = executableURL
+        process.executableURL = plan.executableURL
         process.arguments = ["agents", "--json"]
-        var environment = ProcessInfo.processInfo.environment
+        // Use the resolver's launch environment (which rebuilds PATH to include Homebrew,
+        // ~/.local/bin, nvm/mise/asdf, etc.), overlaying CLAUDE_CONFIG_DIR. A Dock-launched
+        // macOS app's own PATH is stripped, so running the resolved claude (often a shim that
+        // execs `/usr/bin/env node`) under it would exit nonzero and silently no-op the probe.
+        var environment = plan.environment
         if let configDir, !configDir.isEmpty {
             environment["CLAUDE_CONFIG_DIR"] = (configDir as NSString).expandingTildeInPath
         }
@@ -2165,6 +2169,10 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle.nullDevice
 
+        // Signal on real process exit so the exit wait below is bounded too, not just the read.
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         do {
             try process.run()
         } catch {
@@ -2172,8 +2180,8 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
         }
 
         // Drain stdout on a background queue so the probe stays bounded even if the read would
-        // otherwise block: the main fetch thread waits on `readDone` with a deadline and
-        // escalates SIGTERM -> SIGKILL on expiry, which closes stdout and unblocks the drain.
+        // otherwise block: each wait below has a deadline and escalates SIGTERM -> SIGKILL on
+        // expiry, which closes stdout and forces the process to exit.
         let box = ProbeBox(process: process, readHandle: stdout.fileHandleForReading)
         let output = DataBox()
         let readDone = DispatchSemaphore(value: 0)
@@ -2182,23 +2190,34 @@ final class ClaudeBackgroundAgentsQuery: @unchecked Sendable {
             readDone.signal()
         }
 
-        if readDone.wait(timeout: .now() + Self.probeTimeout) == .timedOut {
+        func terminateAndDrain() {
             if box.process.isRunning { box.process.terminate() }
-            if readDone.wait(timeout: .now() + Self.terminateGrace) == .timedOut {
+            if exited.wait(timeout: .now() + Self.terminateGrace) == .timedOut {
                 if box.process.isRunning { kill(box.process.processIdentifier, SIGKILL) }
-                _ = readDone.wait(timeout: .now() + Self.terminateGrace)
+                _ = exited.wait(timeout: .now() + Self.terminateGrace)
             }
+            _ = readDone.wait(timeout: .now() + Self.terminateGrace)
+        }
+
+        // Bound the read.
+        if readDone.wait(timeout: .now() + Self.probeTimeout) == .timedOut {
+            terminateAndDrain()
+            return []
+        }
+        // Bound process exit: stdout can close while the process hangs, so do not call the
+        // unbounded `waitUntilExit()` — wait on the termination handler with a deadline.
+        if exited.wait(timeout: .now() + Self.terminateGrace) == .timedOut {
+            terminateAndDrain()
             return []
         }
 
-        process.waitUntilExit()
         guard process.terminationStatus == 0 else { return [] }
         return ClaudeBackgroundAgentReconciler.parse(agentsJSON: output.get())
     }
 
-    private static func resolvedClaudeExecutableURL() -> URL? {
+    private static func resolvedClaudeLaunchPlan() -> AgentSessionLaunchPlan? {
         try? AgentExecutableResolver(
             configuredExecutablePaths: AgentExecutableResolver.cmuxConfiguredExecutablePaths()
-        ).resolve(.claude).executableURL
+        ).resolve(.claude)
     }
 }

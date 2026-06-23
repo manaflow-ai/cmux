@@ -43,7 +43,7 @@
 2328	cmuxTests/CJKIMEInputTests.swift
 2242	Sources/TerminalNotificationStore.swift
 2233	Sources/TerminalWindowPortal.swift
-2204	Sources/RestorableAgentSession.swift
+2223	Sources/RestorableAgentSession.swift
 2126	cmuxTests/CmuxConfigTests.swift
 2091	cmuxTests/ShortcutAndCommandPaletteTests.swift
 2078	Sources/SessionPersistence.swift
@@ -60,7 +60,7 @@
 1581	Packages/iOS/CmuxMobileTerminal/Sources/CmuxMobileTerminal/TerminalInputTextView.swift
 1560	cmuxTests/TextBoxMentionCompletionTests.swift
 1547	cmuxTests/TerminalControllerSocketSecurityTests.swift
-1512	cmuxTests/RestorableAgentSessionIndexTests.swift
+1516	cmuxTests/RestorableAgentSessionIndexTests.swift
 1500	cmuxUITests/MultiWindowNotificationsUITests.swift
 1499	cmuxTests/OmnibarAndToolsTests.swift
 1452	Sources/RemoteTmuxControlConnection.swift
