@@ -1,6 +1,8 @@
 import AppKit
 import Bonsplit
+import CmuxBrowser
 import CmuxPanes
+import CmuxSettings
 import CmuxShortcuts
 import ObjectiveC
 import WebKit
@@ -120,7 +122,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
-        BrowserThemeSettings.apply(openerPanel?.currentBrowserThemeMode ?? BrowserThemeSettings.mode(), to: webView)
+        (openerPanel?.currentBrowserThemeMode ?? BrowserThemeMode.mode()).apply(to: webView)
         self.webView = webView
         self.webAuthnCoordinator = BrowserWebAuthnCoordinator()
 
@@ -264,7 +266,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     }
 
     func setBrowserThemeMode(_ mode: BrowserThemeMode) {
-        BrowserThemeSettings.apply(mode, to: webView)
+        mode.apply(to: webView)
         for child in childPopups {
             child.setBrowserThemeMode(mode)
         }

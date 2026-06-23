@@ -9,6 +9,9 @@ import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
 import struct CmuxSettings.BrowserSearchSettingsStore
+import enum CmuxSettings.BrowserThemeMode
+// CmuxBrowser carries the BrowserThemeMode persistence-key extension (modeKey).
+import CmuxBrowser
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1233,7 +1236,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             BrowserSearchSettingsStore.customSearchEngineNameKey,
             BrowserSearchSettingsStore.customSearchEngineURLTemplateKey,
             BrowserSearchSettingsStore.searchSuggestionsEnabledKey,
-            BrowserThemeSettings.modeKey,
+            BrowserThemeMode.modeKey,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
@@ -1241,7 +1244,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             defaults.removeObject(forKey: BrowserSearchSettingsStore.customSearchEngineNameKey)
             defaults.removeObject(forKey: BrowserSearchSettingsStore.customSearchEngineURLTemplateKey)
             defaults.removeObject(forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey)
-            defaults.removeObject(forKey: BrowserThemeSettings.modeKey)
+            defaults.removeObject(forKey: BrowserThemeMode.modeKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
 
@@ -1281,7 +1284,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 "ftp://search.example.test?q={query}"
             )
             XCTAssertEqual(defaults.object(forKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey) as? Bool, false)
-            XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeMode.dark.rawValue)
+            XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), BrowserThemeMode.dark.rawValue)
         }
     }
 

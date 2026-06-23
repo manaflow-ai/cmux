@@ -19,13 +19,8 @@ import CmuxTerminalCore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
-// The app target still declares legacy duplicates of these CmuxSettings
-// value types; with CmuxSettings imported unconditionally the names are
-// ambiguous. These tests exercise the app-side paths, so pin the app types.
-private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 #elseif canImport(cmux)
 @testable import cmux
-private typealias BrowserThemeMode = cmux.BrowserThemeMode
 #endif
 
 final class SidebarPathFormatterTests: XCTestCase {
@@ -2081,7 +2076,7 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         // Out-of-range / invalid raw values that must be canonicalized.
-        defaults.set("not-a-real-mode", forKey: BrowserThemeSettings.modeKey)
+        defaults.set("not-a-real-mode", forKey: BrowserThemeMode.modeKey)
         defaults.set("not-a-real-variant", forKey: BrowserImportHintSettings.variantKey)
         defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
         defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
@@ -2089,7 +2084,7 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
-        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), BrowserThemeSettings.defaultMode.rawValue)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), BrowserThemeMode.defaultMode.rawValue)
         XCTAssertEqual(defaults.string(forKey: BrowserImportHintSettings.variantKey), BrowserImportHintSettings.defaultVariant.rawValue)
         XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
         XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
@@ -2107,16 +2102,13 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
-        // Resolve the app-target theme mode via the app-only settings type; the bare
-        // `BrowserThemeMode` is ambiguous here because this file also imports
-        // `CmuxSettings`, which declares a same-named enum.
-        let validThemeRaw = BrowserThemeSettings.mode(for: "dark").rawValue
-        defaults.set(validThemeRaw, forKey: BrowserThemeSettings.modeKey)
+        let validThemeRaw = BrowserThemeMode.mode(for: "dark").rawValue
+        defaults.set(validThemeRaw, forKey: BrowserThemeMode.modeKey)
         defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
 
         BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
 
-        XCTAssertEqual(defaults.string(forKey: BrowserThemeSettings.modeKey), validThemeRaw)
+        XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), validThemeRaw)
         XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
     }
 }

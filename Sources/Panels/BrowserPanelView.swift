@@ -446,7 +446,7 @@ struct BrowserPanelView: View {
     private var browserProfilePopoverHorizontalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
     @AppStorage(BrowserProfilePopoverDebugSettings.verticalPaddingKey)
     private var browserProfilePopoverVerticalPaddingRaw = BrowserProfilePopoverDebugSettings.defaultVerticalPadding
-    @AppStorage(BrowserThemeSettings.modeKey) private var browserThemeModeRaw = BrowserThemeSettings.defaultMode.rawValue
+    @AppStorage(BrowserThemeMode.modeKey) private var browserThemeModeRaw = BrowserThemeMode.defaultMode.rawValue
     @AppStorage(BrowserImportHintSettings.variantKey) private var browserImportHintVariantRaw = BrowserImportHintSettings.defaultVariant.rawValue
     @AppStorage(BrowserImportHintSettings.showOnBlankTabsKey) private var showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
     @AppStorage(BrowserImportHintSettings.dismissedKey) private var isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
@@ -574,7 +574,7 @@ struct BrowserPanelView: View {
     }
 
     private var browserThemeMode: BrowserThemeMode {
-        BrowserThemeSettings.mode(for: browserThemeModeRaw)
+        BrowserThemeMode.mode(for: browserThemeModeRaw)
     }
 
     private var browserImportHintVariant: BrowserImportHintVariant {
@@ -967,7 +967,7 @@ struct BrowserPanelView: View {
     }
 
     private func handleBrowserThemeModeRawChange() {
-        let normalizedMode = BrowserThemeSettings.mode(for: browserThemeModeRaw)
+        let normalizedMode = BrowserThemeMode.mode(for: browserThemeModeRaw)
         if browserThemeModeRaw != normalizedMode.rawValue {
             browserThemeModeRaw = normalizedMode.rawValue
         }

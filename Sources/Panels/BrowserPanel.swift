@@ -92,76 +92,6 @@ enum GhosttyBackgroundTheme {
     }
 }
 
-enum BrowserThemeMode: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .system:
-            return String(localized: "theme.system", defaultValue: "System")
-        case .light:
-            return String(localized: "theme.light", defaultValue: "Light")
-        case .dark:
-            return String(localized: "theme.dark", defaultValue: "Dark")
-        }
-    }
-
-    var iconName: String {
-        switch self {
-        case .system:
-            return "circle.lefthalf.filled"
-        case .light:
-            return "sun.max"
-        case .dark:
-            return "moon"
-        }
-    }
-}
-
-enum BrowserThemeSettings {
-    static let modeKey = "browserThemeMode"
-    static let legacyForcedDarkModeEnabledKey = "browserForcedDarkModeEnabled"
-    static let defaultMode: BrowserThemeMode = .system
-
-    static func mode(for rawValue: String?) -> BrowserThemeMode {
-        guard let rawValue, let mode = BrowserThemeMode(rawValue: rawValue) else {
-            return defaultMode
-        }
-        return mode
-    }
-
-    static func mode(defaults: UserDefaults = .standard) -> BrowserThemeMode {
-        let resolvedMode = mode(for: defaults.string(forKey: modeKey))
-        if defaults.string(forKey: modeKey) != nil {
-            return resolvedMode
-        }
-
-        // Migrate the legacy bool toggle only when the new mode key is unset.
-        if defaults.object(forKey: legacyForcedDarkModeEnabledKey) != nil {
-            let migratedMode: BrowserThemeMode = defaults.bool(forKey: legacyForcedDarkModeEnabledKey) ? .dark : .system
-            defaults.set(migratedMode.rawValue, forKey: modeKey)
-            return migratedMode
-        }
-
-        return defaultMode
-    }
-
-    static func apply(_ mode: BrowserThemeMode, to webView: WKWebView) {
-        switch mode {
-        case .system:
-            webView.appearance = nil
-        case .light:
-            webView.appearance = NSAppearance(named: .aqua)
-        case .dark:
-            webView.appearance = NSAppearance(named: .darkAqua)
-        }
-    }
-}
-
 enum BrowserImportHintVariant: String, CaseIterable, Identifiable {
     case inlineStrip
     case floatingCard
@@ -3350,14 +3280,14 @@ final class BrowserPanel: Panel, ObservableObject {
             BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
             BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
             BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeSettings.modeKey: BrowserThemeSettings.defaultMode.rawValue,
+            BrowserThemeMode.modeKey: BrowserThemeMode.defaultMode.rawValue,
         ])
 
-        let resolvedThemeMode = BrowserThemeSettings.mode(defaults: defaults)
-        let currentThemeRaw = defaults.string(forKey: BrowserThemeSettings.modeKey)
-            ?? BrowserThemeSettings.defaultMode.rawValue
+        let resolvedThemeMode = BrowserThemeMode.mode(defaults: defaults)
+        let currentThemeRaw = defaults.string(forKey: BrowserThemeMode.modeKey)
+            ?? BrowserThemeMode.defaultMode.rawValue
         if currentThemeRaw != resolvedThemeMode.rawValue {
-            defaults.set(resolvedThemeMode.rawValue, forKey: BrowserThemeSettings.modeKey)
+            defaults.set(resolvedThemeMode.rawValue, forKey: BrowserThemeMode.modeKey)
         }
 
         let resolvedHintVariant = BrowserImportHintSettings.variant(defaults: defaults)
@@ -3419,7 +3349,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.bypassesRemoteWorkspaceProxy = bypassRemoteProxy
         self.remoteProxyEndpoint = bypassRemoteProxy ? nil : proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace && !bypassRemoteProxy
-        self.browserThemeMode = BrowserThemeSettings.mode()
+        self.browserThemeMode = BrowserThemeMode.mode()
         self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.isOmnibarVisible = omnibarVisible
         self.usesTransparentBackground = transparentBackground
@@ -7291,7 +7221,7 @@ extension BrowserPanel {
 
 private extension BrowserPanel {
     func applyBrowserThemeModeIfNeeded() {
-        BrowserThemeSettings.apply(browserThemeMode, to: webView)
+        browserThemeMode.apply(to: webView)
     }
 
     func scheduleDeveloperToolsRestoreRetry() {

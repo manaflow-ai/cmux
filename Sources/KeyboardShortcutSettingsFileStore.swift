@@ -1,5 +1,6 @@
 import CMUXAgentLaunch
 import Combine
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -924,7 +925,7 @@ final class CmuxSettingsFileStore {
                 logInvalid("browser.theme", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
+            snapshot.managedUserDefaults[BrowserThemeMode.modeKey] = .string(mode.rawValue)
         }
         if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
             guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
