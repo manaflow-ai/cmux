@@ -6790,7 +6790,7 @@ final class Workspace: Identifiable, ObservableObject {
     func remoteTmuxNewTabPlacement(
         inPane paneId: PaneID,
         anchorPanelId: UUID?
-    ) -> RemoteTmuxController.MirrorNewTabPlacement {
+    ) -> RemoteTmuxMirrorNewTabPlacement {
         if let anchorPanelId {
             return .afterPanel(anchorPanelId)
         }

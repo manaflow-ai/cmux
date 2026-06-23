@@ -440,17 +440,6 @@ final class RemoteTmuxController {
 
     // MARK: - Create / destroy propagation (P5)
 
-    /// Where a mirror's new tab (a tmux window) should be inserted, mirroring the
-    /// workspace tab strip's `BonsplitConfiguration.newTabPosition`.
-    enum MirrorNewTabPlacement: Equatable {
-        /// Append after the last window (`newTabPosition: .end`).
-        case end
-        /// Insert right after the window backing `panelId` — the cmux-selected tab
-        /// (`newTabPosition: .current`). Falls back to `.end` when the panel has no
-        /// live window so a new tab is never dropped.
-        case afterPanel(UUID)
-    }
-
     /// A new tab was requested in a mirrored workspace → create a tmux window in
     /// that session. The new tab arrives via the `%window-add` notification (one
     /// source of truth), so the caller must NOT also create a local tab.
@@ -474,7 +463,7 @@ final class RemoteTmuxController {
     ///   mirror workspace — they report failure instead).
     func handleMirrorNewTabRequested(
         workspaceId: UUID,
-        placement: MirrorNewTabPlacement,
+        placement: RemoteTmuxMirrorNewTabPlacement,
         workingDirectory: String?
     ) -> Bool {
         guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
