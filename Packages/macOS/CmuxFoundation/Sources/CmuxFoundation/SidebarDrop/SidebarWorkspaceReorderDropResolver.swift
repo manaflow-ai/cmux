@@ -138,7 +138,10 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
     ) -> UUID? {
         guard !groupByAnchorId.keys.contains(draggedWorkspace.id) else { return nil }
         guard SidebarWorkspaceGroupDropIntentPolicy(memberIndent: request.memberIndent)
-            .prefersGroupScope(pointerX: request.point.x, targetLeadingIndent: request.memberIndent) else {
+            .prefersGroupScope(
+                pointerX: request.point.x,
+                targetLeadingIndent: targetLeadingIndent(for: request, context: context)
+            ) else {
             return nil
         }
 
@@ -163,6 +166,44 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         }
 
         return nil
+    }
+
+    private func targetLeadingIndent(
+        for request: SidebarWorkspaceReorderDropRequest,
+        context: HitContext
+    ) -> CGFloat {
+        if let target = context.target {
+            if target.isGroupHeader {
+                return isGroupHeaderCenterDrop(context: context) ? request.memberIndent : 0
+            }
+            if target.groupId != nil {
+                return max(0, target.frame.minX)
+            }
+            if context.edge == .top,
+               let previous = context.previousTarget,
+               previous.groupId != nil {
+                return max(0, previous.frame.minX)
+            }
+            return max(0, target.frame.minX)
+        }
+        if let previous = context.previousTarget,
+           previous.groupId != nil {
+            return max(0, previous.frame.minX)
+        }
+        return 0
+    }
+
+    private func isGroupHeaderCenterDrop(context: HitContext) -> Bool {
+        guard let target = context.target,
+              target.isGroupHeader,
+              let pointerY = context.pointerY,
+              let targetHeight = context.targetHeight else {
+            return false
+        }
+        let height = max(targetHeight, 1)
+        let edgeBand = min(max(height * 0.25, 4), height * 0.4)
+        let y = min(max(pointerY, 0), height)
+        return y > edgeBand && y < height - edgeBand
     }
 
     private func groupScopedPlan(

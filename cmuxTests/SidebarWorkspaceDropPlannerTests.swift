@@ -229,11 +229,11 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertNil(explicitGroupId)
     }
 
-    func testGroupHeaderGroupLanePlansFirstSlotInGroup() throws {
+    func testGroupHeaderCenterGroupLanePlansFirstSlotInGroup() throws {
         let fixture = reorderFixture()
 
         let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
-            for: fixture.request(point: CGPoint(x: 14, y: 70))
+            for: fixture.request(point: CGPoint(x: 14, y: 56))
         ))
 
         XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .bottom))
@@ -245,6 +245,24 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertEqual(targetIndex, 2)
         XCTAssertFalse(usesTopLevelRows)
         XCTAssertEqual(explicitGroupId, fixture.groupId)
+    }
+
+    func testGroupHeaderEdgeGroupLanePlansTopLevelGroupBoundary() throws {
+        let fixture = reorderFixture()
+
+        let plan = try XCTUnwrap(SidebarWorkspaceReorderDropResolver().plan(
+            for: fixture.request(point: CGPoint(x: 14, y: 70))
+        ))
+
+        XCTAssertEqual(plan.indicator, SidebarDropIndicator(tabId: fixture.anchor, edge: .top))
+        XCTAssertEqual(plan.indicatorScope, .topLevel)
+        guard case .reorder(let targetIndex, let usesTopLevelRows, let explicitGroupId) = plan.action else {
+            XCTFail("Expected local reorder plan")
+            return
+        }
+        XCTAssertEqual(targetIndex, 1)
+        XCTAssertTrue(usesTopLevelRows)
+        XCTAssertNil(explicitGroupId)
     }
 
     func testWorkspaceDropCenterTargetsExistingWorkspace() {
