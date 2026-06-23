@@ -66,6 +66,43 @@ enum NotificationPaneFlashSettings {
     }
 }
 
+enum NotificationMuteDuration: CaseIterable, Hashable {
+    case fifteenMinutes
+    case oneHour
+    case fourHours
+    case eightHours
+
+    var interval: TimeInterval {
+        switch self {
+        case .fifteenMinutes:
+            return 15 * 60
+        case .oneHour:
+            return 60 * 60
+        case .fourHours:
+            return 4 * 60 * 60
+        case .eightHours:
+            return 8 * 60 * 60
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .fifteenMinutes:
+            return String(localized: "notificationMute.duration.fifteenMinutes", defaultValue: "15 Minutes")
+        case .oneHour:
+            return String(localized: "notificationMute.duration.oneHour", defaultValue: "1 Hour")
+        case .fourHours:
+            return String(localized: "notificationMute.duration.fourHours", defaultValue: "4 Hours")
+        case .eightHours:
+            return String(localized: "notificationMute.duration.eightHours", defaultValue: "8 Hours")
+        }
+    }
+
+    func expiration(from date: Date = Date()) -> Date {
+        date.addingTimeInterval(interval)
+    }
+}
+
 enum TaggedRunBadgeSettings {
     static let environmentKey = "CMUX_TAG"
     private static let maxTagLength = 10
@@ -463,6 +500,8 @@ final class TerminalNotificationStore: ObservableObject {
             refreshUnreadPresentation()
         }
     }
+    @Published private(set) var notificationMuteExpirationsByWorkspaceId: [UUID: Date] = [:]
+    @Published private(set) var notificationMuteExpirationsBySurfaceId: [UUID: Date] = [:]
     @Published private(set) var authorizationState: NotificationAuthorizationState = .unknown
     private var suppressNotificationDiffPublishing = false
 
@@ -832,6 +871,79 @@ final class TerminalNotificationStore: ObservableObject {
         unreadCount(forTabId: tabId) > 0
     }
 
+    func activeWorkspaceNotificationMuteExpiration(forTabId tabId: UUID, now: Date = Date()) -> Date? {
+        activeMuteExpiration(notificationMuteExpirationsByWorkspaceId[tabId], now: now)
+    }
+
+    func activeSurfaceNotificationMuteExpiration(forSurfaceId surfaceId: UUID, now: Date = Date()) -> Date? {
+        activeMuteExpiration(notificationMuteExpirationsBySurfaceId[surfaceId], now: now)
+    }
+
+    func activeNotificationMuteExpiration(forTabId tabId: UUID, surfaceId: UUID?, now: Date = Date()) -> Date? {
+        let workspaceExpiration = activeWorkspaceNotificationMuteExpiration(forTabId: tabId, now: now)
+        let surfaceExpiration = surfaceId.flatMap {
+            activeSurfaceNotificationMuteExpiration(forSurfaceId: $0, now: now)
+        }
+        switch (workspaceExpiration, surfaceExpiration) {
+        case (.some(let workspace), .some(let surface)):
+            return max(workspace, surface)
+        case (.some(let workspace), .none):
+            return workspace
+        case (.none, .some(let surface)):
+            return surface
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    func hasActiveWorkspaceNotificationMute(forTabIds tabIds: [UUID], now: Date = Date()) -> Bool {
+        tabIds.contains { activeWorkspaceNotificationMuteExpiration(forTabId: $0, now: now) != nil }
+    }
+
+    @discardableResult
+    func muteNotifications(forTabIds tabIds: [UUID], until expiration: Date) -> Bool {
+        let validIds = Set(tabIds)
+        guard !validIds.isEmpty else { return false }
+        var next = notificationMuteExpirationsByWorkspaceId
+        for tabId in validIds {
+            next[tabId] = expiration
+        }
+        guard next != notificationMuteExpirationsByWorkspaceId else { return false }
+        notificationMuteExpirationsByWorkspaceId = next
+        return true
+    }
+
+    @discardableResult
+    func unmuteNotifications(forTabIds tabIds: [UUID]) -> Bool {
+        let validIds = Set(tabIds)
+        guard !validIds.isEmpty else { return false }
+        var next = notificationMuteExpirationsByWorkspaceId
+        for tabId in validIds {
+            next.removeValue(forKey: tabId)
+        }
+        guard next != notificationMuteExpirationsByWorkspaceId else { return false }
+        notificationMuteExpirationsByWorkspaceId = next
+        return true
+    }
+
+    @discardableResult
+    func muteNotifications(forTabId tabId: UUID, surfaceId: UUID, until expiration: Date) -> Bool {
+        var next = notificationMuteExpirationsBySurfaceId
+        next[surfaceId] = expiration
+        guard next != notificationMuteExpirationsBySurfaceId else { return false }
+        notificationMuteExpirationsBySurfaceId = next
+        return true
+    }
+
+    @discardableResult
+    func unmuteNotifications(forSurfaceId surfaceId: UUID) -> Bool {
+        var next = notificationMuteExpirationsBySurfaceId
+        next.removeValue(forKey: surfaceId)
+        guard next != notificationMuteExpirationsBySurfaceId else { return false }
+        notificationMuteExpirationsBySurfaceId = next
+        return true
+    }
+
     func canMarkWorkspaceRead(forTabIds tabIds: [UUID]) -> Bool {
         tabIds.contains { workspaceIsUnread(forTabId: $0) }
     }
@@ -1093,10 +1205,15 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
     ) {
+        let shouldMuteNotificationSideEffects = activeNotificationMuteExpiration(
+            forTabId: request.tabId,
+            surfaceId: request.surfaceId,
+            now: now
+        ) != nil
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId
-        )
+        ) || shouldMuteNotificationSideEffects
         let notification = TerminalNotification(
             id: UUID(),
             tabId: request.tabId,
@@ -1115,6 +1232,7 @@ final class TerminalNotificationStore: ObservableObject {
             recordNotification(
                 notification,
                 shouldSuppressExternalDelivery: shouldSuppressExternalDelivery,
+                shouldMuteNotificationSideEffects: shouldMuteNotificationSideEffects,
                 effects: effects,
                 now: now,
                 cooldownReservation: cooldownReservation
@@ -1128,6 +1246,7 @@ final class TerminalNotificationStore: ObservableObject {
         )
 #endif
         if effects.reorderWorkspace,
+           !shouldMuteNotificationSideEffects,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
@@ -1136,6 +1255,14 @@ final class TerminalNotificationStore: ObservableObject {
             commitCooldownReservation(cooldownReservation, at: now)
         } else {
             restoreCooldownReservation(cooldownReservation)
+        }
+        guard !shouldMuteNotificationSideEffects else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.sideEffects.skip workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") reason=muted"
+            )
+#endif
+            return
         }
         deliverNotificationSideEffects(
             notification,
@@ -1147,6 +1274,7 @@ final class TerminalNotificationStore: ObservableObject {
     private func recordNotification(
         _ notification: TerminalNotification,
         shouldSuppressExternalDelivery: Bool,
+        shouldMuteNotificationSideEffects: Bool,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?
@@ -1164,11 +1292,12 @@ final class TerminalNotificationStore: ObservableObject {
             focusedReadIndicatorByTabId.removeValue(forKey: notification.tabId)
         }
 
-        if shouldSuppressExternalDelivery, effects.markUnread {
+        if shouldSuppressExternalDelivery, !shouldMuteNotificationSideEffects, effects.markUnread {
             setFocusedReadIndicator(forTabId: notification.tabId, surfaceId: notification.surfaceId)
         }
 
         if effects.reorderWorkspace,
+           !shouldMuteNotificationSideEffects,
            UserDefaultsSettingsClient(defaults: .standard).value(for: SettingCatalog().app.reorderOnNotification) {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
@@ -1228,6 +1357,14 @@ final class TerminalNotificationStore: ObservableObject {
                     )
                 )
             }
+        }
+        guard !shouldMuteNotificationSideEffects else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.sideEffects.skip workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") reason=muted"
+            )
+#endif
+            return
         }
         deliverNotificationSideEffects(
             notification,
@@ -1297,6 +1434,11 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func hasAnyNotificationEffect(_ effects: TerminalNotificationPolicyEffects) -> Bool {
         effects.record || effects.desktop || effects.sound || effects.command || effects.reorderWorkspace || effects.markUnread
+    }
+
+    private func activeMuteExpiration(_ expiration: Date?, now: Date) -> Date? {
+        guard let expiration, expiration > now else { return nil }
+        return expiration
     }
 
     func reportNotificationHookFailure(_ failure: TerminalNotificationPolicyFailure) {
@@ -2132,6 +2274,11 @@ final class TerminalNotificationStore: ObservableObject {
         clearPanelDerivedWorkspaceUnread()
         clearWorkspaceRestoredUnread()
         focusedReadIndicatorByTabId.removeAll()
+    }
+
+    func clearNotificationMutesForTesting() {
+        notificationMuteExpirationsByWorkspaceId = [:]
+        notificationMuteExpirationsBySurfaceId = [:]
     }
 #endif
 

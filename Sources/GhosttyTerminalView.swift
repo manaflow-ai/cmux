@@ -7223,7 +7223,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             systemSymbolName: "rectangle.righthalf.inset.filled",
             accessibilityDescription: nil
         )
-        appendMoveCurrentSurfaceMoveMenuItems(to: menu); menu.addItem(.separator())
+        appendMoveCurrentSurfaceMoveMenuItems(to: menu)
+        appendCurrentSurfaceNotificationMuteMenuItems(to: menu)
+        menu.addItem(.separator())
         let resetTerminalItem = menu.addItem(
             withTitle: String(localized: "terminalContextMenu.resetTerminal", defaultValue: "Reset Terminal"),
             action: #selector(resetTerminal(_:)),

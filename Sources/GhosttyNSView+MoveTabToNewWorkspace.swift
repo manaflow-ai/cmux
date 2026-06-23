@@ -1,6 +1,46 @@
 import AppKit
 
 extension GhosttyNSView {
+    func appendCurrentSurfaceNotificationMuteMenuItems(to menu: NSMenu) {
+        guard tabId != nil, terminalSurface?.id != nil else { return }
+
+        let muteItem = NSMenuItem(
+            title: String(localized: "terminalContextMenu.muteTabNotifications", defaultValue: "Mute Tab Notifications"),
+            action: nil,
+            keyEquivalent: ""
+        )
+        muteItem.image = NSImage(systemSymbolName: "bell.slash", accessibilityDescription: nil)
+        let submenu = NSMenu()
+        for duration in NotificationMuteDuration.allCases {
+            let item = NSMenuItem(
+                title: duration.title,
+                action: #selector(muteCurrentSurfaceNotifications(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = duration.interval
+            submenu.addItem(item)
+        }
+        muteItem.submenu = submenu
+
+        if menu.items.last?.isSeparatorItem == false {
+            menu.addItem(.separator())
+        }
+        menu.addItem(muteItem)
+
+        if let surfaceId = terminalSurface?.id,
+           TerminalNotificationStore.shared.activeSurfaceNotificationMuteExpiration(forSurfaceId: surfaceId) != nil {
+            let unmuteItem = NSMenuItem(
+                title: String(localized: "terminalContextMenu.unmuteTabNotifications", defaultValue: "Unmute Tab Notifications"),
+                action: #selector(unmuteCurrentSurfaceNotifications(_:)),
+                keyEquivalent: ""
+            )
+            unmuteItem.target = self
+            unmuteItem.image = NSImage(systemSymbolName: "bell", accessibilityDescription: nil)
+            menu.addItem(unmuteItem)
+        }
+    }
+
     func appendMoveCurrentSurfaceMoveMenuItems(to menu: NSMenu) {
         let canMoveToNewWorkspace = canMoveCurrentSurfaceToNewWorkspace()
         let workspaceTargets = currentSurfaceWorkspaceMoveTargets()
@@ -96,5 +136,30 @@ extension GhosttyNSView {
             NSSound.beep()
             return
         }
+    }
+
+    @objc func muteCurrentSurfaceNotifications(_ sender: Any?) {
+        guard let tabId,
+              let surfaceId = terminalSurface?.id,
+              let item = sender as? NSMenuItem,
+              let interval = item.representedObject as? TimeInterval,
+              interval.isFinite,
+              interval > 0 else {
+            NSSound.beep()
+            return
+        }
+        TerminalNotificationStore.shared.muteNotifications(
+            forTabId: tabId,
+            surfaceId: surfaceId,
+            until: Date().addingTimeInterval(interval)
+        )
+    }
+
+    @objc func unmuteCurrentSurfaceNotifications(_ sender: Any?) {
+        guard let surfaceId = terminalSurface?.id else {
+            NSSound.beep()
+            return
+        }
+        TerminalNotificationStore.shared.unmuteNotifications(forSurfaceId: surfaceId)
     }
 }
