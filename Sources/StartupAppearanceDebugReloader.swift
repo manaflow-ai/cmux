@@ -40,7 +40,7 @@ final class StartupAppearanceDebugReloader: StartupAppearanceReloading {
                 reloadSettingsFromFile: false
             )
         } else {
-            GhosttyApp.shared.reloadConfiguration(
+            GhosttyApp.shared.engineRuntime.reloadConfiguration(
                 source: source,
                 reloadSettingsFromFile: false
             )

@@ -20,7 +20,7 @@ import Foundation
 /// references this host weakly, so there is no retain cycle.
 extension Workspace: RemoteSurfaceHosting {
     var activeRemoteSessionCoordinator: RemoteSessionCoordinator? {
-        remoteSessionController
+        remoteConnectionCoordinator.state.remoteSessionController
     }
 
     var hostIsRemoteWorkspace: Bool {
@@ -32,26 +32,38 @@ extension Workspace: RemoteSurfaceHosting {
     }
 
     var hostRemoteConfiguration: WorkspaceRemoteConfiguration? {
-        remoteConfiguration
+        remoteConnectionCoordinator.state.remoteConfiguration
     }
 
     var hostIsDetachingCloseTransaction: Bool {
         isDetachingCloseTransaction
     }
 
-    var hostActiveRemoteTerminalSurfaceIds: Set<UUID> {
-        activeRemoteTerminalSurfaceIds
-    }
-
-    var hostEndedPersistentRemotePTYAttachSurfaceIds: Set<UUID> {
-        endedPersistentRemotePTYAttachSurfaceIds
-    }
-
-    var hostPendingRemoteTerminalChildExitSurfaceIds: Set<UUID> {
-        pendingRemoteTerminalChildExitSurfaceIds
-    }
-
     func hostMarkRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?) {
         markRemoteTerminalSessionEnded(surfaceId: surfaceId, relayPort: relayPort)
+    }
+
+    var hostWorkspaceID: UUID {
+        id
+    }
+
+    var hostFocusedPanelId: UUID? {
+        focusedPanelId
+    }
+
+    var hostPreservesRemotePTYSession: Bool {
+        remoteConnectionCoordinator.state.remoteConfiguration?.preserveAfterTerminalExit == true
+    }
+
+    func hostNormalizedRemotePTYSessionID(_ value: String?) -> String? {
+        surfaceCreation.normalizedRemotePTYSessionID(value)
+    }
+
+    func hostSurfaceTTYName(_ panelId: UUID) -> String? {
+        surfaceTTYNames[panelId]
+    }
+
+    func hostSetSurfaceTTYName(_ ttyName: String, for panelId: UUID) {
+        surfaceTTYNames[panelId] = ttyName
     }
 }

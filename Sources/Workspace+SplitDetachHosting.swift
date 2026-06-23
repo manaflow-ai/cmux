@@ -36,6 +36,6 @@ extension Workspace: SplitDetachHosting {
         _ transfer: DetachedSurfaceTransfer
     ) -> DetachedSurfaceTransfer {
         guard transfer.remoteCleanupConfiguration == nil else { return transfer }
-        return transfer.withRemoteCleanupConfiguration(remoteConfiguration)
+        return transfer.withRemoteCleanupConfiguration(remoteConnectionCoordinator.state.remoteConfiguration)
     }
 }

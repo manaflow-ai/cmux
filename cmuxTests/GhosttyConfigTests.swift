@@ -2305,7 +2305,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         XCTAssertTrue(localStore === WKWebsiteDataStore.default())
 
         let destination = Workspace()
-        destination.configureRemoteConnection(
+        destination.remoteConnectionCoordinator.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 22,
@@ -2337,7 +2337,7 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
     func testBrowserMoveOutOfRemoteWorkspaceRestoresDefaultWebsiteDataStore() throws {
         let source = Workspace()
-        source.configureRemoteConnection(
+        source.remoteConnectionCoordinator.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
                 port: 22,
@@ -2388,18 +2388,18 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         _ = workspace.newBrowserSurface(inPane: paneId, url: URL(string: "https://example.com"), focus: false)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: initialTerminalId, relayPort: configuration.relayPort)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
 
         _ = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
     }
 }
 

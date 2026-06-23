@@ -88,7 +88,7 @@ final class SessionPersistenceTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         workspace.surfaceListeningPorts[panelId] = [6969]
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)

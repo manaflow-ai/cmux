@@ -54,11 +54,13 @@ struct AppWindowChromeComposition {
     }
 
     func terminalAppearanceSnapshot(app: GhosttyApp = .shared) -> WindowTerminalAppearanceSnapshot {
+        // The resolved terminal appearance moved off the `GhosttyApp` god type
+        // into its `engineRuntime` (CmuxTerminal); read it from there.
         WindowTerminalAppearanceSnapshot(
-            backgroundColor: app.defaultBackgroundColor,
-            backgroundOpacity: app.defaultBackgroundOpacity,
-            backgroundBlur: app.defaultBackgroundBlur,
-            usesHostLayerBackground: app.usesHostLayerBackground
+            backgroundColor: app.engineRuntime.defaultBackgroundColor,
+            backgroundOpacity: app.engineRuntime.defaultBackgroundOpacity,
+            backgroundBlur: app.engineRuntime.defaultBackgroundBlur,
+            usesHostLayerBackground: app.engineRuntime.usesHostLayerBackground
         )
     }
 

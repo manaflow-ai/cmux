@@ -8,6 +8,7 @@ import XCTest
 @testable import cmux
 #endif
 
+@MainActor
 final class WorkspaceAppearanceConfigResolutionTests: XCTestCase {
     func testResolvedAppearanceConfigPrefersGhosttyRuntimeAppearanceOverLoadedConfig() {
         guard let loadedBackground = NSColor(hex: "#112233"),

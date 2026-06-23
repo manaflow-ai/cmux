@@ -888,10 +888,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: true)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
-        XCTAssertNil(workspace.remoteProxyEndpoint)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteProxyEndpoint)
     }
 
     @MainActor
@@ -913,15 +913,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: true)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: true)
         let deadline = Date().addingTimeInterval(0.5)
-        while workspace.remoteConnectionState == .connecting && Date() < deadline {
+        while workspace.remoteConnectionCoordinator.state.remoteConnectionState == .connecting && Date() < deadline {
             RunLoop.current.run(until: Date().addingTimeInterval(0.01))
         }
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
-        XCTAssertNil(workspace.remoteProxyEndpoint)
-        let daemon = workspace.remoteStatusPayload()["daemon"] as? [String: Any]
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
+        XCTAssertNil(workspace.remoteConnectionCoordinator.state.remoteProxyEndpoint)
+        let daemon = workspace.remoteConnectionCoordinator.remoteStatusPayload()["daemon"] as? [String: Any]
         XCTAssertFalse((daemon?["detail"] as? String)?.contains("pty.session") == true)
     }
 
@@ -980,10 +980,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: true)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: true)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connecting)
+        workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true)
     }
 
     func testReverseRelayStartupFailureDetailCapturesImmediateForwardingFailure() throws {
@@ -1078,13 +1078,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panelID))
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64007)
-        XCTAssertFalse(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertFalse(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panelID))
     }
 
     @MainActor
@@ -1112,26 +1112,26 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to vm:issue-4509 via shared local proxy 127.0.0.1:59999",
             target: "vm:issue-4509"
         )
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panelID))
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["connected"] as? Bool, true)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
 
         let deadline = Date().addingTimeInterval(0.5)
-        while workspace.remoteConnectionState == .connected && Date() < deadline {
+        while workspace.remoteConnectionCoordinator.state.remoteConnectionState == .connected && Date() < deadline {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
 
-        XCTAssertNotEqual(workspace.remoteConnectionState, .connected)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertNotEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["connected"] as? Bool, false)
     }
 
     @MainActor
@@ -1180,21 +1180,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        workspace.configureRemoteConnection(initialConfig, autoConnect: false)
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(initialConfig, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to vm:issue-4509-no-startup",
             target: "vm:issue-4509-no-startup"
         )
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(panelID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panelID))
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
     }
 
     @MainActor
@@ -1213,9 +1213,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini",
             target: "cmux-macmini"
@@ -1226,14 +1226,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             defaultValue: "Remote terminal session disconnected"
         )
         var publishedDetails: [String?] = []
-        let cancellable = workspace.remoteConnectionDetailPublisher
+        let cancellable = workspace.remoteConnectionCoordinator.state.remoteConnectionDetailPublisher
             .dropFirst()
             .sink { publishedDetails.append($0) }
         defer { cancellable.cancel() }
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64007)
 
-        XCTAssertEqual(workspace.remoteConnectionDetail, expectedDetail)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionDetail, expectedDetail)
         XCTAssertEqual(publishedDetails, [expectedDetail])
     }
 
@@ -1253,7 +1253,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
         let replacement = workspace.createReplacementTerminalPanel()
@@ -1283,11 +1283,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             foregroundAuthToken: "token-a"
         )
 
-        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connecting)
+        workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true)
     }
 
     @MainActor
@@ -1307,13 +1307,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             foregroundAuthToken: "token-a"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
 
-        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        workspace.remoteConnectionCoordinator.notifyRemoteForegroundAuthenticationReady(token: "token-a")
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connecting)
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connecting)
+        workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true)
     }
 
     @MainActor
@@ -1333,10 +1333,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             foregroundAuthToken: "token-b"
         )
 
-        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-a")
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.notifyRemoteForegroundAuthenticationReady(token: "token-a")
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
     }
 
     @MainActor
@@ -1355,15 +1355,15 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .reconnecting,
             detail: "Reconnecting to cmux-macmini",
             target: "cmux-macmini"
         )
 
-        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
-        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "reconnecting")
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .reconnecting)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["state"] as? String, "reconnecting")
     }
 
     @MainActor
@@ -1383,10 +1383,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             foregroundAuthToken: "token-a"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
-        workspace.notifyRemoteForegroundAuthenticationReady(token: "token-b")
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.notifyRemoteForegroundAuthenticationReady(token: "token-b")
 
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
     }
 
     @MainActor
@@ -1412,13 +1412,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         var capturedArguments: [String] = []
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { arguments in
             capturedArguments = arguments
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: 64012)
@@ -1426,9 +1426,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
         XCTAssertEqual(
             capturedArguments,
             [
@@ -1466,20 +1466,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         var capturedArguments: [String] = []
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { arguments in
             capturedArguments = arguments
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         workspace.markRemoteTerminalSessionEnded(surfaceId: panelID, relayPort: nil)
 
         wait(for: [cleanupRequested], timeout: 1.0)
 
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
         XCTAssertEqual(
             capturedArguments,
             [
@@ -1519,12 +1519,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { _ in
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
@@ -1533,9 +1533,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 0.2)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
-        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
-        XCTAssertEqual(workspace.remoteConfiguration?.persistentDaemonSlot, "ssh-persist-end")
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.persistentDaemonSlot, "ssh-persist-end")
         XCTAssertEqual(
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == panelID }?.terminal?.remotePTYSessionID,
@@ -1545,7 +1545,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         workspace.teardownAllPanels()
         XCTAssertTrue(workspace.panels.isEmpty)
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConfiguration?.preserveAfterTerminalExit, true)
     }
 
     @MainActor
@@ -1570,20 +1570,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         var capturedArguments: [String] = []
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { arguments in
             capturedArguments = arguments
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .connecting,
             detail: "Connecting to cmux-macmini",
             target: "cmux-macmini"
         )
 
-        workspace.teardownRemoteConnection()
+        workspace.remoteConnectionCoordinator.teardownRemoteConnection()
 
         wait(for: [cleanupRequested], timeout: 1.0)
 
@@ -1618,20 +1618,20 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         var capturedArguments: [String] = []
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { arguments in
             capturedArguments = arguments
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .connecting,
             detail: "Connecting to cmux-macmini",
             target: "cmux-macmini"
         )
 
-        workspace.teardownRemoteConnection()
+        workspace.remoteConnectionCoordinator.teardownRemoteConnection()
 
         wait(for: [cleanupRequested], timeout: 1.0)
 
@@ -1672,13 +1672,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         var capturedArguments: [String] = []
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { arguments in
             capturedArguments = arguments
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        remoteWorkspace.configureRemoteConnection(config, autoConnect: false)
+        remoteWorkspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         manager.closeWorkspace(remoteWorkspace)
 
@@ -1725,12 +1725,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { _ in
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
@@ -1740,14 +1740,14 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertTrue(detached.isRemoteTerminal)
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
 
         let reattachedSurfaceID = workspace.attachDetachedSurface(detached, inPane: paneID, focus: false)
 
         XCTAssertNotNil(reattachedSurfaceID)
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(detached.panelId))
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(detached.panelId))
     }
 
     @MainActor
@@ -1774,12 +1774,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { _ in
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
+        sourceWorkspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
@@ -1828,12 +1828,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { _ in
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
+        sourceWorkspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
         _ = sourceWorkspace.newBrowserSurface(inPane: sourcePaneID, url: URL(string: "https://example.com"), focus: false)
 
         let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
@@ -1882,13 +1882,13 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         var cleanupArguments: [[String]] = []
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { arguments in
             cleanupArguments.append(arguments)
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        sourceWorkspace.configureRemoteConnection(config, autoConnect: false)
+        sourceWorkspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
         let detached = try XCTUnwrap(sourceWorkspace.detachSurface(panelId: panelID))
@@ -1902,7 +1902,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
 
         XCTAssertNotNil(restoredPanelID)
         XCTAssertFalse(destinationWorkspace.isRemoteWorkspace)
-        XCTAssertEqual(destinationWorkspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(destinationWorkspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
 
         manager.closeWorkspace(sourceWorkspace)
         destinationWorkspace.markRemoteTerminalSessionEnded(surfaceId: detached.panelId, relayPort: config.relayPort)
@@ -1936,12 +1936,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
         let cleanupRequested = expectation(description: "control master cleanup requested")
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { _ in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { _ in
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
         _ = workspace.newBrowserSurface(inPane: paneID, url: URL(string: "https://example.com"), focus: false)
 
         workspace.markRemoteTerminalSessionEnded(surfaceId: initialTerminalID, relayPort: 64013)
@@ -1949,9 +1949,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         wait(for: [cleanupRequested], timeout: 1.0)
 
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertEqual(workspace.remoteConnectionState, .disconnected)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .disconnected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
     }
 
     @MainActor
@@ -1978,29 +1978,29 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let cleanupRequested = expectation(description: "control master cleanup requested")
         cleanupRequested.isInverted = true
 
-        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+        RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = { arguments in
             cleanupArguments.append(arguments)
             cleanupRequested.fulfill()
         }
-        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+        defer { RemoteConnectionCoordinator<Workspace>.runSSHControlMasterCommandOverrideForTesting = nil }
 
-        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(configuration, autoConnect: false)
         let siblingTerminal = try XCTUnwrap(
             workspace.newTerminalSplit(from: initialTerminalID, orientation: .horizontal)
         )
 
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 2)
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(initialTerminalID))
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingTerminal.id))
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 2)
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(initialTerminalID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(siblingTerminal.id))
 
         XCTAssertTrue(workspace.closePanel(initialTerminalID, force: true))
 
         XCTAssertNil(workspace.panels[initialTerminalID])
         XCTAssertNotNil(workspace.panels[siblingTerminal.id])
         XCTAssertTrue(workspace.isRemoteWorkspace)
-        XCTAssertFalse(workspace.isRemoteTerminalSurface(initialTerminalID))
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingTerminal.id))
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertFalse(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(initialTerminalID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(siblingTerminal.id))
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
         wait(for: [cleanupRequested], timeout: 0.2)
         XCTAssertTrue(cleanupArguments.isEmpty)
     }
@@ -2094,9 +2094,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             localSocketPath: nil,
             terminalStartupCommand: "ssh test@hpc.example"
         )
-        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+        defer { workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true) }
 
-        workspace.configureRemoteConnection(config, autoConnect: true)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: true)
 
         XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
         lock.lock()
@@ -2203,9 +2203,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true
         )
-        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+        defer { workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true) }
 
-        workspace.configureRemoteConnection(config, autoConnect: true)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: true)
 
         XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
         lock.lock()
@@ -2289,9 +2289,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: "ssh-stale-forward-test"
         )
-        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+        defer { workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true) }
 
-        workspace.configureRemoteConnection(config, autoConnect: true)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: true)
 
         XCTAssertEqual(forwardInvoked.wait(timeout: .now() + 2), .success)
         lock.lock()
@@ -2404,9 +2404,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: "ssh-stale-forward-retry"
         )
-        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+        defer { workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true) }
 
-        workspace.configureRemoteConnection(config, autoConnect: true)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: true)
 
         XCTAssertEqual(retryForwardInvoked.wait(timeout: .now() + 2), .success)
         lock.lock()
@@ -2446,7 +2446,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let originalPanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let originalPaneID = try XCTUnwrap(workspace.paneId(forPanelId: originalPanelID))
@@ -2454,8 +2454,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             workspace.newTerminalSplit(from: originalPanelID, orientation: .horizontal)
         )
 
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(originalPanelID))
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(originalPanelID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(movedPanel.id))
 
         let detached = try XCTUnwrap(workspace.detachSurface(panelId: movedPanel.id))
         XCTAssertTrue(detached.isRemoteTerminal)
@@ -2468,7 +2468,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertEqual(restoredPanelID, movedPanel.id)
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(movedPanel.id))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(movedPanel.id))
     }
 
     @MainActor
@@ -2488,8 +2488,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true
         )
-        source.configureRemoteConnection(config, autoConnect: false)
-        destination.configureRemoteConnection(config, autoConnect: false)
+        source.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        destination.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let sourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
         let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
@@ -2512,7 +2512,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertEqual(restoredPanelID, movedPanel.id)
-        XCTAssertTrue(destination.isRemoteTerminalSurface(movedPanel.id))
+        XCTAssertTrue(destination.remoteSurfaceCoordinator.isRemoteTerminalSurface(movedPanel.id))
         let snapshot = destination.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(
             snapshot.panels.first { $0.id == movedPanel.id }?.terminal?.remotePTYSessionID,
@@ -2550,8 +2550,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true
         )
-        source.configureRemoteConnection(sourceConfig, autoConnect: false)
-        destination.configureRemoteConnection(destinationConfig, autoConnect: false)
+        source.remoteConnectionCoordinator.configureRemoteConnection(sourceConfig, autoConnect: false)
+        destination.remoteConnectionCoordinator.configureRemoteConnection(destinationConfig, autoConnect: false)
 
         let initialSourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
         let sourcePaneID = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
@@ -2566,7 +2566,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             )
         )
         XCTAssertTrue(source.closePanel(initialSourcePanelID, force: true))
-        XCTAssertTrue(source.isRemoteTerminalSurface(movedPanel.id))
+        XCTAssertTrue(source.remoteSurfaceCoordinator.isRemoteTerminalSurface(movedPanel.id))
 
         let detached = try XCTUnwrap(source.detachSurface(panelId: movedPanel.id))
         XCTAssertNil(detached.remoteRelayPort)
@@ -2580,7 +2580,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
 
         XCTAssertEqual(restoredPanelID, movedPanel.id)
-        XCTAssertFalse(destination.isRemoteTerminalSurface(movedPanel.id))
+        XCTAssertFalse(destination.remoteSurfaceCoordinator.isRemoteTerminalSurface(movedPanel.id))
         XCTAssertEqual(
             destination.transferredRemoteCleanupConfigurationsByPanelId[movedPanel.id]?.destination,
             "source-host"
@@ -2605,7 +2605,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true
         )
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let sessionID = "explicit-surface-session"
@@ -2618,8 +2618,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(panel.id))
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panel.id))
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(
             snapshot.panels.first { $0.id == panel.id }?.terminal?.remotePTYSessionID,
@@ -2629,8 +2629,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: sessionID)
         XCTAssertTrue(outcome.clearedRemotePTYSession)
         XCTAssertTrue(outcome.untrackedRemoteTerminal)
-        XCTAssertFalse(workspace.isRemoteTerminalSurface(panel.id))
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
+        XCTAssertFalse(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panel.id))
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 0)
     }
 
     @MainActor
@@ -2649,7 +2649,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true
         )
-        workspace.configureRemoteConnection(explicitSessionConfig, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(explicitSessionConfig, autoConnect: false)
 
         let initialPanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
@@ -2663,9 +2663,9 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         )
         XCTAssertTrue(workspace.closePanel(initialPanelID, force: true))
         XCTAssertEqual(workspace.panels.count, 1)
-        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
 
-        workspace.disconnectRemoteConnection(clearConfiguration: true)
+        workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: true)
 
         let reseededConfig = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -2680,10 +2680,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true
         )
-        workspace.configureRemoteConnection(reseededConfig, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(reseededConfig, autoConnect: false)
 
         let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
-        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
         let outcome = workspace.markRemotePTYAttachEnded(surfaceId: panel.id, sessionID: defaultSessionID)
         XCTAssertTrue(outcome.clearedRemotePTYSession)
         XCTAssertTrue(outcome.untrackedRemoteTerminal)
@@ -2705,7 +2705,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true
         )
-        workspace.configureRemoteConnection(originalConfig, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(originalConfig, autoConnect: false)
 
         let paneID = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let panel = try XCTUnwrap(
@@ -2716,7 +2716,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
                 remotePTYSessionID: "old-explicit-session"
             )
         )
-        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panel.id, sessionID: "old-explicit-session"))
 
         let replacementConfig = WorkspaceRemoteConfiguration(
             destination: "cmux-macmini",
@@ -2731,10 +2731,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh-pty-attach",
             preserveAfterTerminalExit: true
         )
-        workspace.configureRemoteConnection(replacementConfig, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(replacementConfig, autoConnect: false)
 
         let defaultSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panel.id)
-        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panel.id, sessionID: defaultSessionID))
     }
 
     @MainActor
@@ -2753,7 +2753,7 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: nil,
             preserveAfterTerminalExit: true
         )
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let sourcePanelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let sessionID = "explicit-split-session"
@@ -2766,8 +2766,8 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(workspace.isRemoteTerminalSurface(panel.id))
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panel.id))
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(
             snapshot.panels.first { $0.id == panel.id }?.terminal?.remotePTYSessionID,
@@ -2792,12 +2792,12 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             preserveAfterTerminalExit: true,
             persistentDaemonSlot: "ssh-seeded-default"
         )
-        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
 
         let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
         let expectedSessionID = Workspace.defaultSSHPTYSessionID(workspaceId: workspace.id, panelId: panelID)
 
-        XCTAssertTrue(workspace.remotePTYSessionIDMatches(panelId: panelID, sessionID: expectedSessionID))
+        XCTAssertTrue(workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: panelID, sessionID: expectedSessionID))
         XCTAssertEqual(
             workspace.sessionSnapshot(includeScrollback: false)
                 .panels.first { $0.id == panelID }?.terminal?.remotePTYSessionID,
@@ -3446,43 +3446,43 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             terminalStartupCommand: "ssh cmux-macmini"
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
-        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.activeRemoteTerminalSessionCount, 1)
 
         let proxyError = "Remote proxy to cmux-macmini unavailable: Failed to start local daemon proxy: daemon RPC timeout waiting for hello response (retry in 3s)"
-        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cmux-macmini")
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "cmux-macmini")
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
-        XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionDetail, proxyError)
         XCTAssertEqual(
             workspace.statusEntries["remote.error"]?.value,
             "Remote proxy unavailable (cmux-macmini): \(proxyError)"
         )
         XCTAssertEqual(workspace.logEntries.last?.source, "remote-proxy")
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, true)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["connected"] as? Bool, true)
         XCTAssertEqual(
-            ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
+            ((workspace.remoteConnectionCoordinator.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
             "error"
         )
 
-        workspace.applyRemoteConnectionStateUpdate(.connecting, detail: "Connecting to cmux-macmini", target: "cmux-macmini")
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(.connecting, detail: "Connecting to cmux-macmini", target: "cmux-macmini")
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
         XCTAssertEqual(
             workspace.statusEntries["remote.error"]?.value,
             "Remote proxy unavailable (cmux-macmini): \(proxyError)"
         )
 
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to cmux-macmini via shared local proxy 127.0.0.1:9999",
             target: "cmux-macmini"
         )
 
-        XCTAssertEqual(workspace.remoteConnectionState, .connected)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .connected)
         XCTAssertNil(workspace.statusEntries["remote.error"])
         XCTAssertEqual(
-            ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
+            ((workspace.remoteConnectionCoordinator.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
             "unavailable"
         )
     }
@@ -3512,21 +3512,21 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             skipDaemonBootstrap: true
         )
 
-        workspace.configureRemoteConnection(config, autoConnect: false)
-        workspace.applyRemoteConnectionStateUpdate(
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
             .connected,
             detail: "Connected to vm:issue-4509 via shared local proxy 127.0.0.1:59999",
             target: "vm:issue-4509"
         )
 
         let proxyError = "Remote proxy to vm:issue-4509 unavailable: Remote daemon transport failed: daemon websocket keepalive timed out"
-        workspace.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "vm:issue-4509")
+        workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(.error, detail: proxyError, target: "vm:issue-4509")
 
-        XCTAssertEqual(workspace.remoteConnectionState, .error)
-        XCTAssertEqual(workspace.remoteConnectionDetail, proxyError)
-        XCTAssertEqual(workspace.remoteStatusPayload()["connected"] as? Bool, false)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionState, .error)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.state.remoteConnectionDetail, proxyError)
+        XCTAssertEqual(workspace.remoteConnectionCoordinator.remoteStatusPayload()["connected"] as? Bool, false)
         XCTAssertEqual(
-            ((workspace.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
+            ((workspace.remoteConnectionCoordinator.remoteStatusPayload()["proxy"] as? [String: Any])?["state"] as? String),
             "error"
         )
     }

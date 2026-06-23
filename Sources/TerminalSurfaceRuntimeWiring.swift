@@ -14,9 +14,9 @@ import struct CmuxSettings.AgentIntegrationSettingsStore
 // MARK: Engine
 
 extension GhosttyApp: TerminalEngineHosting {
-    var runtimeApp: ghostty_app_t? { app }
-    var runtimeConfig: ghostty_config_t? { config }
-    // `userGhosttyShellIntegrationMode` already matches the seam requirement.
+    var runtimeApp: ghostty_app_t? { engineRuntime.app }
+    var runtimeConfig: ghostty_config_t? { engineRuntime.config }
+    var userGhosttyShellIntegrationMode: String { engineRuntime.userGhosttyShellIntegrationMode }
 }
 
 // MARK: Views

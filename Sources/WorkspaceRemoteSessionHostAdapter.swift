@@ -25,8 +25,8 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
-            workspace.applyRemoteConnectionStateUpdate(
+            guard workspace.remoteConnectionCoordinator.state.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.remoteConnectionCoordinator.applyRemoteConnectionStateUpdate(
                 state,
                 detail: detail,
                 target: workspace.remoteDisplayTarget ?? "remote host"
@@ -38,8 +38,8 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
-            workspace.applyRemoteDaemonStatusUpdate(
+            guard workspace.remoteConnectionCoordinator.state.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.remoteConnectionCoordinator.applyRemoteDaemonStatusUpdate(
                 status,
                 target: workspace.remoteDisplayTarget ?? "remote host"
             )
@@ -50,8 +50,8 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
-            workspace.applyRemoteProxyEndpointUpdate(endpoint)
+            guard workspace.remoteConnectionCoordinator.state.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.remoteConnectionCoordinator.applyRemoteProxyEndpointUpdate(endpoint)
         }
     }
 
@@ -59,8 +59,8 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
-            workspace.applyRemoteDetectedSurfacePortsSnapshot(
+            guard workspace.remoteConnectionCoordinator.state.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.remoteConnectionCoordinator.applyRemoteDetectedSurfacePortsSnapshot(
                 detectedByPanel: detectedByPanel,
                 detected: detected,
                 forwarded: [],
@@ -74,8 +74,8 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
-            workspace.applyRemoteHeartbeatUpdate(count: count, lastSeenAt: lastSeenAt)
+            guard workspace.remoteConnectionCoordinator.state.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.remoteConnectionCoordinator.applyRemoteHeartbeatUpdate(count: count, lastSeenAt: lastSeenAt)
         }
     }
 
@@ -83,8 +83,8 @@ final class WorkspaceRemoteSessionHostAdapter: RemoteSessionHosting, @unchecked 
         let controllerID = self.controllerID
         DispatchQueue.main.async { [weak workspace] in
             guard let workspace else { return }
-            guard workspace.activeRemoteSessionControllerID == controllerID else { return }
-            workspace.applyBootstrapRemoteTTY(ttyName)
+            guard workspace.remoteConnectionCoordinator.state.activeRemoteSessionControllerID == controllerID else { return }
+            workspace.remoteSurfaceCoordinator.applyBootstrapRemoteTTY(ttyName)
         }
     }
 }

@@ -13,9 +13,15 @@ let package = Package(
             targets: ["CmuxWindowing"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxSettings"),
+    ],
     targets: [
         .target(
             name: "CmuxWindowing",
+            dependencies: [
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),

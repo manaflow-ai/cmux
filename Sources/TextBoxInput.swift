@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import CmuxTerminal
 import Carbon.HIToolbox
@@ -3272,7 +3273,7 @@ struct TextBoxInputContainer: View {
                 finish(.failure(NSError(domain: "cmux.textbox.attachment", code: 3)))
                 return
             }
-            workspace.uploadDroppedFilesForRemoteTerminal(
+            workspace.remoteSurfaceCoordinator.uploadDroppedFiles(
                 fileURLs,
                 operation: operation,
                 completion: finish

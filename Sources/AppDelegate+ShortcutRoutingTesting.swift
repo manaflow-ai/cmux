@@ -28,7 +28,8 @@ private let didInstallShortcutRoutingWindowMakeKeyAndOrderFrontSwizzleForTesting
 extension AppDelegate {
     func debugResetShortcutRoutingStateForTesting(clearFocusedWindowOverride: Bool = true) {
         clearConfiguredShortcutChordState()
-        shortcutEventFocusContextCache = nil
+        shortcutRouter.resetFocusSnapshotCache()
+        liveShortcutEventFocusContextCache = nil
         debugShortcutRoutingFocusedWindowOverrideForTesting.keyRepairFirstResponder = nil
         debugFocusedTerminalKeyRepairObserverForTesting = nil
         if clearFocusedWindowOverride {
@@ -38,7 +39,8 @@ extension AppDelegate {
 
     func debugSetShortcutRoutingFocusedWindowForTesting(_ window: NSWindow?) {
         debugShortcutRoutingFocusedWindowOverrideForTesting.window = window
-        shortcutEventFocusContextCache = nil
+        shortcutRouter.resetFocusSnapshotCache()
+        liveShortcutEventFocusContextCache = nil
     }
 
     func debugSetShortcutRoutingKeyRepairFirstResponderForTesting(_ responder: NSResponder?) {

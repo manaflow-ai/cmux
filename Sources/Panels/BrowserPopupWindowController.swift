@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxShortcuts
 import ObjectiveC
 import WebKit
 
@@ -47,7 +48,7 @@ private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEve
 /// "Close Tab" action (which would close the parent browser tab).
 final class BrowserPopupPanel: NSPanel {
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
+        if AppDelegate.shared?.shortcutRouter.handle(popupCloseEvent: event, popupWindow: self) == true {
             return true
         }
         if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {

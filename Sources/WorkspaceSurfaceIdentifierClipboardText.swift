@@ -21,7 +21,7 @@ enum WorkspaceSurfaceIdentifierClipboardText {
 
     @MainActor
     static func makeWorkspaceIds(_ ids: [UUID], includeRefs: Bool) -> String {
-        let refs = includeRefs ? TerminalController.shared.v2WorkspaceRefs(for: ids) : [:]
+        let refs = includeRefs ? TerminalController.shared.controlCommandCoordinator.workspaceRefs(for: ids) : [:]
         return make(workspaces: ids.map { (id: $0, ref: refs[$0]) })
     }
 
@@ -67,7 +67,7 @@ enum WorkspaceSurfaceIdentifierClipboardText {
         includeRefs: Bool = true
     ) -> String {
         let refs = includeRefs
-            ? TerminalController.shared.v2WorkspacePaneAndSurfaceRefs(
+            ? TerminalController.shared.controlCommandCoordinator.workspacePaneAndSurfaceRefs(
                 workspaceId: workspaceId,
                 paneId: paneId,
                 surfaceId: surfaceId

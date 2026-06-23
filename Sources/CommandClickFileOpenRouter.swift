@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import CmuxSettings
 import Foundation
@@ -72,7 +73,7 @@ enum CommandClickFileOpenRouter {
                 panelId: surfaceId,
                 preferredWorkspaceId: preferredWorkspaceId
             )?.workspace ?? workspace
-            guard !resolvedWorkspace.isRemoteTerminalSurface(surfaceId) else {
+            guard !resolvedWorkspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(surfaceId) else {
                 fallback?()
                 return
             }

@@ -80,6 +80,6 @@ extension Workspace: SplitMoveReorderHosting {
     }
 
     func setApplyingRemoteTmuxTabReorder(_ applying: Bool) {
-        isApplyingRemoteTmuxTabReorder = applying
+        remoteSurfaceCoordinator.state.isApplyingRemoteTmuxTabReorder = applying
     }
 }

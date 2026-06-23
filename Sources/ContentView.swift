@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import CmuxAppKitSupportUI
 import CmuxCommandPalette
@@ -16,6 +17,7 @@ import CmuxTerminal
 import CmuxSidebarProviderKit
 import CmuxExtensionSidebarExamples
 import CmuxSettingsUI
+import CmuxWindowing
 import CmuxSidebar
 import CmuxSidebarUI
 import CmuxSidebarRemoteRender
@@ -105,6 +107,39 @@ private final class CommandPaletteFocusRestoreHost: CommandPaletteFocusGuard {
     }
 }
 
+/// App-side ``WindowChromeHosting`` witness for ``ContentView``.
+///
+/// ``WindowChromeController`` (in `CmuxWindowing`) owns the window-chrome state +
+/// pure logic, but the cross-slice reads/writes it needs (selected-workspace
+/// title resolution via `TabManager`, sidebar visibility, live `NSWindow`
+/// decoration installs via `AppDelegate`, the terminal/browser portal-registry
+/// geometry sync, background-theme logging via `GhosttyApp`) cannot live in the
+/// package. This long-lived `@State` adapter holds the closures `ContentView`
+/// refreshes each render in `configureWindowChromeHost()`, mirroring the
+/// `CommandPaletteFocusRestoreHost` long-lived-adapter pattern.
+@MainActor
+private final class WindowChromeHost: WindowChromeHosting {
+    var resolvedTitlebarTextProvider: () -> String? = { nil }
+    var isSidebarVisibleProvider: () -> Bool = { false }
+    var applyWindowDecorationsHandler: (NSWindow) -> Void = { _ in }
+    var syncWorkspaceTabBarLeadingInsetHandler: (CGFloat) -> Void = { _ in }
+    var schedulePortalGeometrySynchronizeHandler: (NSWindow?) -> Void = { _ in }
+    var backgroundLogEnabledProvider: () -> Bool = { false }
+    var logBackgroundHandler: (String) -> Void = { _ in }
+    var backgroundThemeLogContextProvider: () -> String = { "" }
+    var selectedWorkspaceIdProvider: () -> UUID? = { nil }
+
+    func resolvedTitlebarText() -> String? { resolvedTitlebarTextProvider() }
+    var isSidebarVisible: Bool { isSidebarVisibleProvider() }
+    func applyWindowDecorations(to window: NSWindow) { applyWindowDecorationsHandler(window) }
+    func syncWorkspaceTabBarLeadingInset(_ inset: CGFloat) { syncWorkspaceTabBarLeadingInsetHandler(inset) }
+    func schedulePortalGeometrySynchronize(for window: NSWindow?) { schedulePortalGeometrySynchronizeHandler(window) }
+    var backgroundLogEnabled: Bool { backgroundLogEnabledProvider() }
+    func logBackground(_ message: String) { logBackgroundHandler(message) }
+    func backgroundThemeLogContext() -> String { backgroundThemeLogContextProvider() }
+    var selectedWorkspaceId: UUID? { selectedWorkspaceIdProvider() }
+}
+
 struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPaletteForkableAgentProbeHost {
     var updateViewModel: UpdateStateModel
     let windowId: UUID
@@ -125,18 +160,72 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
     @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidthSetting = SessionPersistencePolicy.defaultMinimumSidebarWidth
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var titlebarLeftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var titlebarLeftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var titlebarTrafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var titlebarTrafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
+    // The four minimal-mode titlebar debug insets that previously lived as
+    // @AppStorage on ContentView (keys + defaults now in
+    // CmuxSettings.MinimalModeTitlebarInsetSettings) moved into
+    // WindowChromeController.titlebarDebugChromeSnapshot, which reads them from
+    // defaults directly. The titlebarLeadingInset that the AppKit inset reader
+    // writes is now windowChromeController.titlebarLeadingInset.
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    @State private var sidebarWidth: CGFloat = CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     @State private var selectedTabIds: Set<UUID> = []
     @State private var lastSidebarSelectionIndex: Int? = nil
-    @State private var titlebarText: String = ""
-    @State private var isFullScreen: Bool = false
-    @State private var observedWindow: NSWindow?
     @State private var sidebarRenderWorkerClient: RenderWorkerClient?
+    // Window-chrome state (titlebarText, titlebarThemeGeneration, isFullScreen,
+    // observedWindow, sidebarWidth, titlebarPadding, hostingSafeAreaTop,
+    // titlebarLeadingInset, the titlebar-text coalescer, and the four minimal-mode
+    // insets) moved out of ContentView into CmuxWindowing.WindowChromeController.
+    // ContentView holds one @State controller and the host witness; the legacy
+    // property names below are computed forwarders so unrelated readers
+    // (command-palette / browser / sidebar code) keep compiling unchanged.
+    @State private var windowChromeController = WindowChromeController(
+        sidebarWidth: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+    )
+    @State private var windowChromeHost = WindowChromeHost()
+
+    // Computed forwarders onto WindowChromeController for the chrome state that
+    // moved out of ContentView. The stored ownership lives on the controller now;
+    // these keep the many unrelated readers (command-palette, browser, sidebar
+    // code owned by other slices) and the still-app-side chrome witness methods
+    // compiling against the legacy property names.
+    private var titlebarText: String {
+        get { windowChromeController.titlebarText }
+        nonmutating set { windowChromeController.titlebarText = newValue }
+    }
+    private var titlebarThemeGeneration: UInt64 {
+        get { windowChromeController.titlebarThemeGeneration }
+        nonmutating set { windowChromeController.titlebarThemeGeneration = newValue }
+    }
+    private var isFullScreen: Bool {
+        get { windowChromeController.isFullScreen }
+        nonmutating set { windowChromeController.isFullScreen = newValue }
+    }
+    private var observedWindow: NSWindow? {
+        get { windowChromeController.observedWindow }
+        nonmutating set { windowChromeController.observedWindow = newValue }
+    }
+    private var sidebarWidth: CGFloat {
+        get { windowChromeController.sidebarWidth }
+        nonmutating set { windowChromeController.sidebarWidth = newValue }
+    }
+    private var titlebarPadding: CGFloat {
+        get { windowChromeController.titlebarPadding }
+        nonmutating set { windowChromeController.titlebarPadding = newValue }
+    }
+    private var hostingSafeAreaTop: CGFloat {
+        get { windowChromeController.hostingSafeAreaTop }
+        nonmutating set { windowChromeController.hostingSafeAreaTop = newValue }
+    }
+    private var titlebarLeadingInset: CGFloat {
+        get { windowChromeController.titlebarLeadingInset }
+        nonmutating set { windowChromeController.titlebarLeadingInset = newValue }
+    }
+
+    // The injected titlebar-controls view model (legacy @StateObject
+    // fullscreenControlsViewModel). Owned here and handed to the controller's
+    // host; TODO: convert TitlebarControlsViewModel to @Observable and inject it
+    // through WindowChromeController (it is currently a tiny ObservableObject in
+    // Sources/Update/UpdateTitlebarAccessory.swift, read via @ObservedObject /
+    // @StateObject by other slices, so the conversion is a cross-slice change).
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
     @StateObject private var sessionIndexStore = SessionIndexStore()
@@ -157,14 +246,21 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     // mountedWorkspaceIds/retiringWorkspaceId through Observation.
     @State private var workspaceHandoffCoordinator = WorkspaceHandoffCoordinator()
     @State private var didApplyUITestSidebarSelection = false
-    @State private var titlebarThemeGeneration: UInt64 = 0
     @State private var sidebarDraggedTabId: UUID?
-    @State private var titlebarTextUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     /// Owns the transient cursor / hit-band / pointer-monitor / drag-active state
     /// for the two sidebar resizer dividers. The width math and overlay views stay
     /// here (they write SwiftUI `@State` widths directly); this controller keeps the
     /// resize cursor pinned and is driven by `updateSidebarResizerBandState` and the
     /// overlay gesture/hover handlers.
+    ///
+    /// NOTE: the sidebar resizer overlay/config/band-input methods could NOT move
+    /// into CmuxWindowing with the rest of the window-chrome cluster: their types
+    /// (SidebarResizerController, SidebarResizerBandInputs, SidebarResizeInteraction,
+    /// SidebarResizerAccessibilityModifier) live in CmuxAppKitSupportUI, which
+    /// depends transitively on CmuxWindowing (CmuxWorkspaces -> CmuxWindowing), so
+    /// importing them would close a cycle. The architecturally correct home for the
+    /// resizer overlay is CmuxAppKitSupportUI (beside SidebarResizerController), not
+    /// CmuxWindowing. Left in place; see report TODO.
     @State private var sidebarResizerController = SidebarResizerController(
         bandPolicy: ContentView.bandPolicy,
         fixedSidebarResizeCursor: ContentView.fixedSidebarResizeCursor
@@ -385,7 +481,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         image: NSCursor.resizeLeftRight.image,
         hotSpot: NSCursor.resizeLeftRight.hotSpot
     )
-    nonisolated private static let commandPaletteCommandsPrefix = ">"
     private static let commandPaletteVisiblePreviewResultLimit = 48
     private static let commandPaletteVisiblePreviewCandidateLimit = 128
     private static let minimumRightSidebarWidth: CGFloat = CGFloat(RightSidebarWidthSettings.minimumWidth)
@@ -698,12 +793,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
-    /// Native titlebar inset reported by AppKit. Standard mode follows cmux's visual chrome;
-    /// minimal WindowGroup hosts can still need the reported safe area cancelled.
-    @State private var titlebarPadding: CGFloat = WindowChromeMetrics.defaultTitlebarHeight
-    /// SwiftUI WindowGroup windows can still report a titlebar safe area; manually created
-    /// main windows use MainWindowHostingView and report zero.
-    @State private var hostingSafeAreaTop: CGFloat = 0
+    // titlebarPadding / hostingSafeAreaTop moved to WindowChromeController
+    // (forwarded above). They are AppKit-reported insets owned by the chrome.
     @AppStorage(WorkspacePresentationModeSettings.modeKey)
     private var workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
 
@@ -711,62 +802,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         WorkspacePresentationModeSettings.mode(for: workspacePresentationMode) == .minimal
     }
 
+    // effectiveTitlebarPadding / customTitlebarLeadingPadding /
+    // fullscreenControlsPlacement moved to WindowChromeController (+Layout). This
+    // computed var forwards to the controller for the remaining app-side content
+    // callers (terminalContent).
     private var effectiveTitlebarPadding: CGFloat {
-        Self.effectiveTitlebarPadding(
-            isMinimalMode: isMinimalMode,
-            isFullScreen: isFullScreen,
-            titlebarPadding: titlebarPadding,
-            hostingSafeAreaTop: hostingSafeAreaTop
-        )
-    }
-
-    static func effectiveTitlebarPadding(
-        isMinimalMode: Bool,
-        isFullScreen: Bool,
-        titlebarPadding: CGFloat,
-        hostingSafeAreaTop: CGFloat
-    ) -> CGFloat {
-        WindowTitlebarLayout().effectiveTitlebarPadding(
-            isMinimalMode: isMinimalMode,
-            isFullScreen: isFullScreen,
-            appTitlebarHeight: WindowChromeMetrics.appTitlebarHeight,
-            titlebarPadding: titlebarPadding,
-            hostingSafeAreaTop: hostingSafeAreaTop
-        )
-    }
-
-    nonisolated static func customTitlebarLeadingPadding(
-        isFullScreen: Bool,
-        isSidebarVisible: Bool,
-        sidebarWidth: CGFloat,
-        minimumSidebarWidth: CGFloat,
-        titlebarLeadingInset: CGFloat
-    ) -> CGFloat {
-        WindowTitlebarLayout().customTitlebarLeadingPadding(
-            isFullScreen: isFullScreen,
-            isSidebarVisible: isSidebarVisible,
-            sidebarWidth: sidebarWidth,
-            minimumSidebarWidth: minimumSidebarWidth,
-            titlebarLeadingInset: titlebarLeadingInset
-        )
-    }
-
-    /// Where the always-visible fullscreen titlebar controls (sidebar toggle,
-    /// history, new tab, notifications) are anchored inside the titlebar band.
-    typealias FullscreenControlsPlacement = CmuxAppKitSupportUI.FullscreenControlsPlacement
-
-    /// Resolves the placement for the fullscreen titlebar controls, or `nil` when
-    /// they should not be shown. The controls are mounted in a single overlay
-    /// anchor driven by this function so their on-screen position never depends on
-    /// sidebar visibility; toggling the sidebar must not shift the accessory bar.
-    nonisolated static func fullscreenControlsPlacement(
-        isFullScreen: Bool,
-        isSidebarVisible: Bool
-    ) -> FullscreenControlsPlacement? {
-        WindowTitlebarLayout().fullscreenControlsPlacement(
-            isFullScreen: isFullScreen,
-            isSidebarVisible: isSidebarVisible
-        )
+        windowChromeController.effectiveTitlebarPadding(isMinimalMode: isMinimalMode)
     }
 
     private func terminalContent(appearance: WindowAppearanceSnapshot) -> some View {
@@ -797,7 +838,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                         isFullScreen: isFullScreen,
                         workspacePortalPriority: portalPriority,
                         onThemeRefreshRequest: { reason, eventId, source, payloadHex in
-                            scheduleTitlebarThemeRefreshFromWorkspace(
+                            windowChromeController.scheduleTitlebarThemeRefreshFromWorkspace(
                                 workspaceId: tab.id,
                                 reason: reason,
                                 backgroundEventId: eventId,
@@ -974,7 +1015,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     @AppStorage("bgGlassTintHex") private var bgGlassTintHex = "#000000"
     @AppStorage("bgGlassTintOpacity") private var bgGlassTintOpacity = 0.03
     @AppStorage("bgGlassEnabled") private var bgGlassEnabled = false
-    @State private var titlebarLeadingInset: CGFloat = 12
+    // titlebarLeadingInset moved to WindowChromeController (forwarded above).
     private var windowIdentifier: String { "cmux.main.\(windowId.uuidString)" }
     private var windowAppearanceSnapshot: WindowAppearanceSnapshot {
         _ = titlebarThemeGeneration
@@ -1044,201 +1085,142 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         return TitlebarControlsLayoutMetrics.contentSize(config: style.config).width
     }
 
-    private var titlebarDebugChromeSnapshot: MinimalModeTitlebarDebugSnapshot {
-        MinimalModeTitlebarDebugSnapshot(
-            leftControlsLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarLeftControlsLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            leftControlsTopInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarLeftControlsTopInset,
-                range: MinimalModeTitlebarDebugSettings.topInsetRange
-            ),
-            trafficLightTabBarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarTrafficLightTabBarInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            ),
-            trafficLightTitlebarLeadingInset: MinimalModeTitlebarDebugSettings.clamped(
-                titlebarTrafficLightTitlebarLeadingInset,
-                range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-            )
-        )
+    // titlebarDebugChromeSnapshot moved to WindowChromeController (reads the four
+    // minimal-mode insets from defaults via CmuxSettings). Forwarded for the
+    // app-side onChange in `body`.
+    private var titlebarDebugChromeSnapshot: MinimalModeTitlebarInsetSnapshot {
+        windowChromeController.titlebarDebugChromeSnapshot
     }
 
+    /// Refreshes the ``WindowChromeHost`` witness closures so the package
+    /// controller can call back into this render's live app-target state. Called
+    /// at the top of `body` and in `onAppear`, mirroring the command-palette
+    /// focus-restore host refresh.
+    private func configureWindowChromeHost() {
+        windowChromeHost.resolvedTitlebarTextProvider = { [tabManager] in
+            guard let selectedId = tabManager.selectedTabId,
+                  let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
+                return nil
+            }
+            return tabManager.resolvedWorkspaceDisplayTitle(for: tab)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        windowChromeHost.isSidebarVisibleProvider = { [sidebarState] in sidebarState.isVisible }
+        windowChromeHost.applyWindowDecorationsHandler = { window in
+            AppDelegate.shared?.applyWindowDecorations(to: window)
+        }
+        windowChromeHost.syncWorkspaceTabBarLeadingInsetHandler = { [tabManager] inset in
+            tabManager.syncWorkspaceTabBarLeadingInset(inset)
+        }
+        windowChromeHost.schedulePortalGeometrySynchronizeHandler = { window in
+            if let window {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
+            } else {
+                TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+                BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            }
+        }
+        windowChromeHost.backgroundLogEnabledProvider = { GhosttyApp.shared.backgroundLogEnabled }
+        windowChromeHost.logBackgroundHandler = { message in GhosttyApp.shared.logBackground(message) }
+        windowChromeHost.backgroundThemeLogContextProvider = {
+            "appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+        }
+        windowChromeHost.selectedWorkspaceIdProvider = { [tabManager] in tabManager.selectedTabId }
+    }
+
+    // customTitlebar moved to CmuxWindowing.CustomTitlebarView. ContentView mounts
+    // it with the controller and the cross-slice chrome decoration slots
+    // (WindowDragHandleView / TitlebarLeadingInsetReader / DetachedFolderDragIcon /
+    // TitlebarDoubleClickMonitorView / WindowChromeBorder) that live app-side and
+    // in CmuxAppKitSupportUI (unreachable from CmuxWindowing without a cycle).
     private func customTitlebar(appearance: WindowAppearanceSnapshot) -> some View {
-        let titlebarContentHeight = max(1, WindowChromeMetrics.appTitlebarHeight - 2)
-        let leadingPadding = Self.customTitlebarLeadingPadding(
-            isFullScreen: isFullScreen,
+        CustomTitlebarView(
+            controller: windowChromeController,
+            titleTextColor: fakeTitlebarTextColor(appearance: appearance),
             isSidebarVisible: sidebarState.isVisible,
-            sidebarWidth: sidebarWidth,
             minimumSidebarWidth: minimumSidebarWidth,
-            titlebarLeadingInset: titlebarLeadingInset
-        )
-        return ZStack {
-            // Enable window dragging from the titlebar strip without making the entire content
-            // view draggable (which breaks drag gestures like tab reordering).
-            WindowDragHandleView()
-
-            TitlebarLeadingInsetReader(
-                inset: $titlebarLeadingInset,
-                baseLeadingInset: { MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset() }
-            )
-                .allowsHitTesting(false)
-
-            HStack(spacing: 8) {
-                if isFullScreen && !sidebarState.isVisible {
-                    // Reserve the controls' width so the title flows to their right.
-                    // The visible controls are rendered once in the band overlay (see
-                    // `workspaceTitlebarBand`) so their position never depends on
-                    // sidebar visibility.
-                    Color.clear
-                        .frame(width: fullscreenControlsWidth, height: titlebarContentHeight)
-                        .allowsHitTesting(false)
-                }
-
-                // Draggable folder icon + focused command name
+            fullscreenControlsWidth: fullscreenControlsWidth,
+            dragHandle: { WindowDragHandleView() },
+            insetReader: {
+                TitlebarLeadingInsetReader(
+                    inset: Binding(
+                        get: { windowChromeController.titlebarLeadingInset },
+                        set: { windowChromeController.titlebarLeadingInset = $0 }
+                    ),
+                    baseLeadingInset: { MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInset() }
+                )
+            },
+            folderIcon: {
                 if let directory = focusedDirectory {
                     DetachedFolderDragIcon(directory: directory)
                         .frame(width: 16, height: 16)
                         .padding(.leading, -6)
                 }
-
-                Text(titlebarText)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundColor(fakeTitlebarTextColor(appearance: appearance))
-                    .lineLimit(1)
-                    .allowsHitTesting(false)
-
-                Spacer()
-
+            },
+            doubleClickMonitor: { TitlebarDoubleClickMonitorView() },
+            bottomBorder: {
+                WindowChromeBorder(
+                    orientation: .horizontal,
+                    refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
+                    backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+                )
             }
-            .frame(height: titlebarContentHeight)
-            .padding(.top, 2)
-            .padding(.leading, leadingPadding)
-            .padding(.trailing, 8)
-        }
-        .frame(height: WindowChromeMetrics.appTitlebarHeight)
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .background(TitlebarDoubleClickMonitorView())
-        .overlay(alignment: .bottom) {
-            WindowChromeBorder(
-                orientation: .horizontal,
-                refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
-                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
-            )
-                .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
-        }
+        )
     }
 
+    // workspaceTitlebarBand moved to CmuxWindowing.WorkspaceTitlebarBandView.
     private func workspaceTitlebarBand(appearance: WindowAppearanceSnapshot) -> some View {
-        Color.clear
-            .frame(height: WindowChromeMetrics.appTitlebarHeight)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .topLeading) {
-                customTitlebar(appearance: appearance)
-                    // The workspace titlebar band spans the full window width and sits at
-                    // zIndex(100) over the content/sidebar layout. Its drag/double-click
-                    // surface (`WindowDragHandleView` + `.contentShape(Rectangle())`) must
-                    // not cover the right sidebar, whose mode bar (Files/Search/Feed/Vault)
-                    // lives inside the titlebar-height strip — otherwise the band wins the
-                    // hit-test and swallows every click/hover on those buttons (#5099).
-                    // Confine the interactive titlebar surface to the area left of the
-                    // right sidebar, matching the pre-#5017 "only over terminal content,
-                    // not the sidebar" intent. The left sidebar's titlebar controls live in
-                    // the AppKit titlebar accessory (above this band), so only the trailing
-                    // (right-sidebar) edge needs to be ceded here.
-                    //
-                    // `rightSidebarWidth` is already `rightSidebarVisible ? fileExplorerWidth : 0`,
-                    // so it collapses to 0 when the sidebar is hidden. The sidebar panel itself
-                    // snaps without animation (`.transaction { $0.animation = nil }`), so we match
-                    // that here — otherwise this inset could animate out of step with the panel on
-                    // toggle and momentarily expose (or re-cover) the mode bar mid-transition.
-                    .padding(.trailing, rightSidebarWidth)
-                    .animation(nil, value: rightSidebarWidth)
+        WorkspaceTitlebarBandView(
+            controller: windowChromeController,
+            isSidebarVisible: sidebarState.isVisible,
+            rightSidebarWidth: rightSidebarWidth,
+            titlebar: { customTitlebar(appearance: appearance) },
+            fullscreenControls: {
+                fullscreenControls
+                    .environment(
+                        \.colorScheme,
+                        sidebarState.isVisible
+                            ? appearance.sidebarContentColorScheme
+                            : appearance.chromeColorScheme
+                    )
             }
-            .overlay(alignment: .topLeading) {
-                if let placement = Self.fullscreenControlsPlacement(
-                    isFullScreen: isFullScreen,
-                    isSidebarVisible: sidebarState.isVisible
-                ) {
-                    fullscreenControls
-                        .environment(
-                            \.colorScheme,
-                            sidebarState.isVisible
-                                ? appearance.sidebarContentColorScheme
-                                : appearance.chromeColorScheme
-                        )
-                        // Same vertical frame as the title row (`customTitlebar`)
-                        // so the controls' center matches the folder icon / title.
-                        .frame(height: max(1, WindowChromeMetrics.appTitlebarHeight - 2), alignment: .center)
-                        .padding(.top, placement.topPadding)
-                        .padding(.leading, placement.leadingPadding)
-                }
-            }
+        )
     }
 
+    // syncTrafficLightInset / applyTitlebarDebugChromeChange /
+    // schedulePortalGeometrySynchronize / refreshWindowChromeMetrics /
+    // updateTitlebarText / scheduleTitlebarTextRefresh / scheduleTitlebarThemeRefresh
+    // / scheduleTitlebarThemeRefreshFromWorkspace moved to WindowChromeController.
+    // These thin forwards keep the many app-side callers compiling.
     private func syncTrafficLightInset() {
-        let inset: CGFloat = (isMinimalMode && !sidebarState.isVisible && !isFullScreen)
-            ? CGFloat(titlebarDebugChromeSnapshot.trafficLightTabBarLeadingInset)
-            : 0
-        tabManager.syncWorkspaceTabBarLeadingInset(inset)
+        windowChromeController.syncTrafficLightInset(
+            isMinimalMode: isMinimalMode,
+            isSidebarVisible: sidebarState.isVisible
+        )
     }
 
     private func applyTitlebarDebugChromeChange() {
-        if let observedWindow {
-            AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
-        }
-        syncTrafficLightInset()
+        windowChromeController.applyTitlebarDebugChromeChange(
+            isMinimalMode: isMinimalMode,
+            isSidebarVisible: sidebarState.isVisible
+        )
     }
 
     private func schedulePortalGeometrySynchronize() {
-        if let observedWindow {
-            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: observedWindow)
-        } else {
-            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
-        }
+        windowChromeController.schedulePortalGeometrySynchronize()
     }
 
     private func refreshWindowChromeMetrics(for window: NSWindow) {
-        // Keep native measurements around for minimal WindowGroup safe-area cancellation.
-        // Standard mode uses cmux's visual chrome height for layout.
-        let computedTitlebarHeight = window.frame.height - window.contentLayoutRect.height
-        let nextPadding = WindowChromeMetrics.clampedTitlebarHeight(computedTitlebarHeight)
-        let nextSafeAreaTop = max(0, window.contentView?.safeAreaInsets.top ?? 0)
-        if abs(titlebarPadding - nextPadding) > 0.5 {
-            DispatchQueue.main.async {
-                titlebarPadding = nextPadding
-            }
-        }
-        if abs(hostingSafeAreaTop - nextSafeAreaTop) > 0.5 {
-            DispatchQueue.main.async {
-                hostingSafeAreaTop = nextSafeAreaTop
-            }
-        }
+        windowChromeController.refreshWindowChromeMetrics(for: window)
     }
 
     private func updateTitlebarText() {
-        guard let selectedId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
-            if !titlebarText.isEmpty {
-                titlebarText = ""
-            }
-            return
-        }
-        let title = tabManager.resolvedWorkspaceDisplayTitle(for: tab)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if titlebarText != title {
-            titlebarText = title
-        }
+        windowChromeController.updateTitlebarText()
     }
 
     private func scheduleTitlebarTextRefresh() {
-        titlebarTextUpdateCoalescer.signal {
-            updateTitlebarText()
-        }
+        windowChromeController.scheduleTitlebarTextRefresh()
     }
 
     private func scheduleTitlebarThemeRefresh(
@@ -1247,16 +1229,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         backgroundSource: String? = nil,
         notificationPayloadHex: String? = nil
     ) {
-        let previousGeneration = titlebarThemeGeneration
-        titlebarThemeGeneration &+= 1
-        if GhosttyApp.shared.backgroundLogEnabled {
-            let eventLabel = backgroundEventId.map(String.init) ?? "nil"
-            let sourceLabel = backgroundSource ?? "nil"
-            let payloadLabel = notificationPayloadHex ?? "nil"
-            GhosttyApp.shared.logBackground(
-                "titlebar theme refresh scheduled reason=\(reason) event=\(eventLabel) source=\(sourceLabel) payload=\(payloadLabel) previousGeneration=\(previousGeneration) generation=\(titlebarThemeGeneration) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
-            )
-        }
+        windowChromeController.scheduleTitlebarThemeRefresh(
+            reason: reason,
+            backgroundEventId: backgroundEventId,
+            backgroundSource: backgroundSource,
+            notificationPayloadHex: notificationPayloadHex
+        )
     }
 
     private func scheduleTitlebarThemeRefreshFromWorkspace(
@@ -1266,15 +1244,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         backgroundSource: String?,
         notificationPayloadHex: String?
     ) {
-        guard tabManager.selectedTabId == workspaceId else {
-            guard GhosttyApp.shared.backgroundLogEnabled else { return }
-            GhosttyApp.shared.logBackground(
-                "titlebar theme refresh skipped workspace=\(workspaceId.uuidString) selected=\(tabManager.selectedTabId?.uuidString ?? "nil") reason=\(reason)"
-            )
-            return
-        }
-
-        scheduleTitlebarThemeRefresh(
+        windowChromeController.scheduleTitlebarThemeRefreshFromWorkspace(
+            workspaceId: workspaceId,
             reason: reason,
             backgroundEventId: backgroundEventId,
             backgroundSource: backgroundSource,
@@ -1349,16 +1320,16 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 fileExplorerStore.applyWorkspaceRoot(.none)
                 return
             }
-            guard let config = tab.remoteConfiguration, config.transport == .ssh else {
+            guard let config = tab.remoteConnectionCoordinator.state.remoteConfiguration, config.transport == .ssh else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
                 return
             }
-            let unavailableDetail = tab.remoteConnectionDetail ?? tab.remoteDaemonStatus.detail
+            let unavailableDetail = tab.remoteConnectionCoordinator.state.remoteConnectionDetail ?? tab.remoteConnectionCoordinator.state.remoteDaemonStatus.detail
 
             #if DEBUG
             let hasUnavailableDetail = unavailableDetail?.isEmpty == false
             cmuxDebugLog(
-                "fileExplorer.sync remote state=\(tab.remoteConnectionState.rawValue) " +
+                "fileExplorer.sync remote state=\(tab.remoteConnectionCoordinator.state.remoteConnectionState.rawValue) " +
                 "hasDestination=\(config.destination.isEmpty ? 0 : 1) " +
                 "hasDisplayTarget=\(config.displayTarget.isEmpty ? 0 : 1) " +
                 "hasIdentityFile=\(config.identityFile == nil ? 0 : 1) " +
@@ -1377,7 +1348,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     ),
                     displayTarget: config.displayTarget,
                     rootPath: tab.currentDirectory,
-                    isAvailable: tab.remoteConnectionState == .connected,
+                    isAvailable: tab.remoteConnectionCoordinator.state.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
             )
@@ -1423,61 +1394,36 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         return dir.isEmpty ? nil : dir
     }
 
+    // contentAndSidebarLayout moved to CmuxWindowing.ContentAndSidebarLayoutView.
+    // ContentView supplies the cross-slice subviews (terminal content with drop
+    // overlay, the left/right sidebar panels with backdrops) and the two resizer
+    // overlays (which stay app-side, see the SidebarResizerController note) as
+    // slots; the package owns the overlay-vs-HStack layout scaffolding and the
+    // sidebar-width leading inset driven by WindowChromeController.
     private func contentAndSidebarLayout(appearance: WindowAppearanceSnapshot) -> AnyView {
-        let layout: AnyView
-        // When matching terminal background, use HStack so both sidebar and terminal
-        // sit directly on the window background with no intermediate layers.
+        // When matching terminal background, use HStack so both sidebar and
+        // terminal sit directly on the window background with no intermediate
+        // layers.
         let useWithinWindow = sidebarBlendMode == SidebarBlendModeOption.withinWindow.rawValue
             && !sidebarMatchTerminalBackground
-        if useWithinWindow {
-            // Overlay mode keeps the left sidebar on top, but the right
-            // sidebar stays in an HStack so terminal rows are clipped before
-            // the sidebar backdrop samples the window.
-            layout = AnyView(
-                ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
-                        terminalContentWithSidebarDropOverlay(appearance: appearance)
-                            .padding(.leading, sidebarState.isVisible ? sidebarWidth : 0)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .layoutPriority(1)
-                        rightSidebarPanelWithBackdrop(appearance: appearance)
-                    }
-                    if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop(appearance: appearance)
-                    }
-                }
-            )
-        } else {
-            // Standard HStack mode for behindWindow blur
-            layout = AnyView(
-                HStack(spacing: 0) {
-                    if sidebarState.isVisible {
-                        sidebarPanelWithBackdrop(appearance: appearance)
-                    }
-                    terminalContentWithRightSidebarPanel(appearance: appearance)
-                }
-            )
-        }
-
         return AnyView(
-            layout
-                .overlay(alignment: .leading) {
-                    if sidebarState.isVisible {
-                        sidebarResizerOverlay
-                            .zIndex(1000)
-                    }
-                }
-                .overlay(alignment: .leading) {
-                    if rightSidebarVisible {
-                        rightSidebarResizerOverlay
-                            .zIndex(1000)
-                    }
-                }
+            ContentAndSidebarLayoutView(
+                controller: windowChromeController,
+                useWithinWindow: useWithinWindow,
+                isSidebarVisible: sidebarState.isVisible,
+                isRightSidebarVisible: rightSidebarVisible,
+                terminalDropContent: { terminalContentWithSidebarDropOverlay(appearance: appearance) },
+                rightSidebarPanel: { rightSidebarPanelWithBackdrop(appearance: appearance) },
+                leftSidebarPanel: { sidebarPanelWithBackdrop(appearance: appearance) },
+                sidebarResizer: { sidebarResizerOverlay },
+                rightSidebarResizer: { rightSidebarResizerOverlay }
+            )
         )
     }
 
     var body: some View {
         let appearance = windowAppearanceSnapshot
+        configureWindowChromeHost()
         var view = AnyView(
             ZStack(alignment: .topLeading) {
                 WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
@@ -1500,6 +1446,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         )
 
         view = AnyView(view.onAppear {
+            configureWindowChromeHost()
+            windowChromeController.attach(host: windowChromeHost)
             selectedWorkspaceDirectoryReading.wire(tabManager: tabManager)
             selectedWorkspaceDirectoryModel.wire(reading: selectedWorkspaceDirectoryReading)
             workspaceHandoffCoordinator.attach(host: tabManager)
@@ -2332,7 +2280,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         commandPalettePresentation.selectionAnchorCommandID = nil
         commandPalettePresentation.scrollTargetIndex = nil
         commandPalettePresentation.scrollTargetAnchor = nil
-        if Self.commandPaletteShouldResetVisibleResultsForQueryTransition(
+        if CommandPaletteListScope.shouldResetVisibleResultsForQueryTransition(
             oldQuery: oldQuery,
             newQuery: newQuery,
             hasVisibleResults: commandPaletteCoordinator.visibleResultsScope != nil
@@ -2384,15 +2332,14 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
-    private var commandPaletteListScope: CommandPaletteListScope {
-        Self.commandPaletteListScope(for: commandPalettePresentation.query)
-    }
-
     private var commandPaletteCurrentSearchFingerprint: Int {
-        let scope = commandPaletteListScope
+        let scope = CommandPaletteListScope.scope(for: commandPalettePresentation.query)
         return commandPaletteEntriesFingerprint(
             for: scope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries,
+            includeSurfaces: CommandPaletteListScope.switcherIncludesSurfaceEntries(
+                searchAllSurfaces: commandPaletteSearchAllSurfaces,
+                query: commandPalettePresentation.query
+            ),
             commandsContext: scope == .commands ? commandPaletteCachedCommandsContext() : nil
         )
     }
@@ -2404,34 +2351,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         CommandPaletteSwitcherEntryBuilder(snapshotProvider: self)
     }
 
-    nonisolated private static func commandPaletteListScope(for query: String) -> CommandPaletteListScope {
-        if query.hasPrefix(Self.commandPaletteCommandsPrefix) {
-            return .commands
-        }
-        return .switcher
-    }
-
-    static func commandPaletteShouldResetVisibleResultsForQueryTransition(
-        oldQuery: String,
-        newQuery: String,
-        hasVisibleResults: Bool
-    ) -> Bool {
-        hasVisibleResults && commandPaletteListScope(for: oldQuery) != commandPaletteListScope(for: newQuery)
-    }
-
-    nonisolated static func commandPaletteListIdentity(for query: String) -> String {
-        commandPaletteListScope(for: query).rawValue
-    }
-
-    private var commandPaletteSwitcherIncludesSurfaceEntries: Bool {
-        Self.commandPaletteSwitcherIncludesSurfaceEntries(
-            searchAllSurfaces: commandPaletteSearchAllSurfaces,
-            query: commandPalettePresentation.query
-        )
-    }
-
     private var commandPaletteSearchPlaceholder: String {
-        switch commandPaletteListScope {
+        switch CommandPaletteListScope.scope(for: commandPalettePresentation.query) {
         case .commands:
             return String(localized: "commandPalette.search.commandsPlaceholder", defaultValue: "Type a command")
         case .switcher:
@@ -2442,7 +2363,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private var commandPaletteEmptyStateText: String {
-        switch commandPaletteListScope {
+        switch CommandPaletteListScope.scope(for: commandPalettePresentation.query) {
         case .commands:
             return String(localized: "commandPalette.search.commandsEmpty", defaultValue: "No commands match your search.")
         case .switcher:
@@ -2452,57 +2373,13 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
     }
 
-    private var commandPaletteQueryForMatching: String {
-        Self.commandPaletteQueryForMatching(
-            query: commandPalettePresentation.query,
-            scope: commandPaletteListScope
-        )
-    }
-
-    nonisolated private static func commandPaletteRefreshQuery(
-        stateQuery: String,
-        observedQuery: String?
-    ) -> String {
-        observedQuery ?? stateQuery
-    }
-
-    nonisolated static func commandPaletteRefreshInputsForTests(
-        stateQuery: String,
-        observedQuery: String?,
-        searchAllSurfaces: Bool
-    ) -> (scope: String, matchingQuery: String, includesSurfaces: Bool) {
-        let effectiveQuery = commandPaletteRefreshQuery(
-            stateQuery: stateQuery,
-            observedQuery: observedQuery
-        )
-        let scope = commandPaletteListScope(for: effectiveQuery)
-        return (
-            scope: scope.rawValue,
-            matchingQuery: commandPaletteQueryForMatching(query: effectiveQuery, scope: scope),
-            includesSurfaces: commandPaletteSwitcherIncludesSurfaceEntries(
-                searchAllSurfaces: searchAllSurfaces,
-                query: effectiveQuery
-            )
-        )
-    }
-
-    nonisolated private static func commandPaletteQueryForMatching(
-        query: String,
-        scope: CommandPaletteListScope
-    ) -> String {
-        switch scope {
-        case .commands:
-            let suffix = String(query.dropFirst(Self.commandPaletteCommandsPrefix.count))
-            return suffix.trimmingCharacters(in: .whitespacesAndNewlines)
-        case .switcher:
-            return query.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
     private func commandPaletteEntries(for scope: CommandPaletteListScope) -> [CommandPaletteCommand] {
         commandPaletteEntries(
             for: scope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+            includeSurfaces: CommandPaletteListScope.switcherIncludesSurfaceEntries(
+                searchAllSurfaces: commandPaletteSearchAllSurfaces,
+                query: commandPalettePresentation.query
+            )
         )
     }
 
@@ -2517,15 +2394,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         case .switcher:
             return commandPaletteSwitcherEntryBuilder.switcherEntries(includeSurfaces: includeSurfaces)
         }
-    }
-
-    nonisolated private static func commandPaletteSwitcherIncludesSurfaceEntries(
-        searchAllSurfaces: Bool,
-        query: String
-    ) -> Bool {
-        let scope = commandPaletteListScope(for: query)
-        guard scope == .switcher else { return false }
-        return searchAllSurfaces && !commandPaletteQueryForMatching(query: query, scope: scope).isEmpty
     }
 
     /// Builds the corpus-pipeline seam value the coordinator drives its corpus
@@ -2558,7 +2426,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         for scope: CommandPaletteListScope,
         effectiveQuery: String
     ) -> CommandPaletteSearchCorpusBuildPlan {
-        let includeSurfaces = Self.commandPaletteSwitcherIncludesSurfaceEntries(
+        let includeSurfaces = CommandPaletteListScope.switcherIncludesSurfaceEntries(
             searchAllSurfaces: commandPaletteSearchAllSurfaces,
             query: effectiveQuery
         )
@@ -2596,7 +2464,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         force: Bool = false,
         query: String? = nil
     ) {
-        let effectiveQuery = Self.commandPaletteRefreshQuery(
+        let effectiveQuery = CommandPaletteListScope.refreshQuery(
             stateQuery: commandPalettePresentation.query,
             observedQuery: query
         )
@@ -2613,28 +2481,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
     private func cancelCommandPaletteSearchIndexBuild() {
         commandPaletteCoordinator.cancelSearchIndexBuild()
-    }
-
-    nonisolated static func commandPaletteForkPriorityBoost(commandId: String, query: String) -> Int {
-        guard CommandPaletteFuzzyMatcher.normalizeForSearch(query) == "fork",
-              commandId == "palette.forkAgentConversationRight" else {
-            return 0
-        }
-        return 10_000
-    }
-
-    private static func commandPaletteMaterializedSearchResults(
-        matches: [CommandPaletteResolvedSearchMatch],
-        commandsByID: [String: CommandPaletteCommand]
-    ) -> [CommandPaletteSearchResult] {
-        matches.compactMap { match in
-            guard let command = commandsByID[match.commandID] else { return nil }
-            return CommandPaletteSearchResult(
-                command: command,
-                score: match.score,
-                titleMatchIndices: match.titleMatchIndices
-            )
-        }
     }
 
     private func setCommandPaletteVisibleResults(
@@ -2673,7 +2519,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         return CommandPaletteCommandListRenderState(
             resultsVersion: commandPaletteCoordinator.visibleResultsVersion,
             emptyStateText: commandPaletteEmptyStateText,
-            listIdentity: Self.commandPaletteListIdentity(for: commandPalettePresentation.query),
+            listIdentity: CommandPaletteListScope.listIdentity(for: commandPalettePresentation.query),
             rows: rows,
             selectedIndex: selectedIndex,
             shouldShowEmptyState: commandPaletteShouldShowEmptyState,
@@ -2699,12 +2545,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         forceSearchCorpusRefresh: Bool = false,
         preservePendingActivation: Bool = false
     ) {
-        let effectiveQuery = Self.commandPaletteRefreshQuery(
+        let effectiveQuery = CommandPaletteListScope.refreshQuery(
             stateQuery: commandPalettePresentation.query,
             observedQuery: query
         )
-        let scope = Self.commandPaletteListScope(for: effectiveQuery)
-        let matchingQuery = Self.commandPaletteQueryForMatching(
+        let scope = CommandPaletteListScope.scope(for: effectiveQuery)
+        let matchingQuery = CommandPaletteListScope.queryForMatching(
             query: effectiveQuery,
             scope: scope
         )
@@ -2725,7 +2571,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         let queryIsEmpty = CommandPaletteFuzzyMatcher.preparedQuery(matchingQuery).isEmpty
         let historyTimestamp = Date().timeIntervalSince1970
         let additionalScoreBoost: (String, Bool) -> Int = { commandId, _ in
-            Self.commandPaletteForkPriorityBoost(commandId: commandId, query: matchingQuery)
+            CommandPaletteSearchOrchestrator.forkPriorityBoost(commandId: commandId, query: matchingQuery)
         }
         let visiblePreviewResultLimit = Self.commandPaletteVisiblePreviewResultLimit
         if preservePendingActivation {
@@ -2751,7 +2597,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                 historyTimestamp: historyTimestamp,
                 additionalScoreBoost: additionalScoreBoost
             )
-            commandPaletteCoordinator.cachedResults = Self.commandPaletteMaterializedSearchResults(
+            commandPaletteCoordinator.cachedResults = CommandPaletteSearchOrchestrator.materializedSearchResults(
                 matches: matches,
                 commandsByID: commandsByID
             )
@@ -2814,8 +2660,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
-                let currentScope = Self.commandPaletteListScope(for: commandPalettePresentation.query)
-                let currentMatchingQuery = Self.commandPaletteQueryForMatching(
+                let currentScope = CommandPaletteListScope.scope(for: commandPalettePresentation.query)
+                let currentMatchingQuery = CommandPaletteListScope.queryForMatching(
                     query: commandPalettePresentation.query,
                     scope: currentScope
                 )
@@ -2832,7 +2678,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     return
                 }
 
-                let previewResults = Self.commandPaletteMaterializedSearchResults(
+                let previewResults = CommandPaletteSearchOrchestrator.materializedSearchResults(
                     matches: previewMatches,
                     commandsByID: commandPaletteCoordinator.searchCommandsByID
                 )
@@ -2863,8 +2709,8 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
-                let currentScope = Self.commandPaletteListScope(for: commandPalettePresentation.query)
-                let currentMatchingQuery = Self.commandPaletteQueryForMatching(
+                let currentScope = CommandPaletteListScope.scope(for: commandPalettePresentation.query)
+                let currentMatchingQuery = CommandPaletteListScope.queryForMatching(
                     query: commandPalettePresentation.query,
                     scope: currentScope
                 )
@@ -2877,7 +2723,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
                     return
                 }
 
-                commandPaletteCoordinator.cachedResults = Self.commandPaletteMaterializedSearchResults(
+                commandPaletteCoordinator.cachedResults = CommandPaletteSearchOrchestrator.materializedSearchResults(
                     matches: matches,
                     commandsByID: commandPaletteCoordinator.searchCommandsByID
                 )
@@ -2913,7 +2759,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     private func commandPaletteEntriesFingerprint(for scope: CommandPaletteListScope) -> Int {
         commandPaletteEntriesFingerprint(
             for: scope,
-            includeSurfaces: commandPaletteSwitcherIncludesSurfaceEntries
+            includeSurfaces: CommandPaletteListScope.switcherIncludesSurfaceEntries(
+                searchAllSurfaces: commandPaletteSearchAllSurfaces,
+                query: commandPalettePresentation.query
+            )
         )
     }
 
@@ -3366,7 +3215,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             panelContext = CommandPaletteForkableAgentPanelContext(
                 workspaceId: workspaceId,
                 panelId: panelId,
-                isRemoteTerminal: focusedContext.workspace.isRemoteTerminalSurface(panelId),
+                isRemoteTerminal: focusedContext.workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panelId),
                 fallbackSnapshot: focusedContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
             )
         } else {
@@ -3634,7 +3483,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             let workspace = panelContext.workspace
             let panelId = panelContext.panelId
             let panelIsTerminal = panelContext.panel.panelType == .terminal
-            let panelIsRemoteTerminal = workspace.isRemoteTerminalSurface(panelId)
+            let panelIsRemoteTerminal = workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panelId)
             snapshot.setBool(CommandPaletteContextKeys.hasFocusedPanel, true)
             snapshot.setString(CommandPaletteContextKeys.panelName, panelDisplayName(workspace: workspace, panelId: panelId, fallback: panelContext.panel.displayTitle))
             snapshot.setBool(CommandPaletteContextKeys.panelIsBrowser, panelContext.panel.panelType == .browser)
@@ -4885,10 +4734,11 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             return true
         }
 
+        let scope = CommandPaletteListScope.scope(for: commandPalettePresentation.query)
         return CommandPaletteSearchOrchestrator.shouldPreserveEmptyStateWhileSearchPending(
             isSearchPending: commandPaletteCoordinator.isSearchPending,
-            visibleResultsScopeMatches: commandPaletteCoordinator.visibleResultsScope == commandPaletteListScope,
-            resolvedSearchScopeMatches: commandPaletteCoordinator.resolvedSearchScope == commandPaletteListScope,
+            visibleResultsScopeMatches: commandPaletteCoordinator.visibleResultsScope == scope,
+            resolvedSearchScopeMatches: commandPaletteCoordinator.resolvedSearchScope == scope,
             resolvedSearchFingerprintMatches: commandPaletteCoordinator.resolvedSearchFingerprint == commandPaletteCoordinator.visibleResultsFingerprint,
             resolvedResultsAreEmpty: commandPaletteCoordinator.cachedResults.isEmpty
         )
@@ -5012,7 +4862,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         if isCommandPalettePresented {
             dismissCommandPalette()
         } else {
-            presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+            presentCommandPalette(initialQuery: CommandPaletteListScope.commandsPrefix)
         }
     }
 
@@ -5025,14 +4875,14 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     }
 
     private func handleCommandPaletteListRequest(scope: CommandPaletteListScope) {
-        let initialQuery = (scope == .commands) ? Self.commandPaletteCommandsPrefix : ""
+        let initialQuery = (scope == .commands) ? CommandPaletteListScope.commandsPrefix : ""
         guard isCommandPalettePresented else {
             presentCommandPalette(initialQuery: initialQuery)
             return
         }
 
         if case .commands = commandPalettePresentation.mode,
-           commandPaletteListScope == scope {
+           CommandPaletteListScope.scope(for: commandPalettePresentation.query) == scope {
             dismissCommandPalette()
             return
         }
@@ -5145,7 +4995,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         let mode: String
         switch commandPalettePresentation.mode {
         case .commands:
-            mode = commandPaletteListScope.rawValue
+            mode = CommandPaletteListScope.scope(for: commandPalettePresentation.query).rawValue
         case .renameInput:
             mode = "rename_input"
         case .renameConfirm:
@@ -5165,7 +5015,10 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         }
 
         return CommandPaletteDebugSnapshot(
-            query: commandPaletteQueryForMatching,
+            query: CommandPaletteListScope.queryForMatching(
+                query: commandPalettePresentation.query,
+                scope: CommandPaletteListScope.scope(for: commandPalettePresentation.query)
+            ),
             mode: mode,
             results: rows
         )
@@ -6215,8 +6068,8 @@ struct VerticalTabsSidebar: View {
         let remote = workspace.remoteDisplayTarget.map { target in
             CustomSidebarWorkspaceSnapshot.Remote(
                 target: target,
-                stateRawValue: workspace.remoteConnectionState.rawValue,
-                isConnected: workspace.remoteConnectionState == .connected
+                stateRawValue: workspace.remoteConnectionCoordinator.state.remoteConnectionState.rawValue,
+                isConnected: workspace.remoteConnectionCoordinator.state.remoteConnectionState == .connected
             )
         }
         return CustomSidebarWorkspaceSnapshot(
@@ -6490,10 +6343,11 @@ struct VerticalTabsSidebar: View {
         let selectedRemoteContextMenuWorkspaceIds = selectedRemoteContextMenuTargets.map(\.id)
         let allSelectedRemoteContextMenuTargetsConnecting = !selectedRemoteContextMenuTargets.isEmpty &&
             selectedRemoteContextMenuTargets.allSatisfy {
-                $0.remoteConnectionState == .connecting || $0.remoteConnectionState == .reconnecting
+                $0.remoteConnectionCoordinator.state.remoteConnectionState == .connecting
+                    || $0.remoteConnectionCoordinator.state.remoteConnectionState == .reconnecting
             }
         let allSelectedRemoteContextMenuTargetsDisconnected = !selectedRemoteContextMenuTargets.isEmpty &&
-            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionState == .disconnected }
+            selectedRemoteContextMenuTargets.allSatisfy { $0.remoteConnectionCoordinator.state.remoteConnectionState == .disconnected }
         let workspaceGroups = tabManager.workspaceGroups
         let workspaceGroupById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
         let workspaceGroupMenuSnapshot = WorkspaceGroupMenuSnapshot(
@@ -7342,7 +7196,7 @@ struct VerticalTabsSidebar: View {
             projectRootPath: workspace.extensionSidebarProjectRootPath,
             branchSummary: workspace.sidebarGitBranchesInDisplayOrder().first?.branch,
             remoteDisplayTarget: workspace.remoteDisplayTarget,
-            remoteConnectionState: workspace.remoteConnectionState.rawValue,
+            remoteConnectionState: workspace.remoteConnectionCoordinator.state.remoteConnectionState.rawValue,
             unreadCount: sidebarUnread.unreadCount(forWorkspaceId: workspace.id),
             latestNotificationText: sidebarUnread.latestNotificationText(forWorkspaceId: workspace.id),
             latestSubmittedMessage: workspace.latestSubmittedMessage,
@@ -7796,11 +7650,11 @@ struct VerticalTabsSidebar: View {
             ? renderContext.allSelectedRemoteContextMenuTargetsConnecting
             : (
                 tab.isRemoteWorkspace &&
-                    (tab.remoteConnectionState == .connecting || tab.remoteConnectionState == .reconnecting)
+                    (tab.remoteConnectionCoordinator.state.remoteConnectionState == .connecting || tab.remoteConnectionCoordinator.state.remoteConnectionState == .reconnecting)
             )
         let allRemoteContextMenuTargetsDisconnected = usesSelectedContextMenuTargets
             ? renderContext.allSelectedRemoteContextMenuTargetsDisconnected
-            : (tab.isRemoteWorkspace && tab.remoteConnectionState == .disconnected)
+            : (tab.isRemoteWorkspace && tab.remoteConnectionCoordinator.state.remoteConnectionState == .disconnected)
         let contextMenuPinTarget = WorkspaceActionDispatcher.Target(
             workspaceIds: contextMenuWorkspaceIds,
             anchorWorkspaceId: tab.id
@@ -8512,8 +8366,8 @@ struct TabItemView: View, Equatable {
             localized: "sidebar.remote.help.targetFallback",
             defaultValue: "remote host"
         )
-        let trimmedDetail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if tab.remoteConnectionState == .error || tab.remoteConnectionState == .suspended,
+        let trimmedDetail = tab.remoteConnectionCoordinator.state.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if tab.remoteConnectionCoordinator.state.remoteConnectionState == .error || tab.remoteConnectionCoordinator.state.remoteConnectionState == .suspended,
            let trimmedDetail, !trimmedDetail.isEmpty {
             let entry = SidebarRemoteErrorCopyEntry(
                 workspaceTitle: tab.title,
@@ -8536,7 +8390,7 @@ struct TabItemView: View, Equatable {
     }
 
     private var remoteConnectionStatusText: String {
-        switch tab.remoteConnectionState {
+        switch tab.remoteConnectionCoordinator.state.remoteConnectionState {
         case .connected:
             return String(localized: "remote.status.connected", defaultValue: "Connected")
         case .connecting:
@@ -8652,7 +8506,7 @@ struct TabItemView: View, Equatable {
             remoteReconnectColor: activeSecondaryColor(0.9),
             remoteTopPadding: latestNotificationText == nil ? 1 : 2,
             onReconnect: {
-                tab.reconnectRemoteConnection()
+                tab.remoteConnectionCoordinator.reconnectRemoteConnection()
             },
             activeSecondaryColor: { activeSecondaryColor($0) },
             progressTrackColor: activeProgressTrackColor,
@@ -9015,12 +8869,12 @@ struct TabItemView: View, Equatable {
             onClearDescription: { tabManager.clearCustomDescription(tabId: tab.id) },
             onReconnect: {
                 for workspace in remoteContextMenuWorkspaces() {
-                    workspace.reconnectRemoteConnection()
+                    workspace.remoteConnectionCoordinator.reconnectRemoteConnection()
                 }
             },
             onDisconnect: {
                 for workspace in remoteContextMenuWorkspaces() {
-                    workspace.disconnectRemoteConnection(clearConfiguration: false)
+                    workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: false)
                 }
             },
             onApplyColor: { hex, ids in
@@ -9254,8 +9108,8 @@ struct TabItemView: View, Equatable {
             localized: "sidebar.remote.help.targetFallback",
             defaultValue: "remote host"
         )
-        let detail = tab.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch tab.remoteConnectionState {
+        let detail = tab.remoteConnectionCoordinator.state.remoteConnectionDetail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch tab.remoteConnectionCoordinator.state.remoteConnectionState {
         case .connected:
             return String(
                 format: String(
@@ -9373,8 +9227,8 @@ struct TabItemView: View, Equatable {
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
-            showsRemoteReconnectAffordance: tab.remoteConnectionState == .suspended
-                || tab.remoteConnectionState == .disconnected,
+            showsRemoteReconnectAffordance: tab.remoteConnectionCoordinator.state.remoteConnectionState == .suspended
+                || tab.remoteConnectionCoordinator.state.remoteConnectionState == .disconnected,
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: tab.latestConversationMessage,
             metadataEntries: detailVisibility.showsMetadata ? tab.sidebarStatusEntriesInDisplayOrder() : [],
@@ -10347,7 +10201,7 @@ extension ContentView: CommandPaletteEditFlowHost {
     }
 
     func commandPaletteEditFlowPresent() {
-        presentCommandPalette(initialQuery: Self.commandPaletteCommandsPrefix)
+        presentCommandPalette(initialQuery: CommandPaletteListScope.commandsPrefix)
     }
 
     func commandPaletteEditFlowDismiss() {

@@ -66,7 +66,7 @@ extension Workspace: AgentForkHosting {
     // MARK: - Remote fork resolution
 
     func agentForkRemoteStartupCommand(panelId: UUID) -> String? {
-        guard isRemoteTerminalSurface(panelId) else { return nil }
+        guard remoteSurfaceCoordinator.isRemoteTerminalSurface(panelId) else { return nil }
         return remoteTerminalStartupCommand()
     }
 
@@ -74,6 +74,7 @@ extension Workspace: AgentForkHosting {
         panelId: UUID
     ) -> WorkspaceRemoteConfiguration? {
         guard agentForkRemoteStartupCommand(panelId: panelId) != nil else { return nil }
+        let remoteConfiguration = remoteConnectionCoordinator.state.remoteConfiguration
         let forkedSSHOptions = remoteConfiguration
             .map { WorkspaceRemoteConfiguration.forkedAgentSSHOptions($0.sshOptions) }
         return remoteConfiguration?.sessionSnapshot(sshOptionsOverride: forkedSSHOptions)?.workspaceConfiguration(
@@ -103,7 +104,7 @@ extension Workspace: AgentForkHosting {
         snapshot: SessionRestorableAgentSnapshot,
         panelId: UUID
     ) -> Bool {
-        let isRemote = isRemoteTerminalSurface(panelId)
+        let isRemote = remoteSurfaceCoordinator.isRemoteTerminalSurface(panelId)
         return ContentView.commandPaletteSnapshotForkAvailability(
             snapshot,
             isRemoteTerminal: isRemote
@@ -182,7 +183,7 @@ extension Workspace: AgentForkHosting {
             autoWelcomeIfNeeded: false
         )
         if let remoteConfiguration = launch.remoteConfiguration {
-            forkWorkspace.configureRemoteConnection(
+            forkWorkspace.remoteConnectionCoordinator.configureRemoteConnection(
                 remoteConfiguration,
                 autoConnect: launch.autoConnectRemoteConfiguration
             )

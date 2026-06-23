@@ -332,7 +332,7 @@ final class HostSettingsActions: SettingsHostActions {
             hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
             return false
         }
-        GhosttyApp.shared.reloadConfiguration(source: reloadSource)
+        GhosttyApp.shared.engineRuntime.reloadConfiguration(source: reloadSource)
         return true
     }
 }

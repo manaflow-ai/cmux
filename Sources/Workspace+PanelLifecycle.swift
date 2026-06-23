@@ -1,6 +1,7 @@
 import Bonsplit
 import CmuxSettings
 import CmuxCore
+import CmuxRemoteSession
 import Darwin
 import Foundation
 import CmuxSidebar
@@ -304,7 +305,7 @@ extension Workspace {
 
         let closedAgentRuntimeState = agentRuntimeState(forPanelId: panelId)
         removePendingTerminalInputObservers(forPanelId: panelId)
-        let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
+        let transferredRemoteCleanupConfiguration = remoteSurfaceCoordinator.state.transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
         discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
@@ -320,20 +321,20 @@ extension Workspace {
             origin == "pane_close"
         if shouldPreserveRemoteDisconnectOnClose,
            panel is TerminalPanel {
-            markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
+            remoteSurfaceCoordinator.markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
         }
         let shouldRefreshRemoteDisconnectPlaceholder =
             shouldPreserveRemoteDisconnectOnClose &&
-            remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
+            remoteConnectionCoordinator.state.remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
         if shouldRefreshRemoteDisconnectPlaceholder,
-           let remoteConfiguration {
-            rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
+           let remoteConfiguration = remoteConnectionCoordinator.state.remoteConfiguration {
+            remoteConnectionCoordinator.rememberPendingRemoteDisconnectReplacement(configuration: remoteConfiguration)
         }
 
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        remoteSurfaceCoordinator.state.pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
         if let tabId {
             surfaceIdToPanelId.removeValue(forKey: tabId)
         } else {
@@ -352,7 +353,7 @@ extension Workspace {
         panelShellActivityStates.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
-        discardRemotePTYSessionID(panelId: panelId)
+        remoteSurfaceCoordinator.discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
@@ -374,7 +375,7 @@ extension Workspace {
         }
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
-            Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+            RemoteConnectionCoordinator<Workspace>.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
         }
         return transferredRemoteCleanupConfiguration
     }

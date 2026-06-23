@@ -73,11 +73,11 @@ final class SelectedWorkspaceDirectoryReadingAdapter: SelectedWorkspaceReading {
         }
         innerCancellable = workspace.currentDirectoryPublisher
             .combineLatest(
-                workspace.remoteConfigurationPublisher,
-                workspace.remoteConnectionStatePublisher,
-                workspace.remoteConnectionDetailPublisher
+                workspace.remoteConnectionCoordinator.state.remoteConfigurationPublisher,
+                workspace.remoteConnectionCoordinator.state.remoteConnectionStatePublisher,
+                workspace.remoteConnectionCoordinator.state.remoteConnectionDetailPublisher
             )
-            .combineLatest(workspace.remoteDaemonStatusPublisher)
+            .combineLatest(workspace.remoteConnectionCoordinator.state.remoteDaemonStatusPublisher)
             .map { values, remoteDaemonStatus in
                 let (
                     currentDirectory,

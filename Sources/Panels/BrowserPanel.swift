@@ -98,15 +98,15 @@ enum GhosttyBackgroundTheme {
     static func color(from notification: Notification?) -> NSColor {
         color(
             from: notification,
-            fallbackColor: GhosttyApp.shared.defaultBackgroundColor,
-            fallbackOpacity: GhosttyApp.shared.defaultBackgroundOpacity
+            fallbackColor: GhosttyApp.shared.engineRuntime.defaultBackgroundColor,
+            fallbackOpacity: GhosttyApp.shared.engineRuntime.defaultBackgroundOpacity
         )
     }
 
     static func currentColor() -> NSColor {
         color(
-            backgroundColor: GhosttyApp.shared.defaultBackgroundColor,
-            opacity: GhosttyApp.shared.defaultBackgroundOpacity
+            backgroundColor: GhosttyApp.shared.engineRuntime.defaultBackgroundColor,
+            opacity: GhosttyApp.shared.engineRuntime.defaultBackgroundOpacity
         )
     }
 }
@@ -4491,8 +4491,8 @@ final class BrowserPanel: Panel, ObservableObject {
         drawsWebViewBackground(
             isBlankPage: isBlankPage,
             usesTransparentBackground: usesTransparentBackground,
-            opacity: GhosttyApp.shared.defaultBackgroundOpacity,
-            usesGhosttyGlassStyle: GhosttyApp.shared.defaultBackgroundBlur.isMacOSGlassStyle,
+            opacity: GhosttyApp.shared.engineRuntime.defaultBackgroundOpacity,
+            usesGhosttyGlassStyle: GhosttyApp.shared.engineRuntime.defaultBackgroundBlur.isMacOSGlassStyle,
             usesTransparentWindow: WindowBackgroundComposition.policy
                 .shouldUseTransparentBackgroundWindow(glassEffectAvailable: false)
         )

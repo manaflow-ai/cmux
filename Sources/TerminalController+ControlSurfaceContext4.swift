@@ -299,7 +299,7 @@ extension TerminalController {
         )
         guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
             if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
-                tab.rememberPendingRemoteSurfaceTTY(ttyName, requestedSurfaceId: requestedSurfaceID)
+                tab.remoteSurfaceCoordinator.rememberPendingRemoteSurfaceTTY(ttyName, requestedSurfaceId: requestedSurfaceID)
                 return .pending
             }
             return .surfaceNotFound
@@ -308,7 +308,7 @@ extension TerminalController {
         tab.surfaceTTYNames[surfaceId] = ttyName
         if tab.isRemoteWorkspace {
             tab.syncRemotePortScanTTYs()
-            _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
+            _ = tab.remoteSurfaceCoordinator.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
         } else {
             PortScanner.shared.registerTTY(workspaceId: workspaceID, panelId: surfaceId, ttyName: ttyName)
         }
@@ -386,14 +386,14 @@ extension TerminalController {
         )
         guard let surfaceId, validSurfaceIds.contains(surfaceId) else {
             if tab.isRemoteWorkspace, validSurfaceIds.isEmpty {
-                tab.rememberPendingRemoteSurfacePortKick(reason: reason, requestedSurfaceId: requestedSurfaceID)
+                tab.remoteSurfaceCoordinator.rememberPendingRemoteSurfacePortKick(reason: reason, requestedSurfaceId: requestedSurfaceID)
                 return .pending
             }
             return .surfaceNotFound
         }
 
         if tab.isRemoteWorkspace {
-            tab.kickRemotePortScan(panelId: surfaceId, reason: reason)
+            tab.remoteSurfaceCoordinator.kickRemotePortScan(panelId: surfaceId, reason: reason)
         } else {
             PortScanner.shared.kick(workspaceId: workspaceID, panelId: surfaceId)
         }
@@ -426,11 +426,11 @@ extension TerminalController {
         }
         if let focusedSurfaceId = workspace.focusedPanelId,
            validSurfaceIds.contains(focusedSurfaceId),
-           (!workspace.isRemoteWorkspace || workspace.isRemoteTerminalSurface(focusedSurfaceId)) {
+           (!workspace.isRemoteWorkspace || workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(focusedSurfaceId)) {
             return focusedSurfaceId
         }
         guard workspace.isRemoteWorkspace else { return nil }
-        let remoteTerminalSurfaceIds = validSurfaceIds.filter { workspace.isRemoteTerminalSurface($0) }
+        let remoteTerminalSurfaceIds = validSurfaceIds.filter { workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface($0) }
         if remoteTerminalSurfaceIds.count == 1 {
             return remoteTerminalSurfaceIds.first
         }

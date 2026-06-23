@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import Bonsplit
 import CMUXAgentLaunch
@@ -44,7 +45,7 @@ extension ContentView {
         )
 
         let fallbackSnapshot = currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
-        let isRemoteContext = currentContext.workspace.isRemoteTerminalSurface(panelId)
+        let isRemoteContext = currentContext.workspace.remoteSurfaceCoordinator.isRemoteTerminalSurface(panelId)
         let selection = Self.commandPaletteImmediateForkExecutionSnapshotSelection(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -112,7 +113,7 @@ extension ContentView {
                     autoWelcomeIfNeeded: false
                 )
                 if let remoteConfiguration = launch.remoteConfiguration {
-                    forkWorkspace.configureRemoteConnection(
+                    forkWorkspace.remoteConnectionCoordinator.configureRemoteConnection(
                         remoteConfiguration,
                         autoConnect: launch.autoConnectRemoteConfiguration
                     )

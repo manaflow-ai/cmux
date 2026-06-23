@@ -169,10 +169,10 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private func observeWorkspaceRootChanges(_ workspace: Workspace) {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.currentDirectoryPublisher.map { _ in () }.eraseToAnyPublisher(),
-            workspace.remoteConfigurationPublisher.map { _ in () }.eraseToAnyPublisher(),
-            workspace.remoteConnectionStatePublisher.map { _ in () }.eraseToAnyPublisher(),
-            workspace.remoteConnectionDetailPublisher.map { _ in () }.eraseToAnyPublisher(),
-            workspace.remoteDaemonStatusPublisher.map { _ in () }.eraseToAnyPublisher()
+            workspace.remoteConnectionCoordinator.state.remoteConfigurationPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionCoordinator.state.remoteConnectionStatePublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionCoordinator.state.remoteConnectionDetailPublisher.map { _ in () }.eraseToAnyPublisher(),
+            workspace.remoteConnectionCoordinator.state.remoteDaemonStatusPublisher.map { _ in () }.eraseToAnyPublisher()
         )
         .sink { [weak self, weak workspace] _ in
             Task { @MainActor in
@@ -186,12 +186,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         store.showHiddenFiles = true
 
         if workspace.isRemoteWorkspace {
-            guard let configuration = workspace.remoteConfiguration,
+            guard let configuration = workspace.remoteConnectionCoordinator.state.remoteConfiguration,
                   configuration.transport == .ssh else {
                 store.applyWorkspaceRoot(.none)
                 return
             }
-            let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
+            let unavailableDetail = workspace.remoteConnectionCoordinator.state.remoteConnectionDetail ?? workspace.remoteConnectionCoordinator.state.remoteDaemonStatus.detail
             store.applyWorkspaceRoot(
                 .remoteSSH(
                     workspaceId: workspace.id,
@@ -203,7 +203,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                     ),
                     displayTarget: configuration.displayTarget,
                     rootPath: workspace.currentDirectory,
-                    isAvailable: workspace.remoteConnectionState == .connected,
+                    isAvailable: workspace.remoteConnectionCoordinator.state.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )
             )

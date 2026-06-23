@@ -65,7 +65,7 @@ extension TerminalController: ControlWorkspaceContext {
             customDescription: workspace.customDescription,
             isPinned: workspace.isPinned,
             listeningPorts: workspace.listeningPorts,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
+            remoteStatus: JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:]),
             currentDirectory: workspace.currentDirectory,
             customColor: workspace.customColor,
             latestConversationMessage: workspace.latestConversationMessage,
@@ -534,12 +534,12 @@ extension TerminalController: ControlWorkspaceContext {
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        workspace.disconnectRemoteConnection(clearConfiguration: clearConfiguration)
+        workspace.remoteConnectionCoordinator.disconnectRemoteConnection(clearConfiguration: clearConfiguration)
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:])
         )
     }
 
@@ -551,16 +551,16 @@ extension TerminalController: ControlWorkspaceContext {
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        guard workspace.remoteConfiguration != nil else {
+        guard workspace.remoteConnectionCoordinator.state.remoteConfiguration != nil else {
             return .notConfigured(workspaceID: workspaceID)
         }
-        workspace.reconnectRemoteConnection(surfaceId: surfaceID)
+        workspace.remoteConnectionCoordinator.reconnectRemoteConnection(surfaceId: surfaceID)
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:])
         )
     }
 
@@ -572,13 +572,13 @@ extension TerminalController: ControlWorkspaceContext {
               let workspace = owner.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound(workspaceID: workspaceID)
         }
-        workspace.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
+        workspace.remoteConnectionCoordinator.notifyRemoteForegroundAuthenticationReady(token: foregroundAuthToken)
         notifyRemotePTYControllerAvailabilityChanged()
         let windowId = AppDelegate.shared?.windowId(for: owner)
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:])
         )
     }
 
@@ -591,7 +591,7 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:])
         )
     }
 
@@ -777,7 +777,7 @@ extension TerminalController: ControlWorkspaceContext {
             persistentDaemonSlot: persistentDaemonSlot?.isEmpty == true ? nil : persistentDaemonSlot,
             skipDaemonBootstrap: skipDaemonBootstrap
         )
-        workspace.configureRemoteConnection(config, autoConnect: autoConnect)
+        workspace.remoteConnectionCoordinator.configureRemoteConnection(config, autoConnect: autoConnect)
         notifyRemotePTYControllerAvailabilityChanged()
 
         let windowId = AppDelegate.shared?.windowId(for: owner)
@@ -786,7 +786,7 @@ extension TerminalController: ControlWorkspaceContext {
             "window_ref": controlWindowRefValue(windowId),
             "workspace_id": .string(workspace.id.uuidString),
             "workspace_ref": controlWorkspaceRefValue(workspace.id),
-            "remote": JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
+            "remote": JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:]),
         ]))
     }
 
@@ -812,7 +812,7 @@ extension TerminalController: ControlWorkspaceContext {
             workspaceID: workspace.id,
             clearedRemotePTYSession: outcome.clearedRemotePTYSession,
             untrackedRemoteTerminal: outcome.untrackedRemoteTerminal,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:])
         )
     }
 
@@ -830,7 +830,7 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(
             windowID: windowId,
             workspaceID: workspace.id,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:])
+            remoteStatus: JSONValue(foundationObject: workspace.remoteConnectionCoordinator.remoteStatusPayload()) ?? .object([:])
         )
     }
 

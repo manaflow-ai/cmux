@@ -93,10 +93,10 @@ extension Workspace {
             sidebarMetadata.panelPullRequestsPublisher
         )
         let remoteFields = Publishers.CombineLatest4(
-            remoteConfigurationPublisher,
-            remoteConnectionStatePublisher,
-            remoteConnectionDetailPublisher,
-            activeRemoteTerminalSessionCountPublisher
+            remoteConnectionCoordinator.state.remoteConfigurationPublisher,
+            remoteConnectionCoordinator.state.remoteConnectionStatePublisher,
+            remoteConnectionCoordinator.state.remoteConnectionDetailPublisher,
+            remoteConnectionCoordinator.state.activeRemoteTerminalSessionCountPublisher
         )
 
         return Publishers.CombineLatest4(

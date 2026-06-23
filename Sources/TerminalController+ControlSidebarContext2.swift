@@ -261,7 +261,7 @@ extension TerminalController {
             tab.surfaceTTYNames[scope.panelID] = ttyName
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
-                _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelID)
+                _ = tab.remoteSurfaceCoordinator.applyPendingRemoteSurfacePortKickIfNeeded(to: scope.panelID)
             } else {
                 PortScanner.shared.registerTTY(workspaceId: scope.workspaceID, panelId: scope.panelID, ttyName: ttyName)
             }
@@ -278,7 +278,7 @@ extension TerminalController {
             tab.surfaceTTYNames[surfaceId] = ttyName
             if tab.isRemoteWorkspace {
                 tab.syncRemotePortScanTTYs()
-                _ = tab.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
+                _ = tab.remoteSurfaceCoordinator.applyPendingRemoteSurfacePortKickIfNeeded(to: surfaceId)
             } else {
                 PortScanner.shared.registerTTY(workspaceId: tab.id, panelId: surfaceId, ttyName: ttyName)
             }
@@ -299,7 +299,7 @@ extension TerminalController {
             tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
             guard validSurfaceIds.contains(scope.panelID) else { return }
             if tab.isRemoteWorkspace {
-                tab.kickRemotePortScan(panelId: scope.panelID, reason: reason)
+                tab.remoteSurfaceCoordinator.kickRemotePortScan(panelId: scope.panelID, reason: reason)
             } else {
                 PortScanner.shared.kick(workspaceId: scope.workspaceID, panelId: scope.panelID)
             }
@@ -318,7 +318,7 @@ extension TerminalController {
             requireLiveSurface: false
         ) { tab, surfaceId in
             if tab.isRemoteWorkspace {
-                tab.kickRemotePortScan(panelId: surfaceId, reason: reason)
+                tab.remoteSurfaceCoordinator.kickRemotePortScan(panelId: surfaceId, reason: reason)
             } else {
                 PortScanner.shared.kick(workspaceId: tab.id, panelId: surfaceId)
             }

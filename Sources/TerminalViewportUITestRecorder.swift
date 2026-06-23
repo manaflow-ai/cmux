@@ -15,13 +15,13 @@ final class TerminalViewportUITestRecorder {
     private let environment: [String: String]
     private let contextProvider: () -> [AppDelegate.RegisteredMainWindow]
     /// Resolves a window's per-window ``SidebarState`` by `WindowID` through the
-    /// app delegate's `windowSidebarStates` store. Injected (not read off a
+    /// app delegate's `windowStoreRegistry.sidebarStates` store. Injected (not read off a
     /// singleton) so the recorder never assumes which `AppDelegate` is live; the
     /// per-window sidebar state was peeled out of `MainWindowContext` into the
     /// `WindowID`-keyed store (owner ruling 2026-06-18).
     private let sidebarStateProvider: (AppDelegate.RegisteredMainWindow) -> SidebarState
     /// Resolves a window's per-window ``FileExplorerState`` by `WindowID` through
-    /// the app delegate's `windowFileExplorerStates` store, or `nil` when the
+    /// the app delegate's `windowStoreRegistry.fileExplorerStates` store, or `nil` when the
     /// window has none. Injected like ``sidebarStateProvider`` so the recorder
     /// never assumes which `AppDelegate` is live; the per-window file-explorer
     /// state was peeled out of `MainWindowContext` into the `WindowID`-keyed

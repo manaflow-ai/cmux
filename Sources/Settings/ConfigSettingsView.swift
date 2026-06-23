@@ -210,7 +210,7 @@ struct ConfigSettingsView: View {
         if let appDelegate = AppDelegate.shared {
             appDelegate.reloadConfiguration(source: "settings.configWindow.reload")
         } else {
-            GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.reload")
+            GhosttyApp.shared.engineRuntime.reloadConfiguration(source: "settings.configWindow.reload")
         }
         statusMessage = String(
             localized: "settings.config.status.reloaded",
@@ -229,7 +229,7 @@ struct ConfigSettingsView: View {
             if let appDelegate = AppDelegate.shared {
                 appDelegate.reloadConfiguration(source: "settings.configWindow.save")
             } else {
-                GhosttyApp.shared.reloadConfiguration(source: "settings.configWindow.save")
+                GhosttyApp.shared.engineRuntime.reloadConfiguration(source: "settings.configWindow.save")
             }
             statusMessage = String(
                 localized: "settings.config.status.saved",

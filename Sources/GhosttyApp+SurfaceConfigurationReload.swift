@@ -1,4 +1,5 @@
 extension GhosttyApp {
+    @MainActor
     func reloadSurfaceConfiguration(
         _ surface: ghostty_surface_t,
         soft: Bool = false,
@@ -12,8 +13,11 @@ extension GhosttyApp {
         }
 
         guard let newConfig = ghostty_config_new() else { return }
-        let reloadColorScheme = preferredColorScheme ?? effectiveTerminalColorSchemePreference
-        _ = loadDefaultConfigFilesWithLegacyFallback(
+        // The default color scheme + the layered config loader moved to
+        // `engineRuntime` (CmuxTerminal); this surface-only reload drives them
+        // there while leaving the app-scoped `config` handle unchanged.
+        let reloadColorScheme = preferredColorScheme ?? engineRuntime.effectiveTerminalColorSchemePreference
+        _ = engineRuntime.loadDefaultConfigFilesWithLegacyFallback(
             newConfig,
             preferredColorScheme: reloadColorScheme,
             conditionalThemeColorScheme: GhosttyConfig.currentColorSchemePreference()
@@ -23,6 +27,24 @@ extension GhosttyApp {
         ghostty_surface_update_config(surface, newConfig)
         finishSurfaceConfigurationReload(source: source, soft: soft, mode: "full")
         ghostty_config_free(newConfig)
+    }
+
+    /// Facade restored after the engine-runtime move: `GhosttyApp.shared`
+    /// callers reload config through here; the implementation lives on
+    /// `engineRuntime` (CmuxTerminal).
+    @MainActor
+    func reloadConfiguration(
+        soft: Bool = false,
+        source: String,
+        reloadSettingsFromFile: Bool = true,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+    ) {
+        engineRuntime.reloadConfiguration(
+            soft: soft,
+            source: source,
+            reloadSettingsFromFile: reloadSettingsFromFile,
+            preferredColorScheme: preferredColorScheme
+        )
     }
 
     private func finishSurfaceConfigurationReload(source: String, soft: Bool, mode: String) {

@@ -3,31 +3,45 @@ import CmuxFoundation
 import Foundation
 
 extension WorkspaceContentView {
+    @MainActor
     static func resolveGhosttyAppearanceConfig(
         reason: String = "unspecified",
         backgroundOverride: NSColor? = nil,
         loadConfig: () -> GhosttyConfig = { GhosttyConfig.load() },
-        defaultBackground: () -> NSColor = { GhosttyApp.shared.defaultBackgroundColor },
-        defaultForeground: () -> NSColor = { GhosttyApp.shared.defaultForegroundColor },
-        defaultCursor: () -> NSColor = { GhosttyApp.shared.defaultCursorColor },
-        defaultCursorText: () -> NSColor = { GhosttyApp.shared.defaultCursorTextColor },
-        defaultSelectionBackground: () -> NSColor = { GhosttyApp.shared.defaultSelectionBackground },
-        defaultSelectionForeground: () -> NSColor = { GhosttyApp.shared.defaultSelectionForeground },
-        defaultBackgroundOpacity: () -> Double = { GhosttyApp.shared.defaultBackgroundOpacity }
+        defaultBackground: (() -> NSColor)? = nil,
+        defaultForeground: (() -> NSColor)? = nil,
+        defaultCursor: (() -> NSColor)? = nil,
+        defaultCursorText: (() -> NSColor)? = nil,
+        defaultSelectionBackground: (() -> NSColor)? = nil,
+        defaultSelectionForeground: (() -> NSColor)? = nil,
+        defaultBackgroundOpacity: (() -> Double)? = nil
     ) -> GhosttyConfig {
+        // The engine-runtime appearance reads are `@MainActor`; reading them
+        // here (the function is `@MainActor`) avoids putting actor-isolated
+        // reads in default-argument expressions, which Swift evaluates in a
+        // nonisolated context.
+        let runtime = GhosttyApp.shared.engineRuntime
+        let resolveBackground = defaultBackground ?? { runtime.defaultBackgroundColor }
+        let resolveForeground = defaultForeground ?? { runtime.defaultForegroundColor }
+        let resolveCursor = defaultCursor ?? { runtime.defaultCursorColor }
+        let resolveCursorText = defaultCursorText ?? { runtime.defaultCursorTextColor }
+        let resolveSelectionBackground = defaultSelectionBackground ?? { runtime.defaultSelectionBackground }
+        let resolveSelectionForeground = defaultSelectionForeground ?? { runtime.defaultSelectionForeground }
+        let resolveBackgroundOpacity = defaultBackgroundOpacity ?? { runtime.defaultBackgroundOpacity }
+
         var next = loadConfig()
         let loadedBackgroundHex = next.backgroundColor.hexString()
         let loadedForegroundHex = next.foregroundColor.hexString()
-        let resolvedBackground = backgroundOverride ?? defaultBackground()
+        let resolvedBackground = backgroundOverride ?? resolveBackground()
         let defaultBackgroundHex = backgroundOverride == nil ? resolvedBackground.hexString() : "skipped"
 
         next.backgroundColor = resolvedBackground
-        next.foregroundColor = defaultForeground()
-        next.cursorColor = defaultCursor()
-        next.cursorTextColor = defaultCursorText()
-        next.selectionBackground = defaultSelectionBackground()
-        next.selectionForeground = defaultSelectionForeground()
-        next.backgroundOpacity = defaultBackgroundOpacity()
+        next.foregroundColor = resolveForeground()
+        next.cursorColor = resolveCursor()
+        next.cursorTextColor = resolveCursorText()
+        next.selectionBackground = resolveSelectionBackground()
+        next.selectionForeground = resolveSelectionForeground()
+        next.backgroundOpacity = resolveBackgroundOpacity()
 
         if GhosttyApp.shared.backgroundLogEnabled {
             GhosttyApp.shared.logBackground(

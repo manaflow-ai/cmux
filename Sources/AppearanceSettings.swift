@@ -56,7 +56,13 @@ enum AppearanceSettings {
                 NSApplication.shared.appearance = appearance
             },
             synchronizeTerminalThemeWithAppearance: { appearance, source in
-                GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
+                // The engine-runtime theme sync is `@MainActor`; the live
+                // environment closures only ever run on the main thread (live
+                // appearance application is main-driven), so assert it rather
+                // than annotating the nonisolated closure type the tests inject.
+                MainActor.assumeIsolated {
+                    GhosttyApp.shared.engineRuntime.synchronizeThemeWithAppearance(appearance, source: source)
+                }
             },
             systemAppearance: {
                 AppearanceSettings.systemNSAppearance()

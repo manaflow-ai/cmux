@@ -1,3 +1,4 @@
+import CmuxRemoteSession
 import AppKit
 import CmuxFoundation
 import CmuxTerminalCore
@@ -807,7 +808,7 @@ class TabManager {
         guard enabled != lastRemotePortScanningEnabled else { return }
         lastRemotePortScanningEnabled = enabled
         for tab in tabs where tab.isRemoteWorkspace {
-            tab.applyRemotePortScanningEnabled(enabled)
+            tab.remoteSurfaceCoordinator.applyRemotePortScanningEnabled(enabled)
         }
     }
 
@@ -2184,7 +2185,7 @@ class TabManager {
     }
 
     func teardownRemoteConnection(_ tab: Workspace) {
-        tab.teardownRemoteConnection()
+        tab.remoteConnectionCoordinator.teardownRemoteConnection()
     }
 
     func unwireClosedBrowserTracking(_ tab: Workspace) {
@@ -2607,23 +2608,23 @@ class TabManager {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         guard tab.panels[surfaceId] != nil else { return }
         let keepsPersistentRemoteSurfaceOpen =
-            tab.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
+            tab.remoteSurfaceCoordinator.shouldKeepPersistentRemoteSurfaceOpenAfterChildExit(surfaceId)
         if !keepsPersistentRemoteSurfaceOpen,
-           tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId) {
+           tab.remoteSurfaceCoordinator.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId) {
             let relayPort: Int?
-            if tab.remoteConfiguration?.transport == .ssh {
-                relayPort = tab.remoteConfiguration?.relayPort
+            if tab.remoteConnectionCoordinator.state.remoteConfiguration?.transport == .ssh {
+                relayPort = tab.remoteConnectionCoordinator.state.remoteConfiguration?.relayPort
             } else {
                 relayPort = nil
             }
             tab.markRemoteTerminalSessionEnded(
                 surfaceId: surfaceId,
                 relayPort: relayPort,
-                allowUntracked: !tab.isRemoteTerminalSurface(surfaceId)
+                allowUntracked: !tab.remoteSurfaceCoordinator.isRemoteTerminalSurface(surfaceId)
             )
         }
         let handlesRemoteExitThroughWorkspace =
-            tab.panels.count <= 1 && tab.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
+            tab.panels.count <= 1 && tab.remoteSurfaceCoordinator.shouldDemoteWorkspaceAfterChildExit(surfaceId: surfaceId)
 
 #if DEBUG
         cmuxDebugLog(
@@ -5017,7 +5018,7 @@ extension TabManager {
         // panel/socket callbacks cannot keep mutating hidden pre-restore state.
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
         workspace.teardownAllPanels()
-        workspace.teardownRemoteConnection()
+        workspace.remoteConnectionCoordinator.teardownRemoteConnection()
         workspace.owningTabManager = nil
     }
 

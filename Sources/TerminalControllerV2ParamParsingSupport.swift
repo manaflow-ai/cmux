@@ -89,7 +89,7 @@ extension TerminalController {
         if let uuid = UUID(uuidString: s) {
             return uuid
         }
-        return v2MainSync { v2ResolveHandleRef(s) }
+        return v2MainSync { controlCommandCoordinator.resolveRef(s) }
     }
 
     func v2UUIDAny(_ raw: Any?) -> UUID? {
@@ -99,7 +99,7 @@ extension TerminalController {
         if let uuid = UUID(uuidString: trimmed) {
             return uuid
         }
-        return v2ResolveHandleRef(trimmed)
+        return controlCommandCoordinator.resolveRef(trimmed)
     }
 
     nonisolated func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {

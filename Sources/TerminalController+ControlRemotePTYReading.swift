@@ -146,7 +146,7 @@ extension TerminalController {
                workspace.id != requestedWorkspaceId {
                 let matchedMovedSurface = allowMovedSurface
                     && preferredSurfaceId.map {
-                        workspace.remotePTYSessionIDMatches(panelId: $0, sessionID: requestedSessionID)
+                        workspace.remoteSurfaceCoordinator.remotePTYSessionIDMatches(panelId: $0, sessionID: requestedSessionID)
                     } == true
                 guard matchedMovedSurface else {
                     workspaceMismatchData = .object([
@@ -163,7 +163,7 @@ extension TerminalController {
 
             let windowId = v2ResolveWindowId(tabManager: owner)
             target = ControlRemotePTYTarget(
-                controller: workspace.remotePTYSessionControllerForSocketCommand()
+                controller: workspace.remoteSurfaceCoordinator.remotePTYSessionControllerForSocketCommand()
                     .map { RemoteSessionCoordinatorPTYControlling(controller: $0) },
                 windowID: windowId,
                 windowRef: Self.ptyRefValue(v2Ref(kind: .window, uuid: windowId)),
@@ -270,7 +270,7 @@ extension TerminalController {
                 for workspace in owner.tabs where workspace.isRemoteWorkspace {
                     targets.append(
                         ControlRemotePTYTarget(
-                            controller: workspace.remotePTYSessionControllerForSocketCommand()
+                            controller: workspace.remoteSurfaceCoordinator.remotePTYSessionControllerForSocketCommand()
                                 .map { RemoteSessionCoordinatorPTYControlling(controller: $0) },
                             windowID: summary.windowId,
                             windowRef: Self.ptyRefValue(v2Ref(kind: .window, uuid: summary.windowId)),

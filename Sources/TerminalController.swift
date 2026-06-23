@@ -2067,43 +2067,14 @@ class TerminalController: MobileViewportSurfaceLimiting {
         return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
-        controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
-    }
-
-    func v2ResolveHandleRef(_ handle: String) -> UUID? {
-        controlCommandCoordinator.resolveRef(handle)
-    }
-
     nonisolated func v2Ref(kind: ControlHandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
-        return v2MainSync { v2EnsureHandleRef(kind: kind, uuid: uuid) }
-    }
-
-    func v2WorkspaceRefs(for ids: [UUID]) -> [UUID: String] {
-        var refs: [UUID: String] = [:]
-        refs.reserveCapacity(ids.count)
-        for id in ids {
-            refs[id] = v2EnsureHandleRef(kind: .workspace, uuid: id)
-        }
-        return refs
-    }
-
-    func v2WorkspacePaneAndSurfaceRefs(
-        workspaceId: UUID,
-        paneId: UUID?,
-        surfaceId: UUID
-    ) -> (workspaceRef: String, paneRef: String?, surfaceRef: String) {
-        return (
-            workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: workspaceId),
-            paneRef: paneId.map { v2EnsureHandleRef(kind: .pane, uuid: $0) },
-            surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId)
-        )
+        return v2MainSync { controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid) }
     }
 
     func v2TabRef(uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
-        let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: uuid)
+        let surfaceRef = controlCommandCoordinator.ensureRef(kind: .surface, uuid: uuid)
         return surfaceRef.replacingOccurrences(of: "surface:", with: "tab:")
     }
 
@@ -2116,15 +2087,15 @@ class TerminalController: MobileViewportSurfaceLimiting {
 
         let windows = app.listMainWindowSummaries()
         for item in windows {
-            _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
+            controlCommandCoordinator.ensureRef(kind: .window, uuid: item.windowId)
             if let tm = app.tabManagerFor(windowId: item.windowId) {
                 for ws in tm.tabs {
-                    _ = v2EnsureHandleRef(kind: .workspace, uuid: ws.id)
+                    controlCommandCoordinator.ensureRef(kind: .workspace, uuid: ws.id)
                     for paneId in ws.bonsplitController.allPaneIds {
-                        _ = v2EnsureHandleRef(kind: .pane, uuid: paneId.id)
+                        controlCommandCoordinator.ensureRef(kind: .pane, uuid: paneId.id)
                     }
                     for panelId in ws.panels.keys {
-                        _ = v2EnsureHandleRef(kind: .surface, uuid: panelId)
+                        controlCommandCoordinator.ensureRef(kind: .surface, uuid: panelId)
                     }
                 }
                 // Mint workspace_group refs for groups that exist before any
@@ -2132,7 +2103,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
                 // immediately after restore (otherwise the first ref hand-off
                 // happens only on `list`/`create`).
                 for group in tm.workspaceGroups {
-                    _ = v2EnsureHandleRef(kind: .workspaceGroup, uuid: group.id)
+                    controlCommandCoordinator.ensureRef(kind: .workspaceGroup, uuid: group.id)
                 }
             }
         }
@@ -3832,10 +3803,10 @@ class TerminalController: MobileViewportSurfaceLimiting {
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             identity = (
                 workspaceID: ws.id,
-                workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: ws.id),
-                surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId),
+                workspaceRef: controlCommandCoordinator.ensureRef(kind: .workspace, uuid: ws.id),
+                surfaceRef: controlCommandCoordinator.ensureRef(kind: .surface, uuid: surfaceId),
                 windowID: windowId,
-                windowRef: windowId.map { v2EnsureHandleRef(kind: .window, uuid: $0) }
+                windowRef: windowId.map { controlCommandCoordinator.ensureRef(kind: .window, uuid: $0) }
             )
         }
         guard let identity else {

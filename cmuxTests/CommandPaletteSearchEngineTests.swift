@@ -552,7 +552,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         let results = CommandPaletteSearchEngine(entries: corpus).search(
             query: "fork"
         ) { commandId, _ in
-            ContentView.commandPaletteForkPriorityBoost(commandId: commandId, query: "fork")
+            CommandPaletteSearchOrchestrator.forkPriorityBoost(commandId: commandId, query: "fork")
         }
 
         XCTAssertEqual(results.map(\.payload).first, "palette.forkAgentConversationRight")
@@ -1952,28 +1952,28 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
 
     func testVisibleResultsResetWhenQueryChangesCommandPaletteScope() {
         XCTAssertTrue(
-            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+            CommandPaletteListScope.shouldResetVisibleResultsForQueryTransition(
                 oldQuery: ">",
                 newQuery: "",
                 hasVisibleResults: true
             )
         )
         XCTAssertTrue(
-            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+            CommandPaletteListScope.shouldResetVisibleResultsForQueryTransition(
                 oldQuery: "",
                 newQuery: ">",
                 hasVisibleResults: true
             )
         )
         XCTAssertFalse(
-            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+            CommandPaletteListScope.shouldResetVisibleResultsForQueryTransition(
                 oldQuery: ">rename",
                 newQuery: ">renam",
                 hasVisibleResults: true
             )
         )
         XCTAssertFalse(
-            ContentView.commandPaletteShouldResetVisibleResultsForQueryTransition(
+            CommandPaletteListScope.shouldResetVisibleResultsForQueryTransition(
                 oldQuery: ">",
                 newQuery: "",
                 hasVisibleResults: false
@@ -1982,7 +1982,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     }
 
     func testRefreshInputsPreferObservedQueryOverStaleState() {
-        let inputs = ContentView.commandPaletteRefreshInputsForTests(
+        let inputs = CommandPaletteListScope.refreshInputs(
             stateQuery: ">",
             observedQuery: "",
             searchAllSurfaces: true
@@ -1994,7 +1994,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
     }
 
     func testRefreshInputsIncludeSurfacesOnlyForNonEmptySwitcherQuery() {
-        let switcherInputs = ContentView.commandPaletteRefreshInputsForTests(
+        let switcherInputs = CommandPaletteListScope.refreshInputs(
             stateQuery: "",
             observedQuery: "  feature/search  ",
             searchAllSurfaces: true
@@ -2003,7 +2003,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(switcherInputs.matchingQuery, "feature/search")
         XCTAssertTrue(switcherInputs.includesSurfaces)
 
-        let commandInputs = ContentView.commandPaletteRefreshInputsForTests(
+        let commandInputs = CommandPaletteListScope.refreshInputs(
             stateQuery: "",
             observedQuery: ">feature/search",
             searchAllSurfaces: true
@@ -2012,7 +2012,7 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(commandInputs.matchingQuery, "feature/search")
         XCTAssertFalse(commandInputs.includesSurfaces)
 
-        let workspaceOnlyInputs = ContentView.commandPaletteRefreshInputsForTests(
+        let workspaceOnlyInputs = CommandPaletteListScope.refreshInputs(
             stateQuery: "",
             observedQuery: "feature/search",
             searchAllSurfaces: false
