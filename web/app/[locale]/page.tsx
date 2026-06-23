@@ -1,7 +1,6 @@
 import { useTranslations, useLocale } from "next-intl";
-import { FadeImage } from "./components/fade-image";
+import { HeroScreenshot } from "./components/hero-screenshot";
 import Balancer from "react-wrap-balancer";
-import landingImage from "./assets/landing-image.png";
 import { TypingTagline } from "./typing";
 import { DownloadButton } from "./components/download-button";
 import { GitHubButton } from "./components/github-button";
@@ -127,6 +126,7 @@ function HomeContent() {
               [
                 ["verticalTabs", "verticalTabsDesc"],
                 ["notificationRings", "notificationRingsDesc"],
+                ["ios", "iosDesc"],
                 ["inAppBrowser", "inAppBrowserDesc"],
                 ["splitPanes", "splitPanesDesc"],
                 ["scriptable", "scriptableDesc"],
@@ -139,7 +139,13 @@ function HomeContent() {
                 <span className="text-muted shrink-0">-</span>
                 <span>
                   <strong className="font-medium">
-                    {t(`feature.${title}`)}
+                    {title === "ios" ? (
+                      <Link href="/ios" className={linkClass}>
+                        {t(`feature.${title}`)}
+                      </Link>
+                    ) : (
+                      t(`feature.${title}`)
+                    )}
                   </strong>
                   <span className="text-muted">{t(`feature.${desc}`)}</span>
                 </span>
@@ -185,14 +191,9 @@ function HomeContent() {
         {/* Screenshot */}
         <div
           data-dev="screenshot"
-          className="mb-12 -mx-6 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
         >
-          <FadeImage
-            src={landingImage}
-            alt="cmux terminal app screenshot"
-            priority
-            className="w-full rounded-xl"
-          />
+          <HeroScreenshot />
         </div>
 
         {/* FAQ */}
