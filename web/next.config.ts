@@ -27,7 +27,16 @@ const nextConfig: NextConfig = {
     const exts = ["", ".md", ".txt"];
     return agentSlugMoves.flatMap(([from, to]) =>
       exts.flatMap((ext) => [
+        // Bare English path (canonical, no locale prefix).
         { source: `${from}${ext}`, destination: `${to}${ext}`, permanent: true },
+        // Explicit /en prefix (the agent-readable router accepts /en/... and
+        // dotted variants bypass the locale middleware, so it must be covered).
+        {
+          source: `/en${from}${ext}`,
+          destination: `${to}${ext}`,
+          permanent: true,
+        },
+        // Every other locale prefix.
         {
           source: `/${localePrefix}${from}${ext}`,
           destination: `/:locale${to}${ext}`,
