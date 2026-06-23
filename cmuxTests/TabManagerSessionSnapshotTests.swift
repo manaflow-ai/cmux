@@ -3099,7 +3099,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(terminalStartupCommand.contains("--default-freestyle-sshd"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("CMUX_SSH_RECONNECT_LIMIT"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("CMUX_CLOUD_RECONNECT_ATTEMPT"), terminalStartupCommand)
-        XCTAssertTrue(terminalStartupCommand.contains("Cloud VM reconnecting"), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("Cloud VM reconnecting"), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("cmux_freestyle_notify_reconnect"), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("[cmux] ssh exited with status"), terminalStartupCommand)
     }
 
