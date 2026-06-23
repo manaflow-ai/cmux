@@ -235,7 +235,7 @@ struct MobileSettingsView: View {
                     .disabled(notificationSettingsSyncing)
 
                     if notificationsEnabled {
-                        Picker(selection: $notificationMode) {
+                        Picker(selection: notificationModeBinding) {
                             Text(L10n.string("mobile.notifications.mode.always", defaultValue: "Always"))
                                 .tag(MobileNotificationForwardingMode.always)
                             Text(L10n.string(
@@ -246,22 +246,14 @@ struct MobileSettingsView: View {
                         } label: {
                             Text(L10n.string("mobile.notifications.mode", defaultValue: "When to Notify"))
                         }
-                        .onChange(of: notificationMode) { _, mode in
-                            guard !notificationSettingsSyncing else { return }
-                            updateNotificationMode(mode)
-                        }
                         .accessibilityIdentifier("MobileSettingsNotificationsMode")
                         .disabled(notificationSettingsSyncing)
 
-                        Toggle(isOn: $hideNotificationContent) {
+                        Toggle(isOn: hideNotificationContentBinding) {
                             Text(L10n.string(
                                 "mobile.notifications.hideContent",
                                 defaultValue: "Hide Notification Content"
                             ))
-                        }
-                        .onChange(of: hideNotificationContent) { _, hidesContent in
-                            guard !notificationSettingsSyncing else { return }
-                            updateNotificationHideContent(hidesContent)
                         }
                         .accessibilityIdentifier("MobileSettingsNotificationsHideContent")
                         .disabled(notificationSettingsSyncing)
@@ -396,6 +388,26 @@ struct MobileSettingsView: View {
         }
     }
 
+    private var notificationModeBinding: Binding<MobileNotificationForwardingMode> {
+        Binding {
+            notificationMode
+        } set: { mode in
+            guard !notificationSettingsSyncing, notificationMode != mode else { return }
+            notificationMode = mode
+            updateNotificationMode(mode)
+        }
+    }
+
+    private var hideNotificationContentBinding: Binding<Bool> {
+        Binding {
+            hideNotificationContent
+        } set: { hidesContent in
+            guard !notificationSettingsSyncing, hideNotificationContent != hidesContent else { return }
+            hideNotificationContent = hidesContent
+            updateNotificationHideContent(hidesContent)
+        }
+    }
+
     private func loadNotificationPreferences(_ preferences: MobileNotificationPreferences) {
         notificationsEnabled = preferences.isEnabled
         notificationMode = preferences.forwardingMode
@@ -403,17 +415,20 @@ struct MobileSettingsView: View {
     }
 
     private func refreshNotificationPreferencesFromMac() {
-        Task {
-            notificationSettingsSyncing = true
+        guard !notificationSettingsSyncing else { return }
+        notificationSettingsSyncing = true
+        Task { @MainActor in
+            defer { notificationSettingsSyncing = false }
             let preferences = await pushCoordinator.reconcileNotificationPreferencesWithMac()
             loadNotificationPreferences(preferences)
-            notificationSettingsSyncing = false
         }
     }
 
     private func toggleNotifications() {
-        Task {
-            notificationSettingsSyncing = true
+        guard !notificationSettingsSyncing else { return }
+        notificationSettingsSyncing = true
+        Task { @MainActor in
+            defer { notificationSettingsSyncing = false }
             if notificationsEnabled {
                 await pushCoordinator.disable()
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
@@ -425,27 +440,26 @@ struct MobileSettingsView: View {
                 notificationsEnabled = enabled
                 loadNotificationPreferences(pushCoordinator.notificationPreferences)
             }
-            notificationSettingsSyncing = false
         }
     }
 
     private func updateNotificationMode(_ mode: MobileNotificationForwardingMode) {
-        guard notificationsEnabled else { return }
-        Task {
-            notificationSettingsSyncing = true
+        guard notificationsEnabled, !notificationSettingsSyncing else { return }
+        notificationSettingsSyncing = true
+        Task { @MainActor in
+            defer { notificationSettingsSyncing = false }
             let preferences = await pushCoordinator.setForwardingMode(mode)
             loadNotificationPreferences(preferences)
-            notificationSettingsSyncing = false
         }
     }
 
     private func updateNotificationHideContent(_ hidesContent: Bool) {
-        guard notificationsEnabled else { return }
-        Task {
-            notificationSettingsSyncing = true
+        guard notificationsEnabled, !notificationSettingsSyncing else { return }
+        notificationSettingsSyncing = true
+        Task { @MainActor in
+            defer { notificationSettingsSyncing = false }
             let preferences = await pushCoordinator.setHidesContent(hidesContent)
             loadNotificationPreferences(preferences)
-            notificationSettingsSyncing = false
         }
     }
 

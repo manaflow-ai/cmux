@@ -3,7 +3,7 @@ public import CmuxMobileShellModel
 internal import Foundation
 internal import OSLog
 
-private let notificationSettingsLog = Logger(
+nonisolated private let notificationSettingsLog = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.cmux.ios",
     category: "mobile-shell"
 )
@@ -40,7 +40,7 @@ extension MobileShellComposite {
         } catch {
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return nil }
             markMacConnectionUnavailableIfNeeded(after: error)
-            notificationSettingsLog.error("notification settings sync failed: \(String(describing: error), privacy: .public)")
+            notificationSettingsLog.error("notification settings sync failed: \(String(describing: error), privacy: .private)")
             return nil
         }
     }
@@ -64,7 +64,7 @@ extension MobileShellComposite {
         } catch {
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return nil }
             markMacConnectionUnavailableIfNeeded(after: error)
-            notificationSettingsLog.error("notification settings fetch failed: \(String(describing: error), privacy: .public)")
+            notificationSettingsLog.error("notification settings fetch failed: \(String(describing: error), privacy: .private)")
             return nil
         }
     }

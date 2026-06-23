@@ -45,6 +45,7 @@ public final class MobilePushCoordinator {
     public static let dismissSyncCategoryIdentifier = "cmux.terminal"
 
     @ObservationIgnored private weak var store: CMUXMobileShellStore?
+    @ObservationIgnored private var reconcileTask: Task<Void, Never>?
 
     /// A tap whose navigation could not complete yet. On a cold launch the
     /// notification-center delegate delivers the tap before the root view has
@@ -97,6 +98,10 @@ public final class MobilePushCoordinator {
         self.now = now
     }
 
+    deinit {
+        reconcileTask?.cancel()
+    }
+
     /// Whether the user has opted into phone notifications (synchronous mirror).
     public var isEnabled: Bool { notificationPreferences.isEnabled }
 
@@ -110,8 +115,10 @@ public final class MobilePushCoordinator {
     public func bind(store: CMUXMobileShellStore) {
         self.store = store
         applyPendingDeeplinkIfReady()
-        Task { @MainActor [weak self] in
-            await self?.reconcileNotificationPreferencesWithMac()
+        reconcileTask?.cancel()
+        reconcileTask = Task { @MainActor [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            await self.reconcileNotificationPreferencesWithMac()
         }
     }
 

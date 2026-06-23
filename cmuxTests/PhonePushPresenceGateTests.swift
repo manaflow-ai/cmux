@@ -11,7 +11,7 @@ import Testing
 /// Behavior spec for the "forward notifications to phone only when away from
 /// the Mac" gate. All signals go through the injected seams of
 /// `MacPresenceMonitor`; no real HID/WindowServer state, no sleeps.
-@Suite struct PhonePushPresenceGateTests {
+@Suite(.serialized) struct PhonePushPresenceGateTests {
     private static let now = Date(timeIntervalSince1970: 1_750_000_000)
 
     private func monitor(
