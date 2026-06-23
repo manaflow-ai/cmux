@@ -26,7 +26,7 @@ env:
 
 jobs:
   decide:
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
       head_sha: ${{ steps.decide.outputs.head_sha }}
@@ -108,7 +108,7 @@ jobs:
     # injected before signing, preferring a pre-26 SDK when the runner image has
     # one but falling back to the selected app Xcode when the image only ships
     # Xcode 26. The helper build remains required and lipo-verified below.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 30
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)

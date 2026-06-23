@@ -90,7 +90,7 @@ extension RemoteSessionCoordinator {
         let isCancelled: @Sendable () -> Bool = {
             box.hasValue
         }
-        let complete: @Sendable (Result<RemotePTYBridgeServer.Endpoint, Error>) -> Void = { result in
+        let complete: @Sendable (Result<RemotePTYBridgeServer.Endpoint, any Error>) -> Void = { result in
             if box.setIfEmpty(result) {
                 semaphore.signal()
             }

@@ -1301,7 +1301,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         FeedCoordinator.shared.install(
             store: WorkstreamStore(
                 transport: NullWorkstreamTransport(),
-                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL())
+                persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL()),
+                titleProvider: Self.feedWorkstreamTitle(for:)
             )
         )
         StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
@@ -1544,6 +1545,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+    }
+
+    private nonisolated static func feedWorkstreamTitle(for event: WorkstreamEvent) -> String? {
+        switch event.hookEventName {
+        case .preCompact, .postCompact:
+            return String(localized: "feed.lifecycle.compaction.title", defaultValue: "Compaction")
+        case .subagentStart, .subagentStop:
+            return String(localized: "feed.lifecycle.subagent.title", defaultValue: "Subagent")
+        default:
+            return nil
+        }
     }
 
 #if DEBUG
@@ -2031,6 +2043,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         MobileHostService.shared.configure(auth: auth.coordinator)
         DeviceRegistryClient.shared.configure(auth: auth.coordinator)
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
+        // DEV-only: auto-publish this Mac's attach route to the signed-in user's
+        // pairedMacs backup so a fresh dev iOS build restores it (no manual host
+        // entry). No-op on Release / when the flag is off.
+        MacPairedMacBackupPublisher.shared.configure(auth: auth.coordinator)
         TerminalController.shared.attachAuth(coordinator: auth.coordinator, browserSignIn: auth.browserSignIn)
         TerminalController.shared.agentChatTranscriptService = agentChatTranscriptService
         auth.start()
@@ -2039,7 +2055,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         agentChatTranscriptService.start { TerminalController.shared.adoptDetectedAgentSession(titleChange: $0) }
         installMobileHostSettingsObserver()
         scheduleGhosttyCrashBreadcrumbIfNeeded(notificationStore: notificationStore)
-        startPaneMemoryGuardrailIfNeeded(notificationStore: notificationStore)
+        startPaneMemoryGuardrailIfNeeded()
         disableSuddenTerminationIfNeeded()
         installLifecycleSnapshotObserversIfNeeded()
         prepareStartupSessionSnapshotIfNeeded()
@@ -2067,19 +2083,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     /// Starts the per-pane runaway-memory guardrail: a background timer that
-    /// attributes each pane's process-tree memory by controlling tty and warns
-    /// (sidebar badge + dismissible banner with a kill action) before a single
+    /// attributes each pane's process-tree memory by controlling tty (monitoring
+    /// only — the user-facing sidebar badge and banner were removed in #6614) and
+    /// frees nonessential WebKit memory on system memory pressure before a single
     /// leaking pane can OOM-suspend the whole app (issue #6313).
-    private func startPaneMemoryGuardrailIfNeeded(notificationStore: TerminalNotificationStore) {
+    private func startPaneMemoryGuardrailIfNeeded() {
         let guardrail = PaneMemoryGuardrail.shared
         guardrail.paneProvider = { [weak self] in
             self?.paneMemoryGuardrailDescriptors() ?? []
-        }
-        guardrail.onWarnedWorkspacesChanged = { [weak notificationStore] ids in
-            notificationStore?.sidebarUnread.setMemoryWarningWorkspaceIds(ids)
-        }
-        guardrail.onRequestClosePane = { [weak self] workspaceId, panelId in
-            _ = self?.closePaneForMemoryGuardrail(workspaceId: workspaceId, panelId: panelId)
         }
         guardrail.onSystemMemoryPressure = { [weak self] in
             self?.discardHiddenBrowserWebViewsForSystemMemoryPressure()
