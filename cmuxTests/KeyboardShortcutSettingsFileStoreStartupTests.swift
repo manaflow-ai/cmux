@@ -8,6 +8,7 @@ import struct CmuxSettings.QuitConfirmationStore
 import enum CmuxSettings.ConfirmQuitMode
 import enum CmuxSettings.BrowserSearchEngine
 import struct CmuxSettings.BrowserSearchSettingsStore
+import class CmuxSettings.CmuxSettingsFileStore
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -1223,6 +1224,44 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 .namedKey("return"),
             ]
         )
+    }
+
+    func testTextBoxCustomDefaultFallsBackToTextEntryUntilConfiguredActionsParse() {
+        let customAction = TextBoxSubmitAction(
+            id: "custom-router",
+            title: "Custom Router",
+            kind: .commandTemplate,
+            commandTemplate: "router --prompt {{prompt}}",
+            systemImage: "wand.and.stars",
+            backgroundColorHex: "#123456"
+        )
+        let raw = "[{\"id\":\"custom-router\"}]"
+
+        XCTAssertEqual(
+            TextBoxInputContainer.selectedSubmitAction(
+                defaultSubmitActionID: "custom-router",
+                submitActions: TextBoxSubmitAction.builtInActions,
+                submitActionsCacheRawJSON: nil,
+                configuredSubmitActionsJSON: raw
+            ).id,
+            TextBoxSubmitAction.textEntryAction.id
+        )
+        XCTAssertEqual(
+            TextBoxInputContainer.selectedSubmitAction(
+                defaultSubmitActionID: "custom-router",
+                submitActions: TextBoxSubmitAction.builtInActions + [customAction],
+                submitActionsCacheRawJSON: raw,
+                configuredSubmitActionsJSON: raw
+            ).id,
+            "custom-router"
+        )
+    }
+
+    func testDefaultConfigTemplateIncludesTextBoxLaunchPromptFlag() {
+        let template = CmuxSettingsFileStore.defaultTemplate()
+
+        XCTAssertTrue(template.contains(#""commandTemplate" : "codex""#))
+        XCTAssertTrue(template.contains(#""sendPromptAfterLaunch" : true"#))
     }
 
     func testTextBoxForceTextEntryUsesShellEligibilityOverStaleAgentMetadata() {

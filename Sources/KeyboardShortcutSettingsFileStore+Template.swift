@@ -242,6 +242,9 @@ extension CmuxSettingsFileStore {
             if let commandTemplate = action.commandTemplate {
                 value["commandTemplate"] = commandTemplate
             }
+            if let sendPromptAfterLaunch = action.sendPromptAfterLaunch {
+                value["sendPromptAfterLaunch"] = sendPromptAfterLaunch
+            }
             if let imagePath = action.imagePath {
                 value["imagePath"] = imagePath
             }

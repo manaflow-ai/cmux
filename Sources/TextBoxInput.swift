@@ -2765,6 +2765,7 @@ struct TextBoxInputContainer: View {
     @AppStorage(TerminalTextBoxInputSettings.submitActionsKey)
     private var configuredSubmitActionsJSON = ""
     @State private var submitActionsCache = TextBoxSubmitAction.builtInActions
+    @State private var submitActionsCacheRawJSON: String?
     @State private var submitActionImageCache: [String: NSImage] = [:]
 
     @Binding var text: String
@@ -2814,14 +2815,31 @@ struct TextBoxInputContainer: View {
     }
 
     private var selectedSubmitAction: TextBoxSubmitAction {
+        Self.selectedSubmitAction(
+            defaultSubmitActionID: defaultSubmitActionID,
+            submitActions: submitActions,
+            submitActionsCacheRawJSON: submitActionsCacheRawJSON,
+            configuredSubmitActionsJSON: configuredSubmitActionsJSON
+        )
+    }
+
+    static func selectedSubmitAction(
+        defaultSubmitActionID: String,
+        submitActions: [TextBoxSubmitAction],
+        submitActionsCacheRawJSON: String?,
+        configuredSubmitActionsJSON: String
+    ) -> TextBoxSubmitAction {
         if defaultSubmitActionID == TextBoxSubmitAction.textEntryAction.id {
             return TextBoxSubmitAction.textEntryAction
         }
-        let actions = submitActions
-        if let selected = actions.first(where: { $0.id == defaultSubmitActionID }) {
+        if let selected = submitActions.first(where: { $0.id == defaultSubmitActionID }) {
             return selected
         }
-        return actions.first { $0.id == TerminalTextBoxInputSettings.defaultSubmitActionID }
+        if !TextBoxSubmitAction.builtInActions.contains(where: { $0.id == defaultSubmitActionID }),
+           submitActionsCacheRawJSON != configuredSubmitActionsJSON {
+            return TextBoxSubmitAction.textEntryAction
+        }
+        return submitActions.first { $0.id == TerminalTextBoxInputSettings.defaultSubmitActionID }
             ?? TextBoxSubmitAction.builtInActions[0]
     }
 
@@ -3109,6 +3127,7 @@ struct TextBoxInputContainer: View {
         }.value
         guard !Task.isCancelled else { return }
         submitActionsCache = actions
+        submitActionsCacheRawJSON = raw
     }
 
     private func expandedSubmitActionImagePath(_ path: String) -> String {
