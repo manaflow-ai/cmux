@@ -27,7 +27,7 @@
     "backToMac": "cmux for Mac"
   },
   "meta": {
-    "title": "cmux — The terminal built for multitasking",
+    "title": "cmux — The terminal built for multitasking, organization, and programmability",
     "description": "Free and open source native macOS terminal built on Ghostty. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool. Vertical tabs, notification rings, split panes, and a socket API.",
     "ogDescription": "Free and open source macOS terminal for AI coding agents. Works with Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, and any CLI tool."
   },
@@ -75,6 +75,9 @@
     "taglinePrefix": "The terminal built for ",
     "typingCodingAgents": "coding agents",
     "typingMultitasking": "multitasking",
+    "typingOrganization": "organization",
+    "typingProgrammability": "programmability",
+    "taglineStatic": "The terminal built for multitasking, organization, and programmability.",
     "subtitle": "Free and open source native macOS terminal built on Ghostty. Vertical tabs, notification rings when agents need attention, split panes, and a <cliLink>CLI</cliLink> for programmability.",
     "features": "Features",
     "faq": "FAQ",

@@ -9,6 +9,8 @@ function usePhrases() {
   return [
     t("typingCodingAgents"),
     t("typingMultitasking"),
+    t("typingOrganization"),
+    t("typingProgrammability"),
     "Claude Code",
     "Codex",
     "OpenCode",
