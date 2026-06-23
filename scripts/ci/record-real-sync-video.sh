@@ -286,8 +286,13 @@ defaults write "$MAC_BUNDLE_ID" mobile.iOSPairingHost.enabled -bool true
 ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
 MAC_RELOAD_LOG="$ARTIFACT_DIR/reload-macos.log"
-phase "building and launching tagged macOS cmux"
-run_with_timeout 600 bash -c './scripts/reload.sh --tag "$1" --swift-frontend-workaround --launch 2>&1 | tee "$2"' bash "$BUILD_TAG" "$MAC_RELOAD_LOG"
+phase "building tagged macOS cmux"
+run_with_timeout 600 bash -c './scripts/reload.sh --tag "$1" --swift-frontend-workaround 2>&1 | tee "$2"' bash "$BUILD_TAG" "$MAC_RELOAD_LOG"
+MAC_APP_PATH="$(awk '/^App path:/{getline; sub(/^  /,""); print; exit}' "$MAC_RELOAD_LOG")"
+[[ -n "$MAC_APP_PATH" && -d "$MAC_APP_PATH" ]] || { echo "could not locate built macOS app from $MAC_RELOAD_LOG" >&2; exit 1; }
+
+phase "launching tagged macOS cmux"
+run_with_timeout 30 open "$MAC_APP_PATH"
 wait_for_socket
 
 phase "activating tagged macOS cmux"
