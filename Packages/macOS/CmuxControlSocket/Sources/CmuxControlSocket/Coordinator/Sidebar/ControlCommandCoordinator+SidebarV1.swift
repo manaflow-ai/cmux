@@ -311,8 +311,8 @@ extension ControlCommandCoordinator {
     }
 
     /// The explicit shell-integration scope when both `--tab` and `--panel`
-    /// are UUIDs (the legacy `explicitSocketScope`, which stays app-side for
-    /// its unit tests).
+    /// are UUIDs (the same parse as `SidebarReplacementPolicy.explicitSocketScope`
+    /// in `CmuxSidebar`, which the app uses on its sidebar control path).
     func sidebarExplicitScope(options: [String: String]) -> ControlSidebarPanelScope? {
         guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tabRaw.isEmpty,

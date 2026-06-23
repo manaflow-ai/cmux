@@ -297,16 +297,16 @@ public protocol ControlSurfaceContext: AnyObject {
         ttyName: String
     ) -> ControlSurfaceReportTTYResolution
 
-    /// Parses a raw shell-activity token via the app's
-    /// `parseReportedShellActivityState`, returning the state's raw value (the
-    /// coordinator rejects a `nil` result as `invalid_params`).
+    /// Parses a raw shell-activity token via
+    /// `PanelShellActivityState.parseReported`, returning the state's raw value
+    /// (the coordinator rejects a `nil` result as `invalid_params`).
     ///
     /// - Parameter rawState: The raw `state`/`shell_state`/`activity` token.
     /// - Returns: The parsed state's raw value, or `nil` when unrecognized.
     func controlSurfaceParseShellActivityState(_ rawState: String) -> String?
 
-    /// Parses a raw port-scan kick reason via the app's
-    /// `parseRemotePortScanKickReason`, returning the reason's raw value (the
+    /// Parses a raw port-scan kick reason via
+    /// `PortScanKickReason.parseReported`, returning the reason's raw value (the
     /// coordinator rejects a `nil` result as `invalid_params`).
     ///
     /// - Parameter rawReason: The raw `reason` token.
