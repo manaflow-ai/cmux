@@ -178,10 +178,14 @@ function HomeContent() {
           </ul>
         </section>
 
-        {/* Screenshot */}
+        {/* Screenshot: bleeds wider than the text column but stays bounded to
+            the viewport so it always fits on screen with a left/right gutter.
+            The width tracks the viewport minus a 1.5rem gutter on each side and
+            is capped at 90rem; left-1/2 + -translate-x-1/2 keeps it centered
+            over the narrower text column. */}
         <div
           data-dev="screenshot"
-          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 relative left-1/2 -translate-x-1/2 w-[min(90rem,100vw_-_3rem)]"
         >
           <HeroScreenshot />
         </div>
