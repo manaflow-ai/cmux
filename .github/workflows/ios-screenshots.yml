@@ -84,34 +84,49 @@ jobs:
         run: |
           set -euo pipefail
           # Device model names drift between Xcode versions, so resolve the
-          # required App Store classes at runtime instead of pinning. Creates a
-          # simulator for the chosen device type if one does not already exist,
-          # then exports SNAPSHOT_DEVICES for the fastlane lane.
+          # required App Store classes at runtime instead of pinning. Pick from
+          # the AVAILABLE SIMULATORS (not device types) so fastlane finds an
+          # existing simulator, and skip RAM-variant duplicates like
+          # "iPad Pro 13-inch (M5) (16GB)" which have no pre-created simulator.
           python3 - <<'PY' >> "$GITHUB_ENV"
-          import json, subprocess, sys
+          import json, re, subprocess
 
           def simctl(*args):
               return json.loads(subprocess.check_output(["xcrun", "simctl", "list", *args, "-j"]))
 
           def vkey(s):
-              import re
               return [int(x) for x in re.findall(r"\d+", s or "")] or [0]
 
-          devtypes = simctl("devicetypes").get("devicetypes", [])
-          names = [d["name"] for d in devtypes]
+          data = simctl("devices", "available")
+          names = sorted({
+              d["name"]
+              for runtime in data.get("devices", {}).values()
+              for d in runtime
+              if d.get("isAvailable", True)
+          })
 
-          # 6.9" iPhone = highest-numbered Pro Max; 13" iPad = a 13-inch Pro/Air.
-          iphones = sorted([n for n in names if "iPhone" in n and "Pro Max" in n], key=vkey)
-          ipads = sorted([n for n in names if "iPad" in n and "13-inch" in n], key=vkey)
-          if not iphones:
-              iphones = sorted([n for n in names if n.startswith("iPhone")], key=vkey)
-          if not ipads:
-              ipads = sorted([n for n in names if n.startswith("iPad")], key=vkey)
-          if not iphones or not ipads:
-              raise SystemExit("Could not resolve a 6.9\" iPhone and 13\" iPad device type")
-          chosen = [iphones[-1], ipads[-1]]
-          print(f"SNAPSHOT_DEVICES={','.join(chosen)}", file=sys.stderr)
-          print(f"SNAPSHOT_DEVICES={','.join(chosen)}")
+          def pick(patterns, fallbacks):
+              for pat in patterns:
+                  hits = sorted([n for n in names if re.fullmatch(pat, n)], key=vkey)
+                  if hits:
+                      return hits[-1]
+              for f in fallbacks:
+                  hits = sorted([n for n in names if f(n)], key=vkey)
+                  if hits:
+                      return hits[-1]
+              return None
+
+          # 6.9" iPhone (Pro Max) and 13" iPad (Pro, else Air). "GB" filters out
+          # RAM-variant names that are not instantiated as simulators.
+          iphone = pick([r"iPhone \d+ Pro Max"],
+                        [lambda n: n.startswith("iPhone") and "Pro Max" in n and "GB" not in n,
+                         lambda n: n.startswith("iPhone") and "GB" not in n])
+          ipad = pick([r"iPad Pro 13-inch \(M\d+\)", r"iPad Air 13-inch \(M\d+\)"],
+                      [lambda n: n.startswith("iPad") and "13-inch" in n and "GB" not in n,
+                       lambda n: n.startswith("iPad") and "GB" not in n])
+          if not iphone or not ipad:
+              raise SystemExit("Could not resolve iPhone/iPad from available simulators: " + ", ".join(names))
+          print(f"SNAPSHOT_DEVICES={iphone},{ipad}")
           PY
           # $SNAPSHOT_DEVICES is only in $GITHUB_ENV for later steps, not this
           # shell, so read it back from the file rather than referencing the var
