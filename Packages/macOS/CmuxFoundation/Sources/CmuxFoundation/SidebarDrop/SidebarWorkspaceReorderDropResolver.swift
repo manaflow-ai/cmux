@@ -273,6 +273,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 workspaces: request.workspaces,
                 workspacesById: workspacesById,
                 groupsById: groupsById,
+                groupByAnchorId: groupByAnchorId,
                 promotingWorkspaceId: request.draggedWorkspaceId
             )
             : Set(request.workspaces.filter { $0.groupId == nil && $0.isPinned }.map(\.id))
@@ -345,6 +346,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
                 workspaces: request.workspaces,
                 workspacesById: workspacesById,
                 groupsById: groupsById,
+                groupByAnchorId: groupByAnchorId,
                 promotingWorkspaceId: nil
             ),
             pointerY: rootTarget.pointerY,
@@ -564,6 +566,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
         workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot],
         workspacesById: [UUID: SidebarWorkspaceReorderWorkspaceSnapshot],
         groupsById: [UUID: SidebarWorkspaceReorderGroupSnapshot],
+        groupByAnchorId: [UUID: SidebarWorkspaceReorderGroupSnapshot],
         promotingWorkspaceId: UUID?
     ) -> Set<UUID> {
         Set(topLevelWorkspaceIds(
@@ -571,7 +574,7 @@ public struct SidebarWorkspaceReorderDropResolver: Sendable {
             groupsById: groupsById,
             promotingWorkspaceId: promotingWorkspaceId
         ).filter { id in
-            if let group = groupsById.values.first(where: { $0.anchorWorkspaceId == id }) {
+            if let group = groupByAnchorId[id] {
                 return group.isPinned
             }
             return workspacesById[id]?.isPinned == true
