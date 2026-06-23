@@ -8289,18 +8289,20 @@ class TerminalController {
     }
 
     private nonisolated func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, webView: WKWebView) {
+        let source = v2MainSync { BrowserPanel.telemetryHookBootstrapScriptSource }
         _ = v2RunJavaScript(
             webView,
-            script: BrowserPanel.telemetryHookBootstrapScriptSource,
+            script: source,
             timeout: 5.0,
             world: .page
         )
     }
 
     private nonisolated func v2BrowserEnsureDialogHooks(webView: WKWebView) {
+        let source = v2MainSync { BrowserPanel.dialogTelemetryHookBootstrapScriptSource }
         _ = v2RunJavaScript(
             webView,
-            script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
+            script: source,
             timeout: 5.0,
             world: .page
         )
