@@ -89,10 +89,22 @@ struct CanvasShortcutContextTests {
         let canvasActualSize = KeyboardShortcutSettings.Action.canvasZoomReset.defaultShortcut
         let browserActualSize = KeyboardShortcutSettings.Action.browserZoomReset.defaultShortcut
         let markdownActualSize = KeyboardShortcutSettings.Action.markdownZoomReset.defaultShortcut
+        let canvasActualSizeContext = KeyboardShortcutSettings.Action.canvasZoomReset.shortcutContext
+        let canvasActualSizeWhen = KeyboardShortcutSettings.effectiveWhenClause(for: .canvasZoomReset)
+        var backgroundCanvasContext = ShortcutFocusState(browser: false, markdown: false, sidebar: false).context
+        backgroundCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        var browserCanvasContext = ShortcutFocusState(browser: true, markdown: false, sidebar: false).context
+        browserCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
+        var markdownCanvasContext = ShortcutFocusState(browser: false, markdown: true, sidebar: false).context
+        markdownCanvasContext.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
 
         #expect(canvasActualSize == StoredShortcut(key: "0", command: true, shift: false, option: false, control: false))
         #expect(browserActualSize == canvasActualSize)
         #expect(markdownActualSize == canvasActualSize)
+        #expect(canvasActualSizeContext == .canvasLayoutOutsideFocusedContent)
+        #expect(canvasActualSizeWhen.evaluate(backgroundCanvasContext))
+        #expect(!canvasActualSizeWhen.evaluate(browserCanvasContext))
+        #expect(!canvasActualSizeWhen.evaluate(markdownCanvasContext))
         #expect(!KeyboardShortcutSettings.Action.browserZoomReset.conflicts(
             with: canvasActualSize,
             proposedAction: .canvasZoomReset,

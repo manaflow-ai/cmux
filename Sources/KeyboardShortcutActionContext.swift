@@ -9,6 +9,7 @@ extension KeyboardShortcutSettings.Action {
         case markdownPanel
         case rightSidebarFocus
         case canvasLayout
+        case canvasLayoutOutsideFocusedContent
 
         var isAlwaysAvailable: Bool { self == .application }
 
@@ -25,6 +26,7 @@ extension KeyboardShortcutSettings.Action {
             case .markdownPanel: return focusedMarkdownPanel
             case .rightSidebarFocus: return rightSidebarFocused
             case .canvasLayout: return workspaceCanvasLayout
+            case .canvasLayoutOutsideFocusedContent: return workspaceCanvasLayout && !focusedBrowserPanel && !focusedMarkdownPanel
             }
         }
 
@@ -54,6 +56,11 @@ extension KeyboardShortcutSettings.Action {
             case .markdownPanel: return .atom(.markdownFocus)
             case .rightSidebarFocus: return .atom(.sidebarFocus)
             case .canvasLayout: return .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue)
+            case .canvasLayoutOutsideFocusedContent:
+                return .and(
+                    .key(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue),
+                    .and(.not(.atom(.browserFocus)), .not(.atom(.markdownFocus)))
+                )
             }
         }
 
@@ -65,7 +72,13 @@ extension KeyboardShortcutSettings.Action {
                 || (self == .nonBrowserPanel && other == .markdownPanel) {
                 return true
             }
-            return self == .canvasLayout || other == .canvasLayout
+            if self == .canvasLayout || other == .canvasLayout {
+                return true
+            }
+            if self == .canvasLayoutOutsideFocusedContent || other == .canvasLayoutOutsideFocusedContent {
+                return self != .browserPanel && other != .browserPanel && self != .markdownPanel && other != .markdownPanel
+            }
+            return false
         }
     }
 
@@ -96,8 +109,10 @@ extension KeyboardShortcutSettings.Action {
             return .browserPanel
         case .markdownZoomIn, .markdownZoomOut, .markdownZoomReset:
             return .markdownPanel
+        case .canvasZoomReset:
+            return .canvasLayoutOutsideFocusedContent
         case .canvasRevealFocusedPane, .canvasOverview, .canvasZoomIn, .canvasZoomOut,
-             .canvasZoomReset, .canvasTidy, .canvasAlignLeft, .canvasAlignRight,
+             .canvasTidy, .canvasAlignLeft, .canvasAlignRight,
              .canvasAlignTop, .canvasAlignBottom, .canvasEqualizeWidths,
              .canvasEqualizeHeights, .canvasDistributeHorizontally, .canvasDistributeVertically:
             return .canvasLayout

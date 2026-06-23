@@ -635,8 +635,6 @@ enum KeyboardShortcutSettings {
             proposedAction: Action,
             configuredShortcut: StoredShortcut
         ) -> Bool {
-            let conflictPair = Set([self, proposedAction])
-            if conflictPair == Set([.canvasZoomReset, .browserZoomReset]) || conflictPair == Set([.canvasZoomReset, .markdownZoomReset]) { return false }
             // Two bindings on the same keystroke only collide when some focus
             // state activates both AND router priority cannot decide the overlap.
             // A `shortcuts.when` override (or the built-in context default) can
