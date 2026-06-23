@@ -102,6 +102,7 @@ function HomeContent() {
               [
                 ["verticalTabs", "verticalTabsDesc"],
                 ["notificationRings", "notificationRingsDesc"],
+                ["ios", "iosDesc"],
                 ["inAppBrowser", "inAppBrowserDesc"],
                 ["splitPanes", "splitPanesDesc"],
                 ["scriptable", "scriptableDesc"],
