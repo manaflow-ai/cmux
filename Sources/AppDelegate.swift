@@ -12226,7 +12226,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let shortcutTimingStart = CmuxTypingTiming.start()
 #endif
                 let shortcutStart = ProcessInfo.processInfo.systemUptime
-                let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) || self.handleCustomShortcut(event: event)
+                let handledByShortcut = cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self)
+                    || self.handleDetachedInspectorWindowCloseShortcut(event: event)
+                    || self.handleCustomShortcut(event: event)
 #if DEBUG
                 shortcutMs = (ProcessInfo.processInfo.systemUptime - shortcutStart) * 1000.0
                 CmuxTypingTiming.logDuration(
@@ -13789,6 +13791,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        return false
+    }
+
+    @discardableResult
+    private func handleDetachedInspectorWindowCloseShortcut(event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              matchConfiguredShortcut(event: event, action: .closeTab) else {
+            return false
+        }
+        let window = event.window ?? shortcutRoutingKeyWindow ?? NSApp.keyWindow
+        guard let window, BrowserPanel.isDetachedInspectorWindow(window) else {
+            return false
+        }
+        for panel in allBrowserPanelsForInspectorWindowClose() {
+            if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+                window,
+                source: "shortcut.\(NSWindow.keyDescription(event))"
+            ) {
+#if DEBUG
+                cmuxDebugLog(
+                    "browser.devtools detachedClose.shortcut panel=\(panel.id.uuidString.prefix(5)) " +
+                    "event=\(NSWindow.keyDescription(event)) window=\(window.windowNumber)"
+                )
+#endif
+                return true
+            }
+        }
         return false
     }
 
@@ -16372,8 +16401,9 @@ private extension AppDelegate {
                 target: target,
                 sender: sender,
                 allowFallback: Self.allowsWindowFallback(for: action)
-            ),
-                  BrowserPanel.isDetachedInspectorWindow(window) else { return false }
+            ) else { return false }
+            let isInspectorWindow = BrowserPanel.isDetachedInspectorWindow(window)
+            guard isInspectorWindow else { return false }
 
             for panel in allBrowserPanelsForInspectorWindowClose() {
                 if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(

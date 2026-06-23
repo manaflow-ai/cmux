@@ -2959,17 +2959,12 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         private(set) var hideCount = 0
         private(set) var closeCount = 0
         private let hideBehavior: HideBehavior
-        private let requiresAttachmentToShow: Bool
         private var visible = false
         private var attached = false
         private weak var frontendWebView: WKWebView?
 
-        init(
-            hideBehavior: HideBehavior = .unsupported,
-            requiresAttachmentToShow: Bool = false
-        ) {
+        init(hideBehavior: HideBehavior = .unsupported) {
             self.hideBehavior = hideBehavior
-            self.requiresAttachmentToShow = requiresAttachmentToShow
             super.init()
         }
 
@@ -2996,8 +2991,6 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         @objc func show() {
             showCount += 1
-            guard !requiresAttachmentToShow ||
-                (attached && frontendWebView?.window != nil) else { return }
             visible = true
         }
 
@@ -3028,14 +3021,10 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
     }
 
     private func makePanelWithInspector(
-        hideBehavior: FakeInspector.HideBehavior = .unsupported,
-        requiresAttachmentToShow: Bool = false
+        hideBehavior: FakeInspector.HideBehavior = .unsupported
     ) -> (BrowserPanel, FakeInspector) {
         let panel = BrowserPanel(workspaceId: UUID())
-        let inspector = FakeInspector(
-            hideBehavior: hideBehavior,
-            requiresAttachmentToShow: requiresAttachmentToShow
-        )
+        let inspector = FakeInspector(hideBehavior: hideBehavior)
         panel.webView.cmuxSetUnitTestInspector(inspector)
         return (panel, inspector)
     }
@@ -3171,7 +3160,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
     }
 
-    func testDetachedInspectorWindowUserCloseSynchronouslyClosesOwningInspector() {
+    func testDetachedInspectorWindowWillCloseDoesNotReenterOwningInspectorClose() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let window = NSWindow(
@@ -3196,13 +3185,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertEqual(
             inspector.closeCount,
-            1,
-            "User-closing a detached Web Inspector window must synchronously close the owning _inspector before AppKit/WebKit teardown continues"
+            0,
+            "User-closing a detached Web Inspector window must not call _inspector.close during WebKit's own close cascade"
         )
-        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
 
-    func testDetachedInspectorWillCloseDuringDockBackClosesInspectorBeforeWebKitAttachContinues() {
+    func testDetachedInspectorWillCloseDuringDockBackDoesNotReenterInspectorClose() {
         let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let mainWindow = NSWindow(
@@ -3257,13 +3246,13 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertEqual(
             inspector.closeCount,
-            1,
-            "Detached inspector willClose must close the owning inspector instead of letting WebKit continue an unstable in-window attach"
+            0,
+            "Detached inspector willClose must not call the owning inspector's private close selector while WebKit is already closing the inspector window"
         )
-        XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertTrue(panel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
 
-    func testDetachedInspectorCloseButtonActionClosesBeforeWindowWillCloseNotification() {
+    func testDetachedInspectorCloseButtonActionClosesWindowWithoutReenteringInspectorClose() {
         AppDelegate.installWindowResponderSwizzlesForTesting()
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -3325,19 +3314,21 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             to: inspectorWindow,
             from: inspectorWindow.standardWindowButton(.closeButton)
         )
+        spinRunLoopOneTick()
 
         XCTAssertTrue(handled)
         XCTAssertEqual(
             inspector.closeCount,
-            1,
-            "The close-button action must close the owning inspector before WebKit's NSWindowWillClose observer can run"
+            0,
+            "The close-button action must close the inspector window without calling _inspector.close on the inspected page"
         )
         XCTAssertEqual(
             willCloseNotificationCount,
-            0,
-            "The intercepted close-button action should not fall through to AppKit's window close path"
+            1,
+            "The intercepted close-button action should close the WebKit-owned inspector window exactly once"
         )
-        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+        XCTAssertFalse(inspectorWindow.isVisible)
+        XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
 
     func testDetachedInspectorNilTargetCloseActionUsesKeyWindow() {
@@ -3388,14 +3379,16 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertTrue(inspectorWindow.isKeyWindow)
 
         let handled = NSApp.sendAction(NSSelectorFromString("__close"), to: nil, from: nil)
+        spinRunLoopOneTick()
 
         XCTAssertTrue(handled)
         XCTAssertEqual(
             inspector.closeCount,
-            1,
-            "Menu and keyboard close actions without an explicit target must still route through inspector teardown"
+            0,
+            "Menu and keyboard close actions without an explicit target must close the inspector window without reentering _inspector.close"
         )
-        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+        XCTAssertFalse(inspectorWindow.isVisible)
+        XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
 
     func testDetachedInspectorNilTargetMenuItemCloseActionUsesKeyWindow() {
@@ -3451,14 +3444,92 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             keyEquivalent: "w"
         )
         let handled = NSApp.sendAction(NSSelectorFromString("close:"), to: nil, from: menuItem)
+        spinRunLoopOneTick()
 
         XCTAssertTrue(handled)
         XCTAssertEqual(
             inspector.closeCount,
-            1,
-            "Nil-target menu Close actions must resolve the key detached inspector window before AppKit posts willClose"
+            0,
+            "Nil-target menu Close actions must resolve and close the key detached inspector window without reentering _inspector.close"
         )
-        XCTAssertFalse(browserPanel.isDeveloperToolsVisible())
+        XCTAssertFalse(inspectorWindow.isVisible)
+        XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
+    }
+
+    func testDetachedInspectorCommandWClosesInspectorWithoutClosingBrowserPanel() throws {
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        guard let mainWindow = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let browserPanelId = manager.openBrowser(inWorkspace: workspace.id, preferSplitRight: true),
+              let browserPanel = workspace.browserPanel(for: browserPanelId) else {
+            XCTFail("Expected main window with browser panel")
+            return
+        }
+        appDelegate.suppressClosedWindowHistoryForTesting(windowId: windowId)
+        defer { tearDownMainWindow(mainWindow, manager: manager) }
+
+        let inspector = FakeInspector()
+        browserPanel.webView.cmuxSetUnitTestInspector(inspector)
+        if browserPanel.webView.superview == nil {
+            browserPanel.webView.frame = mainWindow.contentView?.bounds ?? .zero
+            mainWindow.contentView?.addSubview(browserPanel.webView)
+        }
+
+        let inspectorWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        inspectorWindow.title = "Web Inspector — example.com"
+        let frontendWebView = WKInspectorProbeWebView(
+            frame: inspectorWindow.contentView?.bounds ?? .zero,
+            configuration: WKWebViewConfiguration()
+        )
+        inspectorWindow.contentView?.addSubview(frontendWebView)
+        inspector.setFrontendWebView(frontendWebView)
+        defer { closeWindow(inspectorWindow) }
+
+        inspectorWindow.makeKeyAndOrderFront(nil)
+        inspectorWindow.makeKey()
+        XCTAssertTrue(browserPanel.showDeveloperTools())
+        XCTAssertEqual(inspector.closeCount, 0)
+        XCTAssertTrue(inspectorWindow.isKeyWindow)
+
+        let event = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: inspectorWindow.windowNumber,
+            context: nil,
+            characters: "w",
+            charactersIgnoringModifiers: "w",
+            isARepeat: false,
+            keyCode: 13
+        ))
+
+        NSApp.sendEvent(event)
+        spinRunLoopOneTick()
+
+        XCTAssertEqual(
+            inspector.closeCount,
+            0,
+            "Cmd-W in a detached Web Inspector must not call _inspector.close on the inspected page"
+        )
+        XCTAssertFalse(inspectorWindow.isVisible)
+        XCTAssertNotNil(
+            workspace.browserPanel(for: browserPanelId),
+            "Cmd-W in a detached Web Inspector must not fall through to cmux close-tab routing"
+        )
+        XCTAssertTrue(browserPanel.debugDeveloperToolsStateSummary().contains("pref=0"))
     }
 
     func testNilTargetMainWindowCloseActionDoesNotCloseAttachedInspector() {
@@ -3587,7 +3658,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         panel.restoreDeveloperToolsAfterAttachIfNeeded()
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.showCount, 2)
+        XCTAssertEqual(inspector.showCount, 1)
     }
 
     private func attachPanelWebViewToWindow(_ panel: BrowserPanel) -> NSWindow {
@@ -3685,8 +3756,8 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertEqual(inspector.closeCount, 0)
     }
 
-    func testAttachedInspectorRevealReattachesFrontendAfterLayoutReentry() {
-        let (panel, inspector) = makePanelWithInspector(requiresAttachmentToShow: true)
+    func testRepeatedDevToolsRevealDoesNotForceWebKitAttach() {
+        let (panel, inspector) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
@@ -3715,23 +3786,27 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 
         XCTAssertTrue(panel.showDeveloperTools())
         XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.attachCount, 1)
-        XCTAssertTrue(inspector.isAttached())
-
-        panel.noteDeveloperToolsHostAttached()
-        inspector.close()
+        waitForDeveloperToolsTransitions()
+        XCTAssertEqual(inspector.attachCount, 0)
         XCTAssertFalse(inspector.isAttached())
+
+        XCTAssertTrue(panel.hideDeveloperTools())
+        waitForDeveloperToolsTransitions()
         XCTAssertFalse(panel.isDeveloperToolsVisible())
+        XCTAssertEqual(inspector.closeCount, 1)
 
-        panel.requestDeveloperToolsRefreshAfterNextAttach(reason: "unit-test-layout-reentry")
-        panel.restoreDeveloperToolsAfterAttachIfNeeded()
-
+        XCTAssertTrue(panel.showDeveloperTools())
+        waitForDeveloperToolsTransitions()
         XCTAssertTrue(
-            inspector.isAttached(),
-            "Reveal after split/layout reentry must attach the inspector frontend before asking WebKit to show it"
+            panel.isDeveloperToolsVisible(),
+            "DevTools must reopen after an explicit close without remounting through WebKit's attached-inspector path"
         )
-        XCTAssertTrue(panel.isDeveloperToolsVisible())
-        XCTAssertEqual(inspector.attachCount, 2)
+        XCTAssertEqual(
+            inspector.attachCount,
+            0,
+            "Repeated DevTools open/close cycles must not call WebKit's private attach selector"
+        )
+        XCTAssertEqual(inspector.showCount, 2)
     }
 
     func testSyncRespectsManualCloseAndPreventsUnexpectedRestore() {
@@ -3878,18 +3953,32 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.isDeveloperToolsVisible())
     }
 
-    func testTransientHideAttachmentPreserveFollowsDeveloperToolsIntent() {
+    func testTransientHideAttachmentPreserveStaysDisabledForDetachedDeveloperTools() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
 
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
         XCTAssertTrue(panel.showDeveloperTools())
-        XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
         XCTAssertTrue(panel.hideDeveloperTools())
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
-    func testWebViewDismantleKeepsPortalHostedWebViewAttachedWhenDeveloperToolsIntentIsVisible() {
+    func testDeveloperToolsIntentDoesNotEnableLocalInlineHosting() {
+        let (panel, _) = makePanelWithInspector()
+        defer { closeBrowserPanel(panel) }
+
+        XCTAssertFalse(panel.shouldUseLocalInlineDeveloperToolsHosting())
+        XCTAssertTrue(panel.showDeveloperTools())
+        XCTAssertFalse(
+            panel.shouldUseLocalInlineDeveloperToolsHosting(),
+            "Detached DevTools must not activate cmux's private WebKit hosted-inspector resize path"
+        )
+        XCTAssertTrue(panel.hideDeveloperTools())
+        XCTAssertFalse(panel.shouldUseLocalInlineDeveloperToolsHosting())
+    }
+
+    func testWebViewDismantleKeepsPortalHostedWebViewAttachedIndependentOfDeveloperToolsIntent() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         let paneId = PaneID(id: UUID())
@@ -4046,7 +4135,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
-    func testTransientHideAttachmentPreserveStaysEnabledForBottomDockedInspectorLayout() {
+    func testTransientHideAttachmentPreserveStaysDisabledForBottomDockedInspectorLayout() {
         let (panel, _) = makePanelWithInspector()
         defer { closeBrowserPanel(panel) }
         XCTAssertTrue(panel.showDeveloperTools())
@@ -4061,7 +4150,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
         inspectorContainer.addSubview(inspectorView)
         host.addSubview(inspectorContainer)
 
-        XCTAssertTrue(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
+        XCTAssertFalse(panel.shouldPreserveWebViewAttachmentDuringTransientHide())
     }
 
     func testOffWindowReplacementLocalHostDoesNotStealVisibleDevToolsWebView() {
