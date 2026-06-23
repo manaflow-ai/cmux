@@ -132,11 +132,61 @@ import Testing
         )
     }
 
+    @Test func targetedAnchorOverridesEndPlacement() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        let anchorPanelId = try harness.makeAdditionalTerminalPanel()
+        var configuration = harness.workspace.bonsplitController.configuration
+        configuration.newTabPosition = .end
+        harness.workspace.bonsplitController.configuration = configuration
+
+        #expect(
+            harness.workspace.remoteTmuxNewTabPlacement(
+                inPane: harness.paneId,
+                anchorPanelId: anchorPanelId
+            ) == .afterPanel(anchorPanelId)
+        )
+    }
+
+    @Test func plainCurrentPlacementUsesSelectedPanel() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        var configuration = harness.workspace.bonsplitController.configuration
+        configuration.newTabPosition = .current
+        harness.workspace.bonsplitController.configuration = configuration
+
+        #expect(
+            harness.workspace.remoteTmuxNewTabPlacement(
+                inPane: harness.paneId,
+                anchorPanelId: nil
+            ) == .afterPanel(harness.sourcePanelId)
+        )
+    }
+
+    @Test func plainEndPlacementAppendsWhenNoAnchorIsRequested() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+
+        var configuration = harness.workspace.bonsplitController.configuration
+        configuration.newTabPosition = .end
+        harness.workspace.bonsplitController.configuration = configuration
+
+        #expect(
+            harness.workspace.remoteTmuxNewTabPlacement(
+                inPane: harness.paneId,
+                anchorPanelId: nil
+            ) == .end
+        )
+    }
+
     @MainActor
     private struct Harness {
         let appDelegate: AppDelegate
         let windowId: UUID
         let workspace: Workspace
+        let paneId: PaneID
         let sourcePanelId: UUID
 
         init() throws {
@@ -146,6 +196,14 @@ import Testing
             workspace = try #require(manager.selectedWorkspace)
             workspace.isRemoteTmuxMirror = true
             sourcePanelId = try #require(workspace.focusedPanelId)
+            paneId = try #require(workspace.paneId(forPanelId: sourcePanelId))
+        }
+
+        func makeAdditionalTerminalPanel() throws -> UUID {
+            let wasRemoteTmuxMirror = workspace.isRemoteTmuxMirror
+            workspace.isRemoteTmuxMirror = false
+            defer { workspace.isRemoteTmuxMirror = wasRemoteTmuxMirror }
+            return try #require(workspace.newTerminalSurface(inPane: paneId, focus: false)?.id)
         }
 
         func tearDown() {

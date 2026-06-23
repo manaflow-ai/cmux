@@ -6780,6 +6780,35 @@ final class Workspace: Identifiable, ObservableObject {
         Self.normalizedTerminalWorkingDirectory(sourcePanelId.flatMap { panelDirectories[$0] })
     }
 
+    /// Placement for a remote-tmux mirror `new-window` request.
+    ///
+    /// Targeted entrypoints such as "new terminal to right" pass an explicit
+    /// anchor panel and rely on local tab reordering after creation. A mirror
+    /// cannot locally reorder a tmux-created window, so the remote command must
+    /// target that anchor directly. Plain new-tab requests have no explicit
+    /// anchor and follow the workspace's tab-strip `newTabPosition`.
+    func remoteTmuxNewTabPlacement(
+        inPane paneId: PaneID,
+        anchorPanelId: UUID?
+    ) -> RemoteTmuxController.MirrorNewTabPlacement {
+        if let anchorPanelId {
+            return .afterPanel(anchorPanelId)
+        }
+        switch bonsplitController.configuration.newTabPosition {
+        case .end:
+            return .end
+        case .current:
+            if let selectedPanelId = selectedTerminalPanelId(inPane: paneId) {
+                return .afterPanel(selectedPanelId)
+            }
+            return .end
+        }
+    }
+
+    private func selectedTerminalPanelId(inPane paneId: PaneID) -> UUID? {
+        bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+    }
+
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.
     /// Preference order:
     /// 1) explicitly preferred terminal panel (when the caller has one),
@@ -7222,23 +7251,8 @@ final class Workspace: Identifiable, ObservableObject {
         // create a local orphan the mirror can't reconcile. Dead mirrors are
         // torn down via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
-            // Mirror cmux's tab-strip `newTabPosition` so a remote new tab lands
-            // where a local one would: `.end` appends, `.current` inserts after the
-            // selected tab's window (falling back to the end if it can't be
-            // resolved). Without this the remote's bare `new-window` would pick the
-            // lowest free index and land mid-list when the session has gaps.
-            let placement: RemoteTmuxController.MirrorNewTabPlacement
-            switch bonsplitController.configuration.newTabPosition {
-            case .end:
-                placement = .end
-            case .current:
-                if let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
-                   let selectedPanelId = panelIdFromSurfaceId(selectedTabId) {
-                    placement = .afterPanel(selectedPanelId)
-                } else {
-                    placement = .end
-                }
-            }
+            let anchorPanelId = workingDirectoryFallbackSourcePanelId
+            let placement = remoteTmuxNewTabPlacement(inPane: paneId, anchorPanelId: anchorPanelId)
             // Inherit the active tab's directory like a local new tab, sourcing it
             // only from that tab's confirmed remote cwd (see
             // remoteTmuxNewWindowWorkingDirectory). The socket/CLI layer rejects an
@@ -7246,8 +7260,7 @@ final class Workspace: Identifiable, ObservableObject {
             // (mirrorRoutedUnsupportedOptions), so inheritance is the only source.
             let resolvedWorkingDirectory: String?
             if inheritWorkingDirectoryFallback {
-                let inheritSourcePanelId = workingDirectoryFallbackSourcePanelId
-                    ?? bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+                let inheritSourcePanelId = anchorPanelId ?? selectedTerminalPanelId(inPane: paneId)
                 resolvedWorkingDirectory = remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: inheritSourcePanelId)
             } else {
                 resolvedWorkingDirectory = nil
