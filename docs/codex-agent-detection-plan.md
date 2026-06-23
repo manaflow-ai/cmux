@@ -1,6 +1,20 @@
 # Codex Agent Detection Plan
 
-Status: DRAFT. Owner: Aziz. Last updated: 2026-06-22.
+Status: IMPLEMENTED + live-verified (macOS/daemon side). Owner: Aziz. Last
+updated: 2026-06-22. Branch `feat-codex-detection`, PR #6655 (do-not-merge
+pending on-device dogfood). Base/return point: tag `agent-session-sot-landmark`.
+
+Done: `cmux-codex-wrapper` (PATH shim, Claude-parity per-invocation `[hooks]`
+injection via `--enable hooks --dangerously-bypass-hook-trust -c hooks.<event>=...`),
+codex PATH-shim install sibling to the claude shim, `WorkstreamEvent` +
+`feed.push` + `noteHookEvent` now carry `surface_id`/`transcript_path`. Two
+preflight-caught bugs fixed: phantom `fallback-*` duplicate (removed the
+wrapper-fired empty-stdin launch signal) and unbound-surface on live
+session-start. Live debug-socket proof: a real `codex exec` produced exactly one
+codex session, surface + transcript bound, `idle -> ended` on exit.
+
+Remaining: on-device iOS GUI dogfood (the iPhone renders the registry; macOS
+side proven). Codex `needsInput` is hook-driven via `PermissionRequest`.
 
 Expands Slice F of `agent-session-tracking-spec.md`: make Codex sessions track in
 the iOS GUI as reliably as Claude, without forcing users to install anything and
