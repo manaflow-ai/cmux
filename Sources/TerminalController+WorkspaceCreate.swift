@@ -51,6 +51,17 @@ extension TerminalController {
         if v2HasNonNullParam(params, "group_id"), groupId == nil {
             return .err(code: "invalid_params", message: "Missing or invalid group_id", data: nil)
         }
+        let hasGroupPlacementParam = v2HasNonNullParam(params, "group_placement")
+            || v2HasNonNullParam(params, "placement")
+        let hasGroupReferenceParam = v2HasNonNullParam(params, "group_reference_workspace_id")
+            || v2HasNonNullParam(params, "reference_workspace_id")
+        if groupId == nil, hasGroupPlacementParam || hasGroupReferenceParam {
+            return .err(
+                code: "invalid_params",
+                message: "group_id is required for group placement",
+                data: nil
+            )
+        }
         let rawGroupPlacement = v2RawString(params, "group_placement")
             ?? (groupId == nil ? nil : v2RawString(params, "placement"))
         let groupPlacement = WorkspaceGroupNewPlacement(rawString: rawGroupPlacement)
