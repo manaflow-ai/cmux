@@ -1273,6 +1273,23 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
     }
 
+    func testTextBoxTextEntryClearsStaleAgentContextWhenShellIsPromptIdle() {
+        XCTAssertEqual(
+            TextBoxInputContainer.textEntryTerminalAgentContext(
+                allowsCommandTemplateSubmit: true,
+                terminalAgentContext: "restoredAgent:claude"
+            ),
+            ""
+        )
+        XCTAssertEqual(
+            TextBoxInputContainer.textEntryTerminalAgentContext(
+                allowsCommandTemplateSubmit: false,
+                terminalAgentContext: "restoredAgent:claude"
+            ),
+            "restoredAgent:claude"
+        )
+    }
+
     func testTextBoxDefaultSubmitActionAcceptsTextEntryEscapeHatch() {
         let defaults = UserDefaults.standard
         let defaultActionKey = TerminalTextBoxInputSettings.defaultSubmitActionKey

@@ -2847,6 +2847,13 @@ struct TextBoxInputContainer: View {
         !allowsCommandTemplateSubmit
     }
 
+    static func textEntryTerminalAgentContext(
+        allowsCommandTemplateSubmit: Bool,
+        terminalAgentContext: String
+    ) -> String {
+        allowsCommandTemplateSubmit ? "" : terminalAgentContext
+    }
+
     private var effectiveSubmitAction: TextBoxSubmitAction {
         guard !shouldForceTextEntrySubmit else {
             return TextBoxSubmitAction.textEntryAction
@@ -3324,16 +3331,24 @@ struct TextBoxInputContainer: View {
         applying action: TextBoxSubmitAction
     ) -> SubmitDispatchPlan {
         guard !shouldForceTextEntrySubmit else {
+            let textEntryContext = Self.textEntryTerminalAgentContext(
+                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+                terminalAgentContext: terminalAgentContext
+            )
             return SubmitDispatchPlan(
-                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext),
-                cleanupTerminalAgentContext: terminalAgentContext
+                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
+                cleanupTerminalAgentContext: textEntryContext
             )
         }
 
         guard let command = action.command(forPrompt: TextBoxSubmissionFormatter.formattedText(from: parts)) else {
+            let textEntryContext = Self.textEntryTerminalAgentContext(
+                allowsCommandTemplateSubmit: allowsCommandTemplateSubmit,
+                terminalAgentContext: terminalAgentContext
+            )
             return SubmitDispatchPlan(
-                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: terminalAgentContext),
-                cleanupTerminalAgentContext: terminalAgentContext
+                events: TextBoxSubmit.dispatchEvents(for: parts, terminalAgentContext: textEntryContext),
+                cleanupTerminalAgentContext: textEntryContext
             )
         }
         return SubmitDispatchPlan(
