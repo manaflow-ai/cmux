@@ -353,12 +353,16 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             let ranges = TitlebarControlsHitRegions.buttonXRanges(config: config)
 
             XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
-            for range in ranges {
+            for (index, range) in ranges.enumerated() {
+                let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
+                let expectedWidth = slot == .cloudVM
+                    ? TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+                    : config.buttonSize
                 XCTAssertEqual(
                     range.upperBound - range.lowerBound,
-                    config.buttonSize,
+                    expectedWidth,
                     accuracy: 0.001,
-                    "Expected every titlebar button lane to use one visual height for style \(style)"
+                    "Expected titlebar hit lane width to match its visible control for style \(style)"
                 )
             }
         }
@@ -389,6 +393,24 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
                 "Expected pressed border to stay at least as visible as hover for style \(style)"
             )
         }
+    }
+
+    func testStandaloneTitlebarHoverMatchesSplitButtonActiveSegment() {
+        XCTAssertEqual(
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            0.09,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            titlebarControlPassiveHoverBackgroundOpacity(isHovering: true, isPressed: false, isEnabled: true),
+            0.025,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            titlebarControlActiveHoverBackgroundOpacity(isHovering: false, isPressed: false, isEnabled: true),
+            0,
+            accuracy: 0.001
+        )
     }
 
     func testIdleTitlebarButtonsStayReadableButMuted() {

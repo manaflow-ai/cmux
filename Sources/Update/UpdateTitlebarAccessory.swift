@@ -660,6 +660,24 @@ func titlebarControlBorderOpacity(
     )
 }
 
+func titlebarControlActiveHoverBackgroundOpacity(
+    isHovering: Bool,
+    isPressed: Bool,
+    isEnabled: Bool
+) -> Double {
+    guard isEnabled, isHovering, !isPressed else { return 0 }
+    return 0.09
+}
+
+func titlebarControlPassiveHoverBackgroundOpacity(
+    isHovering: Bool,
+    isPressed: Bool,
+    isEnabled: Bool
+) -> Double {
+    guard isEnabled, isHovering, !isPressed else { return 0 }
+    return 0.025
+}
+
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
     let foregroundColor: Color
@@ -771,12 +789,18 @@ private struct TitlebarControlButtonStyleBody: View {
     }
 
     private var backgroundOpacity: Double {
-        titlebarControlBackgroundOpacity(
+        let baseOpacity = titlebarControlBackgroundOpacity(
             config: config,
             isHovering: isHovering,
             isPressed: configuration.isPressed,
             isEnabled: isEnabled
         )
+        let activeHoverOpacity = titlebarControlActiveHoverBackgroundOpacity(
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
+        return max(baseOpacity, activeHoverOpacity)
     }
 
     private var borderOpacity: Double {

@@ -119,8 +119,18 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
     }
 
     private func segmentBackgroundOpacity(for segment: TitlebarNewWorkspaceCloudSplitButtonSegment) -> Double {
-        guard isHovering else { return 0 }
-        return hoveredSegment == segment ? 0.09 : 0.025
+        if hoveredSegment == segment {
+            return titlebarControlActiveHoverBackgroundOpacity(
+                isHovering: isHovering,
+                isPressed: false,
+                isEnabled: true
+            )
+        }
+        return titlebarControlPassiveHoverBackgroundOpacity(
+            isHovering: isHovering,
+            isPressed: false,
+            isEnabled: true
+        )
     }
 
     private func updateHoveredSegment(
