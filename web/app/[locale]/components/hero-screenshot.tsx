@@ -19,7 +19,7 @@ export function HeroScreenshot() {
         alt="cmux terminal app screenshot"
         priority
         onLoad={() => setLoaded(true)}
-        className="w-full rounded-none sm:rounded-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65)]"
+        className="w-full rounded-xl shadow-[0_30px_80px_-20px_rgba(0,0,0,0.65)]"
       />
       <HeroPhone />
     </div>

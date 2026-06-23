@@ -8,6 +8,15 @@ import { BrandLogoLink } from "../components/brand-logo-link";
 import { GitHubButton } from "../components/github-button";
 import iosWorkspaces from "../assets/ios-workspaces.png";
 import iosTerminal from "../assets/ios-terminal.png";
+import iosClaude from "../assets/ios-claude.png";
+import iosCodex from "../assets/ios-codex.png";
+import iosOpencode from "../assets/ios-opencode.png";
+import iosPi from "../assets/ios-pi.png";
+import iosNvim from "../assets/ios-nvim.png";
+import iosVim from "../assets/ios-vim.png";
+import iosHtop from "../assets/ios-htop.png";
+import iosBtop from "../assets/ios-btop.png";
+import iosNeofetch from "../assets/ios-neofetch.png";
 
 export async function generateMetadata({
   params,
@@ -102,6 +111,34 @@ export default function IosLanding() {
             className="w-full h-auto drop-shadow-[0_24px_56px_rgba(0,0,0,0.5)]"
           />
         </div>
+
+        {/* Gallery */}
+        <section data-dev="ios-gallery" className="-mx-6 sm:mx-0 my-14">
+          <h2 className="text-xs font-medium text-muted tracking-tight mb-5 text-center">
+            {t("galleryTitle")}
+          </h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 sm:gap-6 px-6 sm:px-0">
+            {[
+              iosClaude,
+              iosCodex,
+              iosOpencode,
+              iosPi,
+              iosNvim,
+              iosVim,
+              iosHtop,
+              iosBtop,
+              iosNeofetch,
+            ].map((src, i) => (
+              <Image
+                key={i}
+                src={src}
+                alt={t("screenshotAlt")}
+                sizes="(max-width: 640px) 42vw, 200px"
+                className="w-full h-auto drop-shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
+              />
+            ))}
+          </div>
+        </section>
 
         {/* Features */}
         <section data-dev="ios-features" style={{ paddingBottom: 15 }}>

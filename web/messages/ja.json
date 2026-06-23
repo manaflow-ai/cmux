@@ -23,6 +23,7 @@
     "nativeDesc": "：Mac アプリと同じエンジンによる GPU アクセラレーションレンダリング",
     "howTitle": "仕組み",
     "howBody": "Mobile Connect ウィンドウから iPhone と Mac をペアリングし、任意のワークスペースにアタッチします。接続は自分の Tailscale やローカルネットワーク経由で行われるため、ターミナルが第三者のサーバーを経由することはありません。",
+    "galleryTitle": "ターミナルで動くものは何でも",
     "backToMac": "cmux for Mac"
   },
   "meta": {

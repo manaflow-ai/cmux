@@ -23,6 +23,7 @@
     "nativeDesc": ": GPU-accelerated rendering on the same engine as the Mac app",
     "howTitle": "How it works",
     "howBody": "Pair your iPhone with your Mac from the Mobile Connect window, then attach to any workspace. The connection runs over your own Tailscale or local network, so your terminals never touch a third-party server.",
+    "galleryTitle": "Run anything in your terminal",
     "backToMac": "cmux for Mac"
   },
   "meta": {
