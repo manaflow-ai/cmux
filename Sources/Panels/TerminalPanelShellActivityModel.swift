@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Observation
 
 @MainActor
