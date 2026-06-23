@@ -23396,15 +23396,11 @@ struct CMUXCLI {
                 // Reuse the specific body an earlier hook saved (e.g. a blocking
                 // AskUserQuestion/ExitPlanMode PreToolUse) in place of the generic
                 // "needs your attention" text. Only the display body/subtitle is reused;
-                // the lifecycle stays the freshly classified value. Because the
-                // classifier fails closed, a generic "needs your input/attention"
-                // notification is already `.needsInput`, so a deferred blocking prompt
-                // keeps its blocking state without inheriting a possibly stale
-                // `agentLifecycle` from the (sticky) session record.
+                // the blocking classification is unaffected.
                 summary = (
                     subtitle: mappedSession.lastSubtitle ?? summary.subtitle,
                     body: savedBody,
-                    lifecycle: summary.lifecycle
+                    isBlocking: summary.isBlocking
                 )
             }
 
@@ -23414,14 +23410,13 @@ struct CMUXCLI {
             )
             let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
-            // Never let a notification downgrade an already-recorded blocking state to
-            // idle. AskUserQuestion / ExitPlanMode record `.needsInput` in PreToolUse and
-            // (outside bypass-permissions mode) defer the bell to a following Notification
-            // whose text may read "waiting for your response"; classifying that as idle
-            // would hibernate the pane mid-prompt. This only overrides toward the
-            // conservative `.needsInput`, so it cannot resurrect a stale idle.
-            let notificationLifecycle: AgentHibernationLifecycleState =
-                mappedSession?.agentLifecycle == .needsInput ? .needsInput : summary.lifecycle
+            // Only assert `.needsInput` for a genuinely blocking notification. For
+            // every other notification (the routine idle reminder, completion, generic
+            // attention) leave the lifecycle untouched so the Stop hook's `.idle` (or a
+            // PreToolUse `.needsInput`) stays authoritative. `nil` preserves the stored
+            // lifecycle, and the live mutation is skipped, so the pane hibernates after a
+            // turn instead of being clobbered back to needs-input by the reminder.
+            let blockingLifecycle: AgentHibernationLifecycleState? = summary.isBlocking ? .needsInput : nil
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -23430,19 +23425,21 @@ struct CMUXCLI {
                     surfaceId: surfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    agentLifecycle: notificationLifecycle,
+                    agentLifecycle: blockingLifecycle,
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body
                 )
             }
 
-            setAgentLifecycle(
-                client: client,
-                key: Self.claudeCodeStatusKey,
-                lifecycle: notificationLifecycle,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId
-            )
+            if let blockingLifecycle {
+                setAgentLifecycle(
+                    client: client,
+                    key: Self.claudeCodeStatusKey,
+                    lifecycle: blockingLifecycle,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId
+                )
+            }
             _ = try? setClaudeStatus(
                 client: client,
                 workspaceId: workspaceId,
@@ -25762,18 +25759,18 @@ struct CMUXCLI {
 
     private func summarizeClaudeHookNotification(
         parsedInput: ClaudeHookParsedInput
-    ) -> (subtitle: String, body: String, lifecycle: AgentHibernationLifecycleState) {
+    ) -> (subtitle: String, body: String, isBlocking: Bool) {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
                 let classified = classifyClaudeNotification(signal: fallback, message: fallback)
                 return (
                     classified.subtitle,
                     classified.body,
-                    claudeNotificationLifecycle(signal: fallback, message: fallback)
+                    claudeNotificationIsBlockingPrompt(signal: fallback, message: fallback)
                 )
             }
             // A bare "waiting for input" reminder is an idle agent, not a blocking prompt.
-            return ("Waiting", "Claude is waiting for your input", .idle)
+            return ("Waiting", "Claude is waiting for your input", false)
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -25795,44 +25792,30 @@ struct CMUXCLI {
         return (
             classified.subtitle,
             classified.body,
-            claudeNotificationLifecycle(signal: signal, message: normalizedMessage)
+            claudeNotificationIsBlockingPrompt(signal: signal, message: normalizedMessage)
         )
     }
 
-    /// Hibernation lifecycle implied by a Claude `Notification` hook.
+    /// Whether a Claude `Notification` hook is a genuinely blocking prompt that the
+    /// user must act on (a permission/approval request, or an error).
     ///
-    /// Claude fires the Notification hook both for genuine permission/approval
-    /// prompts and as a plain "waiting for your input" reminder once it has gone
-    /// idle after finishing a turn. The handler previously hard-set `.needsInput`
-    /// for every notification, which clobbered the `.idle` that the Stop hook had
-    /// just recorded, so a Claude pane never became hibernation-eligible off-screen
-    /// (only codex, which keeps reporting idle, ever hibernated).
+    /// The hibernation lifecycle has a single authoritative idle source: the Stop
+    /// hook, which records `.idle` when a turn ends. The Notification hook previously
+    /// hard-set `.needsInput` for every notification, including the routine "waiting
+    /// for your input" reminder Claude fires once idle, which clobbered the Stop
+    /// hook's idle so a Claude pane never hibernated off-screen (only codex did).
     ///
-    /// This fails closed: hibernation eligibility is positive-evidence-only. A
-    /// notification reports `.idle` only when it is a positively identified idle or
-    /// completion reminder; a permission/approval prompt, an error, or any
-    /// unrecognized attention-style notification stays `.needsInput` so a blocking
-    /// prompt phrased without a known cue is never hibernated mid-wait. This affects
-    /// hibernation eligibility only: the user notification, bell, and sidebar status
-    /// are unchanged.
-    private func claudeNotificationLifecycle(
-        signal: String,
-        message: String
-    ) -> AgentHibernationLifecycleState {
+    /// Rather than make ambiguous notification prose authoritative for `.idle` (a
+    /// "waiting for your response" prompt and a "waiting for your input" idle reminder
+    /// read alike), the handler only *asserts* `.needsInput` when this returns true,
+    /// and otherwise leaves the lifecycle untouched. So the Stop hook's idle survives
+    /// (the pane hibernates) and an AskUserQuestion/ExitPlanMode `.needsInput` recorded
+    /// in PreToolUse survives (it is never downgraded). Matching on blocking/error
+    /// words is the conservative direction only; it never forces idle.
+    private func claudeNotificationIsBlockingPrompt(signal: String, message: String) -> Bool {
         let lower = "\(signal) \(message)".lowercased()
-        // Blocking or error: keep the pane live so the user can act.
-        if lower.contains("permission") || lower.contains("approve") || lower.contains("approval")
-            || lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            return .needsInput
-        }
-        // Positively identified idle/completion reminders are the only idle case:
-        // Claude's routine "waiting for your input" reminder fires after it has gone
-        // idle, and a completion notice means the turn finished.
-        if containsCompletionCue(lower) || lower.contains("waiting") || lower.contains("idle") {
-            return .idle
-        }
-        // Fail closed: an unrecognized attention notification keeps the pane live.
-        return .needsInput
+        return lower.contains("permission") || lower.contains("approve") || lower.contains("approval")
+            || lower.contains("error") || lower.contains("failed") || lower.contains("exception")
     }
 
     private func summarizeAgentHookNotification(

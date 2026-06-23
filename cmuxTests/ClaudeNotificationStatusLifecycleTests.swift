@@ -50,64 +50,63 @@ struct ClaudeNotificationStatusLifecycleTests {
         )
     }
 
-    @Test func plainWaitingNotificationResolvesToIdleLifecycle() throws {
+    @Test func plainWaitingNotificationLeavesLifecycleUntouched() throws {
+        // Regression for the original bug: the routine "waiting for input" reminder
+        // fires after Claude has gone idle. It must NOT clobber the Stop hook's `.idle`
+        // back to `.needsInput`. The notification is not an authoritative idle source
+        // either, so it emits no lifecycle command at all — the Stop hook's idle stays
+        // and the pane hibernates.
         let snapshot = try runClaudeNotification(
             name: "claude-notify-waiting",
             ttyName: "ttys-claude-notify-waiting",
             message: "Claude is waiting for your input"
         )
-        // Regression: a bare "waiting for input" reminder fires after Claude has gone
-        // idle. It must report `.idle` so the pane stays hibernation-eligible, not
-        // `.needsInput` (which clobbered the Stop hook's idle and blocked hibernation).
         #expect(
-            snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle ") },
-            "Expected a plain waiting notification to set idle lifecycle, saw \(snapshot)"
-        )
-        #expect(
-            !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput") },
-            "A plain waiting notification must not set needsInput, saw \(snapshot)"
+            !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code") },
+            "A plain waiting reminder must not emit any lifecycle command (leave Stop's idle), saw \(snapshot)"
         )
     }
 
-    @Test func permissionNotificationKeepsNeedsInputLifecycle() throws {
+    @Test func permissionNotificationSetsNeedsInput() throws {
+        // A genuine permission / approval prompt is a real blocking state the
+        // notification owns, so it asserts `.needsInput` to keep the pane live.
         let snapshot = try runClaudeNotification(
             name: "claude-notify-permission",
             ttyName: "ttys-claude-notify-permission",
             message: "Claude needs your permission to use Bash"
         )
-        // A genuine permission / approval prompt is a real blocking state and must
-        // stay `.needsInput` so the pane is not hibernated while the user is expected
-        // to respond.
         #expect(
             snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
             "Expected a permission notification to set needsInput lifecycle, saw \(snapshot)"
         )
     }
 
-    @Test func unrecognizedAttentionNotificationFailsClosedToNeedsInput() throws {
-        // Fail closed: a notification that is neither a recognized idle/completion
-        // reminder nor a permission prompt must keep the pane live, so a blocking
-        // prompt phrased without a known cue is never hibernated while Claude waits.
-        let snapshot = try runClaudeNotification(
-            name: "claude-notify-unrecognized",
-            ttyName: "ttys-claude-notify-unrecognized",
-            message: "Please confirm to continue"
-        )
-        #expect(
-            snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
-            "Expected an unrecognized attention notification to fail closed to needsInput, saw \(snapshot)"
-        )
-        #expect(
-            !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
-            "An unrecognized attention notification must not resolve to idle, saw \(snapshot)"
-        )
+    @Test func notificationNeverForcesIdleFromText() throws {
+        // Single source of truth: idle comes only from the Stop hook, never from
+        // ambiguous notification prose. No notification text may resolve to `.idle`.
+        for message in [
+            "Claude is waiting for your input",
+            "Claude is waiting for your response",
+            "Please confirm to continue",
+            "Task completed",
+        ] {
+            let snapshot = try runClaudeNotification(
+                name: "claude-notify-noidle",
+                ttyName: "ttys-claude-notify-noidle",
+                message: message
+            )
+            #expect(
+                !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
+                "Notification text \(message.debugDescription) must never force idle, saw \(snapshot)"
+            )
+        }
     }
 
-    @Test func deferredBlockingWaitingNotificationDoesNotDowngradeNeedsInput() throws {
+    @Test func deferredBlockingWaitingNotificationDoesNotDowngradeToIdle() throws {
         // AskUserQuestion / ExitPlanMode record `.needsInput` in PreToolUse, then defer
         // the bell to a Notification whose text can read "waiting for your response".
-        // The "waiting" cue would classify to idle, but the recorded blocking state must
-        // win so the pane is not hibernated while the user still owes an answer.
+        // Because the notification leaves the lifecycle untouched (it is not blocking
+        // text), the recorded `.needsInput` survives; it is never downgraded to idle.
         let snapshot = try runClaudeNotification(
             name: "claude-notify-deferred-block",
             ttyName: "ttys-claude-notify-deferred-block",
@@ -116,36 +115,8 @@ struct ClaudeNotificationStatusLifecycleTests {
             seededBody: "Which option do you want?"
         )
         #expect(
-            snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
-            "Expected a deferred blocking notification with waiting text to keep needsInput, saw \(snapshot)"
-        )
-        #expect(
             !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
             "A pending blocking prompt must not be downgraded to idle by waiting text, saw \(snapshot)"
-        )
-    }
-
-    @Test func savedBodyReusePathDoesNotInheritStaleIdle() throws {
-        // The saved-body reuse path fires for generic "needs your input/attention"
-        // notifications. A session record's `agentLifecycle` is sticky (an earlier
-        // Stop/idle can leave it `.idle`), so reusing it here would downgrade a fresh
-        // generic blocking notification to idle and hibernate the pane while Claude is
-        // waiting. The handler must keep the freshly classified lifecycle, which fails
-        // closed to `.needsInput` for this generic text.
-        let snapshot = try runClaudeNotification(
-            name: "claude-notify-stale-idle",
-            ttyName: "ttys-claude-notify-stale-idle",
-            message: "Claude needs your input",
-            seededLifecycle: "idle",
-            seededBody: "Which option do you want?"
-        )
-        #expect(
-            snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code needsInput ") },
-            "Expected the saved-body reuse path to keep needsInput, not inherit stale idle, saw \(snapshot)"
-        )
-        #expect(
-            !snapshot.contains { $0.hasPrefix("set_agent_lifecycle claude_code idle") },
-            "The saved-body reuse path must not downgrade a generic blocking notification to idle, saw \(snapshot)"
         )
     }
 
