@@ -4307,6 +4307,12 @@ final class TextBoxInputTextView: NSTextView {
             return
         }
 
+        if commandSelector == #selector(NSResponder.insertBacktab(_:)),
+           let event = NSApp.currentEvent,
+           handleConfiguredTextBoxShortcut(event) {
+            return
+        }
+
         if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
             if isAttachmentPreviewShown {
                 dismissAttachmentPreview()
