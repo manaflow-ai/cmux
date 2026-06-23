@@ -2,54 +2,148 @@ import SwiftUI
 import AppKit
 import CmuxSettings
 
+enum TitlebarNewWorkspaceCloudSplitButtonMetrics {
+    static func dropdownWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
+        max(13, floor(config.buttonSize * 0.72))
+    }
+
+    static func totalWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
+        config.buttonSize + dropdownWidth(config: config)
+    }
+}
+
 struct TitlebarNewWorkspaceCloudSplitButton: View {
     let config: TitlebarControlsStyleConfig
     let foregroundColor: Color
     let onNewTab: () -> Void
     @State private var cloudMenuAnchorView: NSView?
+    @State private var isHovering = false
+
+    private var dropdownWidth: CGFloat {
+        TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+    }
+
+    private var foregroundOpacity: Double {
+        titlebarControlForegroundOpacity(isHovering: isHovering, isPressed: false, isEnabled: true)
+    }
+
+    private var backgroundOpacity: Double {
+        titlebarControlBackgroundOpacity(config: config, isHovering: isHovering, isPressed: false, isEnabled: true)
+    }
+
+    private var borderOpacity: Double {
+        titlebarControlBorderOpacity(config: config, isHovering: isHovering, isPressed: false, isEnabled: true)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.newTab",
-                accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
-                action: onNewTab,
-                rightClickAction: { anchorView, event in
-                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
-                }
-            ) {
+            Button(action: onNewTab) {
                 Image(systemName: "plus")
                     .font(.system(size: config.iconSize, weight: .medium))
                     .frame(width: config.buttonSize, height: config.buttonSize)
             }
+            .buttonStyle(.plain)
+            .frame(width: config.buttonSize, height: config.buttonSize)
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("titlebarControl.newTab")
+            .accessibilityLabel(String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"))
+            .overlay {
+                TitlebarSplitButtonRightClickView { anchorView, event in
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
+                }
+            }
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
-            TitlebarControlButton(
-                config: config,
-                foregroundColor: foregroundColor,
-                accessibilityIdentifier: "titlebarControl.cloudVM",
-                accessibilityLabel: String(localized: "titlebar.cloudVM.menu.accessibilityLabel", defaultValue: "Cloud VM Menu"),
+            Rectangle()
+                .fill(foregroundColor.opacity(isHovering ? 0.18 : 0.10))
+                .frame(width: 0.5, height: max(10, config.buttonSize - 8))
+
+            Button(
                 action: {
                     if let cloudMenuAnchorView {
                         TitlebarCloudVMButton.showCloudVMMenu(anchorView: cloudMenuAnchorView)
                     } else {
                         _ = AppDelegate.shared?.performCloudVMAction(debugSource: "titlebar.cloudVM.menu.fallback")
                     }
-                },
-                rightClickAction: { anchorView, event in
-                    TitlebarCloudVMButton.showCloudVMMenu(anchorView: anchorView, event: event)
                 }
             ) {
                 Image(systemName: "chevron.down")
                     .font(.system(size: max(8, config.iconSize - 2), weight: .semibold))
-                    .frame(width: config.buttonSize, height: config.buttonSize)
+                    .frame(width: dropdownWidth, height: config.buttonSize)
             }
+            .buttonStyle(.plain)
+            .frame(width: dropdownWidth, height: config.buttonSize)
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("titlebarControl.cloudVM")
+            .accessibilityLabel(String(localized: "titlebar.cloudVM.menu.accessibilityLabel", defaultValue: "Cloud VM Menu"))
             .background(TitlebarControlAnchorView { cloudMenuAnchorView = $0 })
+            .overlay {
+                TitlebarSplitButtonRightClickView { anchorView, event in
+                    TitlebarCloudVMButton.showCloudVMMenu(anchorView: anchorView, event: event)
+                }
+            }
             .safeHelp(String(localized: "titlebar.cloudVM.menu.tooltip", defaultValue: "Cloud VM actions"))
         }
-        .frame(width: config.buttonSize * 2, height: config.buttonSize)
+        .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
+        .frame(width: TitlebarNewWorkspaceCloudSplitButtonMetrics.totalWidth(config: config), height: config.buttonSize)
+        .background {
+            if backgroundOpacity > 0 {
+                RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                    .fill(foregroundColor.opacity(backgroundOpacity))
+            } else if config.buttonBackground {
+                RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
+            }
+        }
+        .overlay {
+            if borderOpacity > 0 {
+                RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
+                    .stroke(foregroundColor.opacity(borderOpacity), lineWidth: 0.5)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            if titlebarControlsShouldTrackButtonHover(config: config) {
+                isHovering = hovering
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: isHovering)
+        .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarControl_newTabCloudSplit"))
+        .titlebarInteractiveControl()
+    }
+}
+
+private struct TitlebarSplitButtonRightClickView: NSViewRepresentable {
+    let onRightMouseDown: (NSView, NSEvent) -> Void
+
+    func makeNSView(context: Context) -> TitlebarSplitButtonRightClickNSView {
+        let view = TitlebarSplitButtonRightClickNSView()
+        view.onRightMouseDown = onRightMouseDown
+        return view
+    }
+
+    func updateNSView(_ nsView: TitlebarSplitButtonRightClickNSView, context: Context) {
+        nsView.onRightMouseDown = onRightMouseDown
+    }
+}
+
+private final class TitlebarSplitButtonRightClickNSView: NSView {
+    var onRightMouseDown: ((NSView, NSEvent) -> Void)?
+
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point),
+              NSApp.currentEvent?.type == .rightMouseDown else {
+            return nil
+        }
+        return self
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onRightMouseDown?(self, event)
     }
 }
 

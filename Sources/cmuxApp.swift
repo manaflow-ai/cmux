@@ -1427,6 +1427,7 @@ struct cmuxApp: App {
         FeedTextEditorDebugWindowController.shared.show()
         FeedButtonStyleDebugWindowController.shared.show()
         BonsplitTabBarDebugWindowController.shared.show()
+        SplitButtonLayoutDebugWindowController.shared.show()
     }
 #endif
 }
@@ -1695,6 +1696,14 @@ private struct DebugWindowControlsView: View {
                         }
                         Button(
                             String(
+                                localized: "debug.menu.splitButtonLayoutDebug",
+                                defaultValue: "Split Button Layout Debug…"
+                            )
+                        ) {
+                            SplitButtonLayoutDebugWindowController.shared.show()
+                        }
+                        Button(
+                            String(
                                 localized: "debug.menu.feedTextEditorDebug",
                                 defaultValue: "Feed Text Editor Lab…"
                             )
@@ -1714,6 +1723,7 @@ private struct DebugWindowControlsView: View {
                             MenuBarExtraDebugWindowController.shared.show()
                             PDFPreviewChromeDebugWindowController.shared.show()
                             TabBarBackdropLabWindowController.shared.show()
+                            SplitButtonLayoutDebugWindowController.shared.show()
                             FeedTextEditorDebugWindowController.shared.show()
                         }
                     }
@@ -2937,8 +2947,8 @@ private final class SplitButtonLayoutDebugWindowController: ReleasingWindowContr
 
     override func makeWindow() -> NSWindow {
         let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-            styleMask: [.titled, .closable, .utilityWindow],
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 460),
+            styleMask: [.titled, .closable, .resizable, .utilityWindow],
             backing: .buffered,
             defer: false
         )
@@ -2960,6 +2970,7 @@ private final class SplitButtonLayoutDebugWindowController: ReleasingWindowContr
 
 private struct SplitButtonLayoutDebugView: View {
     @AppStorage("debugFadeColorStyle") private var backdropStyle = 0
+    @State private var plusClicks = 0
 
     private var options: [(Int, String)] {
         [
@@ -2975,26 +2986,69 @@ private struct SplitButtonLayoutDebugView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(String(localized: "debug.splitButtonLayout.title", defaultValue: "Button Backdrop Color"))
-                .cmuxFont(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text(String(localized: "debug.splitButtonLayout.title", defaultValue: "Button Backdrop Color"))
+                    .cmuxFont(.headline)
 
-            ForEach(options, id: \.0) { id, label in
-                HStack {
-                    Image(systemName: backdropStyle == id ? "checkmark.circle.fill" : "circle")
-                        .foregroundColor(backdropStyle == id ? .accentColor : .secondary)
-                    Text(label)
+                GroupBox(String(localized: "debug.splitButtonLayout.cloudPreview", defaultValue: "Cloud Split Button")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(TitlebarControlsStyle.allCases) { style in
+                            HStack(spacing: 12) {
+                                Text(style.menuTitle)
+                                    .cmuxFont(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 72, alignment: .leading)
+                                TitlebarNewWorkspaceCloudSplitButton(
+                                    config: style.config,
+                                    foregroundColor: Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0)),
+                                    onNewTab: { plusClicks += 1 }
+                                )
+                                Spacer(minLength: 0)
+                            }
+                            .frame(height: 28)
+                        }
+
+                        HStack(spacing: 8) {
+                            Image(systemName: "plus")
+                            Text(
+                                String(
+                                    format: String(
+                                        localized: "debug.splitButtonLayout.plusClicks",
+                                        defaultValue: "Plus clicks: %d"
+                                    ),
+                                    plusClicks
+                                )
+                            )
+                        }
+                        .cmuxFont(.caption)
+                        .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 4)
                 }
-                .contentShape(Rectangle())
-                .onTapGesture { backdropStyle = id }
-            }
 
-            Text(String(localized: "debug.splitButtonLayout.liveNote", defaultValue: "Changes apply live."))
-                .cmuxFont(.caption)
-                .foregroundColor(.secondary)
+                GroupBox(String(localized: "debug.splitButtonLayout.backdropOptions", defaultValue: "Backdrop Options")) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(options, id: \.0) { id, label in
+                            HStack {
+                                Image(systemName: backdropStyle == id ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(backdropStyle == id ? .accentColor : .secondary)
+                                Text(label)
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture { backdropStyle = id }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Text(String(localized: "debug.splitButtonLayout.liveNote", defaultValue: "Changes apply live."))
+                    .cmuxFont(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 

@@ -46,7 +46,8 @@ enum TitlebarControlsHitRegions {
         let notificationsX = sidebarX + config.buttonSize + config.spacing
         let newTabX = notificationsX + config.buttonSize + config.spacing
         let cloudMenuX = newTabX + config.buttonSize
-        let focusBackX = cloudMenuX + config.buttonSize + config.spacing
+        let cloudMenuWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+        let focusBackX = cloudMenuX + cloudMenuWidth + config.spacing
         let focusForwardX = focusBackX + config.buttonSize + config.spacing
 
         let minX: CGFloat = switch slot {
@@ -63,7 +64,8 @@ enum TitlebarControlsHitRegions {
         case .focusHistoryForward:
             focusForwardX
         }
-        return minX...(minX + config.buttonSize)
+        let width = slot == .cloudVM ? cloudMenuWidth : config.buttonSize
+        return minX...(minX + width)
     }
 
     static func sidebarActionSlot(
