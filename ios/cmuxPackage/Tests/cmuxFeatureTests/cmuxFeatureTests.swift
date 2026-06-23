@@ -133,6 +133,7 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,
         route: route,
@@ -186,6 +187,7 @@ final class TerminalOutputCollector {
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,
         route: route,
@@ -4081,6 +4083,7 @@ private struct InertPushRegistration: PushRegistering {
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,
         route: route,
@@ -4150,6 +4153,7 @@ private struct InertPushRegistration: PushRegistering {
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,
         route: route,
@@ -4213,6 +4217,7 @@ private struct InertPushRegistration: PushRegistering {
         transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
+    store.supportedHostCapabilities = ["notification.settings.v1"]
     store.remoteClient = MobileCoreRPCClient(
         runtime: runtime,
         route: route,

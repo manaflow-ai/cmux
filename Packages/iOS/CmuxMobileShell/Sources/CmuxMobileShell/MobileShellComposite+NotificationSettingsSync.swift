@@ -9,6 +9,14 @@ nonisolated private let notificationSettingsLog = Logger(
 )
 
 extension MobileShellComposite {
+    private static var notificationSettingsCapability: String { "notification.settings.v1" }
+    private static var notificationSettingsCapabilityTimeoutNanoseconds: UInt64 { 750_000_000 }
+
+    /// Whether the Mac supports phone notification settings sync.
+    public var supportsNotificationSettings: Bool {
+        supportedHostCapabilities.contains(Self.notificationSettingsCapability)
+    }
+
     /// Sync the phone notification preferences to the connected Mac.
     ///
     /// Returns the Mac's echoed preferences when the current Mac accepted the
@@ -19,6 +27,7 @@ extension MobileShellComposite {
         _ preferences: MobileNotificationPreferences
     ) async -> MobileNotificationPreferences? {
         guard let client = remoteClient else { return nil }
+        guard await ensureNotificationSettingsCapability(client: client) else { return nil }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.settings.set",
@@ -48,6 +57,7 @@ extension MobileShellComposite {
     /// Read the connected Mac's phone notification settings.
     public func fetchNotificationPreferencesFromMac() async -> MobileNotificationPreferences? {
         guard let client = remoteClient else { return nil }
+        guard await ensureNotificationSettingsCapability(client: client) else { return nil }
         do {
             let request = try MobileCoreRPCClient.requestData(
                 method: "notification.settings.get",
@@ -66,6 +76,28 @@ extension MobileShellComposite {
             markMacConnectionUnavailableIfNeeded(after: error)
             notificationSettingsLog.error("notification settings fetch failed: \(String(describing: error), privacy: .private)")
             return nil
+        }
+    }
+
+    private func ensureNotificationSettingsCapability(client: MobileCoreRPCClient) async -> Bool {
+        if supportedHostCapabilities.isEmpty {
+            await refreshNotificationSettingsCapabilities(client: client)
+        }
+        return supportsNotificationSettings
+    }
+
+    private func refreshNotificationSettingsCapabilities(client: MobileCoreRPCClient) async {
+        do {
+            let data = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
+                timeoutNanoseconds: Self.notificationSettingsCapabilityTimeoutNanoseconds
+            )
+            guard remoteClient === client,
+                  let response = try? MobileHostStatusResponse.decode(data) else { return }
+            supportedHostCapabilities = Set(response.capabilities)
+        } catch {
+            guard remoteClient === client else { return }
+            notificationSettingsLog.error("notification settings capability probe failed: \(String(describing: error), privacy: .private)")
         }
     }
 }

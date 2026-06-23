@@ -4540,6 +4540,23 @@
         }
       }
     },
+    "mobile.notifications.unsupportedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update cmux on this Mac to manage phone notifications from iPhone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone から電話通知を管理するには、この Mac の cmux をアップデートしてください。"
+          }
+        }
+      }
+    },
     "mobile.notifications.hideContent": {
       "extractionState": "manual",
       "localizations": {

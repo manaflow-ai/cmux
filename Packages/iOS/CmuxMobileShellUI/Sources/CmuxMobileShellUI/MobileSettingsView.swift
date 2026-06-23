@@ -232,9 +232,13 @@ struct MobileSettingsView: View {
                         )
                     }
                     .accessibilityIdentifier("MobileSettingsNotifications")
-                    .disabled(notificationSettingsSyncing)
+                    .disabled(notificationSettingsSyncing || store?.supportsNotificationSettings == false)
 
-                    if notificationsEnabled {
+                    if store?.supportsNotificationSettings == false {
+                        Text(L10n.string("mobile.notifications.unsupportedHint", defaultValue: "Update cmux on this Mac to manage phone notifications from iPhone."))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    } else if notificationsEnabled {
                         Picker(selection: notificationModeBinding) {
                             Text(L10n.string("mobile.notifications.mode.always", defaultValue: "Always"))
                                 .tag(MobileNotificationForwardingMode.always)
@@ -425,7 +429,7 @@ struct MobileSettingsView: View {
     }
 
     private func toggleNotifications() {
-        guard !notificationSettingsSyncing else { return }
+        guard !notificationSettingsSyncing, store?.supportsNotificationSettings != false else { return }
         notificationSettingsSyncing = true
         Task { @MainActor in
             defer { notificationSettingsSyncing = false }
@@ -444,7 +448,7 @@ struct MobileSettingsView: View {
     }
 
     private func updateNotificationMode(_ mode: MobileNotificationForwardingMode) {
-        guard notificationsEnabled, !notificationSettingsSyncing else { return }
+        guard notificationsEnabled, store?.supportsNotificationSettings != false, !notificationSettingsSyncing else { return }
         notificationSettingsSyncing = true
         Task { @MainActor in
             defer { notificationSettingsSyncing = false }
@@ -454,7 +458,7 @@ struct MobileSettingsView: View {
     }
 
     private func updateNotificationHideContent(_ hidesContent: Bool) {
-        guard notificationsEnabled, !notificationSettingsSyncing else { return }
+        guard notificationsEnabled, store?.supportsNotificationSettings != false, !notificationSettingsSyncing else { return }
         notificationSettingsSyncing = true
         Task { @MainActor in
             defer { notificationSettingsSyncing = false }
