@@ -1,19 +1,23 @@
 public import AppKit
+import CmuxFoundation
 
 /// A self-sizing, scrollable multiline message editor used by the feedback
 /// composer. Grows its document height with content (with an overlay scroller
 /// once it exceeds the visible area) and shows a placeholder while empty.
 public final class FeedbackComposerMessageEditorView: NSView {
-    private static let font = NSFont.systemFont(ofSize: 12)
+    private static var font: NSFont {
+        GlobalFontMagnification.systemFont(ofSize: 12)
+    }
     private static let textInset = NSSize(width: 10, height: 10)
-    private static let minimumDocumentHeight: CGFloat = {
+    private static var minimumDocumentHeight: CGFloat {
         let lineHeight = ceil(font.ascender - font.descender + font.leading)
         return lineHeight + textInset.height * 2
-    }()
+    }
 
     public let scrollView = FeedbackComposerMessageScrollView()
     public let textView = NSTextView()
     private let placeholderField = FeedbackComposerPassthroughLabel(labelWithString: "")
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
     public var placeholder: String = "" {
         didSet {
@@ -51,7 +55,7 @@ public final class FeedbackComposerMessageEditorView: NSView {
         textView.autoresizingMask = [.width]
         textView.backgroundColor = .clear
         textView.drawsBackground = false
-        textView.font = Self.font
+        applyFonts()
         textView.textColor = .labelColor
         textView.insertionPointColor = .labelColor
         textView.textContainerInset = Self.textInset
@@ -69,7 +73,6 @@ public final class FeedbackComposerMessageEditorView: NSView {
         addSubview(scrollView)
 
         placeholderField.translatesAutoresizingMaskIntoConstraints = false
-        placeholderField.font = Self.font
         placeholderField.textColor = .secondaryLabelColor
         placeholderField.lineBreakMode = .byWordWrapping
         placeholderField.maximumNumberOfLines = 0
@@ -81,6 +84,10 @@ public final class FeedbackComposerMessageEditorView: NSView {
             name: NSText.didChangeNotification,
             object: textView
         )
+        fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyFonts()
+            self?.refreshTextLayout()
+        }
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: topAnchor),
@@ -125,6 +132,13 @@ public final class FeedbackComposerMessageEditorView: NSView {
 
     private func updatePlaceholderVisibility() {
         placeholderField.isHidden = textView.string.isEmpty == false
+    }
+
+    private func applyFonts() {
+        let font = Self.font
+        textView.font = font
+        placeholderField.font = font
+        textView.minSize = NSSize(width: 0, height: Self.minimumDocumentHeight)
     }
 
     public func refreshTextLayout(scrollSelection: Bool = false) {

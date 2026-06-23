@@ -477,7 +477,7 @@ extension Workspace {
             }()
             let resumeStartupInput = sessionRestorePolicy.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults) && (agentWasRunning ?? true),
                 promptForApproval: false,
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
@@ -646,9 +646,9 @@ extension Workspace {
             project: projectSnapshot
         )
     }
-
     private func closedPanelHistoryEntry(panelId: UUID, tabId: TabID, pane: PaneID) -> ClosedPanelHistoryEntry? {
         guard !suppressClosedPanelHistory else { return nil }
+        owningTabManager?.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
         guard let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tabId }) else {
             return nil
         }
@@ -1195,7 +1195,7 @@ extension Workspace {
                 resumeBinding: resumeBinding
             )
             let restoredHibernation = restorableAgent != nil ? snapshot.terminal?.hibernation : nil
-            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(defaults: agentSessionAutoResumeDefaults)
             // Only auto-resume if the agent was actively running when the snapshot was saved.
             // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
             let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
@@ -1212,9 +1212,13 @@ extension Workspace {
                 approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
             )
             let remoteStartupCommand = remoteTerminalStartupCommand()
-            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if remoteStartupCommand != nil {
-                effectiveResumeBindingForStartup?
-                    .startupInputWithLauncherScript(allowLauncherScript: false)
+            let restoresRemoteWorkspaceTerminalSnapshot = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal != false
+            let restoresLocalTerminalInRemoteWorkspace = remoteStartupCommand != nil && snapshot.terminal?.isRemoteTerminal == false
+            let restoredBindingLaunch: SurfaceResumeStartupLaunch? = if restoresRemoteWorkspaceTerminalSnapshot {
+                effectiveResumeBindingForStartup?.remoteStartupInputWithLauncherScript(allowLauncherScript: false)
+                    .map(SurfaceResumeStartupLaunch.input)
+            } else if restoresLocalTerminalInRemoteWorkspace {
+                effectiveResumeBindingForStartup?.startupInputWithLauncherScript(allowLauncherScript: false)
                     .map(SurfaceResumeStartupLaunch.input)
             } else {
                 effectiveResumeBindingForStartup.flatMap {
@@ -1244,11 +1248,8 @@ extension Workspace {
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let restoredAgentResumeLaunch: SurfaceResumeStartupLaunch? =
                 if shouldAutoResumeAgent && restoredHibernation == nil && restoredBindingLaunch == nil {
-                    if remoteStartupCommand != nil {
-                        restorableAgent?.resumeStartupInput(
-                            allowLauncherScript: false,
-                            allowOversizedInlineInput: true
-                        )
+                    if restoresRemoteWorkspaceTerminalSnapshot {
+                        restorableAgent?.resumeStartupInput(allowLauncherScript: false, allowOversizedInlineInput: true)
                             .map(SurfaceResumeStartupLaunch.input)
                     } else {
                         restorableAgent?.resumeStartupCommand()
@@ -1297,8 +1298,6 @@ extension Workspace {
                 snapshot.terminal?.isRemoteTerminal == false &&
                 restoredRemotePTYAttachCommand == nil
             let effectiveRemoteStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteStartupCommand
-            let restoresRemoteWorkspaceTerminalSnapshot =
-                remoteConfiguration != nil && snapshot.terminal?.isRemoteTerminal == true
             let localWorkingDirectory = effectiveRemoteStartupCommand == nil &&
                 restoredRemotePTYAttachCommand == nil &&
                 !restoresRemoteWorkspaceTerminalSnapshot &&
@@ -1378,11 +1377,32 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            // A terminal whose startup command cds itself (agent resume, tmux
+            // attach, agent-hook) is spawned without a working directory, so its
+            // shell starts in the default directory and shell integration reports
+            // that directory (typically home) before the startup command cds into
+            // the saved one. Remember the saved directory so the spurious initial
+            // report is ignored instead of overwriting the restored workspace cwd
+            // (#6617). `shouldIgnoreRestoredGuardedDirectoryReport` decides how long
+            // to guard: once while the saved directory still exists, persistently
+            // while it is on an unmounted volume, and not at all once it has been
+            // deleted (the shell's reported cwd is then the real fallback).
+            //
+            // Only guard LOCAL terminals. That guard's existence check stats the
+            // local Mac, so a remote terminal's remote saved path (e.g.
+            // /home/dev/repo) would be misclassified as deleted and its remote
+            // home report wrongly honored. Remote restores keep the prior
+            // behavior (no guard), which matches the original unmounted-volume
+            // guard that was inherently local (/Volumes paths only).
+            let restoredDirectoryIsLocalPath =
+                !restoresRemoteWorkspaceTerminalSnapshot &&
+                restoredRemotePTYSessionID == nil &&
+                snapshot.terminal?.isRemoteTerminal != true
             if startupHandlesWorkingDirectory,
                localWorkingDirectory == nil,
+               restoredDirectoryIsLocalPath,
                let guardedWorkingDirectory = savedWorkingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !guardedWorkingDirectory.isEmpty,
-               Self.unmountedVolumeRoot(for: guardedWorkingDirectory) != nil {
+               !guardedWorkingDirectory.isEmpty {
                 restoredGuardedWorkingDirectoriesByPanelId[terminalPanel.id] = guardedWorkingDirectory
             } else {
                 restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: terminalPanel.id)
@@ -2190,7 +2210,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
-
+    let closeTabWarningDefaults, agentSessionAutoResumeDefaults: UserDefaults
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
 
@@ -2276,6 +2296,11 @@ final class Workspace: Identifiable, ObservableObject {
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
     private var agentSessionPanelCallbackIds: Set<UUID> = []
+
+    /// Aggregate media-device activity across every browser pane in this
+    /// workspace (audio / microphone / camera), surfaced to the sidebar
+    /// workspace row so a noisy or capturing background pane is discoverable.
+    private(set) var browserMediaActivity = BrowserMediaActivity()
 
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels);
     /// stored in the split-layout sub-model.
@@ -2454,9 +2479,7 @@ final class Workspace: Identifiable, ObservableObject {
         let reconnectCommand: String?
     }
 
-    /// Display target and reconnect command for the remote terminal that just disconnected.
-    /// Set right before `createReplacementTerminalPanel()` so the replacement terminal stays
-    /// visibly disconnected instead of falling through to a local login shell.
+    /// Remote disconnect metadata used by `createReplacementTerminalPanel()`.
     private var pendingRemoteDisconnectReplacement: PendingRemoteDisconnectReplacement?
     var remoteDisconnectPlaceholderPanelIds: Set<UUID> = []
 
@@ -2962,11 +2985,15 @@ final class Workspace: Identifiable, ObservableObject {
         initialTerminalInput: String? = nil,
         initialTerminalEnvironment: [String: String] = [:],
         workspaceEnvironment: [String: String] = [:],
+        closeTabWarningDefaults: UserDefaults = .standard,
+        agentSessionAutoResumeDefaults: UserDefaults = .standard,
         initialDetachedSurface: DetachedSurfaceTransfer? = nil,
         sessionRestorePolicy: WorkspaceSessionRestorePolicyService<SurfaceResumeBindingSnapshot>? = nil
     ) {
         self.id = UUID()
         self.sessionRestorePolicy = sessionRestorePolicy ?? Self.makeSessionRestorePolicyService()
+        self.closeTabWarningDefaults = closeTabWarningDefaults
+        self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         let sanitizedWorkspaceEnvironment = Self.sanitizedWorkspaceEnvironment(workspaceEnvironment)
         self.workspaceEnvironment = sanitizedWorkspaceEnvironment
         self.portOrdinal = portOrdinal
@@ -2981,16 +3008,11 @@ final class Workspace: Identifiable, ObservableObject {
         let initialDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
-        self.currentDirectory = hasWorkingDirectory
-            ? trimmedWorkingDirectory
-            : FileManager.default.homeDirectoryForCurrentUser.path
+        self.currentDirectory = initialDirectory
         self.surfaceTabBarDirectory = initialDirectory
 
-        // Configure bonsplit with keepAllAlive to preserve terminal state
-        // and keep split entry instantaneous.
-        // Use the cached Ghostty config so new workspaces inherit tab-strip sizing
-        // without paying repeated parse costs on the workspace-creation hot path.
-        let initialSurfaceTabBarFontSize = GhosttyConfig.load().surfaceTabBarFontSize
+        // Preserve terminal state and inherit tab-strip sizing without repeated config parsing.
+        let initialSurfaceTabBarFontSize = GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent).surfaceTabBarFontSize
         let appearance = Self.bonsplitAppearance(
             from: GhosttyApp.shared.defaultBackgroundColor,
             backgroundOpacity: GhosttyApp.shared.defaultBackgroundOpacity,
@@ -2998,7 +3020,7 @@ final class Workspace: Identifiable, ObservableObject {
         )
         let config = BonsplitConfiguration(
             allowSplits: true,
-            allowCloseTabs: !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton,
+            allowCloseTabs: !CloseTabWarningStore(defaults: closeTabWarningDefaults).hidesTabCloseButton,
             allowCloseLastPane: false,
             allowTabReordering: true,
             allowCrossPaneTabMove: true,
@@ -3057,9 +3079,10 @@ final class Workspace: Identifiable, ObservableObject {
                 isDirty: browserPanel.isDirty,
                 isLoading: browserPanel.isLoading,
                 isAudioMuted: browserPanel.isMuted,
+                isAudioPlaying: browserPanel.isPlayingAudio,
                 isPinned: false
             ) {
-                surfaceIdToPanelId[tabId] = browserPanel.id
+                bindSurface(tabId, toPanelId: browserPanel.id)
                 initialTabId = tabId
             }
             installBrowserPanelSubscription(browserPanel)
@@ -3091,7 +3114,7 @@ final class Workspace: Identifiable, ObservableObject {
                 isDirty: false,
                 isPinned: false
             ) {
-                surfaceIdToPanelId[tabId] = terminalPanel.id
+                bindSurface(tabId, toPanelId: terminalPanel.id)
                 initialTabId = tabId
             }
         }
@@ -3123,7 +3146,7 @@ final class Workspace: Identifiable, ObservableObject {
             case .closeButton:
                 self?.markTabCloseButtonClose(surfaceId: tabId)
             case .middleClick:
-                self?.markExplicitClose(surfaceId: tabId)
+                self?.markTabStripMiddleClickClose(surfaceId: tabId)
             }
         }
         bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
@@ -3193,7 +3216,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func refreshTabCloseButtonVisibility() {
-        let allowCloseTabs = !CloseTabWarningStore(defaults: .standard).hidesTabCloseButton
+        let allowCloseTabs = !CloseTabWarningStore(defaults: closeTabWarningDefaults).hidesTabCloseButton
         var configuration = bonsplitController.configuration
         guard configuration.allowCloseTabs != allowCloseTabs else { return }
         configuration.allowCloseTabs = allowCloseTabs
@@ -3275,12 +3298,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Surface ID to Panel ID Mapping
 
-    /// Mapping from bonsplit TabID (surface ID) to panel UUID
     /// Mapping from bonsplit TabID (surface id) to the owning panel id;
     /// stored in the pane-tree sub-model.
     var surfaceIdToPanelId: [TabID: UUID] {
-        get { paneTree.surfaceIdToPanelId }
-        set { paneTree.surfaceIdToPanelId = newValue }
+        paneTree.surfaceIdToPanelId
+    }
+
+    /// Registers a bonsplit surface as the active owner for a panel.
+    func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
+        paneTree.bindSurface(surfaceId, toPanelId: panelId)
+    }
+
+    /// Removes one bonsplit surface mapping.
+    func removeSurfaceMapping(forSurfaceId surfaceId: TabID) {
+        paneTree.removeSurfaceMapping(forSurfaceId: surfaceId)
+    }
+
+    /// Removes every bonsplit surface mapping for a closed panel.
+    func removeSurfaceMappings(forPanelId panelId: UUID) {
+        paneTree.removeSurfaceMappings(forPanelId: panelId)
     }
 
     /// Tab IDs that are allowed to close even if they would normally require confirmation.
@@ -3296,18 +3332,16 @@ final class Workspace: Identifiable, ObservableObject {
     /// confirmation in flight, so click spam can't double-kill or stack dialogs.
     private var pendingRemoteTmuxPaneCloseIds: Set<Int> = []
 
-    /// Tab IDs whose next close attempt should be treated as an explicit
-    /// workspace-close gesture from the user (the tab-strip X button, or the Close Tab
-    /// shortcut when the shortcut preference is set to close the workspace on the last surface),
-    /// rather than an internal close/move flow.
+    /// User-initiated close attempts, distinct from internal close/move flows.
     private var explicitUserCloseTabIds: Set<TabID> = []
     private var closeHistoryEligibleTabIds: Set<TabID> = []
     private var closeHistoryEligiblePanelIds: Set<UUID> = []
     private var suppressClosedPanelHistory = false
-    private var tabCloseButtonCloseTabIds: Set<TabID> = []
-
-    /// Deterministic tab selection to apply after a tab closes.
-    /// Keyed by the closing tab ID, value is the tab ID we want to select next.
+    private var tabStripCloseButtonByTabId: [TabID: Bool] = [:]
+    private var remoteTmuxWorkspaceCloseButtonByTabId: [TabID: Bool] = [:]
+    private var remoteTmuxKeepWorkspaceOpenTabIds: Set<TabID> = []
+    private var remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false
+    /// Deterministic tab selection to apply after a tab closes, keyed by closing tab ID.
     private var postCloseSelectTabId: [TabID: TabID] = [:]
     private var postCloseClearSplitZoomTabIds: Set<TabID> = []
     /// Panel IDs that were in a pane when a pane-close operation was approved.
@@ -3436,14 +3470,11 @@ final class Workspace: Identifiable, ObservableObject {
             markCloseHistoryEligible(panelId: panelId)
         }
 
-        let closed = requestCloseTab(tabId, force: force)
-        return closed
+        return requestCloseTab(tabId, force: force)
     }
 
-    /// Non-interactive socket/API close path. Remote-tmux mirror tabs must be
-    /// routed to tmux before a local forced close is attempted; otherwise
-    /// `forceCloseTabIds` bypasses `shouldCloseTab` and removes the cmux tab
-    /// while leaving the remote tmux window alive.
+    /// Non-interactive socket/API close path; remote-tmux mirrors route to tmux
+    /// before any local forced close can bypass `shouldCloseTab`.
     @discardableResult
     func requestNonInteractiveCloseTabRecordingHistory(_ tabId: TabID) -> Bool {
         switch routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
@@ -3475,12 +3506,56 @@ final class Workspace: Identifiable, ObservableObject {
         defer { suppressClosedPanelHistory = previous }
         body()
     }
-
     func markTabCloseButtonClose(surfaceId: TabID) {
-        explicitUserCloseTabIds.insert(surfaceId)
-        tabCloseButtonCloseTabIds.insert(surfaceId)
+        markExplicitClose(surfaceId: surfaceId)
+        tabStripCloseButtonByTabId[surfaceId] = true
+    }
+    func markTabStripMiddleClickClose(surfaceId: TabID) {
+        markExplicitClose(surfaceId: surfaceId)
+        tabStripCloseButtonByTabId[surfaceId] = false
+    }
+    @discardableResult
+    func markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(surfaceId: TabID, tabStripClose: Bool, tabCloseButton: Bool, explicitUserClose: Bool = false) -> Bool {
+        let shouldClose = (explicitUserClose || tabStripClose) && shouldCloseWorkspaceOnLastSurface(for: surfaceId, tabStripClose: tabStripClose)
+        let shouldKeepOpen = shouldKeepWorkspaceOpenOnLastSurface(for: surfaceId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose)
+        remoteTmuxWorkspaceCloseButtonByTabId[surfaceId] = shouldClose ? Optional(tabCloseButton) : nil
+        if shouldClose {
+            remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false
+            remoteTmuxKeepWorkspaceOpenTabIds.remove(surfaceId); clearCloseHistoryEligibility(tabId: surfaceId)
+        } else if shouldKeepOpen {
+            remoteTmuxKeepWorkspaceOpenAfterSessionEnd = true; remoteTmuxKeepWorkspaceOpenTabIds.insert(surfaceId)
+        }
+        return shouldClose
     }
 
+    func handleRemoteTmuxSessionEndedKeepingWorkspaceOpenIfNeeded() -> Bool {
+        guard remoteTmuxKeepWorkspaceOpenAfterSessionEnd else { return false }
+        remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
+        let panelIds = remoteTmuxKeepWorkspaceOpenTabIds.compactMap { panelIdFromSurfaceId($0) }
+        remoteTmuxKeepWorkspaceOpenTabIds.removeAll(); remoteTmuxWindowMirrors.removeAll()
+        for panelId in panelIds { _ = closePanel(panelId, force: true) }
+        if panels.isEmpty { _ = createReplacementTerminalPanel() }
+        return true
+    }
+
+    private func clearRemoteTmuxWorkspaceCloseIntent(tabId: TabID) {
+        remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId); remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId)
+        if remoteTmuxKeepWorkspaceOpenTabIds.isEmpty { remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false }
+    }
+
+    private func recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: Bool, tabId: TabID, panelId: UUID, explicitUserClose: Bool, tabStripClose: Bool, tabCloseButton: Bool) {
+        if routed {
+            _ = markRemoteTmuxWorkspaceCloseAfterWindowCloseIfNeeded(
+                surfaceId: tabId,
+                tabStripClose: tabStripClose,
+                tabCloseButton: tabCloseButton,
+                explicitUserClose: explicitUserClose
+            )
+        } else {
+            clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
+            clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+        }
+    }
     func surfaceIdFromPanelId(_ panelId: UUID) -> TabID? {
         paneTree.surfaceId(forPanelId: panelId)
     }
@@ -3532,6 +3607,39 @@ final class Workspace: Identifiable, ObservableObject {
         tmuxWorkspaceFlashToken &+= 1
     }
 
+    /// Folds the media-device state of every browser pane into a single
+    /// workspace-level summary.
+    private func currentBrowserMediaActivity(
+        panels sourcePanels: [UUID: any Panel]? = nil
+    ) -> BrowserMediaActivity {
+        BrowserMediaActivity.aggregating(
+            (sourcePanels ?? panels).values.compactMap { ($0 as? BrowserPanel)?.mediaActivity }
+        )
+    }
+
+    private func setBrowserMediaActivity(
+        _ activity: BrowserMediaActivity,
+        invalidateSidebarObservation: Bool
+    ) {
+        guard browserMediaActivity != activity else { return }
+        browserMediaActivity = activity
+        if invalidateSidebarObservation {
+            sidebarMetadata.invalidateWorkspaceObservation()
+        }
+    }
+
+    private func refreshBrowserMediaActivity(invalidateSidebarObservation: Bool = true) {
+        setBrowserMediaActivity(
+            currentBrowserMediaActivity(),
+            invalidateSidebarObservation: invalidateSidebarObservation
+        )
+    }
+
+    private func handleBrowserMediaActivityChanged(_ browserPanel: BrowserPanel) {
+        syncBrowserAudioPlayingStateForPanel(browserPanel.id, browserPanel: browserPanel)
+        refreshBrowserMediaActivity()
+    }
+
     private func installBrowserPanelSubscription(_ browserPanel: BrowserPanel) {
         let browserTabState = Publishers.CombineLatest4(
             browserPanel.$pageTitle.removeDuplicates(), browserPanel.$currentURL.removeDuplicates(),
@@ -3567,6 +3675,11 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         panelSubscriptions[browserPanel.id] = subscription
+        browserPanel.onMediaActivityChanged = { [weak self, weak browserPanel] _ in
+            guard let self, let browserPanel else { return }
+            self.handleBrowserMediaActivityChanged(browserPanel)
+        }
+        handleBrowserMediaActivityChanged(browserPanel)
         publishBrowserOpenTabSuggestion(for: browserPanel)
         setPreferredBrowserProfileID(browserPanel.profileID)
     }
@@ -3577,6 +3690,14 @@ final class Workspace: Identifiable, ObservableObject {
               let tab = bonsplitController.tab(tabId),
               tab.isAudioMuted != browserPanel.isMuted else { return }
         bonsplitController.updateTab(tabId, isAudioMuted: browserPanel.isMuted)
+    }
+
+    private func syncBrowserAudioPlayingStateForPanel(_ panelId: UUID, browserPanel: BrowserPanel? = nil) {
+        guard let browserPanel = browserPanel ?? self.browserPanel(for: panelId),
+              let tabId = surfaceIdFromPanelId(panelId),
+              let tab = bonsplitController.tab(tabId),
+              tab.isAudioPlaying != browserPanel.isPlayingAudio else { return }
+        bonsplitController.updateTab(tabId, isAudioPlaying: browserPanel.isPlayingAudio)
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
@@ -3703,6 +3824,11 @@ final class Workspace: Identifiable, ObservableObject {
             agentPanel.onDisplayStateChanged = nil
         }
         agentSessionPanelCallbackIds.remove(panelId)
+    }
+
+    func discardBrowserPanelSubscription(panelId _: UUID, panel: (any Panel)?) {
+        guard let browserPanel = panel as? BrowserPanel else { return }
+        browserPanel.onMediaActivityChanged = nil
     }
 
     private func browserRemoteWorkspaceStatusSnapshot() -> BrowserRemoteWorkspaceStatus? {
@@ -4395,23 +4521,47 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         if reportedDirectory == restoredDirectory {
+            // The resumed shell confirmed the restored directory; stop guarding so
+            // later navigation away from it is honored.
             restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
             return false
         }
 
-        let missingVolumeRoot = Self.unmountedVolumeRoot(for: restoredDirectory)
-        guard missingVolumeRoot != nil else {
-            restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
-            return false
+        if Self.unmountedVolumeRoot(for: restoredDirectory) != nil {
+            // The restored directory is on an unmounted volume: the resumed shell
+            // fell back to its default directory. Keep ignoring spurious reports
+            // until the volume remounts and the shell reports the restored
+            // directory (#5278). The guard stays registered (persistent).
+#if DEBUG
+            cmuxDebugLog(
+                "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
+                "saved=\(restoredDirectory) reported=\(reportedDirectory)"
+            )
+#endif
+            return true
         }
 
+        // The restored directory is on a mounted volume and differs from the first
+        // report. The resumed shell spawns before its startup command cds, so the
+        // initial report (typically home) is spurious — but ONLY when the restored
+        // directory still exists for that command to cd into. If it was deleted
+        // between sessions the cd fails and the shell's reported directory is the
+        // real fallback location, so honor it instead of stranding
+        // panelDirectories/currentDirectory on the deleted path (which would make
+        // Cmd+T inherit an invalid cwd). Either way this is a one-shot guard. (#6617)
+        restoredGuardedWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        var restoredDirectoryIsDirectory: ObjCBool = false
+        let restoredDirectoryStillExists = FileManager.default.fileExists(
+            atPath: restoredDirectory,
+            isDirectory: &restoredDirectoryIsDirectory
+        ) && restoredDirectoryIsDirectory.boolValue
 #if DEBUG
         cmuxDebugLog(
-            "session.restore.cwdReport.ignored panel=\(panelId.uuidString.prefix(5)) " +
-            "missingVolume=\(missingVolumeRoot ?? "") saved=\(restoredDirectory) reported=\(reportedDirectory)"
+            "session.restore.cwdReport.\(restoredDirectoryStillExists ? "ignoredOnce" : "accepted") " +
+            "panel=\(panelId.uuidString.prefix(5)) saved=\(restoredDirectory) reported=\(reportedDirectory)"
         )
 #endif
-        return true
+        return restoredDirectoryStillExists
     }
 
     func updatePanelShellActivityState(panelId: UUID, state: PanelShellActivityState) {
@@ -4645,7 +4795,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
         guard terminalPanel(for: panelId) != nil,
-              let startupInput = binding.startupInput,
+              let startupInput = binding.inlineStartupInput(repairPortableAgentExecutable: false),
               !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return false
         }
@@ -4859,9 +5009,20 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @discardableResult
+    func discardHiddenBrowserWebViewsForSystemMemoryPressure(now: Date = Date()) -> Int {
+        var discardedCount = 0
+        for browserPanel in panels.values.compactMap({ $0 as? BrowserPanel }) {
+            if browserPanel.discardHiddenWebViewForSystemMemoryPressure(now: now) {
+                discardedCount += 1
+            }
+        }
+        return discardedCount
+    }
+
+    @discardableResult
     func updatePanelTitle(panelId: UUID, title: String) -> Bool {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
+        guard !trimmed.isEmpty, panels[panelId] != nil else { return false }
         var didMutate = false
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
@@ -5158,26 +5319,17 @@ final class Workspace: Identifiable, ObservableObject {
         remoteConfiguration != nil
     }
 
-    /// True when this workspace is an ephemeral mirror of a remote tmux session
-    /// (created by ``RemoteTmuxController``). Such workspaces are rebuilt from
-    /// the remote on each launch, so they are excluded from cmux's own session
-    /// snapshot/restore to avoid resurrecting stale, disconnected copies.
+    /// Ephemeral remote tmux mirror; excluded from cmux session restore.
     var isRemoteTmuxMirror: Bool = false
 
-    /// Per-window multi-pane renderers, keyed by the window-tab's panel id. When
-    /// a mirrored tmux window has more than one pane, its tab renders this
-    /// in-tab split container (``RemoteTmuxWindowMirrorView``) instead of the
-    /// single-surface ``PanelContentView``. Owned by ``RemoteTmuxSessionMirror``;
-    /// the view layer only reads it.
+    /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
 
-    /// The multi-pane renderer for a window-tab's panel, if that window is
-    /// currently multi-pane.
+    /// Multi-pane renderer for a window-tab panel.
     func remoteTmuxWindowMirror(forPanelId panelId: UUID) -> RemoteTmuxWindowMirror? {
         remoteTmuxWindowMirrors[panelId]
     }
 
-    /// Registers (or replaces) a window's multi-pane renderer.
     func setRemoteTmuxWindowMirror(_ mirror: RemoteTmuxWindowMirror?, forPanelId panelId: UUID) {
         objectWillChange.send()
         if let mirror {
@@ -6558,31 +6710,31 @@ final class Workspace: Identifiable, ObservableObject {
         sourceSurface: ghostty_surface_t,
         inheritedConfig: CmuxSurfaceConfigTemplate
     ) -> Float? {
-        let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface)
+        let runtimeBasePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface).map { CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: $0, percent: GlobalFontMagnification.storedPercent) }
         if let rooted = terminalInheritanceFontPointsByPanelId[terminalPanel.id], rooted > 0 {
-            if let runtimePoints, abs(runtimePoints - rooted) > 0.05 {
+            if let runtimeBasePoints, abs(runtimeBasePoints - rooted) > 0.05 {
                 // Runtime zoom changed after lineage was seeded (manual zoom on descendant);
                 // treat runtime as the new root for future descendants.
-                return runtimePoints
+                return runtimeBasePoints
             }
             return rooted
         }
         if inheritedConfig.fontSize > 0 {
             return inheritedConfig.fontSize
         }
-        return runtimePoints
+        return runtimeBasePoints
     }
 
     private func rememberTerminalConfigInheritanceSource(_ terminalPanel: TerminalPanel) {
         lastTerminalConfigInheritancePanelId = terminalPanel.id
         if let sourceSurface = terminalPanel.surface.surface,
            let runtimePoints = cmuxCurrentSurfaceFontSizePoints(sourceSurface) {
+            let runtimeBasePoints = CmuxSurfaceConfigTemplate.baseFontSize(fromRuntimePoints: runtimePoints, percent: GlobalFontMagnification.storedPercent)
             let existing = terminalInheritanceFontPointsByPanelId[terminalPanel.id]
-            if existing == nil || abs((existing ?? runtimePoints) - runtimePoints) > 0.05 {
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimePoints
+            if existing == nil || abs((existing ?? runtimeBasePoints) - runtimeBasePoints) > 0.05 {
+                terminalInheritanceFontPointsByPanelId[terminalPanel.id] = runtimeBasePoints
             }
-            lastTerminalConfigInheritanceFontPoints =
-                terminalInheritanceFontPointsByPanelId[terminalPanel.id] ?? runtimePoints
+            lastTerminalConfigInheritanceFontPoints = terminalInheritanceFontPointsByPanelId[terminalPanel.id] ?? runtimeBasePoints
         }
     }
 
@@ -6922,7 +7074,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: newPanel.isDirty,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = newPanel.id
+        bindSurface(newTab.id, toPanelId: newPanel.id)
         let previousFocusedPanelId = focusedPanelId
 
         // Capture the source terminal's hosted view before bonsplit mutates focusedPaneId,
@@ -6937,7 +7089,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             removeRemoteRelaySurfaceAliases(targeting: newPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -7050,13 +7202,9 @@ final class Workspace: Identifiable, ObservableObject {
         inheritWorkingDirectoryFallback: Bool = false,
         workingDirectoryFallbackSourcePanelId: UUID? = nil
     ) -> TerminalPanelCreationOutcome {
-        // In a remote tmux mirror workspace, a new tab means "create a tmux
-        // window" — route it to the remote and let the resulting %window-add
-        // notification add the tab (one source of truth). NEVER create a local
-        // terminal here, even when the remote route can't be taken (dead/missing
-        // connection): a local tab would be an orphan the mirror can't reconcile,
-        // breaking the 1:1 invariant (symmetric with newBrowserSurface). A dead
-        // mirror workspace is torn down separately via handleSessionEndedRemotely.
+        // In a remote tmux mirror, a new tab means "create a tmux window"; never
+        // create a local orphan the mirror can't reconcile. Dead mirrors are
+        // torn down via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
             let routed = AppDelegate.shared?.remoteTmuxController
                 .handleMirrorNewTabRequested(workspaceId: id) ?? false
@@ -7181,7 +7329,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = newPanel.id
+        bindSurface(newTabId, toPanelId: newPanel.id)
         publishCmuxSurfaceCreated(newPanel.id, paneId: paneId, kind: "terminal", origin: "terminal_tab", focused: shouldFocusNewTab)
 
         // bonsplit's createTab may not reliably emit didSelectTab, and its internal selection
@@ -7277,7 +7425,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             return nil
         }
-        surfaceIdToPanelId[newTabId] = newPanel.id
+        bindSurface(newTabId, toPanelId: newPanel.id)
         if focus {
             bonsplitController.focusPane(paneId)
         }
@@ -7302,7 +7450,7 @@ final class Workspace: Identifiable, ObservableObject {
     func requestRemoteTmuxPaneClose(windowMirror: RemoteTmuxWindowMirror, tmuxPaneId: Int) {
         // Close warnings disabled → even an active command wouldn't confirm;
         // kill with no added round trip.
-        guard CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        guard CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
             requiresConfirmation: true, source: .tabCloseButton
         ) else {
             windowMirror.requestKillPane(tmuxPaneId)
@@ -7318,7 +7466,7 @@ final class Workspace: Identifiable, ObservableObject {
                 defer { self.pendingRemoteTmuxPaneCloseIds.remove(tmuxPaneId) }
                 guard let windowMirror else { return }
                 let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
-                if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
                     requiresConfirmation: state?.hasActiveCommand ?? false,
                     source: .tabCloseButton
                 ) {
@@ -7445,7 +7593,7 @@ final class Workspace: Identifiable, ObservableObject {
         if wasPinned {
             pinnedPanelIds.insert(panelId)
         }
-        surfaceIdToPanelId[tabId] = panelId
+        bindSurface(tabId, toPanelId: panelId)
         seedTerminalInheritanceFontPoints(panelId: panelId, configTemplate: inheritedConfig)
 
         let resolvedTitle = resolvedPanelTitle(panelId: panelId, fallback: replacementPanel.displayTitle)
@@ -7563,9 +7711,10 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isAudioMuted: browserPanel.isMuted,
+            isAudioPlaying: browserPanel.isPlayingAudio,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = browserPanel.id
+        bindSurface(newTab.id, toPanelId: browserPanel.id)
         let previousFocusedPanelId = focusedPanelId
 
         // Create the split with the browser tab already present.
@@ -7573,7 +7722,7 @@ final class Workspace: Identifiable, ObservableObject {
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: browserPanel.id)
             panelTitles.removeValue(forKey: browserPanel.id)
             return nil
@@ -7670,6 +7819,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: browserPanel.isDirty,
             isLoading: browserPanel.isLoading,
             isAudioMuted: browserPanel.isMuted,
+            isAudioPlaying: browserPanel.isPlayingAudio,
             isPinned: false,
             inPane: paneId
         ) else {
@@ -7678,7 +7828,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = browserPanel.id
+        bindSurface(newTabId, toPanelId: browserPanel.id)
         setPreferredBrowserProfileID(browserPanel.profileID)
 
         // Keyboard/browser-open paths want "new tab at end" regardless of global new-tab placement.
@@ -7743,7 +7893,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = extensionBrowserPanel.id
+        bindSurface(newTabId, toPanelId: extensionBrowserPanel.id)
         publishCmuxSurfaceCreated(
             extensionBrowserPanel.id,
             paneId: paneId,
@@ -7827,13 +7977,13 @@ final class Workspace: Identifiable, ObservableObject {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+        bindSurface(newTab.id, toPanelId: markdownPanel.id)
         let previousFocusedPanelId = focusedPanelId
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
             return nil
@@ -7888,7 +8038,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = markdownPanel.id
+        bindSurface(newTabId, toPanelId: markdownPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -7940,7 +8090,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = projectPanel.id
+        bindSurface(newTabId, toPanelId: projectPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8000,7 +8150,7 @@ final class Workspace: Identifiable, ObservableObject {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = markdownPanel.id
+        bindSurface(newTab.id, toPanelId: markdownPanel.id)
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
@@ -8012,7 +8162,7 @@ final class Workspace: Identifiable, ObservableObject {
         ) != nil else {
             panels.removeValue(forKey: markdownPanel.id)
             panelTitles.removeValue(forKey: markdownPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
 
@@ -8098,7 +8248,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = filePreviewPanel.id
+        bindSurface(newTabId, toPanelId: filePreviewPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8170,7 +8320,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = toolPanel.id
+        bindSurface(newTabId, toPanelId: toolPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8229,7 +8379,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = agentPanel.id
+        bindSurface(newTabId, toPanelId: agentPanel.id)
         if let targetIndex {
             _ = bonsplitController.reorderTab(newTabId, toIndex: targetIndex)
         }
@@ -8278,14 +8428,14 @@ final class Workspace: Identifiable, ObservableObject {
             isLoading: false,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = filePreviewPanel.id
+        bindSurface(newTab.id, toPanelId: filePreviewPanel.id)
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: filePreviewPanel.id)
             panelTitles.removeValue(forKey: filePreviewPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             return nil
         }
         publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: filePreviewPanel.id, kind: "file_preview", origin: "file_preview_split", focused: true)
@@ -8296,8 +8446,7 @@ final class Workspace: Identifiable, ObservableObject {
         return filePreviewPanel
     }
 
-    /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
-    /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
+    /// Tear down all panels before removing the workspace.
     func teardownAllPanels() {
         portalRenderingEnabled = false
         clearLayoutFollowUp()
@@ -8933,6 +9082,7 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
         }
         let detachedBrowserMuted = (detached.panel as? BrowserPanel)?.isMuted ?? false
+        let detachedBrowserPlayingAudio = (detached.panel as? BrowserPanel)?.isPlayingAudio ?? false
 
         guard let newTabId = bonsplitController.createTab(
             title: detached.title,
@@ -8943,6 +9093,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: detached.panel.isDirty,
             isLoading: detached.isLoading,
             isAudioMuted: detachedBrowserMuted,
+            isAudioPlaying: detachedBrowserPlayingAudio,
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
@@ -8960,6 +9111,7 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
+            discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
                 agentPanel.onDisplayStateChanged = nil
                 agentSessionPanelCallbackIds.remove(detached.panelId)
@@ -8973,7 +9125,7 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        surfaceIdToPanelId[newTabId] = detached.panelId
+        bindSurface(newTabId, toPanelId: detached.panelId)
         panels[detached.panelId] = detached.panel
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
@@ -9710,7 +9862,7 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: newPanel.isDirty,
             isPinned: false
         ) {
-            surfaceIdToPanelId[newTabId] = newPanel.id
+            bindSurface(newTabId, toPanelId: newPanel.id)
         }
 
         return newPanel
@@ -10790,14 +10942,14 @@ final class Workspace: Identifiable, ObservableObject {
             isDirty: newPanel.isDirty,
             isPinned: false
         )
-        surfaceIdToPanelId[newTab.id] = newPanel.id
+        bindSurface(newTab.id, toPanelId: newPanel.id)
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
         guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
-            surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            removeSurfaceMapping(forSurfaceId: newTab.id)
             if startupCommand != nil {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
@@ -11094,6 +11246,10 @@ extension Workspace: PaneTreeHosting {
     /// Combine bridge at the exact timing `@Published` used.
     func panelsWillChange(to newValue: [UUID: any Panel]) {
         objectWillChange.send()
+        setBrowserMediaActivity(
+            currentBrowserMediaActivity(panels: newValue),
+            invalidateSidebarObservation: false
+        )
         panelsPublisher.send(newValue)
     }
 
@@ -11106,15 +11262,17 @@ extension Workspace: PaneTreeHosting {
 
 extension Workspace: BonsplitDelegate {
     @MainActor
-    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID) -> Bool {
+    private func shouldCloseWorkspaceOnLastSurface(for tabId: TabID, tabStripClose: Bool) -> Bool { lastSurfaceClosePreference(for: tabId).map { tabStripClose ? $0 : true } ?? false }
+
+    private func shouldKeepWorkspaceOpenOnLastSurface(for tabId: TabID, explicitUserClose: Bool, tabStripClose: Bool) -> Bool { (!explicitUserClose || tabStripClose) && lastSurfaceClosePreference(for: tabId) == false }
+
+    private func lastSurfaceClosePreference(for tabId: TabID) -> Bool? {
         let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
-        guard panels.count <= 1,
-              panelIdFromSurfaceId(tabId) != nil,
-              let manager,
+        guard panels.count <= 1, panelIdFromSurfaceId(tabId) != nil, let manager,
               manager.tabs.contains(where: { $0.id == id }) else {
-            return false
+            return nil
         }
-        return true
+        return manager.closeWorkspaceOnLastSurfacePreferenceEnabled()
     }
 
     @MainActor
@@ -11599,46 +11757,22 @@ extension Workspace: BonsplitDelegate {
             }
         }
 
-        let tabCloseButtonClose = tabCloseButtonCloseTabIds.remove(tab.id) != nil
-        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabCloseButtonClose
+        let tabCloseButtonClose = tabStripCloseButtonByTabId.removeValue(forKey: tab.id)
+        let tabStripClose = tabCloseButtonClose != nil
+        let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
-        // Remote tmux mirror: closing a window tab means "kill that tmux window".
-        // Route ANY non-programmatic close (close button, ⌘W, and batch closes
-        // like "close others / close to the left/right") to the remote and veto
-        // the immediate local close — the tab is removed when tmux reports
-        // %window-close, which also tears the window mirror down (so a batch
-        // close can't abandon the mirror's pane surfaces, and the window doesn't
-        // reappear on the next rebuild). Programmatic closes (forceCloseTabIds,
-        // used by the mirror's own rebuild) are excluded — they do the actual
-        // removal. Falls through to the normal local close when there is no live
-        // mirror connection.
-        //
-        // Kill-window is destructive (unlike detach), so it gets the same close
-        // confirmation as a local tab with a running process. The decision uses a
-        // LIVE activity query (tmux evaluates pane_current_command at query time)
-        // rather than the subscription cache, which tmux only refreshes about
-        // once a second — otherwise a command started right before ⌘W would
-        // slip through unconfirmed. The kill is only sent on Confirm (or when
-        // the fresh answer says idle); the %window-close round trip still does
-        // the actual tab removal, so the silent-close case costs one extra
-        // round trip on a path that already waits one. Batch closes never reach
-        // this confirmation: they confirm once up front and route the kill
-        // directly (see closeTabsFromContextMenu), bypassing this delegate.
+        // Remote tmux mirror tab closes route to tmux; tmux reports local removal.
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
             let confirmationSource: CloseTabCloseSource =
-                tabCloseButtonClose ? .tabCloseButton : .shortcut
-            if !CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+            if !CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
                 requiresConfirmation: true, source: confirmationSource
             ) {
-                // Close warnings disabled → even an active command wouldn't
-                // confirm; kill with no added round trip. Veto unconditionally:
-                // the target resolved two lines up on the same main-actor tick,
-                // and falling through to a LOCAL close of a mirror tab would
-                // leave the remote window alive to resurrect it.
-                _ = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
+                let routed = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
+                recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: routed, tabId: tab.id, panelId: panelId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose, tabCloseButton: tabCloseButtonClose == true)
                 return false
             } else {
                 if pendingCloseConfirmTabIds.contains(tab.id) {
@@ -11648,20 +11782,19 @@ extension Workspace: BonsplitDelegate {
                     ?? AppDelegate.shared?.tabManagerFor(tabId: id)
                     ?? AppDelegate.shared?.tabManager
                 if let confirmationManager, confirmationManager.isCloseConfirmationInFlight {
+                    clearRemoteTmuxWorkspaceCloseIntent(tabId: tab.id)
+                    clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
                     return false
                 }
                 pendingCloseConfirmTabIds.insert(tab.id)
                 let tabId = tab.id
 
-                // Begins the confirmation session and runs the dialog → kill-window
-                // flow; shared by the always-warn path (no query) and the queried
-                // active-command path. `commandName` (the live foreground command)
-                // names the dialog so it can't lag the tab's own rename. Balances
-                // pendingCloseConfirmTabIds on every exit.
                 let presentConfirmation: @MainActor (String?) -> Void = { [weak self] commandName in
                     guard let self else { return }
                     if let confirmationManager, !confirmationManager.beginCloseConfirmationSession() {
                         self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
+                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         return
                     }
                     Task { @MainActor in
@@ -11669,27 +11802,25 @@ extension Workspace: BonsplitDelegate {
                             self.pendingCloseConfirmTabIds.remove(tabId)
                             confirmationManager?.endCloseConfirmationSession()
                         }
-
-                        // If the tab disappeared while we were scheduling (e.g. the
-                        // command finished and another client killed the window), do nothing.
-                        guard self.panelIdFromSurfaceId(tabId) != nil else { return }
-
+                        guard self.panelIdFromSurfaceId(tabId) != nil else {
+                            self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
+                            self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                            return
+                        }
                         let confirmed = await self.confirmClosePanel(for: tabId, nameOverride: commandName)
-                        guard confirmed else { return }
-
-                        // Re-resolves the target, so a window that died while the
-                        // dialog was up is a no-op rather than a stray kill.
-                        _ = remoteTmuxController.handleMirrorTabCloseRequested(
+                        guard confirmed else {
+                            self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
+                            self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+                            return
+                        }
+                        let routed = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
+                        self.recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: routed, tabId: tabId, panelId: panelId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose, tabCloseButton: tabCloseButtonClose == true)
                     }
                 }
 
-                // "Always warn on the tab ✕" makes the dialog unconditional — a
-                // live query couldn't change WHETHER we confirm, but it still
-                // supplies the fresh command name, so use the cached classification
-                // for the name (no round trip) and present immediately.
-                if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+                if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
                     requiresConfirmation: false, source: confirmationSource
                 ) {
                     let cached = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId)
@@ -11701,17 +11832,18 @@ extension Workspace: BonsplitDelegate {
                     workspaceId: id, panelId: panelId
                 ) { [weak self] activity in
                     guard let self else { return }
-                    // Tab vanished while the query was in flight (e.g. the window
-                    // died remotely) — nothing left to close.
                     guard self.panelIdFromSurfaceId(tabId) != nil else {
                         self.pendingCloseConfirmTabIds.remove(tabId)
+                        self.clearRemoteTmuxWorkspaceCloseIntent(tabId: tabId)
+                        self.clearCloseHistoryEligibility(tabId: tabId, panelId: panelId)
                         return
                     }
                     guard activity.hasActiveCommand else {
                         self.pendingCloseConfirmTabIds.remove(tabId)
-                        _ = remoteTmuxController.handleMirrorTabCloseRequested(
+                        let routed = remoteTmuxController.handleMirrorTabCloseRequested(
                             workspaceId: self.id, panelId: panelId
                         )
+                        self.recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: routed, tabId: tabId, panelId: panelId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose, tabCloseButton: tabCloseButtonClose == true)
                         return
                     }
                     presentConfirmation(activity.activeCommandName)
@@ -11750,10 +11882,10 @@ extension Workspace: BonsplitDelegate {
             return false
         }
 
-        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
+        if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id, tabStripClose: tabStripClose) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
             clearCloseHistoryEligibility(tabId: tab.id)
-            if tabCloseButtonClose {
+            if tabCloseButtonClose == true {
                 owningTabManager?.closeWorkspaceFromTabCloseButton(self)
             } else {
                 owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
@@ -11771,8 +11903,8 @@ extension Workspace: BonsplitDelegate {
         // If confirmation is required, Bonsplit will call into this delegate and we must return false.
         // Show an app-level confirmation, then re-attempt the close with forceCloseTabIds to bypass
         // this gating on the second pass.
-        let confirmationSource: CloseTabCloseSource = tabCloseButtonClose ? .tabCloseButton : .shortcut
-        if CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+        let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
+        if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
             source: confirmationSource
         ) {
@@ -11827,7 +11959,10 @@ extension Workspace: BonsplitDelegate {
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
         forceCloseTabIds.remove(tabId)
-        tabCloseButtonCloseTabIds.remove(tabId)
+        tabStripCloseButtonByTabId.removeValue(forKey: tabId)
+        let remoteTmuxWorkspaceCloseButton = remoteTmuxWorkspaceCloseButtonByTabId.removeValue(forKey: tabId)
+        let remoteTmuxKeepWorkspaceOpen = remoteTmuxKeepWorkspaceOpenTabIds.remove(tabId) != nil
+        if remoteTmuxKeepWorkspaceOpen, remoteTmuxKeepWorkspaceOpenTabIds.isEmpty { remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false }
         let selectTabId = postCloseSelectTabId.removeValue(forKey: tabId)
         let shouldClearSplitZoom = postCloseClearSplitZoomTabIds.remove(tabId) != nil
         let closedBrowserRestoreSnapshot = pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tabId)
@@ -11856,8 +11991,8 @@ extension Workspace: BonsplitDelegate {
         _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId[panelId]
         let preservesSurfaceForDetach = isDetaching && panel != nil
-
         if isDetaching, let panel {
+            owningTabManager?.flushPendingPanelTitleUpdatesForWorkspaceSnapshot()
             let browserPanel = panel as? BrowserPanel
             let cachedTitle = panelTitles[panelId]
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
@@ -11926,16 +12061,26 @@ extension Workspace: BonsplitDelegate {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
         }
 
-        // Keep the workspace invariant for normal close paths.
-        // Detach/move flows intentionally allow a temporary empty workspace so AppDelegate can
-        // prune the source workspace/window after the tab is attached elsewhere.
         if panels.isEmpty {
             if isDetaching {
-                // Detach path also doesn't create a replacement panel this turn, so any
-                // pending disconnect placeholder state would survive and leak into a later close.
                 pendingRemoteDisconnectReplacement = nil
                 scheduleTerminalGeometryReconcile()
                 return
+            }
+
+            if remoteTmuxWorkspaceCloseButton != nil {
+                pendingRemoteDisconnectReplacement = nil; remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
+                remoteTmuxWindowMirrors.removeAll()
+                AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
+                let manager = owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: id) ?? AppDelegate.shared?.tabManager
+                if let manager, manager.tabs.count > 1 { manager.closeWorkspace(self, recordHistory: false); scheduleTerminalGeometryReconcile(); return }
+                if let manager, let appDelegate = AppDelegate.shared, appDelegate.mainWindowContexts.count > 1,
+                   let windowId = appDelegate.windowId(for: manager) { appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId); scheduleTerminalGeometryReconcile(); return }
+            }
+            if remoteTmuxKeepWorkspaceOpen {
+                pendingRemoteDisconnectReplacement = nil; remoteTmuxKeepWorkspaceOpenAfterSessionEnd = false; isRemoteTmuxMirror = false
+                remoteTmuxWindowMirrors.removeAll()
+                AppDelegate.shared?.remoteTmuxController.detachMirrorWorkspaceKeptOpenLocally(workspaceId: id)
             }
 
             #if DEBUG
@@ -11953,23 +12098,16 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        // A remote terminal exited but sibling panels are still alive, so we won't spawn a
-        // replacement right now. Drop the placeholder — without this, a later unrelated
-        // close could inherit stale remote-disconnect state.
         pendingRemoteDisconnectReplacement = nil
 
         if let selectTabId,
            bonsplitController.allPaneIds.contains(pane),
            bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
            bonsplitController.focusedPaneId == pane {
-            // Keep selection/focus convergence in the same close transaction to avoid a transient
-            // frame where the pane has no selected content.
             bonsplitController.selectTab(selectTabId)
             applyTabSelection(tabId: selectTabId, inPane: pane)
         } else if let focusedPane = bonsplitController.focusedPaneId,
                   let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
-            // When closing the last tab in a pane, Bonsplit may focus a different pane and skip
-            // emitting didSelectTab. Re-apply the focused selection so sidebar state stays in sync.
             applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
         }
 
@@ -11990,13 +12128,8 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
-        // In a remote tmux mirror, a split (button or any bonsplit-level split)
-        // becomes a tmux `split-window`; the new pane arrives via %layout-change.
-        // Local workspaces split normally. ALWAYS veto the local split in a
-        // mirror — even when the route can't be taken (tab lookup failed, or
-        // the connection is reconnecting and can't deliver the command) — a
-        // local pane would be an orphan the mirror's rebuild() never
-        // reconciles, breaking the 1:1 invariant.
+        // In a remote tmux mirror, split means tmux `split-window`; always veto
+        // local splits so the mirror never gains an orphan pane.
         guard isRemoteTmuxMirror else { return true }
         if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
            let panelId = panelIdFromSurfaceId(tabId) {
@@ -12147,7 +12280,7 @@ extension Workspace: BonsplitDelegate {
         for tab in tabs {
             if forceCloseTabIds.contains(tab.id) { continue }
             if let panelId = panelIdFromSurfaceId(tab.id),
-               CloseTabWarningStore(defaults: .standard).shouldConfirmClose(
+               CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmClose(
                    requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
                    source: .shortcut
                ) {
@@ -12268,7 +12401,7 @@ extension Workspace: BonsplitDelegate {
                     panels[replacementPanel.id] = replacementPanel
                     panelTitles[replacementPanel.id] = replacementPanel.displayTitle
                     seedTerminalInheritanceFontPoints(panelId: replacementPanel.id, configTemplate: inheritedConfig)
-                    surfaceIdToPanelId[replacementTab.id] = replacementPanel.id
+                    bindSurface(replacementTab.id, toPanelId: replacementPanel.id)
 
                     bonsplitController.updateTab(
                         replacementTab.id,
@@ -12352,7 +12485,7 @@ extension Workspace: BonsplitDelegate {
             return
         }
 
-        surfaceIdToPanelId[newTabId] = newPanel.id
+        bindSurface(newTabId, toPanelId: newPanel.id)
         normalizePinnedTabs(in: newPane)
         publishCmuxSplitCreated(newPane, sourcePaneId: originalPane, orientation: orientation, surfaceId: newPanel.id, kind: "terminal", origin: "ui_split", focused: true)
 #if DEBUG

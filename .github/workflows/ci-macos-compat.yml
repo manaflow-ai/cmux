@@ -9,7 +9,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ${{ vars.MACOS_RUNNER_15 || 'warp-macos-15-arm64-6x' }}
+          - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             timeout: 30
             startup_smoke: true
             virtual_display: true

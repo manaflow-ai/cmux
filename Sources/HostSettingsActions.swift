@@ -335,6 +335,7 @@ final class HostSettingsActions: SettingsHostActions {
         GhosttyApp.shared.reloadConfiguration(source: reloadSource)
         return true
     }
+
 }
 
 /// Wraps the opaque observer returned by `NotificationCenter.addObserver` so the

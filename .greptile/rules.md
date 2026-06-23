@@ -23,6 +23,9 @@ Review production Swift and runtime changes for:
 - Local/generated artifacts, dependency checkouts, caches, logs, screenshots, temp folders, and scratch directories that accidentally enter source control.
 - SwiftPM dependency changes that ignore or omit cmux-owned `Package.resolved` lockfiles.
 - Test-only or debug-only seams added to production Swift `Sources/` that should live in the test target or a dedicated debug folder.
+- Ambient global state: top-level free functions, global mutable vars, static-only namespace types, and new singletons that should be owned by a scoped type and injected.
+- Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
+- Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
 
 ## Runtime No Hacky Sleeps
 
@@ -83,3 +86,35 @@ Pass for `#if DEBUG` blocks that gate real product behavior, scaffolding inside 
 For SwiftPM package, Xcode project, `.gitignore`, workflow, and dependency changes, flag cmux-owned package `.gitignore` files that ignore `Package.resolved`, external dependency resolution changes that omit the relevant package-local `Package.resolved` diff, or Xcode project package-reference changes that omit the root Xcode `Package.resolved` diff.
 
 The root Xcode project lockfile is not sufficient proof for standalone package resolution. Pass for vendored third-party directories preserving upstream policy.
+
+## README and Site Feature Parity
+
+For changes to `README.md`'s "## Features" section, the homepage feature list (`home.feature.*` in `web/messages/en.json`, rendered by `web/app/[locale]/page.tsx`), or the homepage FAQ (`home.faq*`), keep the user-facing feature claims consistent across the README and the marketing site.
+
+Flag a shared feature renamed or relabeled on one surface but not the other (for example README "Scriptable" vs site "Programmable"), and any factual claim that contradicts across surfaces (platform support, price/free, license, supported agents, networking model, built-in vs optional). The README may stay the more detailed superset of the homepage; only the features both surfaces mention need consistent names and non-contradicting claims.
+
+Pass for README-only extra features (SSH, Claude Code Teams, Custom commands, etc.), pure description or length differences where the feature name and factual claim still agree, and localization-only edits that preserve the English source meaning.
+
+## No Ambient Global State
+
+For production Swift, flag new ambient global surface that should be owned by a constructable, injectable type instead of living in global scope.
+
+Flag a new top-level (file-scope) `func` used as API, a new top-level mutable `var` or a stub class/struct that exists only to hold a global flag/counter/once-token (for example a `resumeOnceFlag`), a caseless `enum` or empty `struct` used purely as a `static func`/`static let` namespace or a type whose API is mostly `static func`s, and a new singleton (`static let shared`/`standard`/`default`, or new state hung off the app delegate) introduced for runtime state that should be scoped and injected at the app seam. Widening a helper to `public`/`internal` global scope just to make it reachable is also a failure when the right shape is a method on the type that owns the data.
+
+Pass for `private`/`fileprivate` file-scope pure helpers (preferred over a private-static helper bag), `static let` constants, enum cases, protocol/extension conformances, an existing singleton or static-namespace type only touched incidentally, and platform/bridge/`@main` boundaries that legitimately require top-level declarations.
+
+## Hot-Path Allocating Formatting
+
+For production Swift on hot, concurrent, or per-element paths (git index/path/signature encoding, terminal input/rendering, sidebar/feed/list rows, snapshot builders, and any per-byte/row/keystroke/frame loop or concurrent map), flag per-call allocating formatting.
+
+Flag `String(format:)` with per-element conversions, a `NumberFormatter`/`DateFormatter`/`ISO8601DateFormatter`/`ByteCountFormatter` allocated per call inside a loop or row body, and repeated per-element string interpolation/concatenation building large intermediates where a preallocated buffer or single reserved-capacity build would avoid the churn. The canonical P0 is cmux PR https://github.com/manaflow-ai/cmux/pull/5347: `String(format:)` byte-to-hex in the concurrent git-index snapshot path allocated per call and caused unbounded memory growth and crashes on users' machines; the fix used a fixed hex lookup table written into a preallocated buffer.
+
+Pass for cold paths (startup, settings, error/log construction), a formatter allocated once and reused, deterministic encoding via a fixed lookup table into a preallocated buffer, and tests/benchmarks or existing formatting the PR does not move into a hotter or concurrent path.
+
+## Reliability and Single Source of Truth
+
+For production code that detects, identifies, or tracks correctness-critical state (which coding agent is running, agent/session lifecycle and liveness, workspace/pane/surface identity, or any value the UI trusts to enable controls, route input, or show a specific conversation), require one reliable source of truth and no unreliable fallback.
+
+Flag a correctness-critical value derived from a string/title/name heuristic (terminal title, window title, pane label, process-argv substring, display name) to decide agent type, session identity, liveness, or which conversation to show. Flag an "unreliable but better than nothing" fallback branch (a guess, a default, a best-effort branch) for state where a wrong value is a correctness bug. Flag more than one disagreeing source of truth for the same fact without one designated authority. Flag a throttle or polling interval placed on a correctness-critical read that introduces a visible staleness window when the consumer must reflect the change promptly.
+
+Pass for detection that uses a reliable structured source (explicit session id, registered agent descriptor, typed lifecycle event), a missing reliable signal that fails closed (no detection, control disabled, empty state) rather than guessing, a heuristic used only for a genuinely cosmetic non-authoritative hint, and coalescing/debouncing that does not delay the observable correctness-critical value.

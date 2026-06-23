@@ -20,7 +20,11 @@ extension TerminalSurface {
     ) -> (createdSurface: ghostty_surface_t?, runtimeInitialInput: String?) {
         var baseConfig = configTemplate ?? CmuxSurfaceConfigTemplate()
         var surfaceConfig = ghostty_surface_config_new()
-        surfaceConfig.font_size = baseConfig.fontSize
+        let magnificationPercent = globalFontMagnificationPercent()
+        surfaceConfig.font_size = CmuxSurfaceConfigTemplate.runtimeFontSize(
+            fromBasePoints: baseConfig.fontSize,
+            percent: magnificationPercent
+        )
         surfaceConfig.wait_after_command = baseConfig.waitAfterCommand
         surfaceConfig.platform_tag = GHOSTTY_PLATFORM_MACOS
         surfaceConfig.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(
@@ -46,10 +50,11 @@ extension TerminalSurface {
             surfaceConfig.io_write_userdata = box.toOpaque()
         }
 #if DEBUG
-        let templateFontText = String(format: "%.2f", surfaceConfig.font_size)
+        let templateFontText = String(format: "%.2f", baseConfig.fontSize)
+        let runtimeFontText = String(format: "%.2f", surfaceConfig.font_size)
         logDebugEvent(
             "zoom.create surface=\(id.uuidString.prefix(5)) context=\(GhosttySurfaceRuntimeProbe.contextName(surfaceContext)) " +
-            "templateFont=\(templateFontText)"
+            "templateFont=\(templateFontText) runtimeFont=\(runtimeFontText)"
         )
 #endif
         var envVars: [ghostty_env_var_s] = []
