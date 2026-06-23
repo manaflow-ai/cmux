@@ -213,7 +213,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// time this device sees it; thereafter the toggle writes here (no RPC to the
     /// Mac) and the workspace-list ingest reads from here. Excluded from
     /// observation: views read collapse through `workspaceGroups`, not this store.
-    @ObservationIgnored var groupCollapseStore = MobileWorkspaceGroupCollapseStore()
+    /// Injected at the composition root (`.standard`-backed) and overridable in
+    /// tests/previews with a suite-scoped `UserDefaults`.
+    @ObservationIgnored var groupCollapseStore: MobileWorkspaceGroupCollapseStore
     /// The connected Mac's `mobile.host.status` capabilities. Feature gates are
     /// computed from this set so version-skew checks cannot drift from the raw
     /// host payload.
@@ -673,10 +675,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         diagnosticLog: DiagnosticLog? = nil,
         feedbackEmailSubmitter: (any MobileFeedbackEmailSubmitting)? = nil,
         feedbackStampProvider: @escaping @MainActor () -> MobileFeedbackStamp = { MobileShellComposite.emptyFeedbackStamp },
-        draftStore: (any TerminalDraftStoring)? = nil
+        draftStore: (any TerminalDraftStoring)? = nil,
+        groupCollapseStore: MobileWorkspaceGroupCollapseStore = MobileWorkspaceGroupCollapseStore()
     ) {
         self.runtime = runtime
         self.draftStore = draftStore
+        self.groupCollapseStore = groupCollapseStore
         self.pairedMacStore = pairedMacStore
         self.deviceRegistry = deviceRegistry
         self.presence = presence
