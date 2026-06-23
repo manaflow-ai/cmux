@@ -64,6 +64,7 @@ public final class MobilePushCoordinator {
     /// launch plus sign-in plus a slow attach.
     private static let pendingDeeplinkLifetime: TimeInterval = 120
     @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored private var notificationSettingsSyncGeneration: UInt64 = 0
 
     /// Creates a push coordinator.
     /// - Parameters:
@@ -171,6 +172,7 @@ public final class MobilePushCoordinator {
             return false
         }
         analytics.capture("ios_push_optin_granted", ["trigger": .string("settings_toggle")])
+        let generation = claimNotificationSettingsSyncGeneration()
         await registration.setEnabled(true)
         var preferences = notificationPreferences
         preferences.isEnabled = true
@@ -182,18 +184,18 @@ public final class MobilePushCoordinator {
         }
         preferences.persist(to: defaults)
         UIApplication.shared.registerForRemoteNotifications()
-        await syncNotificationPreferencesToMac(preferences)
+        await syncNotificationPreferencesToMac(preferences, generation: generation)
         return true
     }
 
     /// Opt out: stop receiving pushes and remove the token server-side.
     public func disable() async {
+        _ = claimNotificationSettingsSyncGeneration()
         await registration.setEnabled(false)
         var preferences = notificationPreferences
         preferences.isEnabled = false
         preferences.persist(to: defaults)
         UIApplication.shared.unregisterForRemoteNotifications()
-        await syncNotificationPreferencesToMac(preferences)
     }
 
     /// Update when Mac-side forwarding should happen.
@@ -201,19 +203,21 @@ public final class MobilePushCoordinator {
     public func setForwardingMode(
         _ mode: MobileNotificationForwardingMode
     ) async -> MobileNotificationPreferences {
+        let generation = claimNotificationSettingsSyncGeneration()
         var preferences = notificationPreferences
         preferences.forwardingMode = mode
         preferences.persist(to: defaults)
-        return await syncNotificationPreferencesToMac(preferences) ?? preferences
+        return await syncNotificationPreferencesToMac(preferences, generation: generation) ?? preferences
     }
 
     /// Update whether forwarded notifications should hide terminal content.
     @discardableResult
     public func setHidesContent(_ hidesContent: Bool) async -> MobileNotificationPreferences {
+        let generation = claimNotificationSettingsSyncGeneration()
         var preferences = notificationPreferences
         preferences.hidesContent = hidesContent
         preferences.persist(to: defaults)
-        return await syncNotificationPreferencesToMac(preferences) ?? preferences
+        return await syncNotificationPreferencesToMac(preferences, generation: generation) ?? preferences
     }
 
     /// Reconcile local iOS settings with the connected Mac. If this iPhone has
@@ -221,11 +225,15 @@ public final class MobilePushCoordinator {
     /// Mac's current state so Settings reflects an existing desktop setup.
     @discardableResult
     public func reconcileNotificationPreferencesWithMac() async -> MobileNotificationPreferences {
+        let generation = claimNotificationSettingsSyncGeneration()
         if hasStoredNotificationOptIn {
             var localPreferences = notificationPreferences
             if !hasStoredForwardingModePreference || !hasStoredHideContentPreference {
                 guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
                     return localPreferences
+                }
+                guard isCurrentNotificationSettingsSync(generation) else {
+                    return notificationPreferences
                 }
                 if !hasStoredForwardingModePreference {
                     localPreferences.forwardingMode = macPreferences.forwardingMode
@@ -235,9 +243,13 @@ public final class MobilePushCoordinator {
                 }
                 localPreferences.persist(to: defaults)
             }
-            return await syncNotificationPreferencesToMac(localPreferences) ?? localPreferences
+            guard localPreferences.isEnabled else { return localPreferences }
+            return await syncNotificationPreferencesToMac(localPreferences, generation: generation) ?? localPreferences
         }
         guard let macPreferences = await store?.fetchNotificationPreferencesFromMac() else {
+            return notificationPreferences
+        }
+        guard isCurrentNotificationSettingsSync(generation) else {
             return notificationPreferences
         }
         var localPreferences = notificationPreferences
@@ -396,11 +408,24 @@ public final class MobilePushCoordinator {
         defaults.object(forKey: MobileNotificationPreferences.hideContentKey) != nil
     }
 
+    private func claimNotificationSettingsSyncGeneration() -> UInt64 {
+        notificationSettingsSyncGeneration &+= 1
+        return notificationSettingsSyncGeneration
+    }
+
+    private func isCurrentNotificationSettingsSync(_ generation: UInt64) -> Bool {
+        generation == notificationSettingsSyncGeneration
+    }
+
     @discardableResult
     private func syncNotificationPreferencesToMac(
-        _ preferences: MobileNotificationPreferences
+        _ preferences: MobileNotificationPreferences,
+        generation: UInt64
     ) async -> MobileNotificationPreferences? {
         guard let macPreferences = await store?.syncNotificationPreferencesToMac(preferences) else {
+            return nil
+        }
+        guard isCurrentNotificationSettingsSync(generation) else {
             return nil
         }
         macPreferences.persist(to: defaults)
