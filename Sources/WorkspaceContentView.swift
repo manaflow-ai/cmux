@@ -152,12 +152,7 @@ struct WorkspaceContentView: View {
     }
 
     var body: some View {
-        let appearance = PanelAppearance.fromConfig(config)
-        let isSplit = workspace.bonsplitController.allPaneIds.count > 1 ||
-            workspace.panels.count > 1
-        let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
-        let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
-        let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
+        let appearance: PanelAppearance = PanelAppearance.fromConfig(config)
 
         // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
         // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
@@ -176,7 +171,128 @@ struct WorkspaceContentView: View {
             }
         }()
 
-        let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
+        Group {
+            if workspace.layoutMode == .canvas {
+                WorkspaceCanvasHostView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isWorkspaceVisible,
+                    isWorkspaceInputActive: isWorkspaceInputActive,
+                    portalPriority: workspacePortalPriority,
+                    appearance: appearance, windowAppearance: windowAppearance
+                )
+            } else {
+                bonsplitWorkspaceView
+            }
+        }
+        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+    }
+
+    // Hoisted out of `body` so this large Bonsplit view tree type-checks as its
+    // own `some View` expression. Folding it back into `body` pushes the
+    // constraint solver past its budget under -experimental-emit-module-separately.
+    @ViewBuilder
+    private var bonsplitWorkspaceView: some View {
+        let appearance: PanelAppearance = PanelAppearance.fromConfig(config)
+        let isSplit: Bool = workspace.bonsplitController.allPaneIds.count > 1 ||
+            workspace.panels.count > 1
+        let usesWorkspacePaneOverlay: Bool = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
+        let isWorkspaceManuallyUnread: Bool = notificationStore.hasManualUnread(forTabId: workspace.id)
+        let workspaceManualUnreadPanelId: UUID? = workspace.representativePanelIdForWorkspaceManualUnread()
+        let base = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
+            bonsplitTabContent(tab: tab, paneId: paneId, appearance: appearance, isSplit: isSplit, usesWorkspacePaneOverlay: usesWorkspacePaneOverlay, isWorkspaceManuallyUnread: isWorkspaceManuallyUnread, workspaceManualUnreadPanelId: workspaceManualUnreadPanelId)
+        } emptyPane: { paneId in
+            // Empty pane content
+            EmptyPanelView(workspace: workspace, paneId: paneId)
+                .onTapGesture {
+                    workspace.bonsplitController.focusPane(paneId)
+                }
+        }
+        .internalOnlyTabDrag()
+        // Split zoom swaps Bonsplit between the full split tree and a single pane view.
+        // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
+        // cannot remain stacked above portal-hosted browser content.
+        .id(splitZoomRenderIdentity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        applyWorkspaceLifecycle(to: base, isWorkspaceManuallyUnread: isWorkspaceManuallyUnread, workspaceManualUnreadPanelId: workspaceManualUnreadPanelId)
+    }
+
+    // The workspace lifecycle/event modifiers are applied through this helper so
+    // the long .onChange/.onReceive chain type-checks as its own expression.
+    @ViewBuilder
+    private func applyWorkspaceLifecycle(
+        to content: some View,
+        isWorkspaceManuallyUnread: Bool,
+        workspaceManualUnreadPanelId: UUID?
+    ) -> some View {
+        content
+        .onAppear {
+            updateAgentHibernationPresentationVisibility()
+            syncBonsplitNotificationBadges()
+            refreshGhosttyAppearanceConfig(reason: "onAppear")
+        }
+        .onChange(of: isWorkspaceVisible) { _, isVisible in
+            updateAgentHibernationPresentationVisibility()
+            guard isVisible else { return }
+            flushDeferredThemeRefreshIfNeeded()
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            updateAgentHibernationPresentationVisibility()
+        }
+        .onDisappear {
+            workspace.setAgentHibernationAutoResumePresentationVisible(false)
+        }
+        .onChange(of: notificationStore.notifications) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: workspace.restoredUnreadPanelIds) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: isWorkspaceManuallyUnread) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onChange(of: workspaceManualUnreadPanelId) { _, _ in
+            syncBonsplitNotificationBadges()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
+        }
+        .onChange(of: colorScheme) { oldValue, newValue in
+            // Keep split overlay color/opacity in sync with light/dark theme transitions.
+            refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
+            let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
+            let foregroundHex = (notification.userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor)?.hexString() ?? "nil"
+            let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
+            let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
+            logTheme(
+                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
+            )
+            // Payload ordering can lag across rapid config/theme updates.
+            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
+            // with Ghostty's current runtime theme.
+            refreshGhosttyAppearanceConfig(
+                reason: "ghosttyDefaultBackgroundDidChange",
+                backgroundEventId: eventId,
+                backgroundSource: source,
+                notificationPayloadHex: payloadHex
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func bonsplitTabContent(
+        tab: Bonsplit.Tab,
+        paneId: Bonsplit.PaneID,
+        appearance: PanelAppearance,
+        isSplit: Bool,
+        usesWorkspacePaneOverlay: Bool,
+        isWorkspaceManuallyUnread: Bool,
+        workspaceManualUnreadPanelId: UUID?
+    ) -> some View {
             // Content for each tab in bonsplit
             let _ = Self.debugPanelLookup(tab: tab, workspace: workspace)
             if let panel = workspace.panel(for: tab.id) {
@@ -266,90 +382,6 @@ struct WorkspaceContentView: View {
                 // Fallback for tabs without panels (shouldn't happen normally)
                 EmptyPanelView(workspace: workspace, paneId: paneId)
             }
-        } emptyPane: { paneId in
-            // Empty pane content
-            EmptyPanelView(workspace: workspace, paneId: paneId)
-                .onTapGesture {
-                    workspace.bonsplitController.focusPane(paneId)
-                }
-        }
-        .internalOnlyTabDrag()
-        // Split zoom swaps Bonsplit between the full split tree and a single pane view.
-        // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
-        // cannot remain stacked above portal-hosted browser content.
-        .id(splitZoomRenderIdentity)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            updateAgentHibernationPresentationVisibility()
-            syncBonsplitNotificationBadges()
-            refreshGhosttyAppearanceConfig(reason: "onAppear")
-        }
-        .onChange(of: isWorkspaceVisible) { _, isVisible in
-            updateAgentHibernationPresentationVisibility()
-            guard isVisible else { return }
-            flushDeferredThemeRefreshIfNeeded()
-        }
-        .onChange(of: isWorkspaceInputActive) { _, _ in
-            updateAgentHibernationPresentationVisibility()
-        }
-        .onDisappear {
-            workspace.setAgentHibernationAutoResumePresentationVisible(false)
-        }
-        .onChange(of: notificationStore.notifications) { _, _ in
-            syncBonsplitNotificationBadges()
-        }
-        .onChange(of: workspace.manualUnreadPanelIds) { _, _ in
-            syncBonsplitNotificationBadges()
-        }
-        .onChange(of: workspace.restoredUnreadPanelIds) { _, _ in
-            syncBonsplitNotificationBadges()
-        }
-        .onChange(of: isWorkspaceManuallyUnread) { _, _ in
-            syncBonsplitNotificationBadges()
-        }
-        .onChange(of: workspaceManualUnreadPanelId) { _, _ in
-            syncBonsplitNotificationBadges()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
-            refreshGhosttyAppearanceConfig(reason: "ghosttyConfigDidReload")
-        }
-        .onChange(of: colorScheme) { oldValue, newValue in
-            // Keep split overlay color/opacity in sync with light/dark theme transitions.
-            refreshGhosttyAppearanceConfig(reason: "colorSchemeChanged:\(oldValue)->\(newValue)")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
-            let payloadHex = (notification.userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)?.hexString() ?? "nil"
-            let foregroundHex = (notification.userInfo?[GhosttyNotificationKey.foregroundColor] as? NSColor)?.hexString() ?? "nil"
-            let eventId = (notification.userInfo?[GhosttyNotificationKey.backgroundEventId] as? NSNumber)?.uint64Value
-            let source = (notification.userInfo?[GhosttyNotificationKey.backgroundSource] as? String) ?? "nil"
-            logTheme(
-                "theme notification workspace=\(workspace.id.uuidString) event=\(eventId.map(String.init) ?? "nil") source=\(source) payload=\(payloadHex) payloadFg=\(foregroundHex) appBg=\(GhosttyApp.shared.defaultBackgroundColor.hexString()) appFg=\(GhosttyApp.shared.defaultForegroundColor.hexString()) appOpacity=\(String(format: "%.3f", GhosttyApp.shared.defaultBackgroundOpacity))"
-            )
-            // Payload ordering can lag across rapid config/theme updates.
-            // Resolve from GhosttyApp.shared.defaultBackgroundColor to keep tabs aligned
-            // with Ghostty's current runtime theme.
-            refreshGhosttyAppearanceConfig(
-                reason: "ghosttyDefaultBackgroundDidChange",
-                backgroundEventId: eventId,
-                backgroundSource: source,
-                notificationPayloadHex: payloadHex
-            )
-        }
-
-        Group {
-            if workspace.layoutMode == .canvas {
-                WorkspaceCanvasHostView(
-                    workspace: workspace,
-                    isWorkspaceVisible: isWorkspaceVisible,
-                    isWorkspaceInputActive: isWorkspaceInputActive,
-                    portalPriority: workspacePortalPriority,
-                    appearance: appearance, windowAppearance: windowAppearance
-                )
-            } else {
-                bonsplitView
-            }
-        }
-        .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
     }
 
     private func syncBonsplitNotificationBadges() {

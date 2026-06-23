@@ -26,39 +26,6 @@ private typealias BrowserThemeMode = cmux_DEV.BrowserThemeMode
 @testable import cmux
 private typealias BrowserThemeMode = cmux.BrowserThemeMode
 #endif
-
-final class SidebarPathFormatterTests: XCTestCase {
-    func testShortenedPathReplacesExactHomeDirectory() {
-        XCTAssertEqual(
-            SidebarPathFormatter.shortenedPath(
-                "/Users/example",
-                homeDirectoryPath: "/Users/example"
-            ),
-            "~"
-        )
-    }
-
-    func testShortenedPathReplacesHomeDirectoryPrefix() {
-        XCTAssertEqual(
-            SidebarPathFormatter.shortenedPath(
-                "/Users/example/projects/cmux",
-                homeDirectoryPath: "/Users/example"
-            ),
-            "~/projects/cmux"
-        )
-    }
-
-    func testShortenedPathLeavesExternalPathUnchanged() {
-        XCTAssertEqual(
-            SidebarPathFormatter.shortenedPath(
-                "/tmp/cmux",
-                homeDirectoryPath: "/Users/example"
-            ),
-            "/tmp/cmux"
-        )
-    }
-}
-
 final class GhosttyConfigTests: XCTestCase {
     private struct RGB: Equatable {
         let red: Int
