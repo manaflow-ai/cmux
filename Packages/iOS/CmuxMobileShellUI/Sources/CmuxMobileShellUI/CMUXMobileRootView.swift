@@ -123,18 +123,12 @@ struct CMUXMobileRootView: View {
         }
         #endif
         .onChange(of: authManager.selectedTeamID) { _, _ in
-            // The user switched Stack teams (from the nav drawer). Lazily re-scope
-            // the team-bound state (presence, registry, paired-Mac backup,
-            // aggregation) to the new team without dropping the live terminal. The
-            // drawer only writes `selectedTeamID`; this is the single observation
-            // point, so every entrypoint that changes the team flows through here.
+            // Team changes lazily re-scope team-bound state without dropping
+            // the live terminal.
             store.currentTeamDidChange()
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: authManager.currentUser?.id) { _, _ in
-            // Cached-session restore can publish `isAuthenticated` before the
-            // concrete Stack user object arrives. Paired-Mac restore is user-scoped,
-            // so retry the stored-Mac reconnect as soon as that scope exists.
             reconnectStoredMacIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
@@ -368,11 +362,7 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Starts the stored-Mac reconnect when authenticated, unless a UITest attach
-    /// URL took over. Called from both initial `onAppear` (covers a mount that is
-    /// already authenticated) and `onChange(of: isAuthenticated)` (covers a
-    /// sign-in that completes after mount) so the restoring gate always resolves
-    /// even when the auth state never transitions while this view is mounted.
+    /// Starts the stored-Mac reconnect once authenticated and account-scoped.
     private func reconnectStoredMacIfNeeded() {
         guard isAuthenticated else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()

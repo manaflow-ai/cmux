@@ -1618,10 +1618,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // blocks the others.
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
-                  await isScopeCurrent(scope),
-                  let (host, port) = reachableRoute(mac) else { break }
-            // Best-effort registry refresh for this Mac in the background.
-            refreshRoutesFromRegistry(for: mac, scope: scope)
+                  await isScopeCurrent(scope) else { break }
+            let mac = await reconnectMacAfterRegistryRefresh(mac, scope: scope) ?? mac
+            guard let (host, port) = reachableRoute(mac) else { continue }
             await connectStoredMacHost(
                 name: mac.displayName ?? host, host: host, port: port,
                 pairedMacDeviceID: mac.macDeviceID)
@@ -1657,70 +1656,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = true
     }
 
-    /// Best-effort, non-blocking registry refresh for the active paired Mac.
-    ///
-    /// Runs detached so it never adds latency to the in-flight reconnect (which
-    /// connects on the locally persisted routes). When the registry returns
-    /// usable, *different* routes for this Mac, they are written back into the
-    /// store so the next reconnect trigger (network change / Retry) reaches the
-    /// Mac at its current address after it moved networks or changed port. A
-    /// missing registry, an unauthorized call, or no-change routes are no-ops, so
-    /// a registry outage never disturbs the locally stored routes.
-    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) {
-        guard let deviceRegistry, let pairedMacStore else { return }
-        let macDeviceID = mac.macDeviceID
-        let localRoutes = mac.routes
-        let displayName = mac.displayName
-        Task { [weak self] in
-            let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID)
-            guard let updated = DeviceRegistryService.selectReconnectRoutes(
-                local: localRoutes,
-                registry: registryRoutes
-            ) else { return }
-            guard let self else { return }
-            // The network await above suspended; the user may have signed out,
-            // switched accounts, forgotten this Mac, or switched the active Mac
-            // meanwhile. Re-evaluate against the *current* store/identity before
-            // the `markActive: true` upsert, so a stale refresh can never
-            // resurrect or reactivate a pairing the user removed. Pass the
-            // captured account/team scope through every store call so a team
-            // switch cannot make this old-team refresh write into the new team.
-            guard await self.isScopeCurrent(scope) else { return }
-            let activeMacID: String?
-            do {
-                activeMacID = try await pairedMacStore.activeMac(
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )?.macDeviceID
-            } catch {
-                mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
-                return
-            }
-            guard await self.isScopeCurrent(scope) else { return }
-            guard DeviceRegistryService.shouldApplyRegistryRefresh(
-                isSignedIn: self.isSignedIn,
-                capturedUserID: scope.userID,
-                currentUserID: self.identityProvider?.currentUserID ?? scope.userID,
-                activeMacID: activeMacID,
-                targetMacID: macDeviceID
-            ) else { return }
-            do {
-                try await pairedMacStore.upsert(
-                    macDeviceID: macDeviceID,
-                    displayName: displayName,
-                    routes: updated,
-                    markActive: true,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID,
-                    now: Date()
-                )
-            } catch {
-                mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
-                return
-            }
-            if await self.isScopeCurrent(scope) {
-                await self.loadPairedMacs()
-            }
+    private func reconnectMacAfterRegistryRefresh(
+        _ mac: MobilePairedMac,
+        scope: MobileShellScopeSnapshot
+    ) async -> MobilePairedMac? {
+        guard let deviceRegistry, let pairedMacStore else { return nil }
+        let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: mac.macDeviceID)
+        guard let routes = DeviceRegistryService.selectReconnectRoutes(
+            local: mac.routes,
+            registry: registryRoutes
+        ), await isScopeCurrent(scope) else { return nil }
+        do {
+            try await pairedMacStore.upsert(
+                macDeviceID: mac.macDeviceID,
+                displayName: mac.displayName,
+                routes: routes,
+                markActive: mac.isActive,
+                stackUserID: scope.userID,
+                teamID: scope.teamID,
+                now: Date()
+            )
+            if await isScopeCurrent(scope) { await loadPairedMacs() }
+            return MobilePairedMac(
+                macDeviceID: mac.macDeviceID,
+                displayName: mac.displayName,
+                routes: routes,
+                createdAt: mac.createdAt,
+                lastSeenAt: Date(),
+                isActive: mac.isActive,
+                stackUserID: mac.stackUserID,
+                teamID: mac.teamID,
+                customName: mac.customName,
+                customColor: mac.customColor,
+                customIcon: mac.customIcon
+            )
+        } catch {
+            mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
+            return nil
         }
     }
 
