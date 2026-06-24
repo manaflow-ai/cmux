@@ -231,6 +231,7 @@ final class AgentHibernationController {
         // hibernate, broken down by the planner's exclusion reasons so the gap is
         // diagnosable from the debug log. Only logged when restorable records exist,
         // so it stays quiet on idle systems.
+        #if DEBUG
         if !records.isEmpty {
             let idleCount = plannerInputs.filter { $0.lifecycle.allowsHibernation }.count
             let unconfirmedInput = plannerInputs.filter { $0.hasUnconfirmedTerminalInput }.count
@@ -242,6 +243,7 @@ final class AgentHibernationController {
                     + "selected=\(selectedKeys.count)"
             )
         }
+        #endif
         let currentKeys = Set(records.map(\.key))
         pruneTrackingState(currentKeys: currentKeys, selectedKeys: selectedKeys)
 

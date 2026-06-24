@@ -1278,10 +1278,12 @@ struct RestorableAgentSessionIndex: Sendable {
         // `claude --resume` errors cleanly if the transcript is truly gone, which beats
         // permanent invisibility. Log the gap so it stays diagnosable, not silent.
         if record.isRestorable == true {
+            #if DEBUG
             cmuxDebugLog(
                 "agentHib.restorable.claudeTranscriptMissing session=\(record.sessionId.prefix(8)) "
                     + "transcriptPath=\(record.transcriptPath ?? "<nil>") — trusting isRestorable=true"
             )
+            #endif
             return true
         }
         return false
