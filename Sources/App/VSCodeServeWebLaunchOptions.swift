@@ -56,14 +56,8 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
         let userDataDirectoryURL = serverDataDirectoryURL.appendingPathComponent("user-data", isDirectory: true)
 
         do {
-            try fileManager.createDirectory(
-                at: serverDataDirectoryURL,
-                withIntermediateDirectories: true
-            )
-            try fileManager.createDirectory(
-                at: userDataDirectoryURL,
-                withIntermediateDirectories: true
-            )
+            try createSecureDirectory(serverDataDirectoryURL, fileManager: fileManager)
+            try createSecureDirectory(userDataDirectoryURL, fileManager: fileManager)
         } catch {
             vscodeServeWebLogger.error(
                 "Failed to create VS Code serve-web directories: \(error.localizedDescription, privacy: .private)"
@@ -100,6 +94,18 @@ nonisolated struct VSCodeServeWebLaunchOptions: Equatable {
             connectionTokenFileURL: connectionTokenFileURL,
             allowsEphemeralPortFallback: false
         )
+    }
+
+    private static func createSecureDirectory(_ url: URL, fileManager: FileManager) throws {
+        let attributes: [FileAttributeKey: Any] = [
+            .posixPermissions: 0o700,
+        ]
+        try fileManager.createDirectory(
+            at: url,
+            withIntermediateDirectories: true,
+            attributes: attributes
+        )
+        try fileManager.setAttributes(attributes, ofItemAtPath: url.path)
     }
 
     private static func resolveServerDataDirectoryURL(

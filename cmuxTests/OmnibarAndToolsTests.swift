@@ -450,6 +450,17 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
         )
     }
 
+    private func assertDirectoryPermissions(
+        _ url: URL,
+        _ expectedPermissions: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let permissions = try XCTUnwrap(attributes[.posixPermissions] as? NSNumber, file: file, line: line)
+        XCTAssertEqual(permissions.intValue & 0o777, expectedPermissions, file: file, line: line)
+    }
+
     func testResolveCreatesStableDataDirectoryPortAndTokenFile() throws {
         try withTemporaryDirectory { appSupportURL in
             try withDefaults { defaults in
@@ -486,6 +497,8 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                     first.serverDataDirectoryURL.appendingPathComponent("user-data", isDirectory: true).path
                 )
                 XCTAssertTrue(FileManager.default.fileExists(atPath: first.userDataDirectoryURL.path))
+                try assertDirectoryPermissions(first.serverDataDirectoryURL, 0o700)
+                try assertDirectoryPermissions(first.userDataDirectoryURL, 0o700)
                 XCTAssertEqual(first.connectionTokenFileURL, second.connectionTokenFileURL)
                 XCTAssertEqual(first.connectionTokenFileURL.lastPathComponent, "connection-token")
                 XCTAssertEqual(firstTokenData, secondTokenData)
@@ -500,6 +513,27 @@ final class VSCodeServeWebLaunchOptionsTests: XCTestCase {
                 XCTAssertFalse(first.arguments(includeUserDataDirectory: false).contains("--user-data-dir"))
                 XCTAssertFalse(first.arguments(includeUserDataDirectory: false).contains(first.userDataDirectoryURL.path))
             }
+        }
+    }
+
+    func testResolveRepairsPermissiveServeWebDirectoryPermissions() throws {
+        try withTemporaryDirectory { rootURL in
+            let dataDirectoryURL = rootURL.appendingPathComponent("permissive-data", isDirectory: true)
+            let userDataDirectoryURL = dataDirectoryURL.appendingPathComponent("user-data", isDirectory: true)
+            try FileManager.default.createDirectory(at: userDataDirectoryURL, withIntermediateDirectories: true)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dataDirectoryURL.path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: userDataDirectoryURL.path)
+
+            _ = try withDefaults { defaults in
+                try XCTUnwrap(VSCodeServeWebLaunchOptions.resolve(
+                    environment: [VSCodeServeWebLaunchOptions.dataDirectoryEnvironmentKey: dataDirectoryURL.path],
+                    defaults: defaults,
+                    applicationSupportDirectoryURL: rootURL
+                ))
+            }
+
+            try assertDirectoryPermissions(dataDirectoryURL, 0o700)
+            try assertDirectoryPermissions(userDataDirectoryURL, 0o700)
         }
     }
 

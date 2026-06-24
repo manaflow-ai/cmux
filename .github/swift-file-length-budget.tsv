@@ -50,8 +50,8 @@
 1949	Sources/Panels/BrowserWebAuthnSupport.swift
 1945	Sources/RestorableAgentSession.swift
 1900	cmuxTests/NotificationAndMenuBarTests.swift
+1832	cmuxTests/OmnibarAndToolsTests.swift
 1810	Sources/SessionIndexStore.swift
-1798	cmuxTests/OmnibarAndToolsTests.swift
 1748	Sources/WindowDragHandleView.swift
 1732	cmuxTests/WorkspacePullRequestSidebarTests.swift
 1687	cmuxTests/MarkdownPanelTests.swift
