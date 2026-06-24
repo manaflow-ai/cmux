@@ -1,6 +1,50 @@
+import AppKit
 import Foundation
 import WebKit
 import CmuxBrowser
+import CmuxBrowserUI
+
+/// App-side composition that wires the moved ``BrowserDataImportCoordinator``
+/// (in `CmuxBrowserUI`) to its app-owned dependencies: the destination profile
+/// store (`BrowserProfileStore`, the `BrowserImportProfileResolving` conformer)
+/// and the WebKit/history-backed import persistence (`BrowserProfileImportPersistence`).
+///
+/// The coordinator's `.shared` seam stays in the package, which never names these
+/// app types; this installer injects them through the package's instance
+/// `configure(profileResolver:importPersistence:)` at app launch so every import
+/// entrypoint (Settings, menus, command palette, control socket) drives the same
+/// real stores it did before the coordinator was extracted. It registers itself
+/// via `+load` for `applicationDidFinishLaunching` so the wiring runs from the
+/// composition root without depending on any one entrypoint being hit first.
+@MainActor
+enum BrowserDataImportComposition {
+    static func install() {
+        BrowserDataImportCoordinator.shared.configure(
+            profileResolver: BrowserProfileStore.shared,
+            importPersistence: BrowserProfileImportPersistence()
+        )
+    }
+}
+
+/// Registers ``BrowserDataImportComposition/install()`` to run once at app launch.
+/// `+load` only schedules the launch observer; the actual `@MainActor` wiring runs
+/// when `applicationDidFinishLaunching` fires. `@objc` keeps the class (and its
+/// `+load`) registered with the Objective-C runtime even though no Swift code
+/// references it, so the wiring installs without any composition-root call site.
+@objc(BrowserDataImportCompositionInstaller)
+final class BrowserDataImportCompositionInstaller: NSObject {
+    override class func load() {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didFinishLaunchingNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated {
+                BrowserDataImportComposition.install()
+            }
+        }
+    }
+}
 
 /// App-side `BrowserImportPersisting` sink that writes a ``BrowserDataImporter``'s
 /// parsed records into the per-profile WebKit cookie store and history store

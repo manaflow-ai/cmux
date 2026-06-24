@@ -2,6 +2,7 @@ import XCTest
 import Combine
 import AppKit
 import CmuxBrowser
+import CmuxBrowserUI
 import Testing
 import SwiftUI
 import UniformTypeIdentifiers
@@ -173,7 +174,7 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
     @MainActor
     func testSpecificWindowLookupDoesNotReturnFieldFromAnotherWindow() {
         let panelId = UUID()
-        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let registry = BrowserOmnibarNativeFieldRegistry()
         let firstWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
             styleMask: [.titled],
@@ -212,7 +213,7 @@ final class BrowserOmnibarNativeFieldRegistryTests: XCTestCase {
     @MainActor
     func testNilWindowLookupPrefersAttachedFieldBeforeDetachedField() {
         let panelId = UUID()
-        let registry = BrowserOmnibarNativeFieldRegistry.shared
+        let registry = BrowserOmnibarNativeFieldRegistry()
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
             styleMask: [.titled],

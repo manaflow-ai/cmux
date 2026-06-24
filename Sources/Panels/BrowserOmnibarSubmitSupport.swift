@@ -1,14 +1,11 @@
 import CmuxBrowser
 import Foundation
 
-/// Field-editor state captured synchronously at Return time. The published
-/// SwiftUI buffer and the debounced suggestion list can lag behind what the
-/// field actually displays, so submit decisions must start from this snapshot.
-struct OmnibarLiveFieldSnapshot: Equatable {
-    var text: String
-    var selectionRange: NSRange?
-    var hasMarkedText: Bool
-}
+// OmnibarLiveFieldSnapshot moved to CmuxBrowser
+// (Sources/CmuxBrowser/Omnibar/Engine/OmnibarLiveFieldSnapshot.swift) as a
+// Sendable value type, shared between the AppKit omnibar field editor in
+// CmuxBrowserUI and this submit-decision logic. Reachable here via `import
+// CmuxBrowser` above.
 
 enum OmnibarSubmitDecision: Equatable {
     case commitSelectedSuggestion

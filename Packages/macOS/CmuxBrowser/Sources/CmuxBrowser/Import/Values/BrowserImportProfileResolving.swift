@@ -23,6 +23,17 @@ public protocol BrowserImportProfileResolving {
     /// - Parameter rawName: The requested name; trimmed of surrounding whitespace.
     /// - Returns: The created profile, or `nil` when the trimmed name is empty.
     func createProfile(named rawName: String) -> BrowserProfileDefinition?
+
+    /// The profile the import wizard falls back to when no destination is
+    /// otherwise resolvable (the most recently used profile, or the built-in
+    /// default).
+    var effectiveLastUsedProfileID: UUID { get }
+
+    /// The human-readable name for a profile id, falling back to the default
+    /// profile name when the id is unknown.
+    /// - Parameter id: The profile id.
+    /// - Returns: The profile's display name, or the default name.
+    func displayName(for id: UUID) -> String
 }
 
 extension BrowserProfileRepository: BrowserImportProfileResolving {}

@@ -1,23 +1,34 @@
 #if DEBUG
 import AppKit
+import CmuxFeedUI
 import CmuxFoundation
 import SwiftUI
 
-enum FeedButtonDebugVisualStyle: String, CaseIterable, Identifiable {
-    case solid
-    case glass
-    case standardGlass
-    case standardTintedGlass
-    case nativeGlass
-    case nativeProminentGlass
-    case liquid
-    case halo
-    case command
-    case commandLight
-    case outline
-    case flat
+/// The persisted visual treatment lives in the package (``FeedButtonVisualStyle``);
+/// the debug window's picker concerns (a localized `label`, `CaseIterable`,
+/// `Identifiable`) stay app-side as this extension so localization does not leak
+/// into the package.
+typealias FeedButtonDebugVisualStyle = FeedButtonVisualStyle
 
-    var id: String { rawValue }
+extension FeedButtonDebugVisualStyle: @retroactive CaseIterable, @retroactive Identifiable {
+    public static var allCases: [FeedButtonDebugVisualStyle] {
+        [
+            .solid,
+            .glass,
+            .standardGlass,
+            .standardTintedGlass,
+            .nativeGlass,
+            .nativeProminentGlass,
+            .liquid,
+            .halo,
+            .command,
+            .commandLight,
+            .outline,
+            .flat,
+        ]
+    }
+
+    public var id: String { rawValue }
 
     var label: String {
         switch self {
@@ -49,11 +60,8 @@ enum FeedButtonDebugVisualStyle: String, CaseIterable, Identifiable {
     }
 }
 
-enum FeedButtonDebugColorRole: String {
-    case background
-    case hoverBackground
-    case foreground
-}
+/// The color slot being resolved lives in the package (``FeedButtonColorRole``).
+typealias FeedButtonDebugColorRole = FeedButtonColorRole
 
 enum FeedButtonDebugPalettePreset: String, CaseIterable, Identifiable {
     case system
@@ -351,6 +359,31 @@ enum FeedButtonDebugSettings {
 
     static var borderWidth: Double {
         double(forKey: borderWidthKey, defaultValue: 0.9)
+    }
+
+    /// Builds the provider the Feed view tree installs into the SwiftUI
+    /// environment so every package ``FeedButton`` renders the current debug
+    /// settings. The closure re-reads the static settings on each call (kept in
+    /// step with the `generation` `@AppStorage` counter), so a debug-window
+    /// change re-styles every live button exactly as the legacy in-button reads
+    /// did.
+    static var styleProvider: FeedButtonDebugStyleProvider {
+        FeedButtonDebugStyleProvider { kind, colorScheme in
+            FeedButtonDebugStyle(
+                visualStyle: visualStyle,
+                compactCornerRadius: CGFloat(compactCornerRadius),
+                mediumCornerRadius: CGFloat(mediumCornerRadius),
+                compactHorizontalPadding: CGFloat(compactHorizontalPadding),
+                mediumHorizontalPadding: CGFloat(mediumHorizontalPadding),
+                compactVerticalPadding: CGFloat(compactVerticalPadding),
+                mediumVerticalPadding: CGFloat(mediumVerticalPadding),
+                glassTintOpacity: glassTintOpacity,
+                borderWidth: CGFloat(borderWidth),
+                color: { role in
+                    color(for: kind, role: role, colorScheme: colorScheme)
+                }
+            )
+        }
     }
 
     static func color(
@@ -749,12 +782,12 @@ enum FeedButtonDebugPreset: String, CaseIterable, Identifiable {
 
 }
 
-extension FeedButton.Kind: CaseIterable, Identifiable {
-    static var allCases: [FeedButton.Kind] {
+extension FeedButton.Kind: @retroactive CaseIterable, @retroactive Identifiable {
+    public static var allCases: [FeedButton.Kind] {
         [.ghost, .soft, .dark, .light, .primary, .success, .warning, .destructive]
     }
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
     var debugLabel: String {
         switch self {
@@ -904,6 +937,11 @@ private struct FeedButtonStyleDebugView: View {
         .onChange(of: mediumVerticalPadding) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
         .onChange(of: glassTintOpacity) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
         .onChange(of: borderWidth) { _, _ in FeedButtonDebugSettings.bumpGeneration() }
+        // Install the app-side Feed Button Style debug settings into the
+        // environment so the preview `FeedButton`s in this window render the
+        // live debug treatment being tuned here, matching pre-refactor HEAD
+        // where FeedButton read FeedButtonDebugSettings statically.
+        .feedButtonDebugStyleProvider(FeedButtonDebugSettings.styleProvider)
     }
 
     private var header: some View {

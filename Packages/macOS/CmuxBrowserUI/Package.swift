@@ -4,6 +4,7 @@ import PackageDescription
 
 let package = Package(
     name: "CmuxBrowserUI",
+    defaultLocalization: "en",
     platforms: [
         .macOS(.v14),
     ],
@@ -31,6 +32,12 @@ let package = Package(
                 .product(name: "CmuxBrowser", package: "CmuxBrowser"),
                 .product(name: "CMUXDebugLog", package: "CMUXDebugLog"),
                 .product(name: "CmuxTestSupport", package: "CmuxTestSupport"),
+            ],
+            resources: [
+                // Localized strings for the browser-data import wizard, moved
+                // from the app target with the wizard UI so `.module` resolves
+                // them in this package's bundle.
+                .process("Import/Resources"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

@@ -1,4 +1,5 @@
 import XCTest
+import CmuxBrowserUI
 import CmuxCommandPaletteUI
 import CmuxTerminal
 import AppKit
@@ -4005,9 +4006,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         attachTestResponder(field, to: window)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        registry.register(field, panelId: browserPanelId)
         defer {
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            registry.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -4075,10 +4077,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "ㄉㄚˋ"
         attachTestResponder(field, to: window)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        registry.register(field, panelId: browserPanelId)
 
         defer {
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            registry.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -4153,10 +4156,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         attachTestResponder(field, to: window)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        registry.register(field, panelId: browserPanelId)
         defer {
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
+            registry.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
