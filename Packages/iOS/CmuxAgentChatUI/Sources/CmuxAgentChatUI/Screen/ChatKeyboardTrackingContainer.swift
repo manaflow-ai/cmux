@@ -9,20 +9,33 @@ struct ChatKeyboardTrackingContainer<Transcript: View, Composer: View>: UIViewCo
     func makeUIViewController(
         context: Context
     ) -> ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Transcript>, ChatKeyboardTrackedRoot<Composer>> {
-        ChatKeyboardTrackingViewController(
+        let controller = ChatKeyboardTrackingViewController(
             transcriptView: ChatKeyboardTrackedRoot(content: transcript),
             composerView: ChatKeyboardTrackedRoot(content: composer),
             showsComposer: showsComposer
         )
+        controller.transcriptView = trackedTranscriptRoot(for: controller)
+        return controller
     }
 
     func updateUIViewController(
         _ uiViewController: ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Transcript>, ChatKeyboardTrackedRoot<Composer>>,
         context: Context
     ) {
-        uiViewController.transcriptView = ChatKeyboardTrackedRoot(content: transcript)
+        uiViewController.transcriptView = trackedTranscriptRoot(for: uiViewController)
         uiViewController.composerView = ChatKeyboardTrackedRoot(content: composer)
         uiViewController.showsComposer = showsComposer
+    }
+
+    private func trackedTranscriptRoot(
+        for controller: ChatKeyboardTrackingViewController<
+            ChatKeyboardTrackedRoot<Transcript>,
+            ChatKeyboardTrackedRoot<Composer>
+        >
+    ) -> ChatKeyboardTrackedRoot<Transcript> {
+        ChatKeyboardTrackedRoot(content: transcript) { [weak controller] frame in
+            controller?.excludedKeyboardDismissFrame = frame
+        }
     }
 }
 #endif

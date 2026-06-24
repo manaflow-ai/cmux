@@ -19,6 +19,8 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         didSet { updateComposerVisibility() }
     }
 
+    var excludedKeyboardDismissFrame: CGRect = .zero
+
     private let transcriptHostingController: UIHostingController<Transcript>
     private let composerHostingController: UIHostingController<Composer>
     private typealias ScrollSnapshot = (scrollView: ChatTranscriptUITableView, snapshot: MobileScrollViewportSnapshot)
@@ -189,6 +191,7 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
             to: window
         )
         guard transcriptFrame.contains(point) else { return false }
+        guard !excludedKeyboardDismissFrame.contains(point) else { return false }
         let composerFrame = composerHostingController.view.convert(
             composerHostingController.view.bounds,
             to: window
