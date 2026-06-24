@@ -49,13 +49,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
 
-    /// Max seconds the launch reconnect may keep the restoring gate
-    /// (``RestoringSessionView``) on screen before resolving to the
-    /// disconnected/add-device UI. A stored Mac whose route went stale makes the
-    /// connect hang on a slow timeout; this caps the visible "Restoring session…"
-    /// window so a returning user is never stuck on it. The connect keeps trying
-    /// in the background, so a later success still flips to the workspaces.
     private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
+    private static let storedMacRegistryRefreshDeadline: Duration = .milliseconds(750)
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
@@ -142,19 +137,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public private(set) var activeTicket: CmxAttachTicket?
     public private(set) var activeRoute: CmxAttachRoute?
 
-    /// True only while an actually-found stored Mac is mid-reconnect.
-    ///
-    /// Set just before awaiting the connect for a Mac resolved from the paired-Mac
-    /// store on launch (or network recovery), and cleared once that attempt
-    /// resolves. Drives the root scene's choice to show ``RestoringSessionView``
-    /// during the reconnect window instead of the empty add-device sheet.
     public private(set) var isReconnectingStoredMac: Bool = false
 
-    /// True once the first launch reconnect attempt has resolved.
-    ///
-    /// A failed or offline reconnect sets this so the root scene falls through to
-    /// the disconnected/add-device view instead of spinning on
-    /// ``RestoringSessionView`` forever.
     public private(set) var didFinishStoredMacReconnectAttempt: Bool = false
 
     /// Persisted hint that this device has previously paired a Mac.
@@ -1619,7 +1603,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope) else { break }
-            let mac = await reconnectMacAfterRegistryRefresh(mac, scope: scope) ?? mac
+            let mac = await reconnectMacAfterBoundedRegistryRefresh(mac, scope: scope) ?? mac
             guard let (host, port) = reachableRoute(mac) else { continue }
             await connectStoredMacHost(
                 name: mac.displayName ?? host, host: host, port: port,
@@ -1656,6 +1640,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = true
     }
 
+    private func reconnectMacAfterBoundedRegistryRefresh(
+        _ mac: MobilePairedMac,
+        scope: MobileShellScopeSnapshot
+    ) async -> MobilePairedMac? {
+        await withTaskGroup(of: MobilePairedMac?.self) { group in
+            group.addTask {
+                await Task { @MainActor in
+                    await self.reconnectMacAfterRegistryRefresh(mac, scope: scope)
+                }.value
+            }
+            group.addTask {
+                try? await ContinuousClock().sleep(for: Self.storedMacRegistryRefreshDeadline)
+                return nil
+            }
+            let result = await group.next() ?? nil
+            group.cancelAll()
+            return result
+        }
+    }
+
     private func reconnectMacAfterRegistryRefresh(
         _ mac: MobilePairedMac,
         scope: MobileShellScopeSnapshot
@@ -1666,29 +1670,40 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             local: mac.routes,
             registry: registryRoutes
         ), await isScopeCurrent(scope) else { return nil }
+        let currentMac: MobilePairedMac?
+        do {
+            currentMac = try await pairedMacStore.loadAll(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            ).first { $0.macDeviceID == mac.macDeviceID }
+        } catch {
+            mobileShellLog.debug("registry route refresh paired-mac recheck failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        guard let currentMac, await isScopeCurrent(scope) else { return nil }
         do {
             try await pairedMacStore.upsert(
-                macDeviceID: mac.macDeviceID,
-                displayName: mac.displayName,
+                macDeviceID: currentMac.macDeviceID,
+                displayName: currentMac.displayName,
                 routes: routes,
-                markActive: mac.isActive,
+                markActive: currentMac.isActive,
                 stackUserID: scope.userID,
                 teamID: scope.teamID,
                 now: Date()
             )
             if await isScopeCurrent(scope) { await loadPairedMacs() }
             return MobilePairedMac(
-                macDeviceID: mac.macDeviceID,
-                displayName: mac.displayName,
+                macDeviceID: currentMac.macDeviceID,
+                displayName: currentMac.displayName,
                 routes: routes,
-                createdAt: mac.createdAt,
+                createdAt: currentMac.createdAt,
                 lastSeenAt: Date(),
-                isActive: mac.isActive,
-                stackUserID: mac.stackUserID,
-                teamID: mac.teamID,
-                customName: mac.customName,
-                customColor: mac.customColor,
-                customIcon: mac.customIcon
+                isActive: currentMac.isActive,
+                stackUserID: currentMac.stackUserID,
+                teamID: currentMac.teamID,
+                customName: currentMac.customName,
+                customColor: currentMac.customColor,
+                customIcon: currentMac.customIcon
             )
         } catch {
             mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")

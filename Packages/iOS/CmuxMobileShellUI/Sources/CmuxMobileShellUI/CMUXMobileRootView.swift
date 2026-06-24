@@ -12,34 +12,26 @@ import AppKit
 #endif
 
 struct CMUXMobileRootView: View {
+    private static let authenticatedUserScopeWaitTimeout: Duration = .seconds(8)
+
     @Bindable var store: CMUXMobileShellStore
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AuthCoordinator.self) private var authManager
     #if os(iOS)
     @Environment(MobilePushCoordinator.self) private var pushCoordinator
-    /// The persisted first-run onboarding "seen" flag store. The one-time
-    /// onboarding screen gates ahead of the never-paired add-device state.
     private let onboardingStore: MobileOnboardingStore
-    /// Mirrors ``MobileOnboardingStore/hasSeenOnboarding`` so completing
-    /// onboarding (which calls `markSeen()` in the button action) re-renders the
-    /// root and falls through to the pairing flow. Seeded synchronously from the
-    /// store so the very first frame already reflects a prior install's state and
-    /// never flashes onboarding for a returning user.
     @State private var hasSeenOnboarding: Bool
     #endif
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
+    @State private var didTimeoutAuthenticatedUserScopeWait = false
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
-    /// The app's one tailnet detector, built at the composition root and
-    /// injected through the environment so pairing, the disconnected shell,
-    /// and future setup-help surfaces share the same signal. Re-evaluates on
-    /// connectivity changes by itself; the scene-phase handler below covers
-    /// foreground returns. `nil` when unwired (previews), which shows no
-    /// Tailscale guidance.
+    /// Shared tailnet detector for pairing/disconnected setup guidance. `nil`
+    /// when unwired (previews), which shows no Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
@@ -78,12 +70,6 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
-    /// DEBUG-only wrapper so Release/iOS archives never reference the
-    /// `#if DEBUG`-gated `WorkspaceListLayoutPreviewView` type directly (a
-    /// simulator screenshot fixture). Swift type-checks every `rootContent`
-    /// branch even when `shouldShowWorkspaceListLayoutPreview` is statically
-    /// false in Release, so gate the reference here, the same way
-    /// `terminalLayoutPreview` does, and Release compiles to `EmptyView`.
     @ViewBuilder private var workspaceListLayoutPreview: some View {
         #if os(iOS) && DEBUG
         WorkspaceListLayoutPreviewView()
@@ -105,19 +91,9 @@ struct CMUXMobileRootView: View {
             #if os(iOS)
             pushCoordinator.bind(store: store)
             #endif
-            // If the view mounts already authenticated (cached session, or a
-            // mock/fixture launch), `onChange(of: isAuthenticated)` never fires,
-            // so kick off the stored-Mac reconnect here too. Without this the
-            // workspace list's initial-connection status could never resolve
-            // because nothing updates `didFinishStoredMacReconnectAttempt`.
             reconnectStoredMacIfNeeded()
         }
         #if os(iOS)
-        // A notification tap can arrive before the workspace (or terminal) it
-        // targets is loaded (cold launch, or attach still in flight); re-apply
-        // the parked deep link as the lists fill in. The version counter is a
-        // cheap change signal: it bumps on any workspace or terminal list
-        // mutation without allocating ID arrays on every body evaluation.
         .onChange(of: store.workspaceTopologyVersion) { _, _ in
             pushCoordinator.workspacesDidChange()
         }
@@ -170,6 +146,9 @@ struct CMUXMobileRootView: View {
             syncShellAuthentication(isAuthenticated, isRestoringSession: isRestoringSession)
             guard !isRestoringSession else { return }
             _ = consumePendingURLIfReady()
+        }
+        .task(id: shouldWaitForAuthenticatedUserScopeBase) {
+            await updateAuthenticatedUserScopeDeadline()
         }
         .onChange(of: store.connectionState) { _, connectionState in
             if connectionState == .connected {
@@ -339,12 +318,31 @@ struct CMUXMobileRootView: View {
     }
 
     private var shouldWaitForAuthenticatedUserScope: Bool {
+        shouldWaitForAuthenticatedUserScopeBase && !didTimeoutAuthenticatedUserScopeWait
+    }
+
+    private var shouldWaitForAuthenticatedUserScopeBase: Bool {
         MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
             stackAuthenticated: authManager.isAuthenticated,
             attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
             connectionState: store.connectionState,
             currentUserID: authManager.currentUser?.id
         )
+    }
+
+    @MainActor
+    private func updateAuthenticatedUserScopeDeadline() async {
+        guard shouldWaitForAuthenticatedUserScopeBase else {
+            didTimeoutAuthenticatedUserScopeWait = false
+            return
+        }
+        do {
+            try await ContinuousClock().sleep(for: Self.authenticatedUserScopeWaitTimeout)
+        } catch {
+            return
+        }
+        guard shouldWaitForAuthenticatedUserScopeBase else { return }
+        didTimeoutAuthenticatedUserScopeWait = true
     }
 
     private var hasActiveAttachTicketAuthentication: Bool {
