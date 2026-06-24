@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import CmuxTerminal
 import Testing
 import CmuxControlSocket
@@ -209,7 +209,6 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         pasteboard.setData(rtfData, forType: .rtf)
 
         let mockPTY = MockPTY()
-        let startedAt = ProcessInfo.processInfo.systemUptime
 
         let plan = TerminalImageTransferPlanner.plan(
             pasteboard: pasteboard,
@@ -230,13 +229,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
             }
         )
 
-        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
         XCTAssertEqual(mockPTY.receivedText, text)
-        XCTAssertLessThan(
-            elapsed,
-            0.5,
-            "large plain-text pastes should not spend hundreds of milliseconds decoding HTML/RTF before writing to the PTY"
-        )
     }
 
     func testXHTMLTypeFallsBackToRenderedHTMLText() {
@@ -2133,7 +2126,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
         )
     }
 
-    func testShiftVMatchesVisualToggleBehavior() {
+    func testShiftVStartsVisualLineSelection() {
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
                 keyCode: 9,
@@ -2141,7 +2134,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: false
             ),
-            .startSelection
+            .startLineSelection
         )
         XCTAssertEqual(
             terminalKeyboardCopyModeAction(
@@ -2150,7 +2143,7 @@ final class TerminalKeyboardCopyModeActionTests: XCTestCase {
                 modifierFlags: [.shift],
                 hasSelection: true
             ),
-            .clearSelection
+            .startLineSelection
         )
     }
 

@@ -188,11 +188,11 @@ needed. Build a context by hand and assert evaluation:
 
 ```swift
 var context = ShortcutContext()
-context.setBool(ShortcutContextKnownKey.commandPaletteVisible.rawValue, true)
+context.setBool(ShortcutContextKnownKey.workspaceCanvasLayout.rawValue, true)
 context.setString(ShortcutContextKnownKey.sidebarMode.rawValue, "find")
 context.setInt(ShortcutContextKnownKey.paneCount.rawValue, 2)
 
-let clause = ShortcutWhenClause.parse("commandPaletteVisible && paneCount > 1")
+let clause = ShortcutWhenClause.parse("workspaceCanvasLayout && paneCount > 1")
 #expect(clause?.evaluate(context) == true)
 ```
 

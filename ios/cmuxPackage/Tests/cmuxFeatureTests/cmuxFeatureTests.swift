@@ -98,6 +98,13 @@ final class TerminalOutputCollector {
     #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
 }
 
+@Test func mobileRuntimeMapsTimedOutStackTokenToRequestTimeout() {
+    guard case .requestTimedOut = CMUXMobileRuntime.connectionError(forStackAuthError: AuthError.timedOut) else {
+        Issue.record("expected timed-out Stack token acquisition to stay retryable")
+        return
+    }
+}
+
 @MainActor
 @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
     let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
@@ -2495,16 +2502,17 @@ final class TerminalOutputCollector {
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
     let subscribeRequests = try await waitForRequestCount("mobile.events.subscribe", count: 1, router: router)
-    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "notification.dismissed", "notification.badge"])
+    #expect(subscribeRequests.first?.topics == ["workspace.updated", "terminal.render_grid", "terminal.set_font", "notification.dismissed", "notification.badge"])
 
     collector.mount(store: store, surfaceID: "live-terminal")
     _ = try await waitForRequestCount("mobile.terminal.replay", count: 1, router: router)
-    for _ in 0..<200 where collector.lines.count < 2 {
+    let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
+    for _ in 0..<200 where !collector.lines.contains(liveText) {
         try await Task.sleep(nanoseconds: 1_000_000)
     }
 
-    let liveText = try terminalRenderGridStyledReplacementText(seq: 2, text: "live")
-    #expect(collector.lines == [liveText])
+    #expect(collector.lines.contains(liveText))
+    #expect(collector.lines.last == liveText)
     #expect(liveText.contains("\u{1B}[0;1;4;38;2;255;0;0;48;2;0;0;255mlive"))
     #expect(liveText.contains("\u{1B}[6 q\u{1B}[?25h\u{1B}[2;3H"))
     collector.unmount()
@@ -3956,7 +3964,7 @@ private struct InertPushRegistration: PushRegistering {
 
     // Root view mounts: store binds already carrying the attached list.
     let store = deeplinkTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -3975,7 +3983,7 @@ private struct InertPushRegistration: PushRegistering {
     // Target not loaded yet: no navigation to an absent workspace.
     #expect(store.selectedWorkspaceID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -3994,7 +4002,7 @@ private struct InertPushRegistration: PushRegistering {
 
     currentTime = currentTime.addingTimeInterval(121)
     let store = deeplinkTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     #expect(store.selectedWorkspaceID == nil)
@@ -4015,7 +4023,7 @@ private struct InertPushRegistration: PushRegistering {
     // Nothing loaded yet: the tap must stay parked, not be spent.
     #expect(store.selectedTerminalID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
@@ -4032,16 +4040,16 @@ private struct InertPushRegistration: PushRegistering {
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: "terminal-notes")
-    store.workspaces = [
+    store.setWorkspacesForTesting([
         MobileWorkspacePreview(id: "workspace-docs", name: "Docs", terminals: [])
-    ]
+    ])
     coordinator.workspacesDidChange()
 
     // Workspace navigation happens now; the absent terminal is not selected.
     #expect(store.selectedWorkspaceID == MobileWorkspacePreview.ID(rawValue: "workspace-docs"))
     #expect(store.selectedTerminalID == nil)
 
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.workspacesDidChange()
 
     #expect(store.selectedTerminalID == MobileTerminalPreview.ID(rawValue: "terminal-notes"))
@@ -4054,7 +4062,7 @@ private struct InertPushRegistration: PushRegistering {
 @Test @MainActor func notificationTapEmitsConsumableCompactNavigationIntent() async throws {
     let coordinator = MobilePushCoordinator(registration: InertPushRegistration())
     let store = deeplinkTestStore()
-    store.workspaces = PreviewMobileHost.workspaces
+    store.setWorkspacesForTesting(PreviewMobileHost.workspaces)
     coordinator.bind(store: store)
 
     coordinator.handleTap(workspaceId: "workspace-docs", surfaceId: nil)

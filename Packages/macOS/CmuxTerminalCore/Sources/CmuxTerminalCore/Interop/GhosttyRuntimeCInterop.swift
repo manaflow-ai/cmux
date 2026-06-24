@@ -32,4 +32,5 @@ public struct GhosttyRuntimeCInterop {
     public static func clearSelection(_ surface: ghostty_surface_t) -> Bool {
         cmux_ghostty_surface_clear_selection(surface)
     }
+
 }

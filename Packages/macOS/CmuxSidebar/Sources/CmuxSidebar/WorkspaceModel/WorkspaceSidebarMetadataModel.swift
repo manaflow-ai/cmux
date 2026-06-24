@@ -149,6 +149,15 @@ public final class WorkspaceSidebarMetadataModel {
         panelPullRequestsSubject.eraseToAnyPublisher()
     }
 
+    /// Emits a sidebar observation pulse without mutating metadata.
+    ///
+    /// The app target uses this when the rendered workspace-row snapshot changes
+    /// because of workspace-owned fields that are not stored in this metadata
+    /// model but intentionally share the same sidebar refresh pipeline.
+    public func invalidateWorkspaceObservation() {
+        statusEntriesSubject.send(statusEntries)
+    }
+
     /// Upserts a sidebar status entry under its key (legacy
     /// `Workspace.statusEntries[entry.key] = entry`).
     /// - Parameter entry: The status entry to store; keyed by `entry.key`.
