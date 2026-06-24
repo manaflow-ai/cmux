@@ -1,5 +1,5 @@
-import XCTest
 import AppKit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -11,45 +11,50 @@ import AppKit
 /// wheels) being double-amplified in the terminal. Such mice report precise
 /// scrolling deltas like a trackpad but carry no gesture phase, so the 2x boost
 /// must not apply to them.
-final class GhosttyScrollPreciseBoostTests: XCTestCase {
-    func testTrackpadGesturePhaseGetsBoost() {
-        XCTAssertTrue(
-            GhosttyNSView.shouldDoublePreciseScrollDelta(
+@Suite
+struct GhosttyScrollPreciseBoostTests {
+    @Test
+    func trackpadGesturePhaseGetsBoost() {
+        #expect(
+            GhosttyTerminalScrollBoost(
                 hasPreciseScrollingDeltas: true,
                 phase: .changed,
                 momentumPhase: []
-            )
+            ).shouldDoublePreciseScrollDelta
         )
     }
 
-    func testTrackpadMomentumPhaseGetsBoost() {
-        XCTAssertTrue(
-            GhosttyNSView.shouldDoublePreciseScrollDelta(
+    @Test
+    func trackpadMomentumPhaseGetsBoost() {
+        #expect(
+            GhosttyTerminalScrollBoost(
                 hasPreciseScrollingDeltas: true,
                 phase: [],
                 momentumPhase: .changed
-            )
+            ).shouldDoublePreciseScrollDelta
         )
     }
 
-    func testHighResMouseWithoutPhaseIsNotBoosted() {
+    @Test
+    func highResMouseWithoutPhaseIsNotBoosted() {
         // Logitech free-spin wheel: precise deltas, no phase, no momentum.
-        XCTAssertFalse(
-            GhosttyNSView.shouldDoublePreciseScrollDelta(
+        #expect(
+            !GhosttyTerminalScrollBoost(
                 hasPreciseScrollingDeltas: true,
                 phase: [],
                 momentumPhase: []
-            )
+            ).shouldDoublePreciseScrollDelta
         )
     }
 
-    func testNotchedMouseIsNotBoosted() {
-        XCTAssertFalse(
-            GhosttyNSView.shouldDoublePreciseScrollDelta(
+    @Test
+    func notchedMouseIsNotBoosted() {
+        #expect(
+            !GhosttyTerminalScrollBoost(
                 hasPreciseScrollingDeltas: false,
                 phase: [],
                 momentumPhase: []
-            )
+            ).shouldDoublePreciseScrollDelta
         )
     }
 }
