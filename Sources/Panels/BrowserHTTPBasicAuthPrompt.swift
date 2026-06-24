@@ -122,6 +122,7 @@ private func browserDismissHTTPBasicAuthPrompt(_ alert: NSAlert) {
     }
 }
 
+@MainActor
 func browserHandleHTTPBasicAuthenticationChallenge(
     in webView: WKWebView,
     challenge: URLAuthenticationChallenge,
@@ -242,12 +243,6 @@ func browserHandleHTTPBasicAuthenticationChallenge(
         }
     }
 
-    if Thread.isMainThread {
-        presentPrompt()
-    } else {
-        Task { @MainActor in
-            presentPrompt()
-        }
-    }
+    presentPrompt()
     return true
 }
