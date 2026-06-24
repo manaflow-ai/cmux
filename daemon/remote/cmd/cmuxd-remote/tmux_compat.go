@@ -1506,7 +1506,17 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 
 	targetWs, _, targetSurface, err := tmuxResolveSurfaceTarget(rc, p.value("-t"))
 	if err != nil {
-		return err
+		if p.value("-t") != "" {
+			return err // explicit target was invalid — don't fall back
+		}
+		// No explicit target; surface resolution can fail when env vars
+		// are missing or stale. Fall back to resolving just the workspace
+		// and let the server pick the focused surface for the split.
+		targetWs, err = tmuxResolveWorkspaceTarget(rc, p.value("-t"))
+		if err != nil {
+			return err
+		}
+		targetSurface = ""
 	}
 
 	direction := "down"
