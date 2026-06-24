@@ -51,7 +51,7 @@ struct BrowserWebContentProcessTests {
             }
         )
         #expect(webAuthnScript.injectionTime == .atDocumentStart)
-        #expect(webAuthnScript.isForMainFrameOnly == false)
+        #expect(webAuthnScript.isForMainFrameOnly)
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240),
             configuration: configuration

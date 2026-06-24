@@ -23,14 +23,7 @@ enum BrowserWebAuthnBridgeContract {
             if (window.isSecureContext !== true) {
               return false;
             }
-            if (window.self === window.top) {
-              return true;
-            }
-            try {
-              return window.top.location.origin === window.location.origin;
-            } catch (_) {
-              return false;
-            }
+            return window.self === window.top;
           };
 
           if (!currentFrameMayUseWebAuthn()) {
@@ -736,7 +729,7 @@ private struct BrowserWebAuthnClientDataContext {
               topLevelOrigin?.isPotentiallyTrustworthyWebAuthnOrigin ?? true else {
             throw BrowserWebAuthnBridgeError.security("Passkey access requires a secure origin.")
         }
-        guard crossOrigin != .crossOrigin else {
+        guard crossOrigin == nil else {
             throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
         }
     }

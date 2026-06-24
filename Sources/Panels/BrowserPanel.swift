@@ -3690,7 +3690,7 @@ final class BrowserPanel: Panel, ObservableObject {
             WKUserScript(
                 source: BrowserWebAuthnBridgeContract.scriptSource,
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: false,
+                forMainFrameOnly: true,
                 in: .page
             )
         )
