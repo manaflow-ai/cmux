@@ -153,11 +153,6 @@ public struct ChatScreen: View {
         }
         .animation(.snappy(duration: 0.2), value: store.lastErrorDescription)
         .animation(.snappy(duration: 0.22), value: store.agentState == .ended)
-        .modifier(ChatScreenChrome(
-            store: store,
-            providesOwnChrome: providesOwnChrome,
-            onOpenTerminal: onOpenTerminal
-        ))
         #if os(iOS)
         .onPreferenceChange(ChatTranscriptFramePreferenceKey.self) { frame in
             transcriptFrame = frame
@@ -171,6 +166,11 @@ public struct ChatScreen: View {
         .dismissesKeyboardOnTap(in: transcriptDismissRegion, excluding: scrollButtonFrame)
         .modifier(ChatKeyboardTrackingLayout())
         #endif
+        .modifier(ChatScreenChrome(
+            store: store,
+            providesOwnChrome: providesOwnChrome,
+            onOpenTerminal: onOpenTerminal
+        ))
         .task { await store.run() }
         #if canImport(UIKit)
         .onChange(of: store.rows.last?.id) { announceLatestAgentProse() }
