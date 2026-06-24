@@ -5954,7 +5954,7 @@ extension BrowserPanel {
         estimatedProgress = 0
         nativeCanGoBack = false
         nativeCanGoForward = false
-        navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
+        navigationDelegate?.clearSSLTrustState()
         abandonRestoredSessionHistoryIfNeeded()
 
         pendingAddressBarFocusRequestId = nil
@@ -8614,6 +8614,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if discardPendingBypasses {
             sslBypassState.clearPendingBypasses()
         }
+        lastAttemptedRequest = nil
+        lastAttemptedURL = nil
+    }
+
+    func clearSSLTrustState() {
+        sslBypassState.clearAllTrustState()
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
     }

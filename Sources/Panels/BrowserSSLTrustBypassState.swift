@@ -113,6 +113,14 @@ final class BrowserSSLTrustBypassState {
         pendingTokenOrder.removeAll()
     }
 
+    func clearAllTrustState() {
+        clearPendingBypasses()
+        observedFingerprints.removeAll()
+        observedFingerprintOrder.removeAll()
+        bypassedTrusts.removeAll()
+        bypassedTrustOrder.removeAll()
+    }
+
     private func purgeExpiredPendingBypasses(now currentDate: Date) {
         pendingBypasses = pendingBypasses.filter { $0.value.expiresAt > currentDate }
         pendingTokenOrder.removeAll { pendingBypasses[$0] == nil }

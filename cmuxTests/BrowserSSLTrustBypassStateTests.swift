@@ -132,4 +132,20 @@ struct BrowserSSLTrustBypassStateTests {
         #expect(!state.isBypassed(scope: firstScope, fingerprint: firstFingerprint))
         #expect(state.isBypassed(scope: secondScope, fingerprint: secondFingerprint))
     }
+
+    @Test
+    func clearingAllTrustStateRemovesAcceptedGrantsAndObservedFingerprints() throws {
+        let state = BrowserSSLTrustBypassState()
+        let url = try #require(URL(string: "https://reset.internal"))
+        let scope = try #require(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+        let actionURL = try #require(state.createPendingBypassAction(for: URLRequest(url: url)))
+        _ = try #require(state.consumePendingBypassAction(actionURL))
+
+        state.clearAllTrustState()
+
+        #expect(!state.isBypassed(scope: scope, fingerprint: fingerprint))
+        #expect(state.createPendingBypassAction(for: URLRequest(url: url)) == nil)
+    }
 }
