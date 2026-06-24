@@ -178,6 +178,73 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         clickCancelOnCloseWorkspacesAlert(app: app)
     }
 
+    func testCmdShiftWTargetsFocusedWindowWorkspaceWhenMultipleWindowsAreOpen() {
+        let app = XCUIApplication()
+        let recorderPath = "/tmp/cmux-ui-test-close-workspace-focused-window-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: recorderPath)
+        configureSocketLaunchEnvironment(app)
+        app.launchEnvironment["CMUX_UI_TEST_KEYEQUIV_PATH"] = recorderPath
+        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
+        app.launch()
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: 12.0),
+            "Expected app to launch for focused-window workspace close test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 12.0),
+            "Expected control socket to respond at \(socketPath). diagnostics=\(loadJSON(atPath: diagnosticsPath) ?? [:])"
+        )
+
+        let focusedWindowId = requireUUID(from: socketCommand("current_window"), context: "initial current_window")
+        let focusedWorkspaceId = requireUUID(
+            from: socketCommand("new_workspace focused-window-target"),
+            context: "new workspace in focused window"
+        )
+        XCTAssertEqual(socketCommand("current_workspace"), focusedWorkspaceId)
+
+        _ = requireUUID(from: socketCommand("new_window"), context: "new_window")
+        let otherWorkspaceId = requireUUID(
+            from: socketCommand("new_workspace other-window-target"),
+            context: "new workspace in other window"
+        )
+        XCTAssertEqual(socketCommand("current_workspace"), otherWorkspaceId)
+
+        XCTAssertEqual(socketCommand("focus_window \(focusedWindowId)"), "OK")
+        XCTAssertTrue(
+            waitForKeyWindow(focusedWindowId, timeout: 5.0),
+            "Expected focus_window to make the first cmux window key before Cmd+Shift+W. windows=\(socketCommand("list_windows") ?? "<nil>")"
+        )
+        XCTAssertEqual(socketCommand("current_workspace"), focusedWorkspaceId)
+
+        app.typeKey("w", modifierFlags: [.command, .shift])
+
+        let target = waitForJSONKey(
+            "closeConfirmationTargetWorkspaceId",
+            equals: focusedWorkspaceId,
+            atPath: recorderPath,
+            timeout: 5.0
+        )
+        XCTAssertEqual(
+            target?["closeConfirmationTargetWindowId"],
+            focusedWindowId,
+            "Cmd+Shift+W should target the selected workspace in the focused/key window, not the other cmux window. recorder=\(target ?? loadJSON(atPath: recorderPath) ?? [:])"
+        )
+
+        let presentation = waitForJSONKey(
+            "closeConfirmationHostWindowId",
+            equals: focusedWindowId,
+            atPath: recorderPath,
+            timeout: 5.0
+        )
+        XCTAssertEqual(
+            presentation?["closeConfirmationPresentation"],
+            "sheet",
+            "Close workspace confirmation should attach to the same focused window that owns the target workspace. recorder=\(presentation ?? loadJSON(atPath: recorderPath) ?? [:])"
+        )
+
+        clickCancelOnCloseWorkspaceAlert(app: app)
+    }
+
     private func configureSocketLaunchEnvironment(_ app: XCUIApplication) {
         app.launchArguments += ["-socketControlMode", "allowAll"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -222,7 +289,22 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
             }
         )
         if let resolvedPath { socketPath = resolvedPath }
-        return ready
+        if ready {
+            return true
+        }
+        if let diagnostics = loadJSON(atPath: diagnosticsPath),
+           controlSocketDiagnosticsReportReady(diagnostics) {
+            if let expectedPath = diagnostics["socketExpectedPath"],
+               !expectedPath.isEmpty,
+               FileManager.default.fileExists(atPath: expectedPath) {
+                socketPath = expectedPath
+                return true
+            } else if let readyCandidate = socketCandidates().first(where: { FileManager.default.fileExists(atPath: $0) }) {
+                socketPath = readyCandidate
+                return true
+            }
+        }
+        return false
     }
 
     private func socketCandidates() -> [String] {
@@ -284,8 +366,8 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         return json
     }
 
-    private func socketCommand(_ cmd: String, responseTimeout: TimeInterval = 2.0) -> String? {
-        if let response = ControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(cmd) {
+    func socketCommand(_ cmd: String, responseTimeout: TimeInterval = 2.0) -> String? {
+        if let response = CloseWorkspacesControlSocketClient(path: socketPath, responseTimeout: responseTimeout).sendLine(cmd) {
             return response
         }
         return socketCommandViaNetcat(cmd, responseTimeout: responseTimeout)
@@ -356,6 +438,23 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         }
     }
 
+    private func clickCancelOnCloseWorkspaceAlert(app: XCUIApplication) {
+        let dialog = closeWorkspaceDialog(app: app)
+        if dialog.exists {
+            dialog.buttons["Cancel"].firstMatch.click()
+            return
+        }
+        let alert = closeWorkspaceAlert(app: app)
+        if alert.exists {
+            alert.buttons["Cancel"].firstMatch.click()
+            return
+        }
+        let anyDialog = app.dialogs.firstMatch
+        if anyDialog.exists, anyDialog.buttons["Cancel"].exists {
+            anyDialog.buttons["Cancel"].firstMatch.click()
+        }
+    }
+
     private func closeWorkspacesDialog(app: XCUIApplication) -> XCUIElement {
         app.dialogs.containing(.staticText, identifier: "Close workspaces?").firstMatch
     }
@@ -364,113 +463,12 @@ final class CloseWorkspacesConfirmDialogUITests: XCTestCase {
         app.alerts.containing(.staticText, identifier: "Close workspaces?").firstMatch
     }
 
-    private final class ControlSocketClient {
-        private let path: String
-        private let responseTimeout: TimeInterval
-
-        init(path: String, responseTimeout: TimeInterval = 2.0) {
-            self.path = path
-            self.responseTimeout = responseTimeout
-        }
-
-        func sendLine(_ line: String) -> String? {
-            let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-            guard fd >= 0 else { return nil }
-            defer { close(fd) }
-
-            var socketTimeout = timeval(
-                tv_sec: Int(responseTimeout.rounded(.down)),
-                tv_usec: Int32(((responseTimeout - floor(responseTimeout)) * 1_000_000).rounded())
-            )
-
-            var noSigPipe: Int32 = 1
-            _ = withUnsafePointer(to: &noSigPipe) { ptr in
-                setsockopt(
-                    fd,
-                    SOL_SOCKET,
-                    SO_NOSIGPIPE,
-                    ptr,
-                    socklen_t(MemoryLayout<Int32>.size)
-                )
-            }
-            _ = withUnsafePointer(to: &socketTimeout) { ptr in
-                setsockopt(
-                    fd,
-                    SOL_SOCKET,
-                    SO_RCVTIMEO,
-                    ptr,
-                    socklen_t(MemoryLayout<timeval>.size)
-                )
-            }
-            _ = withUnsafePointer(to: &socketTimeout) { ptr in
-                setsockopt(
-                    fd,
-                    SOL_SOCKET,
-                    SO_SNDTIMEO,
-                    ptr,
-                    socklen_t(MemoryLayout<timeval>.size)
-                )
-            }
-
-            var addr = sockaddr_un()
-            memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
-            addr.sun_family = sa_family_t(AF_UNIX)
-
-            let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
-            let bytes = Array(path.utf8CString)
-            guard bytes.count <= maxLen else { return nil }
-            withUnsafeMutablePointer(to: &addr.sun_path) { p in
-                let raw = UnsafeMutableRawPointer(p).assumingMemoryBound(to: CChar.self)
-                memset(raw, 0, maxLen)
-                for i in 0..<bytes.count {
-                    raw[i] = bytes[i]
-                }
-            }
-
-            let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-            let addrLen = socklen_t(pathOffset + bytes.count)
-            addr.sun_len = UInt8(min(Int(addrLen), 255))
-
-            let connected = withUnsafePointer(to: &addr) { ptr in
-                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-                    connect(fd, sa, addrLen)
-                }
-            }
-            guard connected == 0 else { return nil }
-
-            let payload = line + "\n"
-            let wrote: Bool = payload.withCString { cstr in
-                var remaining = strlen(cstr)
-                var p = UnsafeRawPointer(cstr)
-                while remaining > 0 {
-                    let n = write(fd, p, remaining)
-                    if n <= 0 { return false }
-                    remaining -= n
-                    p = p.advanced(by: n)
-                }
-                return true
-            }
-            guard wrote else { return nil }
-            _ = shutdown(fd, SHUT_WR)
-
-            var buf = [UInt8](repeating: 0, count: 4096)
-            var accum = ""
-            while true {
-                let n = read(fd, &buf, buf.count)
-                if n < 0 {
-                    let code = errno
-                    if code == EAGAIN || code == EWOULDBLOCK {
-                        break
-                    }
-                    return nil
-                }
-                if n <= 0 { break }
-                if let chunk = String(bytes: buf[0..<n], encoding: .utf8) {
-                    accum.append(chunk)
-                }
-            }
-            let trimmed = accum.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
+    private func closeWorkspaceDialog(app: XCUIApplication) -> XCUIElement {
+        app.dialogs.containing(.staticText, identifier: "Close workspace?").firstMatch
     }
+
+    private func closeWorkspaceAlert(app: XCUIApplication) -> XCUIElement {
+        app.alerts.containing(.staticText, identifier: "Close workspace?").firstMatch
+    }
+
 }

@@ -2192,6 +2192,7 @@ class TabManager: ObservableObject {
 
     @discardableResult
     func closeWorkspaceWithConfirmation(_ workspace: Workspace) -> Bool {
+        recordCloseConfirmationTarget(workspaceIds: [workspace.id])
         if workspace.isPinned {
             guard confirmPinnedWorkspaceClose(source: .workspace) else { return false }
             return closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
@@ -2249,6 +2250,7 @@ class TabManager: ObservableObject {
             closeWorkspaceFromCloseTabGesture(workspaces[0])
             return
         }
+        recordCloseConfirmationTarget(workspaceIds: workspaces.map(\.id))
 
         let plan = closeWorkspacesPlan(for: workspaces)
         if shouldConfirmClose(requiresConfirmation: true, source: .tabClose) {
@@ -2379,24 +2381,12 @@ class TabManager: ObservableObject {
             alert,
             presentingWindow: closeConfirmationPresentingWindow()
         ) { presentation in
-            #if DEBUG
             switch presentation {
             case .sheet(let hostWindow):
-                // The sheet attaches after this hook returns, so read the
-                // attachment on the next runloop turn (during the modal loop).
-                DispatchQueue.main.async {
-                    UITestRecorder.record([
-                        "closeConfirmationPresentation": "sheet",
-                        "closeConfirmationAttachedSheet": hostWindow.attachedSheet == nil ? "0" : "1",
-                    ])
-                }
+                self.recordCloseConfirmationSheetPresentation(hostWindow: hostWindow)
             case .appModal(let hostWindowHadAttachedSheet):
-                UITestRecorder.record([
-                    "closeConfirmationPresentation": "appModal",
-                    "closeConfirmationAttachedSheet": hostWindowHadAttachedSheet ? "1" : "0",
-                ])
+                self.recordCloseConfirmationAppModalPresentation(hostWindowHadAttachedSheet: hostWindowHadAttachedSheet)
             }
-            #endif
         }
     }
 
