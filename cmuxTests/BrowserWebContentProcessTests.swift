@@ -45,6 +45,13 @@ struct BrowserWebContentProcessTests {
             configuration,
             websiteDataStore: .nonPersistent()
         )
+        let webAuthnScript = try #require(
+            configuration.userContentController.userScripts.first {
+                $0.source == BrowserWebAuthnBridgeContract.scriptSource
+            }
+        )
+        #expect(webAuthnScript.injectionTime == .atDocumentStart)
+        #expect(webAuthnScript.isForMainFrameOnly == false)
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240),
             configuration: configuration
