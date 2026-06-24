@@ -264,30 +264,6 @@ struct MobileHostServiceStatus {
     }
 }
 
-/// What ``MobileHostService/syncToSettings()`` should do to reconcile
-/// the live listener with the current settings. A pure value so the
-/// restart-on-port-change logic is unit-testable without a real `NWListener`.
-enum MobileHostSyncDecision: Equatable {
-    case noop
-    case start
-    case stop
-    case restart
-}
-
-/// Outcome of an explicit "Apply port" request from settings. A pure value so
-/// ``MobileHostService/portApplyDecision(enabled:currentBoundPort:requestedPort:isAvailable:)``
-/// is unit-testable without binding a real `NWListener`.
-enum MobileHostPortApplyOutcome: Equatable {
-    /// The port was accepted; the listener is (or will be) bound to it.
-    case applied(Int)
-    /// The port is in use by another process; the running listener was left untouched.
-    case portInUse
-    /// Pairing is off, so the port was saved and will bind when pairing is enabled.
-    case savedWhileDisabled
-    /// The requested port was outside the valid `1...65535` range.
-    case invalid
-}
-
 @MainActor
 final class MobileHostService {
     static let shared = MobileHostService()
@@ -524,58 +500,6 @@ final class MobileHostService {
         return (1...65535).contains(raw) ? raw : nil
     }
 
-    /// Pure reconciliation between the desired settings and the live listener
-    /// state. Factored out so the restart-on-port-change decision is unit
-    /// testable without binding a real `NWListener`.
-    ///
-    /// - Parameters:
-    ///   - enabled: Whether the iOS pairing host is enabled in settings.
-    ///   - listenerRunning: Whether a listener is currently bound.
-    ///   - desiredPort: The preferred port from settings (``configuredPort(defaults:)``).
-    ///   - appliedPort: The preferred port the running listener targeted, or
-    ///     `nil` when stopped.
-    /// - Returns: The action ``syncToSettings()`` should take.
-    nonisolated static func syncDecision(
-        enabled: Bool,
-        listenerRunning: Bool,
-        desiredPort: Int,
-        appliedPort: Int?
-    ) -> MobileHostSyncDecision {
-        guard enabled else { return listenerRunning ? .stop : .noop }
-        guard listenerRunning else { return .start }
-        if appliedPort != desiredPort { return .restart }
-        return .noop
-    }
-
-    /// Pure pre-bind classification for an explicit "Apply port" request. Returns
-    /// the outcome for the cases that need no bind attempt, or `nil` when a real
-    /// bind must be tried (pairing on, valid port, different from the bound one).
-    /// Factored out so the decision is unit-testable without a real `NWListener`.
-    ///
-    /// - Parameters:
-    ///   - enabled: Whether iOS pairing is enabled in settings.
-    ///   - currentBoundPort: The port the listener is currently bound to, or `nil`.
-    ///   - requestedPort: The port the user asked to apply.
-    nonisolated static func portApplyPreBindOutcome(
-        enabled: Bool,
-        currentBoundPort: Int?,
-        requestedPort: Int
-    ) -> MobileHostPortApplyOutcome? {
-        guard (1...65535).contains(requestedPort) else { return .invalid }
-        guard enabled else { return .savedWhileDisabled }
-        if currentBoundPort == requestedPort { return .applied(requestedPort) }
-        return nil
-    }
-
-    /// Whether `error` means the address/port cannot be bound (in use, not
-    /// available, or permission denied) versus a transient waiting reason.
-    nonisolated static func isAddressUnavailable(_ error: NWError) -> Bool {
-        if case let .posix(code) = error {
-            return code == .EADDRINUSE || code == .EADDRNOTAVAIL || code == .EACCES
-        }
-        return false
-    }
-
     /// Applies an explicitly-requested pairing port.
     ///
     /// Make-before-break: when a running listener must move to a different port, a
@@ -586,7 +510,7 @@ final class MobileHostService {
     /// since it persists to and rebinds the live singleton listener.
     func applyConfiguredPort(_ port: Int) async -> MobileHostPortApplyOutcome {
         let defaults = UserDefaults.standard
-        if let preBind = Self.portApplyPreBindOutcome(
+        if let preBind = MobileHostPortApplyOutcome.preBind(
             enabled: Self.isListeningEnabled(defaults: defaults),
             currentBoundPort: listenerPort,
             requestedPort: port
@@ -649,7 +573,7 @@ final class MobileHostService {
                 case .failed, .cancelled:
                     finish(false)
                 case let .waiting(error):
-                    if Self.isAddressUnavailable(error) { finish(false) }
+                    if error.isAddressUnavailable { finish(false) }
                 default:
                     break
                 }
@@ -953,7 +877,7 @@ final class MobileHostService {
         let desiredPort = Self.resolvedDesiredPort(defaults: defaults)
             ?? appliedPreferredPort
             ?? Self.configuredPort(defaults: defaults)
-        switch Self.syncDecision(
+        switch MobileHostSyncDecision.decide(
             enabled: Self.isListeningEnabled(defaults: defaults),
             listenerRunning: listener != nil,
             desiredPort: desiredPort,
@@ -1228,7 +1152,7 @@ final class MobileHostService {
     private func devStackTokenAuthorized(_ request: MobileHostRPCRequest) -> Bool {
         #if DEBUG
         if let stackAccessToken = request.auth?.stackAccessToken {
-            return MobileHostDevStackAuthPolicy.authorize(
+            return MobileHostAccountAuthorizer().authorizeDevStackToken(
                 providedToken: stackAccessToken,
                 acceptedToken: debugAcceptedStackAuthToken
             )
@@ -1555,7 +1479,7 @@ final class MobileHostService {
             // `.waiting(.posix(.EADDRINUSE))` rather than `.failed`, and NWListener
             // would otherwise wait forever; treat address-unavailable the same as
             // a failure so the ephemeral fallback (and bound-port warning) fire.
-            if Self.isAddressUnavailable(error) {
+            if error.isAddressUnavailable {
                 handleListenerBindFailure(error: error, context: "in use (waiting)")
             } else {
                 listenerPort = nil
@@ -1706,7 +1630,7 @@ extension MobileHostService {
     }
 
     func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {
-        debugAcceptedStackAuthToken = MobileHostDevStackAuthPolicy.normalizedToken(token)
+        debugAcceptedStackAuthToken = MobileHostAccountAuthorizer().normalizedDevToken(token)
     }
 
     func debugAcceptedStackAuthTokenForTesting() -> String? {
@@ -1719,46 +1643,6 @@ extension MobileHostService {
 
     nonisolated static func debugResetEventSubscriptionsForTesting() {
         MobileHostEventSubscriptionTracker.resetForTesting()
-    }
-}
-#endif
-
-private enum MobileHostAuthorizationError: Error {
-    case missingStackTokens
-    case invalidStackUser
-    case missingLocalUser
-    case accountMismatch
-    case verificationTimedOut
-}
-
-enum MobileHostAuthorizationPolicy {
-    static func authorizeStackUserID(localUserID: String?, remoteUserID: String?) throws {
-        guard let localUserID = normalizedUserID(localUserID) else {
-            throw MobileHostAuthorizationError.missingLocalUser
-        }
-        guard normalizedUserID(remoteUserID) == localUserID else {
-            throw MobileHostAuthorizationError.accountMismatch
-        }
-    }
-
-    private static func normalizedUserID(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-}
-
-#if DEBUG
-enum MobileHostDevStackAuthPolicy {
-    static func normalizedToken(_ token: String?) -> String? {
-        let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
-    }
-
-    static func authorize(providedToken: String, acceptedToken: String?) -> Bool {
-        guard let acceptedToken = normalizedToken(acceptedToken) else {
-            return false
-        }
-        return normalizedToken(providedToken) == acceptedToken
     }
 }
 #endif
@@ -1790,7 +1674,7 @@ private actor MobileHostStackAuthVerifier {
             return nil
         }
         let localUserID = await currentAuthenticatedLocalUserID()
-        return (try? MobileHostAuthorizationPolicy.authorizeStackUserID(
+        return (try? MobileHostAccountAuthorizer().authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: cached.userID
         )) != nil
@@ -1819,7 +1703,7 @@ private actor MobileHostStackAuthVerifier {
         }
 
         let localUserID = await currentAuthenticatedLocalUserID()
-        try MobileHostAuthorizationPolicy.authorizeStackUserID(
+        try MobileHostAccountAuthorizer().authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: remoteUserID
         )

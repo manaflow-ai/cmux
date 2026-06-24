@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxSettings
 
 #if canImport(cmux_DEV)
@@ -34,21 +35,21 @@ final class BrowserPreparedNavigationRequestTests: XCTestCase {
 
 final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
-        XCTAssertFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
+        XCTAssertFalse(TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(previous: .zero, current: .zero))
         XCTAssertTrue(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(
                 previous: .zero,
                 current: NSSize(width: 240, height: 38)
             )
         )
         XCTAssertFalse(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 240.2, height: 38.1)
             )
         )
         XCTAssertTrue(
-            titlebarControlsShouldScheduleForViewSizeChange(
+            TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(
                 previous: NSSize(width: 240, height: 38),
                 current: NSSize(width: 247, height: 38)
             )
@@ -62,8 +63,8 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
-        XCTAssertFalse(titlebarControlsShouldApplyLayout(previous: baseline, next: baseline))
+        XCTAssertTrue(TitlebarControlsLayoutSnapshot.shouldApply(previous: nil, next: baseline))
+        XCTAssertFalse(TitlebarControlsLayoutSnapshot.shouldApply(previous: baseline, next: baseline))
 
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
@@ -71,7 +72,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 0,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+        XCTAssertTrue(TitlebarControlsLayoutSnapshot.shouldApply(previous: baseline, next: changed))
 
         let offsetChanged = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
@@ -79,7 +80,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
             xOffset: 1,
             yOffset: 3
         )
-        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
+        XCTAssertTrue(TitlebarControlsLayoutSnapshot.shouldApply(previous: baseline, next: offsetChanged))
     }
 
     func testTitlebarControlsListenForWindowGeometryChanges() {
@@ -233,8 +234,9 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
 final class TitlebarControlsHoverPolicyTests: XCTestCase {
     func testHoverTrackingEnabledForEveryTitlebarStyle() {
         for style in TitlebarControlsStyle.allCases {
+            _ = style
             XCTAssertTrue(
-                titlebarControlsShouldTrackButtonHover(config: style.config),
+                TitlebarControlsLayoutSnapshot.shouldTrackButtonHover,
                 "Expected hover tracking for titlebar style \(style)"
             )
         }
@@ -321,8 +323,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 
     func testMinimalModeHoverTrackerPassesMouseMovedThroughWhenButtonsAreVisible() {
         XCTAssertTrue(
-            minimalModePassthroughHoverTrackerCapturesHit(
-                capturesPassiveHits: true,
+            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
@@ -331,8 +332,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         )
 
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
-                capturesPassiveHits: false,
+            PassthroughHoverCapturePolicy(capturesPassiveHits: false).capturesHit(
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
@@ -343,24 +343,21 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
 
     func testMinimalModeHoverTrackerDoesNotCaptureMouseDownOrDraggedHover() {
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
-                capturesPassiveHits: true,
+            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
                 eventType: .leftMouseDown,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: true
             )
         )
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
-                capturesPassiveHits: true,
+            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
                 eventType: .mouseMoved,
                 pressedMouseButtons: 1,
                 boundsContainsPoint: true
             )
         )
         XCTAssertFalse(
-            minimalModePassthroughHoverTrackerCapturesHit(
-                capturesPassiveHits: true,
+            PassthroughHoverCapturePolicy(capturesPassiveHits: true).capturesHit(
                 eventType: .mouseMoved,
                 pressedMouseButtons: 0,
                 boundsContainsPoint: false

@@ -8,129 +8,22 @@ import WebKit
 import CmuxTestSupport
 #endif
 
-extension WKWebView {
-    nonisolated private static var cmuxSetPageMutedSelector: Selector {
-        NSSelectorFromString("_setPageMuted:")
-    }
+// `WKWebView.cmuxSetPageAudioMuted(_:)` plus its private selector/state helpers,
+// and `cmuxIsElementFullscreenActiveOrTransitioning` /
+// `cmuxIsManagedByExternalFullscreenWindow(relativeTo:)` moved to CmuxBrowser
+// (CmuxBrowser/Navigation/WKWebView+PageAudioMute.swift and
+// WKWebView+ElementFullscreen.swift); callers reach them via the existing
+// `import CmuxBrowser` at the top of this file.
 
-    nonisolated private static var cmuxMediaMutedStateAudio: Int {
-        1 << 0
-    }
-
-    @discardableResult
-    func cmuxSetPageAudioMuted(_ muted: Bool) -> Bool {
-        let selector = Self.cmuxSetPageMutedSelector
-        guard responds(to: selector),
-              let implementation = method(for: selector) else {
-            return false
-        }
-
-        typealias SetPageMutedFunction = @convention(c) (AnyObject, Selector, Int) -> Void
-        let function = unsafeBitCast(implementation, to: SetPageMutedFunction.self)
-        function(self, selector, muted ? Self.cmuxMediaMutedStateAudio : 0)
-        return true
-    }
-
-    var cmuxIsElementFullscreenActiveOrTransitioning: Bool {
-        switch fullscreenState {
-        case .notInFullscreen:
-            return false
-        case .enteringFullscreen, .inFullscreen, .exitingFullscreen:
-            return true
-        @unknown default:
-            return true
-        }
-    }
-
-    func cmuxIsManagedByExternalFullscreenWindow(relativeTo expectedWindow: NSWindow?) -> Bool {
-        guard cmuxIsElementFullscreenActiveOrTransitioning else { return false }
-        guard let expectedWindow else { return true }
-        return window !== expectedWindow
-    }
-}
-
-struct BrowserImageCopyPasteboardPayload {
-    let imageData: Data
-    let mimeType: String?
-    let sourceURL: URL?
-}
+// `BrowserImageCopyPasteboardPayload` (value struct owning its own
+// `pasteboardItems` formatting; the former `BrowserImageCopyPasteboardBuilder`
+// caseless namespace was dissolved into it) moved to
+// `CmuxBrowser/Pasteboard/BrowserImageCopyPasteboardPayload.swift`; callers reach
+// it via the existing `import CmuxBrowser` at the top of this file.
 
 // `BrowserFocusModeKeyDecision` moved to
 // `CmuxBrowser/Focus/BrowserFocusModeKeyDecision.swift` alongside the pure
 // `BrowserFocusModeEscapeMachine` that produces it (imported via CmuxBrowser).
-
-enum BrowserImageCopyPasteboardBuilder {
-    private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)
-    private static let tiffPasteboardType = NSPasteboard.PasteboardType(UTType.tiff.identifier)
-    private static let urlPasteboardType = NSPasteboard.PasteboardType(UTType.url.identifier)
-
-    static func makePasteboardItems(from payload: BrowserImageCopyPasteboardPayload) -> [NSPasteboardItem] {
-        guard let imageItem = imagePasteboardItem(from: payload) else { return [] }
-
-        var items = [imageItem]
-        if let sourceURL = payload.sourceURL {
-            // Keep the URL as a secondary item so image-aware paste targets can
-            // prefer the binary image payload without losing the textual fallback.
-            items.append(urlPasteboardItem(for: sourceURL))
-        }
-        return items
-    }
-
-    private static func imagePasteboardItem(from payload: BrowserImageCopyPasteboardPayload) -> NSPasteboardItem? {
-        let item = NSPasteboardItem()
-        var wroteImageType = false
-
-        if let image = NSImage(data: payload.imageData) {
-            if let tiffData = image.tiffRepresentation, !tiffData.isEmpty {
-                item.setData(tiffData, forType: tiffPasteboardType)
-                wroteImageType = true
-            }
-            if let pngData = pngData(for: image), !pngData.isEmpty {
-                item.setData(pngData, forType: pngPasteboardType)
-                wroteImageType = true
-            }
-        }
-
-        if let sourceType = sourceImageType(mimeType: payload.mimeType, sourceURL: payload.sourceURL) {
-            item.setData(payload.imageData, forType: NSPasteboard.PasteboardType(sourceType.identifier))
-            wroteImageType = true
-        }
-
-        return wroteImageType ? item : nil
-    }
-
-    private static func urlPasteboardItem(for url: URL) -> NSPasteboardItem {
-        let item = NSPasteboardItem()
-        item.setString(url.absoluteString, forType: .string)
-        item.setString(url.absoluteString, forType: urlPasteboardType)
-        return item
-    }
-
-    private static func sourceImageType(mimeType: String?, sourceURL: URL?) -> UTType? {
-        if let mimeType,
-           let type = UTType(mimeType: mimeType),
-           type.conforms(to: .image) {
-            return type
-        }
-
-        if let pathExtension = sourceURL?.pathExtension,
-           !pathExtension.isEmpty,
-           let type = UTType(filenameExtension: pathExtension),
-           type.conforms(to: .image) {
-            return type
-        }
-
-        return nil
-    }
-
-    private static func pngData(for image: NSImage) -> Data? {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
-            return nil
-        }
-        return bitmap.representation(using: .png, properties: [:])
-    }
-}
 
 /// WKWebView tends to consume some app command equivalents,
 /// preventing the app menu/SwiftUI Commands from receiving them. Route app/menu
@@ -1101,76 +994,6 @@ final class CmuxWebView: WKWebView {
         )
     }
 
-    private struct ParsedDataURL {
-        let data: Data
-        let mimeType: String?
-    }
-
-    private static func parseDataURL(_ url: URL) -> ParsedDataURL? {
-        let absolute = url.absoluteString
-        guard absolute.hasPrefix("data:"),
-              let commaIndex = absolute.firstIndex(of: ",") else {
-            return nil
-        }
-
-        let headerStart = absolute.index(absolute.startIndex, offsetBy: 5)
-        let header = String(absolute[headerStart..<commaIndex])
-        let payloadStart = absolute.index(after: commaIndex)
-        let payload = String(absolute[payloadStart...])
-
-        let segments = header.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
-        let mimeType = segments.first.flatMap { $0.isEmpty ? nil : $0 }
-        let isBase64 = segments.dropFirst().contains { $0.caseInsensitiveCompare("base64") == .orderedSame }
-
-        if isBase64 {
-            guard let data = Data(base64Encoded: payload, options: [.ignoreUnknownCharacters]) else {
-                return nil
-            }
-            return ParsedDataURL(data: data, mimeType: mimeType)
-        }
-
-        guard let decoded = payload.removingPercentEncoding else { return nil }
-        return ParsedDataURL(data: Data(decoded.utf8), mimeType: mimeType)
-    }
-
-    private static func filenameExtension(forMIMEType mimeType: String?) -> String? {
-        guard let mimeType, !mimeType.isEmpty else { return nil }
-        if #available(macOS 11.0, *) {
-            if let preferred = UTType(mimeType: mimeType)?.preferredFilenameExtension, !preferred.isEmpty {
-                return preferred
-            }
-        }
-        switch mimeType.lowercased() {
-        case "image/jpeg":
-            return "jpg"
-        case "image/png":
-            return "png"
-        case "image/webp":
-            return "webp"
-        case "image/gif":
-            return "gif"
-        case "text/html":
-            return "html"
-        case "text/plain":
-            return "txt"
-        default:
-            return nil
-        }
-    }
-
-    private static func suggestedFilenameForDataURL(
-        mimeType: String?,
-        suggestedFilename: String?
-    ) -> String {
-        if let suggested = suggestedFilename?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !suggested.isEmpty {
-            return BrowserDownloadFilenameResolver().suggestedFilename(suggestedFilename: suggested, response: nil, sourceURL: URL(fileURLWithPath: "download"), imageType: nil)
-        }
-        let ext = filenameExtension(forMIMEType: mimeType) ?? "bin"
-        let base = (mimeType?.lowercased().hasPrefix("image/") ?? false) ? "image" : "download"
-        return "\(base).\(ext)"
-    }
-
     private static func normalizedContextMenuToken(_ value: String?) -> String {
         guard let value else { return "" }
         let lowered = value.lowercased()
@@ -1312,7 +1135,7 @@ final class CmuxWebView: WKWebView {
 
     private func isLikelyImageURL(_ url: URL) -> Bool {
         if isDataURLScheme(url) {
-            guard let parsed = Self.parseDataURL(url),
+            guard let parsed = BrowserDataURLPayload(url: url),
                   let mime = parsed.mimeType?.lowercased() else {
                 return false
             }
@@ -1638,7 +1461,7 @@ final class CmuxWebView: WKWebView {
 
         if scheme == "data" {
             DispatchQueue.main.async {
-                guard let parsed = Self.parseDataURL(url) else {
+                guard let parsed = BrowserDataURLPayload(url: url) else {
                     self.notifyContextMenuDownloadState(false)
                     self.debugContextDownload(
                         "browser.ctxdl.data trace=\(traceID) stage=parseFailure urlLength=\(url.absoluteString.count)"
@@ -1653,9 +1476,8 @@ final class CmuxWebView: WKWebView {
                     return
                 }
 
-                let saveName = Self.suggestedFilenameForDataURL(
-                    mimeType: parsed.mimeType,
-                    suggestedFilename: suggestedFilename
+                let saveName = parsed.suggestedFilename(
+                    forSuggestedFilename: suggestedFilename
                 )
                 self.debugContextDownload(
                     "browser.ctxdl.data trace=\(traceID) stage=parseSuccess mime=\(parsed.mimeType ?? "nil") bytes=\(parsed.data.count)"
@@ -1909,7 +1731,7 @@ final class CmuxWebView: WKWebView {
         )
 
         if scheme == "data" {
-            guard let parsed = Self.parseDataURL(sourceURL), !parsed.data.isEmpty else {
+            guard let parsed = BrowserDataURLPayload(url: sourceURL), !parsed.data.isEmpty else {
                 debugContextDownload(
                     "browser.ctxcopy.fetch trace=\(traceID) stage=dataParseFailure"
                 )
@@ -2026,7 +1848,7 @@ final class CmuxWebView: WKWebView {
             return (false, false)
         }
 
-        let items = BrowserImageCopyPasteboardBuilder.makePasteboardItems(from: payload)
+        let items = payload.pasteboardItems
         guard !items.isEmpty else {
             debugContextDownload(
                 "browser.ctxcopy.write trace=\(traceID) stage=buildFailure mime=\(payload.mimeType ?? "nil") url=\(payload.sourceURL?.absoluteString ?? "nil") bytes=\(payload.imageData.count)"

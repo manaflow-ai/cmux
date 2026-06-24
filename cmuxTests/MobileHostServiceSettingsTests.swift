@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxSettings
 import Foundation
 import Testing
@@ -73,37 +74,37 @@ struct MobileHostServiceSettingsTests {
 
     @Test func portApplyPreBindClassifiesNonBindCases() {
         // Out of range → invalid, regardless of anything else.
-        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)
-        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 70000) == .invalid)
+        #expect(MobileHostPortApplyOutcome.preBind(enabled: true, currentBoundPort: nil, requestedPort: 0) == .invalid)
+        #expect(MobileHostPortApplyOutcome.preBind(enabled: true, currentBoundPort: nil, requestedPort: 70000) == .invalid)
         // Pairing off → saved for when it's enabled.
-        #expect(MobileHostService.portApplyPreBindOutcome(enabled: false, currentBoundPort: nil, requestedPort: 58465) == .savedWhileDisabled)
+        #expect(MobileHostPortApplyOutcome.preBind(enabled: false, currentBoundPort: nil, requestedPort: 58465) == .savedWhileDisabled)
         // Already bound to the requested port → applied, no bind attempt.
-        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58465) == .applied(58465))
+        #expect(MobileHostPortApplyOutcome.preBind(enabled: true, currentBoundPort: 58465, requestedPort: 58465) == .applied(58465))
     }
 
     @Test func portApplyPreBindReturnsNilWhenABindIsNeeded() {
         // Enabled, valid, different from the bound port → needs a real bind
         // attempt (make-before-break), signalled by nil.
-        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: 58465, requestedPort: 58470) == nil)
+        #expect(MobileHostPortApplyOutcome.preBind(enabled: true, currentBoundPort: 58465, requestedPort: 58470) == nil)
         // Not running yet, enabled, valid → also needs a bind.
-        #expect(MobileHostService.portApplyPreBindOutcome(enabled: true, currentBoundPort: nil, requestedPort: 58470) == nil)
+        #expect(MobileHostPortApplyOutcome.preBind(enabled: true, currentBoundPort: nil, requestedPort: 58470) == nil)
     }
 
     @Test func syncDecisionStartsStopsAndNoOpsForEnabledState() {
         // Disabled: stop only when something is running, otherwise no-op.
-        #expect(MobileHostService.syncDecision(enabled: false, listenerRunning: false, desiredPort: 58465, appliedPort: nil) == .noop)
-        #expect(MobileHostService.syncDecision(enabled: false, listenerRunning: true, desiredPort: 58465, appliedPort: 58465) == .stop)
+        #expect(MobileHostSyncDecision.decide(enabled: false, listenerRunning: false, desiredPort: 58465, appliedPort: nil) == .noop)
+        #expect(MobileHostSyncDecision.decide(enabled: false, listenerRunning: true, desiredPort: 58465, appliedPort: 58465) == .stop)
         // Enabled but not running: start.
-        #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: false, desiredPort: 58465, appliedPort: nil) == .start)
+        #expect(MobileHostSyncDecision.decide(enabled: true, listenerRunning: false, desiredPort: 58465, appliedPort: nil) == .start)
     }
 
     @Test func syncDecisionRestartsOnlyWhenPortChanges() {
         // Running on the desired port: nothing to do (does not drop connections
         // on unrelated UserDefaults writes).
-        #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: 58465) == .noop)
+        #expect(MobileHostSyncDecision.decide(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: 58465) == .noop)
         // Running on a different port than desired: restart to rebind.
-        #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 9000, appliedPort: 58465) == .restart)
+        #expect(MobileHostSyncDecision.decide(enabled: true, listenerRunning: true, desiredPort: 9000, appliedPort: 58465) == .restart)
         // Running but the applied port is unknown: restart to reconcile.
-        #expect(MobileHostService.syncDecision(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
+        #expect(MobileHostSyncDecision.decide(enabled: true, listenerRunning: true, desiredPort: 58465, appliedPort: nil) == .restart)
     }
 }

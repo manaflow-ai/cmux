@@ -337,68 +337,6 @@ final class AnchorNSView: NSView {
     }
 }
 
-struct ShortcutHintLanePlanner {
-    static func assignLanes(for intervals: [ClosedRange<CGFloat>], minSpacing: CGFloat = 4) -> [Int] {
-        guard !intervals.isEmpty else { return [] }
-
-        var laneMaxX: [CGFloat] = []
-        var lanes: [Int] = []
-        lanes.reserveCapacity(intervals.count)
-
-        for interval in intervals {
-            var lane = 0
-            while lane < laneMaxX.count {
-                let requiredMinX = laneMaxX[lane] + minSpacing
-                if interval.lowerBound >= requiredMinX {
-                    break
-                }
-                lane += 1
-            }
-
-            if lane == laneMaxX.count {
-                laneMaxX.append(interval.upperBound)
-            } else {
-                laneMaxX[lane] = max(laneMaxX[lane], interval.upperBound)
-            }
-            lanes.append(lane)
-        }
-
-        return lanes
-    }
-}
-
-struct ShortcutHintHorizontalPlanner {
-    static func assignRightEdges(
-        for intervals: [ClosedRange<CGFloat>],
-        minSpacing: CGFloat = 6,
-        minLeadingEdge: CGFloat = 0
-    ) -> [CGFloat] {
-        guard !intervals.isEmpty else { return [] }
-
-        var assignedRightEdges = Array(repeating: CGFloat.zero, count: intervals.count)
-        var nextMaxRight = CGFloat.greatestFiniteMagnitude
-
-        for index in stride(from: intervals.count - 1, through: 0, by: -1) {
-            let interval = intervals[index]
-            let width = interval.upperBound - interval.lowerBound
-            let preferredRightEdge = interval.upperBound
-            let adjustedRightEdge = min(preferredRightEdge, nextMaxRight)
-            assignedRightEdges[index] = adjustedRightEdge
-            nextMaxRight = adjustedRightEdge - width - minSpacing
-        }
-
-        let assignedLeftEdges = zip(intervals, assignedRightEdges).map { interval, rightEdge in
-            rightEdge - (interval.upperBound - interval.lowerBound)
-        }
-        if let minAssignedLeftEdge = assignedLeftEdges.min(), minAssignedLeftEdge < minLeadingEdge {
-            let shift = minLeadingEdge - minAssignedLeftEdge
-            assignedRightEdges = assignedRightEdges.map { $0 + shift }
-        }
-
-        return assignedRightEdges
-    }
-}
-
 func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFloat {
     max(14, config.iconSize + 1)
 }
@@ -421,7 +359,7 @@ func titlebarHintPillWidth(for shortcut: StoredShortcut, config: TitlebarControl
 /// horizontal planner resolves overlaps.
 ///
 /// This mirrors `TitlebarControlsView.titlebarHintIntervals` and the
-/// `ShortcutHintHorizontalPlanner` so the accessory reserves exactly enough width for
+/// `ShortcutHintLayoutPlanner.assignRightEdges(for:)` so the accessory reserves exactly enough width for
 /// the real layout. It is computed unconditionally for every command-bound slot (not
 /// gated on modifier state) so the reserved width stays stable whether or not the hints
 /// are currently visible. Returns 0 when no slot would show a hint.
@@ -744,7 +682,7 @@ private struct TitlebarControlButtonStyleBody: View {
             .animation(.easeInOut(duration: 0.12), value: isHovering)
             .contentShape(Rectangle())
             .onHover { hovering in
-                if titlebarControlsShouldTrackButtonHover(config: config) {
+                if TitlebarControlsLayoutSnapshot.shouldTrackButtonHover {
                     isHovering = hovering
                 }
             }
@@ -1488,21 +1426,6 @@ enum TitlebarControlsVisibilityMode {
     case onHover
 }
 
-func minimalModePassthroughHoverTrackerCapturesHit(
-    capturesPassiveHits: Bool,
-    eventType: NSEvent.EventType?,
-    pressedMouseButtons: Int,
-    boundsContainsPoint: Bool
-) -> Bool {
-    guard boundsContainsPoint, pressedMouseButtons == 0 else { return false }
-    switch eventType {
-    case nil, .mouseMoved, .mouseEntered, .mouseExited:
-        return capturesPassiveHits
-    default:
-        return false
-    }
-}
-
 private struct PassthroughHoverTrackingView: NSViewRepresentable {
     let capturesPassiveHits: Bool
     let onHoverChanged: (Bool) -> Void
@@ -1543,12 +1466,12 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             default:
                 return nil
             }
-            return minimalModePassthroughHoverTrackerCapturesHit(
-                capturesPassiveHits: capturesPassiveHits,
-                eventType: event?.type,
-                pressedMouseButtons: NSEvent.pressedMouseButtons,
-                boundsContainsPoint: true
-            ) ? self : nil
+            return PassthroughHoverCapturePolicy(capturesPassiveHits: capturesPassiveHits)
+                .capturesHit(
+                    eventType: event?.type,
+                    pressedMouseButtons: NSEvent.pressedMouseButtons,
+                    boundsContainsPoint: true
+                ) ? self : nil
         }
 
         override func viewDidMoveToWindow() {
@@ -1680,40 +1603,6 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
     }
 }
 
-struct TitlebarControlsLayoutSnapshot: Equatable {
-    let contentSize: NSSize
-    let containerHeight: CGFloat
-    let xOffset: CGFloat
-    let yOffset: CGFloat
-}
-
-func titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyleConfig) -> Bool {
-    true
-}
-
-func titlebarControlsShouldScheduleForViewSizeChange(
-    previous: NSSize,
-    current: NSSize,
-    tolerance: CGFloat = 0.5
-) -> Bool {
-    guard current.width > 0, current.height > 0 else { return false }
-    guard previous.width > 0, previous.height > 0 else { return true }
-    return abs(previous.width - current.width) > tolerance
-        || abs(previous.height - current.height) > tolerance
-}
-
-func titlebarControlsShouldApplyLayout(
-    previous: TitlebarControlsLayoutSnapshot?,
-    next: TitlebarControlsLayoutSnapshot,
-    tolerance: CGFloat = 0.5
-) -> Bool {
-    guard let previous else { return true }
-    return abs(previous.contentSize.width - next.contentSize.width) > tolerance
-        || abs(previous.contentSize.height - next.contentSize.height) > tolerance
-        || abs(previous.containerHeight - next.containerHeight) > tolerance
-        || abs(previous.xOffset - next.xOffset) > tolerance
-        || abs(previous.yOffset - next.yOffset) > tolerance
-}
 
 enum TitlebarWindowGeometryNotifications {
     static let names: [Notification.Name] = [
@@ -1836,7 +1725,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         super.viewDidLayout()
         let observedWindowChanged = updateObservedWindowIfNeeded()
         let currentViewSize = view.bounds.size
-        guard titlebarControlsShouldScheduleForViewSizeChange(
+        guard TitlebarControlsLayoutSnapshot.shouldScheduleForViewSizeChange(
             previous: lastObservedViewSize,
             current: currentViewSize
         ) || observedWindowChanged else {
@@ -1937,7 +1826,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             xOffset: xOffset,
             yOffset: yOffset
         )
-        guard titlebarControlsShouldApplyLayout(
+        guard TitlebarControlsLayoutSnapshot.shouldApply(
             previous: lastAppliedLayoutSnapshot,
             next: nextLayoutSnapshot
         ) else {
