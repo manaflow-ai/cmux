@@ -21,6 +21,7 @@ const websocketEndpoint: WebSocketPtyEndpoint = {
   headers: {},
   token: "pty-token",
   sessionId: "pty-session",
+  attachmentId: "attachment-1",
   expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
 };
 

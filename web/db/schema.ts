@@ -23,6 +23,28 @@ export const vmStatus = pgEnum("vm_status", [
 
 export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
 
+export const cloudVmSessionStatus = pgEnum("cloud_vm_session_status", [
+  "running",
+  "detached",
+  "exited",
+  "closed",
+]);
+
+export const cloudVmNotificationSeverity = pgEnum("cloud_vm_notification_severity", [
+  "info",
+  "success",
+  "warning",
+  "error",
+]);
+
+export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_delivery_status", [
+  "pending",
+  "sent",
+  "failed",
+  "read",
+  "dismissed",
+]);
+
 export const cloudVms = pgTable(
   "cloud_vms",
   {
@@ -78,6 +100,40 @@ export const cloudVmLeases = pgTable(
     index("cloud_vm_leases_identity_idx").on(table.providerIdentityHandle),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
+  ],
+);
+
+export const cloudVmSessions = pgTable(
+  "cloud_vm_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    providerSessionId: text("provider_session_id").notNull(),
+    title: text("title"),
+    kind: text("kind").notNull().default("terminal"),
+    status: cloudVmSessionStatus("status").notNull().default("running"),
+    attachmentCount: integer("attachment_count").notNull().default(0),
+    effectiveCols: integer("effective_cols"),
+    effectiveRows: integer("effective_rows"),
+    lastKnownCols: integer("last_known_cols"),
+    lastKnownRows: integer("last_known_rows"),
+    scrollbackBytes: integer("scrollback_bytes").notNull().default(0),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastAttachedAt: timestamp("last_attached_at", { withTimezone: true }),
+    exitedAt: timestamp("exited_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_sessions_vm_provider_session_unique")
+      .on(table.vmId, table.providerSessionId),
+    index("cloud_vm_sessions_user_status_updated_idx")
+      .on(table.userId, table.status, table.updatedAt),
+    index("cloud_vm_sessions_vm_updated_idx").on(table.vmId, table.updatedAt),
   ],
 );
 
@@ -254,5 +310,62 @@ export const deviceAppInstances = pgTable(
   (table) => [
     uniqueIndex("device_app_instances_device_tag_unique").on(table.deviceId, table.tag),
     index("device_app_instances_team_last_seen_idx").on(table.teamId, table.lastSeenAt),
+  ],
+);
+
+export const cloudVmNotificationEvents = pgTable(
+  "cloud_vm_notification_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    billingTeamId: text("billing_team_id"),
+    providerSessionId: text("provider_session_id"),
+    severity: cloudVmNotificationSeverity("severity").notNull().default("info"),
+    source: text("source").notNull().default("vm"),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    action: jsonb("action").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("cloud_vm_notification_events_user_created_idx").on(table.userId, table.createdAt),
+    index("cloud_vm_notification_events_vm_session_created_idx")
+      .on(table.vmId, table.providerSessionId, table.createdAt),
+  ],
+);
+
+export const cloudVmNotificationDeliveries = pgTable(
+  "cloud_vm_notification_deliveries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventId: uuid("event_id")
+      .notNull()
+      .references(() => cloudVmNotificationEvents.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    targetKey: text("target_key").notNull(),
+    deviceId: uuid("device_id").references(() => devices.id, { onDelete: "set null" }),
+    appInstanceId: uuid("app_instance_id").references(() => deviceAppInstances.id, { onDelete: "set null" }),
+    channel: text("channel").notNull(),
+    status: cloudVmNotificationDeliveryStatus("status").notNull().default("pending"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    readAt: timestamp("read_at", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_notification_deliveries_event_channel_target_unique")
+      .on(table.eventId, table.channel, table.targetKey),
+    index("cloud_vm_notification_deliveries_user_status_created_idx")
+      .on(table.userId, table.status, table.createdAt),
+    index("cloud_vm_notification_deliveries_event_status_idx")
+      .on(table.eventId, table.status),
   ],
 );

@@ -252,8 +252,33 @@ struct VMWebSocketPtyEndpoint {
     let headers: [String: String]
     let token: String
     let sessionId: String
+    let attachmentId: String
     let expiresAtUnix: Int64
     let daemon: VMWebSocketDaemonEndpoint?
+}
+
+struct VMCloudSession {
+    let id: String
+    let vmId: String
+    let sessionId: String
+    let title: String?
+    let kind: String
+    let status: String
+    let attachmentCount: Int
+    let effectiveCols: Int?
+    let effectiveRows: Int?
+    let lastKnownCols: Int?
+    let lastKnownRows: Int?
+    let scrollbackBytes: Int
+    let metadata: [String: String]
+    let createdAt: String
+    let updatedAt: String
+    let lastAttachedAt: String?
+}
+
+struct VMCloudSessionAttach {
+    let endpoint: VMAttachEndpoint
+    let session: VMCloudSession?
 }
 
 struct VMWebSocketDaemonEndpoint {
@@ -466,16 +491,77 @@ actor VMClient {
         return try decodeSSHEndpoint(obj)
     }
 
-    func openAttach(id: String, requireDaemon: Bool = false) async throws -> VMAttachEndpoint {
+    func openAttach(
+        id: String,
+        requireDaemon: Bool = false,
+        sessionId: String? = nil,
+        attachmentId: String? = nil,
+        title: String? = nil
+    ) async throws -> VMAttachEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = ["requireDaemon": requireDaemon]
+        if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["sessionId"] = sessionId
+        }
+        if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["attachmentId"] = attachmentId
+        }
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["title"] = title
+        }
         let (data, http) = try await request(
             "POST",
             path: "/api/vm/\(encodedID)/attach-endpoint",
-            jsonBody: ["requireDaemon": requireDaemon],
+            jsonBody: body,
             timeoutSeconds: Self.attachTimeoutSeconds
         )
         try ensureOK(http, data: data)
         let obj = try decodeJSONObject(data)
+        return try decodeAttachEndpoint(obj)
+    }
+
+    func listSessions(id: String) async throws -> [VMCloudSession] {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request("GET", path: "/api/vm/\(encodedID)/sessions")
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let rawSessions = obj["sessions"] as? [[String: Any]] ?? []
+        return try rawSessions.map(decodeCloudSession)
+    }
+
+    func openSession(
+        id: String,
+        sessionId: String? = nil,
+        attachmentId: String? = nil,
+        title: String? = nil
+    ) async throws -> VMCloudSessionAttach {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        var body: [String: Any] = [:]
+        if let sessionId, !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["sessionId"] = sessionId
+        }
+        if let attachmentId, !attachmentId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["attachmentId"] = attachmentId
+        }
+        if let title, !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            body["title"] = title
+        }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/sessions",
+            jsonBody: body,
+            timeoutSeconds: Self.attachTimeoutSeconds
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        guard let endpointObject = obj["endpoint"] as? [String: Any] else {
+            throw VMClientError.malformedResponse("Cloud VM session response was missing endpoint.")
+        }
+        let session = (obj["session"] as? [String: Any]).flatMap { try? decodeCloudSession($0) }
+        return VMCloudSessionAttach(endpoint: try decodeAttachEndpoint(endpointObject), session: session)
+    }
+
+    private func decodeAttachEndpoint(_ obj: [String: Any]) throws -> VMAttachEndpoint {
         let transport = (obj["transport"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch transport {
         case "ssh":
@@ -486,6 +572,7 @@ actor VMClient {
                   let sessionId = obj["sessionId"] as? String else {
                 throw VMClientError.malformedResponse("Cloud VM attach response was missing required fields.")
             }
+            let attachmentId = (obj["attachmentId"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let rawHeaders = obj["headers"] as? [String: Any] ?? [:]
             let headers = rawHeaders.reduce(into: [String: String]()) { result, pair in
                 if let value = pair.value as? String {
@@ -501,6 +588,7 @@ actor VMClient {
                 headers: headers,
                 token: token,
                 sessionId: sessionId,
+                attachmentId: attachmentId.isEmpty ? UUID().uuidString.lowercased() : attachmentId,
                 expiresAtUnix: expiresAtUnix,
                 daemon: daemon
             ))
@@ -614,6 +702,36 @@ actor VMClient {
         )
     }
 
+    private func decodeCloudSession(_ obj: [String: Any]) throws -> VMCloudSession {
+        guard let id = obj["id"] as? String,
+              let vmId = obj["vmId"] as? String,
+              let sessionId = obj["sessionId"] as? String,
+              let kind = obj["kind"] as? String,
+              let status = obj["status"] as? String,
+              let createdAt = obj["createdAt"] as? String,
+              let updatedAt = obj["updatedAt"] as? String else {
+            throw VMClientError.malformedResponse("Cloud VM session response was missing required fields.")
+        }
+        return VMCloudSession(
+            id: id,
+            vmId: vmId,
+            sessionId: sessionId,
+            title: obj["title"] as? String,
+            kind: kind,
+            status: status,
+            attachmentCount: Self.optionalInt(obj["attachmentCount"]) ?? 0,
+            effectiveCols: Self.optionalInt(obj["effectiveCols"]),
+            effectiveRows: Self.optionalInt(obj["effectiveRows"]),
+            lastKnownCols: Self.optionalInt(obj["lastKnownCols"]),
+            lastKnownRows: Self.optionalInt(obj["lastKnownRows"]),
+            scrollbackBytes: Self.optionalInt(obj["scrollbackBytes"]) ?? 0,
+            metadata: Self.stringMetadata(obj["metadata"]),
+            createdAt: createdAt,
+            updatedAt: updatedAt,
+            lastAttachedAt: obj["lastAttachedAt"] as? String
+        )
+    }
+
     private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "<binary>"
@@ -689,5 +807,28 @@ actor VMClient {
             throw VMClientError.malformedResponse("Cloud VM SSH response was missing required fields.")
         }
         return port
+    }
+
+    private nonisolated static func optionalInt(_ raw: Any?) -> Int? {
+        if let int = raw as? Int { return int }
+        if let number = raw as? NSNumber { return number.intValue }
+        if let double = raw as? Double { return Int(double) }
+        return nil
+    }
+
+    private nonisolated static func stringMetadata(_ raw: Any?) -> [String: String] {
+        guard let obj = raw as? [String: Any] else { return [:] }
+        return obj.reduce(into: [String: String]()) { result, pair in
+            switch pair.value {
+            case let value as String:
+                result[pair.key] = value
+            case let value as Bool:
+                result[pair.key] = value ? "true" : "false"
+            case let value as NSNumber:
+                result[pair.key] = value.stringValue
+            default:
+                break
+            }
+        }
     }
 }

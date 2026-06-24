@@ -21,6 +21,7 @@ import {
   isReusableRpcLease,
   ensurePrivateDirectoryCommand,
   leaseClientMetadata,
+  makeWebSocketAttachmentId,
   makeWebSocketLease,
   shellArgValue,
   shellQuote,
@@ -350,7 +351,7 @@ export class FreestyleProvider implements VMProvider {
    */
   async openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint> {
     try {
-      const endpoint = await this.openWebSocketPty(vmId);
+      const endpoint = await this.openWebSocketPty(vmId, options);
       if (options?.requireDaemon && !endpoint.daemon) {
         throw new ProviderError(
           "freestyle",
@@ -379,7 +380,7 @@ export class FreestyleProvider implements VMProvider {
     }
   }
 
-  async openWebSocketPty(vmId: string): Promise<WebSocketPtyEndpoint> {
+  async openWebSocketPty(vmId: string, options?: AttachOptions): Promise<WebSocketPtyEndpoint> {
     return withVmSpan(
       "cmux.vm.provider.open_websocket_pty",
       {
@@ -395,7 +396,8 @@ export class FreestyleProvider implements VMProvider {
           const service = await readFreestyleWebSocketService(vm);
           await ensureFreestyleWebSocketHealthy(domain);
 
-          const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS);
+          const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
+          const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("freestyle");
           const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
           const commands = [
             ensurePrivateDirectoryCommand(service.ptyLeasePath),
@@ -437,6 +439,7 @@ export class FreestyleProvider implements VMProvider {
             headers: {},
             token: pty.token,
             sessionId: pty.sessionId,
+            attachmentId,
             expiresAtUnix: pty.expiresAtUnix,
             daemon: daemon ? {
               url: `wss://${domain}/rpc`,

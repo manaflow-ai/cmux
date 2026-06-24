@@ -8578,6 +8578,7 @@ struct CMUXCLI {
         let headers: [String: String]
         let token: String
         let sessionId: String
+        let attachmentId: String
         let expiresAtUnix: Int64
         let daemon: VMDaemonWebSocketEndpoint?
     }
@@ -8595,6 +8596,7 @@ struct CMUXCLI {
         let headers: [String: String]
         let token: String
         let sessionId: String
+        let attachmentId: String
     }
 
     private struct TerminalSize {
@@ -10934,6 +10936,10 @@ struct CMUXCLI {
                   Cloud VM attach details were incomplete.
                 """)
         }
+        let attachmentId = ((response["attachment_id"] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? UUID().uuidString.lowercased()
         let headers = parseHeaders(response["headers"])
         let expiresAtUnix = (response["expires_at_unix"] as? Int64)
             ?? Int64((response["expires_at_unix"] as? Double) ?? 0)
@@ -10943,6 +10949,7 @@ struct CMUXCLI {
             headers: headers,
             token: token,
             sessionId: sessionId,
+            attachmentId: attachmentId,
             expiresAtUnix: expiresAtUnix,
             daemon: daemon
         )
@@ -11103,7 +11110,8 @@ struct CMUXCLI {
             url: endpoint.url,
             headers: endpoint.headers,
             token: endpoint.token,
-            sessionId: endpoint.sessionId
+            sessionId: endpoint.sessionId,
+            attachmentId: endpoint.attachmentId
         )
         let data = try JSONEncoder().encode(config)
         let url = FileManager.default.temporaryDirectory
@@ -11163,7 +11171,8 @@ struct CMUXCLI {
             url: endpoint.url,
             headers: endpoint.headers,
             token: endpoint.token,
-            sessionId: endpoint.sessionId
+            sessionId: endpoint.sessionId,
+            attachmentId: endpoint.attachmentId
         )
         try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
             log(stage)
@@ -11278,6 +11287,7 @@ struct CMUXCLI {
                 "type": "auth",
                 "token": config.token,
                 "session_id": config.sessionId,
+                "attachment_id": config.attachmentId,
                 "cols": size.cols,
                 "rows": size.rows,
             ]

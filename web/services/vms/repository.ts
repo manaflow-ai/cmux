@@ -3,14 +3,16 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { cloudDb } from "../../db/client";
-import { cloudVmBillingGrants, cloudVmLeases, cloudVms, cloudVmUsageEvents } from "../../db/schema";
+import { cloudVmBillingGrants, cloudVmLeases, cloudVmSessions, cloudVms, cloudVmUsageEvents } from "../../db/schema";
 import type { ProviderId } from "./drivers";
 import { VmDatabaseError, VmLimitExceededError, isVmLimitExceededError } from "./errors";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmLeaseRow = typeof cloudVmLeases.$inferSelect;
+export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
+export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -91,6 +93,24 @@ export type VmRepositoryShape = {
     readonly transport?: string;
     readonly metadata?: Record<string, unknown>;
   }) => Effect.Effect<void, VmDatabaseError>;
+  readonly listVmSessions: (input: {
+    readonly userId: string;
+    readonly vmId: string;
+  }) => Effect.Effect<CloudVmSessionRow[], VmDatabaseError>;
+  readonly upsertVmSession: (input: {
+    readonly vmId: string;
+    readonly userId: string;
+    readonly providerSessionId: string;
+    readonly title?: string | null;
+    readonly status?: CloudVmSessionStatus;
+    readonly attachmentCount?: number;
+    readonly effectiveCols?: number | null;
+    readonly effectiveRows?: number | null;
+    readonly lastKnownCols?: number | null;
+    readonly lastKnownRows?: number | null;
+    readonly scrollbackBytes?: number;
+    readonly metadata?: Record<string, unknown>;
+  }) => Effect.Effect<CloudVmSessionRow, VmDatabaseError>;
   readonly activeIdentityLeases: (vmId: string) => Effect.Effect<CloudVmLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: {
@@ -540,6 +560,65 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           })
           .where(eq(cloudVmLeases.tokenHash, input.tokenHash));
       }
+    }),
+
+  listVmSessions: (input) =>
+    dbEffect("listVmSessions", async () => {
+      const db = cloudDb();
+      return await db
+        .select()
+        .from(cloudVmSessions)
+        .where(and(
+          eq(cloudVmSessions.userId, input.userId),
+          eq(cloudVmSessions.vmId, input.vmId),
+          ne(cloudVmSessions.status, "closed"),
+        ))
+        .orderBy(desc(cloudVmSessions.updatedAt));
+    }),
+
+  upsertVmSession: (input) =>
+    dbEffect("upsertVmSession", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      const [session] = await db
+        .insert(cloudVmSessions)
+        .values({
+          vmId: input.vmId,
+          userId: input.userId,
+          providerSessionId: input.providerSessionId,
+          title: input.title ?? null,
+          status: input.status ?? "running",
+          attachmentCount: input.attachmentCount ?? 1,
+          effectiveCols: input.effectiveCols ?? null,
+          effectiveRows: input.effectiveRows ?? null,
+          lastKnownCols: input.lastKnownCols ?? null,
+          lastKnownRows: input.lastKnownRows ?? null,
+          scrollbackBytes: input.scrollbackBytes ?? 0,
+          metadata: input.metadata ?? {},
+          lastAttachedAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [cloudVmSessions.vmId, cloudVmSessions.providerSessionId],
+          set: {
+            userId: input.userId,
+            title: input.title ?? null,
+            status: input.status ?? "running",
+            attachmentCount: sql`${cloudVmSessions.attachmentCount} + ${input.attachmentCount ?? 1}`,
+            effectiveCols: input.effectiveCols ?? null,
+            effectiveRows: input.effectiveRows ?? null,
+            lastKnownCols: input.lastKnownCols ?? null,
+            lastKnownRows: input.lastKnownRows ?? null,
+            scrollbackBytes: input.scrollbackBytes ?? 0,
+            metadata: input.metadata ?? {},
+            lastAttachedAt: now,
+            updatedAt: now,
+            closedAt: null,
+          },
+        })
+        .returning();
+      if (!session) throw new Error("cloud VM session upsert returned no row");
+      return session;
     }),
 
   activeIdentityLeases: (vmId) =>

@@ -112,6 +112,33 @@ extension TerminalController {
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }
+        case "vm.sessions":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.sessions requires `id`. Run `cmux vm ls` to find one.")
+            }
+            return v2VmCall(id: id) {
+                let sessions = try await VMClient.shared.listSessions(id: vmId)
+                return ["sessions": sessions.map(Self.socketWorkerCloudSessionPayload)]
+            }
+        case "vm.session_attach_info":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.session_attach_info requires `id`. Run `cmux vm ls` to find one.")
+            }
+            let sessionId = Self.socketWorkerString(params["session_id"]) ?? Self.socketWorkerString(params["sessionId"])
+            let attachmentId = Self.socketWorkerString(params["attachment_id"]) ?? Self.socketWorkerString(params["attachmentId"])
+            let title = Self.socketWorkerString(params["title"])
+            return v2VmCall(id: id) {
+                let result = try await VMClient.shared.openSession(
+                    id: vmId,
+                    sessionId: sessionId,
+                    attachmentId: attachmentId,
+                    title: title
+                )
+                return [
+                    "endpoint": Self.socketWorkerAttachInfoPayload(result.endpoint),
+                    "session": result.session.map(Self.socketWorkerCloudSessionPayload) ?? NSNull(),
+                ]
+            }
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
@@ -215,6 +242,7 @@ extension TerminalController {
                 "headers": websocket.headers,
                 "token": websocket.token,
                 "session_id": websocket.sessionId,
+                "attachment_id": websocket.attachmentId,
                 "expires_at_unix": websocket.expiresAtUnix,
             ]
             if let daemon = websocket.daemon {
@@ -228,6 +256,27 @@ extension TerminalController {
             }
             return payload
         }
+    }
+
+    private nonisolated static func socketWorkerCloudSessionPayload(_ session: VMCloudSession) -> [String: Any] {
+        [
+            "id": session.id,
+            "vm_id": session.vmId,
+            "session_id": session.sessionId,
+            "title": session.title ?? NSNull(),
+            "kind": session.kind,
+            "status": session.status,
+            "attachment_count": session.attachmentCount,
+            "effective_cols": session.effectiveCols ?? NSNull(),
+            "effective_rows": session.effectiveRows ?? NSNull(),
+            "last_known_cols": session.lastKnownCols ?? NSNull(),
+            "last_known_rows": session.lastKnownRows ?? NSNull(),
+            "scrollback_bytes": session.scrollbackBytes,
+            "metadata": session.metadata,
+            "created_at": session.createdAt,
+            "updated_at": session.updatedAt,
+            "last_attached_at": session.lastAttachedAt ?? NSNull(),
+        ]
     }
 
     private nonisolated static func socketWorkerCredentialPayload(_ credential: VMSSHEndpoint.Credential) -> [String: Any] {

@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type {
@@ -35,6 +35,7 @@ import {
   VmRepository,
   VmRepositoryLive,
   type BeginCreateResult,
+  type CloudVmSessionRow,
   type CloudVmStatus,
   type CloudVmLeaseKind,
   type CloudVmRow,
@@ -50,6 +51,8 @@ export type VmEntry = {
   readonly status: CloudVmStatus;
   readonly createdAt: number;
 };
+
+export type CloudVmSessionEntry = CloudVmSessionRow;
 
 export const VmWorkflowLive = Layer.mergeAll(VmRepositoryLive, VmProviderGatewayLive, VmBillingGatewayLive);
 
@@ -598,11 +601,53 @@ export function execVm(input: {
   });
 }
 
-export function openAttachEndpoint(input: {
+type OpenAttachEndpointInput = {
   readonly userId: string;
   readonly providerVmId: string;
   readonly options?: AttachOptions;
+  readonly sessionTitle?: string | null;
+};
+
+export function openAttachEndpoint(input: OpenAttachEndpointInput) {
+  return Effect.gen(function* () {
+    const result = yield* openAttachEndpointResult(input);
+    return result.endpoint;
+  });
+}
+
+export function openVmSession(input: {
+  readonly userId: string;
+  readonly providerVmId: string;
+  readonly sessionId?: string;
+  readonly attachmentId?: string;
+  readonly title?: string | null;
 }) {
+  const sessionId = input.sessionId?.trim() || `session-${randomUUID()}`;
+  const attachmentId = input.attachmentId?.trim() || `attach-${randomUUID()}`;
+  return openAttachEndpointResult({
+    userId: input.userId,
+    providerVmId: input.providerVmId,
+    sessionTitle: input.title,
+    options: {
+      requireDaemon: true,
+      sessionId,
+      attachmentId,
+    },
+  });
+}
+
+export function listVmSessions(input: {
+  readonly userId: string;
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    return yield* repo.listVmSessions({ userId: input.userId, vmId: vm.id });
+  });
+}
+
+function openAttachEndpointResult(input: OpenAttachEndpointInput) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
@@ -612,8 +657,10 @@ export function openAttachEndpoint(input: {
       providers,
       "attach",
     );
-    yield* revokeActiveIdentities(vm);
     const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
+    if (endpoint.transport === "ssh") {
+      yield* revokeActiveIdentities(vm);
+    }
     yield* storeEndpointLeases(vm, endpoint).pipe(
       Effect.catchAll((err) =>
         revokeEndpointIdentity(vm.provider, endpoint).pipe(
@@ -632,10 +679,26 @@ export function openAttachEndpoint(input: {
       metadata: {
         transport: endpoint.transport,
         requireDaemon: input.options?.requireDaemon === true,
+        requestedSessionId: input.options?.sessionId ?? null,
         daemonAvailable: endpoint.transport === "websocket" && !!endpoint.daemon,
       },
     }).pipe(Effect.catchAll(() => Effect.void));
-    return endpoint;
+    const session = endpoint.transport === "websocket"
+      ? yield* repo.upsertVmSession({
+        vmId: vm.id,
+        userId: input.userId,
+        providerSessionId: endpoint.sessionId,
+        title: input.sessionTitle ?? null,
+        status: "running",
+        attachmentCount: 1,
+        metadata: {
+          transport: endpoint.transport,
+          daemonAvailable: !!endpoint.daemon,
+          attachmentId: endpoint.attachmentId,
+        },
+      })
+      : undefined;
+    return { endpoint, session };
   });
 }
 

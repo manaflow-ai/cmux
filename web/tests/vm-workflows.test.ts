@@ -96,6 +96,8 @@ describe("VM Effect workflows", () => {
       findUserVm: () => Effect.succeed(null),
       markDestroyed: () => Effect.void,
       recordLease: () => Effect.void,
+      listVmSessions: () => Effect.succeed([]),
+      upsertVmSession: () => Effect.fail(new Error("unused") as never),
       activeIdentityLeases: () => Effect.succeed([]),
       markLeasesRevoked: () => Effect.void,
       recordUsageEvent: () => Effect.void,
@@ -1583,6 +1585,7 @@ describe("VM Effect workflows", () => {
             headers: {},
             token: "pty-token",
             sessionId: "pty-session",
+            attachmentId: "attachment-private",
             expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
           };
         }),
@@ -1692,6 +1695,7 @@ describe("VM Effect workflows", () => {
             headers: {},
             token: `pty-token-${attachCount}`,
             sessionId: `pty-session-${attachCount}`,
+            attachmentId: `attachment-${attachCount}`,
             expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
             daemon: {
               url: "wss://example.invalid/rpc",
@@ -1729,6 +1733,80 @@ describe("VM Effect workflows", () => {
       { kind: "pty", sessionId: "pty-session-2" },
       { kind: "rpc", sessionId: "stable-rpc-session" },
     ]);
+  });
+
+  dbTest("records requested VM session metadata when opening a stable WebSocket attach", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vm_sessions, cloud_vms restart identity cascade`;
+    const [vm] = await sql<{ id: string }[]>`
+      insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status)
+      values ('user-workflow-session', 'freestyle', 'provider-vm-session-1', 'snapshot-test', 'running')
+      returning id
+    `;
+
+    let attachOptions: unknown;
+    const provider: VmProviderGatewayShape = {
+      create: () => Effect.fail(new Error("unused") as never),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: (_provider, _vmId, options) =>
+        Effect.sync(() => {
+          attachOptions = options;
+          return {
+            transport: "websocket" as const,
+            url: "wss://example.invalid/pty",
+            headers: {},
+            token: "stable-pty-token",
+            sessionId: options?.sessionId ?? "unexpected-session",
+            attachmentId: options?.attachmentId ?? "unexpected-attachment",
+            expiresAtUnix: Math.floor(Date.now() / 1000) + 300,
+            daemon: {
+              url: "wss://example.invalid/rpc",
+              headers: {},
+              token: "stable-rpc-token-2",
+              sessionId: "stable-rpc-session-2",
+              expiresAtUnix: Math.floor(Date.now() / 1000) + 600,
+            },
+          };
+        }),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+      revokeSSHIdentity: () => Effect.void,
+    };
+
+    const result = await Effect.runPromise(
+      openAttachEndpoint({
+        userId: "user-workflow-session",
+        providerVmId: "provider-vm-session-1",
+        sessionTitle: "iPhone shell",
+        options: {
+          requireDaemon: true,
+          sessionId: "session-ios-1",
+          attachmentId: "attach-ios-1",
+        },
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(result.transport).toBe("websocket");
+    expect(attachOptions).toEqual({
+      requireDaemon: true,
+      sessionId: "session-ios-1",
+      attachmentId: "attach-ios-1",
+    });
+    const sessions = await sql<{ providerSessionId: string; title: string | null; attachmentCount: number; metadata: Record<string, unknown> }[]>`
+      select provider_session_id as "providerSessionId", title, attachment_count as "attachmentCount", metadata
+      from cloud_vm_sessions
+      where vm_id = ${vm.id}
+    `;
+    expect(sessions).toEqual([{
+      providerSessionId: "session-ios-1",
+      title: "iPhone shell",
+      attachmentCount: 1,
+      metadata: {
+        transport: "websocket",
+        daemonAvailable: true,
+        attachmentId: "attach-ios-1",
+      },
+    }]);
   });
 });
 

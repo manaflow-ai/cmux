@@ -48,6 +48,7 @@ export type WebSocketPtyEndpoint = {
   headers: Record<string, string>;
   token: string;
   sessionId: string;
+  attachmentId: string;
   expiresAtUnix: number;
   daemon?: {
     url: string;
@@ -66,6 +67,16 @@ export type AttachOptions = {
    * loopback URLs. PTY-only split attaches can omit it and only mint a terminal lease.
    */
   requireDaemon?: boolean;
+  /**
+   * Stable VM-daemon session id to attach to. When omitted, providers keep the
+   * historical behavior and mint a fresh one-use terminal session.
+   */
+  sessionId?: string;
+  /**
+   * Stable visible-client attachment id. The daemon uses this to supersede a
+   * stale pane/client attachment without killing the underlying VM session.
+   */
+  attachmentId?: string;
 };
 
 export type ExecResult = {
