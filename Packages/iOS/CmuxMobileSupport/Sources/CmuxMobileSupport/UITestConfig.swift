@@ -93,6 +93,27 @@ public struct UITestConfig {
         #endif
     }
 
+    /// Whether the standalone agent-chat preview is enabled.
+    ///
+    /// When `CMUX_UITEST_AGENT_CHAT_PREVIEW=1`, the root view renders the
+    /// debug chat fixture directly so XCUITest can exercise chat layout without
+    /// sign-in, pairing, or workspace-shell timing. DEBUG-only.
+    public static var agentChatPreviewEnabled: Bool {
+        agentChatPreviewEnabled(from: ProcessInfo.processInfo.environment)
+    }
+
+    /// The standalone agent-chat preview flag for an explicit environment.
+    ///
+    /// - Parameter env: The environment dictionary to read.
+    /// - Returns: `true` when `CMUX_UITEST_AGENT_CHAT_PREVIEW=1` in DEBUG builds.
+    public static func agentChatPreviewEnabled(from env: [String: String]) -> Bool {
+        #if DEBUG
+        return env["CMUX_UITEST_AGENT_CHAT_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     /// Whether mock data is enabled for an explicit environment.
     ///
     /// In release builds this is always `false`. In DEBUG builds, an explicit

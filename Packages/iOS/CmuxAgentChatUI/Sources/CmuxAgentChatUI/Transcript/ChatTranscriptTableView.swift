@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxAgentChat
 import CmuxMobileSupport
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -38,6 +39,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         tableView.estimatedRowHeight = 96
         tableView.rowHeight = UITableView.automaticDimension
         tableView.allowsSelection = false
+        tableView.accessibilityIdentifier = "ChatTranscriptTableView"
         tableView.dataSource = context.coordinator
         tableView.delegate = context.coordinator
         context.coordinator.attach(tableView)
@@ -175,6 +177,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             } else {
                 updateBottomState(from: tableView)
             }
+            #if DEBUG
+            (tableView as? ChatTranscriptUITableView)?.updateDebugAccessibilityValue()
+            #endif
             requestOlderHistoryIfNeeded(in: tableView)
         }
 
@@ -572,7 +577,30 @@ final class ChatTranscriptUITableView: UITableView {
             contentHeight: contentSize.height,
             atBottomThreshold: chatTranscriptAtBottomThreshold
         )
+        #if DEBUG
+        updateDebugAccessibilityValue()
+        #endif
         afterLayout?(oldBoundsSize, oldContentSize, oldViewport)
     }
+
+    #if DEBUG
+    func updateDebugAccessibilityValue() {
+        let frameInWindow = window.map { convert(bounds, to: $0) } ?? frame
+        let visibleBottomY = contentOffset.y + bounds.height - adjustedContentInset.bottom
+        let distanceFromBottom = max(0, contentSize.height - visibleBottomY)
+        accessibilityValue = String(
+            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            frameInWindow.minY,
+            frameInWindow.maxY,
+            frameInWindow.height,
+            bounds.height,
+            contentOffset.y,
+            visibleBottomY,
+            contentSize.height,
+            distanceFromBottom
+        )
+    }
+    #endif
 }
 #endif

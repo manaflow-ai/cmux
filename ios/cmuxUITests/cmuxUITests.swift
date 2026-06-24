@@ -504,6 +504,125 @@ final class cmuxUITests: XCTestCase {
         assertTerminalRow(2, label: "host: UI Test Mac", in: app)
     }
 
+    /// Regression for WhatsApp-style chat keyboard tracking: focusing the chat
+    /// composer must push the actual transcript table frame upward. Preserving only
+    /// `contentOffset` is insufficient because the table still extends under the
+    /// keyboard.
+    @MainActor
+    func testAgentChatTranscriptFrameMovesUpWithKeyboardAcrossScrollPositions() throws {
+        let app = launchAgentChatPreviewApp()
+
+        let table = app.tables["ChatTranscriptTableView"]
+        XCTAssertTrue(table.waitForExistence(timeout: 8))
+        let composer = app.descendants(matching: .any)["ChatComposerField"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+
+        let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
+            $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+
+        try scrollTranscript(table, direction: .up, timeout: 8) {
+            $0.distanceFromBottom < 60
+        }
+        try assertChatKeyboardTracking(
+            table: table,
+            composer: composer,
+            app: app,
+            baselineMaxY: loadedMetrics.frameMaxY,
+            scrollPosition: "bottom"
+        )
+
+        // Move away from the live tail before focusing the field. This is the
+        // reported case: a long transcript with the current bottom content not
+        // visible, then the keyboard appears.
+        try scrollTranscript(table, direction: .down, timeout: 6) {
+            $0.distanceFromBottom > 120 && $0.offsetY > 80
+        }
+        try assertChatKeyboardTracking(
+            table: table,
+            composer: composer,
+            app: app,
+            baselineMaxY: loadedMetrics.frameMaxY,
+            scrollPosition: "middle"
+        )
+
+        try scrollTranscript(table, direction: .down, timeout: 8) {
+            $0.offsetY < 80 && $0.contentHeight > $0.boundsHeight * 1.6
+        }
+        try assertChatKeyboardTracking(
+            table: table,
+            composer: composer,
+            app: app,
+            baselineMaxY: loadedMetrics.frameMaxY,
+            scrollPosition: "top"
+        )
+    }
+
+    @MainActor
+    private func assertChatKeyboardTracking(
+        table: XCUIElement,
+        composer: XCUIElement,
+        app: XCUIApplication,
+        baselineMaxY: CGFloat,
+        scrollPosition: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        dismissChatKeyboard(in: app, table: table)
+        let beforeKeyboard = try waitForTranscriptMetrics(table, timeout: 4) {
+            abs($0.frameMaxY - baselineMaxY) < 4 && $0.frameHeight > 240
+        }
+        XCTAssertTrue(
+            focusTextInput(composer, in: app),
+            "Expected chat composer to focus and raise the keyboard from \(scrollPosition)",
+            file: file,
+            line: line
+        )
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 4), file: file, line: line)
+        let keyboardFrame = app.keyboards.firstMatch.frame
+
+        let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
+            $0.frameMaxY < beforeKeyboard.frameMaxY - 120
+                && $0.frameHeight < beforeKeyboard.frameHeight - 120
+        }
+
+        XCTAssertLessThan(
+            afterKeyboard.frameMaxY,
+            beforeKeyboard.frameMaxY - 120,
+            "Chat transcript UITableView frame must move up with the keyboard from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            afterKeyboard.frameMaxY,
+            keyboardFrame.minY - 44,
+            "Transcript table bottom should sit above the composer and keyboard from \(scrollPosition), not behind the keyboard. after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertEqual(
+            afterKeyboard.visibleBottomY,
+            beforeKeyboard.visibleBottomY,
+            accuracy: 36,
+            "Visible transcript bottom should stay pinned while the keyboard opens from \(scrollPosition). before=\(beforeKeyboard) after=\(afterKeyboard)",
+            file: file,
+            line: line
+        )
+        if beforeKeyboard.distanceFromBottom <= 40 {
+            XCTAssertLessThanOrEqual(
+                afterKeyboard.distanceFromBottom,
+                44,
+                "Bottom-pinned transcript should remain bottom-pinned while the keyboard opens. before=\(beforeKeyboard) after=\(afterKeyboard)",
+                file: file,
+                line: line
+            )
+        }
+        dismissChatKeyboard(in: app, table: table)
+        _ = try waitForTranscriptMetrics(table, timeout: 4) {
+            abs($0.frameMaxY - baselineMaxY) < 4 && $0.frameHeight >= beforeKeyboard.frameHeight - 4
+        }
+    }
+
     /// Tapping a text field opens the system keyboard; the floating Pair
     /// button (via `.safeAreaInset(edge: .bottom)` with a gradient backdrop)
     /// must remain in the hierarchy and not jump below the keyboard. We can't
@@ -581,6 +700,15 @@ final class cmuxUITests: XCTestCase {
     private func launchAddDeviceApp(environment: [String: String] = [:]) -> XCUIApplication {
         let app = launchApp(mockData: true, environment: environment)
         XCTAssertTrue(app.otherElements["MobileAddDeviceForm"].waitForExistence(timeout: 8))
+        return app
+    }
+
+    @MainActor
+    private func launchAgentChatPreviewApp() -> XCUIApplication {
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_AGENT_CHAT_PREVIEW": "1",
+        ])
+        XCTAssertTrue(app.tables["ChatTranscriptTableView"].waitForExistence(timeout: 8))
         return app
     }
 
@@ -1025,6 +1153,143 @@ final class cmuxUITests: XCTestCase {
         return nil
     }
 
+    private struct ChatTranscriptMetrics: CustomStringConvertible {
+        let frameMinY: CGFloat
+        let frameMaxY: CGFloat
+        let frameHeight: CGFloat
+        let boundsHeight: CGFloat
+        let offsetY: CGFloat
+        let visibleBottomY: CGFloat
+        let contentHeight: CGFloat
+        let distanceFromBottom: CGFloat
+
+        var description: String {
+            "frameMinY=\(frameMinY), frameMaxY=\(frameMaxY), frameHeight=\(frameHeight), boundsHeight=\(boundsHeight), offsetY=\(offsetY), visibleBottomY=\(visibleBottomY), contentHeight=\(contentHeight), distanceFromBottom=\(distanceFromBottom)"
+        }
+
+        init?(_ rawValue: String) {
+            var values: [String: CGFloat] = [:]
+            for pair in rawValue.split(separator: ";") {
+                let parts = pair.split(separator: "=", maxSplits: 1)
+                guard parts.count == 2,
+                      let value = Double(parts[1]) else {
+                    continue
+                }
+                values[String(parts[0])] = CGFloat(value)
+            }
+            guard let frameMinY = values["frameMinY"],
+                  let frameMaxY = values["frameMaxY"],
+                  let frameHeight = values["frameHeight"],
+                  let boundsHeight = values["boundsHeight"],
+                  let offsetY = values["offsetY"],
+                  let visibleBottomY = values["visibleBottomY"],
+                  let contentHeight = values["contentHeight"],
+                  let distanceFromBottom = values["distanceFromBottom"] else {
+                return nil
+            }
+            self.frameMinY = frameMinY
+            self.frameMaxY = frameMaxY
+            self.frameHeight = frameHeight
+            self.boundsHeight = boundsHeight
+            self.offsetY = offsetY
+            self.visibleBottomY = visibleBottomY
+            self.contentHeight = contentHeight
+            self.distanceFromBottom = distanceFromBottom
+        }
+    }
+
+    @MainActor
+    private func waitForTranscriptMetrics(
+        _ table: XCUIElement,
+        timeout: TimeInterval,
+        matching predicate: @escaping (ChatTranscriptMetrics) -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> ChatTranscriptMetrics {
+        var lastRawValue = ""
+        var lastMetrics: ChatTranscriptMetrics?
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate { object, _ in
+                guard let element = object as? XCUIElement else {
+                    return false
+                }
+                guard let metrics = self.transcriptMetrics(from: element) else {
+                    lastRawValue = String(describing: element.value)
+                    return false
+                }
+                lastRawValue = String(describing: element.value)
+                lastMetrics = metrics
+                return predicate(metrics)
+            },
+            object: table
+        )
+        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
+        XCTAssertEqual(
+            result,
+            .completed,
+            "Timed out waiting for transcript metrics. Last metrics: \(String(describing: lastMetrics)); raw: \(lastRawValue)",
+            file: file,
+            line: line
+        )
+        if let metrics = lastMetrics {
+            return metrics
+        }
+        throw XCTSkip("Transcript metrics were unavailable")
+    }
+
+    @MainActor
+    private func transcriptMetrics(from table: XCUIElement) -> ChatTranscriptMetrics? {
+        guard let rawValue = table.value as? String else { return nil }
+        return ChatTranscriptMetrics(rawValue)
+    }
+
+    private enum TranscriptScrollDirection {
+        case up
+        case down
+    }
+
+    @MainActor
+    private func scrollTranscript(
+        _ table: XCUIElement,
+        direction: TranscriptScrollDirection,
+        timeout: TimeInterval,
+        until predicate: @escaping (ChatTranscriptMetrics) -> Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastMetrics: ChatTranscriptMetrics?
+        while Date() < deadline {
+            if let metrics = transcriptMetrics(from: table) {
+                lastMetrics = metrics
+                if predicate(metrics) {
+                    return
+                }
+            }
+            switch direction {
+            case .up:
+                table.swipeUp(velocity: .fast)
+            case .down:
+                table.swipeDown(velocity: .fast)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            if let metrics = transcriptMetrics(from: table) {
+                lastMetrics = metrics
+                if predicate(metrics) {
+                    return
+                }
+            }
+        }
+        if let metrics = transcriptMetrics(from: table), predicate(metrics) {
+            return
+        }
+        XCTFail(
+            "Timed out scrolling transcript \(direction). Last metrics: \(String(describing: transcriptMetrics(from: table) ?? lastMetrics))",
+            file: file,
+            line: line
+        )
+    }
+
     @MainActor
     private func focusTextInput(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
         for _ in 0..<4 {
@@ -1042,6 +1307,20 @@ final class cmuxUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return waitForKeyboardFocus(of: element, timeout: 0.5) || app.keyboards.firstMatch.exists
+    }
+
+    @MainActor
+    private func dismissChatKeyboard(in app: XCUIApplication, table: XCUIElement) {
+        guard app.keyboards.firstMatch.exists else { return }
+        if let frame = waitForUsableFrame(of: table, timeout: 1) {
+            app.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: frame.midX, dy: max(frame.minY + 24, frame.midY - 80)))
+                .tap()
+            if waitForKeyboardDismissal(in: app) {
+                return
+            }
+        }
+        dismissKeyboard(in: app)
     }
 
     @MainActor

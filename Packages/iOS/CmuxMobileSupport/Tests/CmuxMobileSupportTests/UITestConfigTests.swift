@@ -111,4 +111,18 @@ import Testing
         let env = ["CMUX_DOGFOOD_ATTACH_URL": "   "]
         #expect(UITestConfig.dogfoodAttachURL(from: env) == nil)
     }
+
+    @Test func agentChatPreviewFlagIsDebugOnly() {
+        let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
+        #if DEBUG
+        #expect(UITestConfig.agentChatPreviewEnabled(from: env) == true)
+        #else
+        #expect(UITestConfig.agentChatPreviewEnabled(from: env) == false)
+        #endif
+    }
+
+    @Test func agentChatPreviewFlagRequiresOne() {
+        #expect(UITestConfig.agentChatPreviewEnabled(from: [:]) == false)
+        #expect(UITestConfig.agentChatPreviewEnabled(from: ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "0"]) == false)
+    }
 }

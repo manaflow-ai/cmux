@@ -159,7 +159,6 @@ public struct ChatScreen: View {
             onOpenTerminal: onOpenTerminal
         ))
         #if os(iOS)
-        .modifier(ChatKeyboardTrackingLayout())
         .onPreferenceChange(ChatTranscriptFramePreferenceKey.self) { frame in
             transcriptFrame = frame
         }
@@ -170,6 +169,7 @@ public struct ChatScreen: View {
             scrollButtonFrame = frame
         }
         .dismissesKeyboardOnTap(in: transcriptDismissRegion, excluding: scrollButtonFrame)
+        .modifier(ChatKeyboardTrackingLayout())
         #endif
         .task { await store.run() }
         #if canImport(UIKit)
