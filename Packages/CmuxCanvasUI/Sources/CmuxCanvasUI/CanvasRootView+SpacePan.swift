@@ -10,12 +10,22 @@ extension CanvasRootView {
     }
 
     func handleSpacePanEvent(_ event: NSEvent) -> NSEvent? {
+        guard canvasSpacePanShouldHandleEvents(isWorkspaceVisible: isWorkspaceVisible) else {
+            cancelSpacePan()
+            return event
+        }
         switch event.type {
         case .keyDown:
             guard isSpacePanKeyEvent(event) else { return event }
             isSpacePanKeyDown = true
-            if shouldConsumeSpacePanKeyEvent() {
-                didConsumeSpacePanKeyDown = true
+            if event.isARepeat {
+                return canvasSpacePanShouldConsumeSpaceKeyRepeat(
+                    didConsumeSpaceKey: didConsumeSpacePanKeyDown,
+                    isPanning: spacePanSession != nil
+                ) ? nil : event
+            }
+            didConsumeSpacePanKeyDown = shouldConsumeSpacePanKeyEvent()
+            if didConsumeSpacePanKeyDown {
                 return nil
             }
             return event
@@ -28,7 +38,13 @@ extension CanvasRootView {
             return shouldConsume ? nil : event
 
         case .leftMouseDown:
-            guard isSpacePanArmed, bounds.contains(convert(event.locationInWindow, from: nil)) else {
+            refreshSpacePanKeyState()
+            let pointerInsideCanvas = bounds.contains(convert(event.locationInWindow, from: nil))
+            guard canvasSpacePanCanBegin(
+                didConsumeSpaceKey: didConsumeSpacePanKeyDown,
+                isPhysicalSpaceKeyPressed: Self.isPhysicalSpaceKeyPressed,
+                isPointerInsideCanvas: pointerInsideCanvas
+            ) else {
                 return event
             }
             beginSpacePan(with: event)
@@ -56,10 +72,6 @@ extension CanvasRootView {
         popSpacePanCursorIfNeeded()
     }
 
-    private var isSpacePanArmed: Bool {
-        isSpacePanKeyDown || Self.isPhysicalSpaceKeyPressed
-    }
-
     private static var isPhysicalSpaceKeyPressed: Bool {
         CGEventSource.keyState(.combinedSessionState, key: CGKeyCode(spacePanKeyCode))
     }
@@ -74,10 +86,42 @@ extension CanvasRootView {
         guard let window else { return false }
         let location = convert(window.mouseLocationOutsideOfEventStream, from: nil)
         guard bounds.contains(location) else { return false }
-        // Preserve normal terminal/text entry when the pointer sits over pane
-        // content; the following mouse-down will still enter hand-pan mode if
-        // the user is intentionally holding Space and dragging.
-        return paneView(at: location) == nil || spacePanSession != nil
+        // Preserve normal terminal/text/control entry when keyboard focus is
+        // not owned by the canvas background. If the key was not swallowed, the
+        // later mouse-down must not start a pan because a literal Space may
+        // already have been delivered to that responder.
+        return canvasSpacePanShouldConsumeSpaceKey(
+            isPointerInsideCanvas: true,
+            canInterceptKeyboardTarget: canInterceptSpacePanKeyboardTarget(in: window),
+            isPanning: spacePanSession != nil
+        )
+    }
+
+    private func canInterceptSpacePanKeyboardTarget(in window: NSWindow) -> Bool {
+        guard let responder = window.firstResponder else { return true }
+        if responder === window {
+            return true
+        }
+        if canvasSpacePanIsTextInputOrControlResponder(responder) {
+            return false
+        }
+        guard let view = responder as? NSView else { return false }
+        if isPaneResponder(view) {
+            return false
+        }
+        return view === self || view.isDescendant(of: self)
+    }
+
+    private func isPaneResponder(_ responder: NSView) -> Bool {
+        return paneViews.values.contains { paneView in
+            responder === paneView || responder.isDescendant(of: paneView)
+        }
+    }
+
+    private func refreshSpacePanKeyState() {
+        guard !Self.isPhysicalSpaceKeyPressed else { return }
+        isSpacePanKeyDown = false
+        didConsumeSpacePanKeyDown = false
     }
 
     private func beginSpacePan(with event: NSEvent) {
@@ -91,7 +135,7 @@ extension CanvasRootView {
 
     private func updateSpacePan(with event: NSEvent) {
         guard let session = spacePanSession else { return }
-        let origin = Self.spacePanClipOrigin(
+        let origin = canvasSpacePanClipOrigin(
             startClipOrigin: session.startClipOrigin,
             startWindowPoint: session.startWindowPoint,
             currentWindowPoint: event.locationInWindow,
@@ -107,9 +151,7 @@ extension CanvasRootView {
         guard spacePanSession != nil else { return }
         spacePanSession = nil
         popSpacePanCursorIfNeeded()
-        updateLifecycle()
-        saveViewportToModel()
-        callbacks.onViewportGeometryChanged(window)
+        flushViewportDidScroll()
         callbacks.onViewportSettled(window)
     }
 
@@ -124,19 +166,53 @@ extension CanvasRootView {
         NSCursor.pop()
         didPushSpacePanCursor = false
     }
+}
 
-    static func spacePanClipOrigin(
-        startClipOrigin: CGPoint,
-        startWindowPoint: CGPoint,
-        currentWindowPoint: CGPoint,
-        magnification: CGFloat
-    ) -> CGPoint {
-        let scale = max(magnification, 0.0001)
-        let dx = (currentWindowPoint.x - startWindowPoint.x) / scale
-        let dy = (currentWindowPoint.y - startWindowPoint.y) / scale
-        return CGPoint(
-            x: startClipOrigin.x - dx,
-            y: startClipOrigin.y + dy
-        )
+func canvasSpacePanClipOrigin(
+    startClipOrigin: CGPoint,
+    startWindowPoint: CGPoint,
+    currentWindowPoint: CGPoint,
+    magnification: CGFloat
+) -> CGPoint {
+    let scale = max(magnification, 0.0001)
+    let dx = (currentWindowPoint.x - startWindowPoint.x) / scale
+    let dy = (currentWindowPoint.y - startWindowPoint.y) / scale
+    return CGPoint(
+        x: startClipOrigin.x - dx,
+        y: startClipOrigin.y + dy
+    )
+}
+
+func canvasSpacePanShouldConsumeSpaceKey(
+    isPointerInsideCanvas: Bool,
+    canInterceptKeyboardTarget: Bool,
+    isPanning: Bool
+) -> Bool {
+    isPanning || (isPointerInsideCanvas && canInterceptKeyboardTarget)
+}
+
+func canvasSpacePanShouldConsumeSpaceKeyRepeat(
+    didConsumeSpaceKey: Bool,
+    isPanning: Bool
+) -> Bool {
+    didConsumeSpaceKey || isPanning
+}
+
+func canvasSpacePanCanBegin(
+    didConsumeSpaceKey: Bool,
+    isPhysicalSpaceKeyPressed: Bool,
+    isPointerInsideCanvas: Bool
+) -> Bool {
+    didConsumeSpaceKey && isPhysicalSpaceKeyPressed && isPointerInsideCanvas
+}
+
+func canvasSpacePanShouldHandleEvents(isWorkspaceVisible: Bool) -> Bool {
+    isWorkspaceVisible
+}
+
+private func canvasSpacePanIsTextInputOrControlResponder(_ responder: NSResponder) -> Bool {
+    if responder is NSText || responder is any NSTextInputClient {
+        return true
     }
+    return responder is NSControl
 }

@@ -29,7 +29,7 @@ public final class CanvasRootView: NSView {
     /// The latest descriptors, by panel id, for mount/chrome lookups.
     private var descriptorsByPanelId: [UUID: CanvasPaneDescriptor] = [:]
     private var renderingByPane: [CanvasPaneID: Bool] = [:]
-    private var isWorkspaceVisible = true
+    var isWorkspaceVisible = true
     /// Canvas coordinates of the document view's (0,0).
     var documentOriginInCanvas: CGPoint = .zero
     var dragSession: DragSession?
@@ -202,6 +202,7 @@ public final class CanvasRootView: NSView {
     public func sync(descriptors: [CanvasPaneDescriptor], focusedPanelId: UUID?, isWorkspaceVisible: Bool) {
         let becameVisible = isWorkspaceVisible && !self.isWorkspaceVisible
         self.isWorkspaceVisible = isWorkspaceVisible
+        if !isWorkspaceVisible { cancelSpacePan() }
         let added = model.syncPanes(
             panelIds: descriptors.map(\.id),
             focusedPanelId: focusedPanelId
@@ -246,7 +247,6 @@ public final class CanvasRootView: NSView {
             revealPane(revealTarget, animated: true)
         }
     }
-
 
     /// Creates/removes pane views to match the model's pane set and brings
     /// each pane's mount and chrome up to date from the cached descriptors.
@@ -394,7 +394,8 @@ public final class CanvasRootView: NSView {
         }
     }
 
-    private func flushViewportDidScroll() {
+    func flushViewportDidScroll() {
+        guard viewportScrollUpdateScheduled else { return }
         viewportScrollUpdateScheduled = false
         updateLifecycle()
         saveViewportToModel()
