@@ -19,6 +19,32 @@ enum BrowserWebAuthnBridgeContract {
         let handlerName = BrowserWebAuthnBridgeContract.handlerName
         return #"""
         (() => {
+          const currentFrameMayUseWebAuthn = () => {
+            if (window.isSecureContext !== true) {
+              return false;
+            }
+            if (window.self === window.top) {
+              return true;
+            }
+            try {
+              if (window.top.location.origin === window.location.origin) {
+                return true;
+              }
+            } catch (_) {}
+            const permissionsPolicy = document.permissionsPolicy || document.featurePolicy;
+            if (!permissionsPolicy || typeof permissionsPolicy.allowsFeature !== "function") {
+              return false;
+            }
+            return (
+              permissionsPolicy.allowsFeature("publickey-credentials-create") ||
+              permissionsPolicy.allowsFeature("publickey-credentials-get")
+            );
+          };
+
+          if (!currentFrameMayUseWebAuthn()) {
+            return false;
+          }
+
           if (window.__cmuxWebAuthnBridgeInstalled) {
             return true;
           }
@@ -723,6 +749,33 @@ private struct BrowserWebAuthnSecurityOrigin {
         return host == normalizedIdentifier || host.hasSuffix(".\(normalizedIdentifier)")
     }
 
+    var isPotentiallyTrustworthyWebAuthnOrigin: Bool {
+        if scheme == "https" {
+            return true
+        }
+        guard scheme == "http" else {
+            return false
+        }
+        return host == "localhost" ||
+            host.hasSuffix(".localhost") ||
+            host == "::1" ||
+            host == "[::1]" ||
+            isIPv4LoopbackHost
+    }
+
+    private var isIPv4LoopbackHost: Bool {
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard octets.count == 4, octets[0] == "127" else {
+            return false
+        }
+        return octets.dropFirst().allSatisfy { octet in
+            guard let value = Int(octet) else {
+                return false
+            }
+            return (0...255).contains(value)
+        }
+    }
+
     private static func normalizedPort(scheme: String, port: Int?) -> Int {
         if let port, port > 0 {
             return port
@@ -768,6 +821,10 @@ private struct BrowserWebAuthnClientDataContext {
     func clientData(challenge: Data) throws -> ASPublicKeyCredentialClientData {
         guard #available(macOS 13.5, *) else {
             throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
+        }
+        guard callerOrigin.isPotentiallyTrustworthyWebAuthnOrigin,
+              topLevelOrigin?.isPotentiallyTrustworthyWebAuthnOrigin ?? true else {
+            throw BrowserWebAuthnBridgeError.security("Passkey access requires a secure origin.")
         }
 
         let topOrigin: String?
