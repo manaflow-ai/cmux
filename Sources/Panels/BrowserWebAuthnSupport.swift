@@ -1156,7 +1156,8 @@ private extension BrowserWebAuthnCoordinator {
         }
 
         var platformRequests: [ASAuthorizationRequest] = []
-        if #available(macOS 13.5, *),
+        if attachment != "cross-platform",
+           #available(macOS 13.5, *),
            requestedAlgorithms.contains(-7) {
             let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(
                 relyingPartyIdentifier: relyingPartyIdentifier

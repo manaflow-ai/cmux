@@ -39,11 +39,8 @@ struct BrowserWebAuthnSecurityOrigin {
 
     func permits(relyingPartyIdentifier: String) -> Bool {
         let normalizedIdentifier = relyingPartyIdentifier.lowercased()
-        guard isWithinRelyingPartyScope(normalizedIdentifier),
-              !Self.isKnownPublicSuffixLikeRelyingPartyIdentifier(normalizedIdentifier) else {
-            return false
-        }
-        return true
+        guard !normalizedIdentifier.isEmpty else { return false }
+        return host == normalizedIdentifier
     }
 
     func isWithinRelyingPartyScope(_ relyingPartyIdentifier: String) -> Bool {
@@ -78,39 +75,6 @@ struct BrowserWebAuthnSecurityOrigin {
             return (0...255).contains(value)
         }
     }
-
-    private static func isKnownPublicSuffixLikeRelyingPartyIdentifier(_ identifier: String) -> Bool {
-        let labels = identifier.split(separator: ".", omittingEmptySubsequences: false)
-        guard labels.count >= 2 else { return true }
-        return knownPublicSuffixLikeRelyingPartyIdentifiers.contains(identifier)
-    }
-
-    private static let knownPublicSuffixLikeRelyingPartyIdentifiers: Set<String> = [
-        "appspot.com",
-        "cloudfront.net",
-        "co.in",
-        "co.jp",
-        "co.kr",
-        "co.nz",
-        "co.uk",
-        "co.za",
-        "com.au",
-        "com.br",
-        "com.cn",
-        "firebaseapp.com",
-        "fly.dev",
-        "github.io",
-        "herokuapp.com",
-        "netlify.app",
-        "pages.dev",
-        "railway.app",
-        "render.com",
-        "s3.amazonaws.com",
-        "surge.sh",
-        "vercel.app",
-        "web.app",
-        "workers.dev",
-    ]
 
     private static func normalizedPort(scheme: String, port: Int?) -> Int {
         if let port, port > 0 {
