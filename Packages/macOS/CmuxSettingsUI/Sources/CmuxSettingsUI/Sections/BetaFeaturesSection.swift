@@ -3,8 +3,8 @@ import CmuxSettings
 import SwiftUI
 
 /// **Beta Features** section — a warning note followed by the
-/// experimental toggles. Each toggle gates an unstable feature that is
-/// off by default.
+/// experimental toggles. Each toggle gates an unstable feature; individual
+/// features choose whether they default on or off.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
@@ -130,7 +130,7 @@ public struct BetaFeaturesSection: View {
             String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"),
             subtitle: remoteTmux.current
                 ? String(localized: "settings.betaFeatures.remoteTmux.subtitleOn", defaultValue: "Mirrors a remote host's tmux sessions in the sidebar over ssh tmux -CC; sessions become workspaces and windows become tabs. Quitting cmux leaves the remote tmux server running.")
-                : String(localized: "settings.betaFeatures.remoteTmux.subtitleOff", defaultValue: "Hides remote tmux mirroring until you enable it here.")
+                : String(localized: "settings.betaFeatures.remoteTmux.subtitleOff", defaultValue: "Remote tmux mirroring is disabled; cmux ssh-tmux will stay blocked until you enable it here.")
         ) {
             Toggle("", isOn: Binding(get: { remoteTmux.current }, set: { remoteTmux.set($0) }))
                 .labelsHidden()

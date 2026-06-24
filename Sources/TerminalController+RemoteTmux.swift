@@ -7,13 +7,24 @@ import Foundation
 /// `remoteTmux` beta flag and delegates to `AppDelegate`'s
 /// ``RemoteTmuxController``.
 extension TerminalController {
+    nonisolated private func remoteTmuxDisabledError(id: Any?) -> String {
+        v2Error(
+            id: id,
+            code: "disabled",
+            message: String(
+                localized: "socket.remoteTmux.disabled",
+                defaultValue: "Remote tmux is disabled in this local cmux app. Enable Settings > Beta Features > Remote tmux, then retry. No SSH connection was attempted, so this does not mean tmux is missing on the remote host."
+            )
+        )
+    }
+
     /// `remote.tmux.sessions` — list the tmux sessions on a host.
     ///
     /// Params: `host` (required SSH destination/alias), optional `port` (Int),
     /// optional `identity_file` (String).
     nonisolated func v2RemoteTmuxSessions(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+            return remoteTmuxDisabledError(id: id)
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
@@ -84,7 +95,7 @@ extension TerminalController {
     /// optional `create` (Bool — attach-or-create). Returns the control surface id.
     nonisolated func v2RemoteTmuxAttach(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+            return remoteTmuxDisabledError(id: id)
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
@@ -121,7 +132,7 @@ extension TerminalController {
     /// sidebar workspace (windows become tabs). Params: `host` (required).
     nonisolated func v2RemoteTmuxMirror(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+            return remoteTmuxDisabledError(id: id)
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
@@ -151,7 +162,7 @@ extension TerminalController {
     /// multiplexing over the authenticated master.
     nonisolated func v2RemoteTmuxWindow(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+            return remoteTmuxDisabledError(id: id)
         }
         guard let host = Self.remoteTmuxHost(from: params) else {
             return v2Error(id: id, code: "invalid_params", message: String(localized: "socket.remoteTmux.hostRequired", defaultValue: "host is required"))
@@ -186,7 +197,7 @@ extension TerminalController {
     /// `remote.tmux.detach` — detach a control client (leaves the remote session alive).
     nonisolated func v2RemoteTmuxDetach(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+            return remoteTmuxDisabledError(id: id)
         }
         guard let host = Self.remoteTmuxHost(from: params),
               let session = Self.remoteTmuxSessionName(from: params)
@@ -209,7 +220,7 @@ extension TerminalController {
     /// Diagnostics surface for verifying the ghostty → cmux event pipe end to end.
     nonisolated func v2RemoteTmuxState(id: Any?, params: [String: Any]) -> String {
         guard RemoteTmuxController.isEnabled else {
-            return v2Error(id: id, code: "disabled", message: String(localized: "socket.remoteTmux.disabled", defaultValue: "remote tmux beta is disabled"))
+            return remoteTmuxDisabledError(id: id)
         }
         guard let host = Self.remoteTmuxHost(from: params),
               let session = Self.remoteTmuxSessionName(from: params)
