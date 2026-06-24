@@ -88,9 +88,18 @@ def compose_iphone(raw, out, bg, title, frame):
     ox, oy = IPHONE_SCREEN_OFFSET
     font = font_for(title)
     with tempfile.TemporaryDirectory() as tmp:
+        # Round the (square) simulator capture to the screen corner radius so its
+        # corners don't poke past the frame's rounded screen opening.
+        rraw = os.path.join(tmp, "raw_round.png")
+        rw, rh = identify(raw)
+        rad = round(rw * 0.097)
+        subprocess.run([MAGICK, raw,
+                        "(", "+clone", "-alpha", "transparent", "-background", "none", "-fill", "white",
+                        "-draw", f"roundrectangle 0,0,{rw-1},{rh-1},{rad},{rad}", ")",
+                        "-compose", "DstIn", "-composite", rraw], check=True)
         device = os.path.join(tmp, "device.png")
         subprocess.run([MAGICK, "-size", f"{fw}x{fh}", "xc:none",
-                        "(", raw, "-geometry", f"+{ox}+{oy}", ")", "-composite",
+                        "(", rraw, "-geometry", f"+{ox}+{oy}", ")", "-composite",
                         frame, "-composite", device], check=True)
         dw = int(cw * 0.885)
         dh = int(fh * dw / fw)
