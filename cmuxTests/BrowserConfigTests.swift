@@ -2228,6 +2228,45 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         XCTAssertNil(credential)
     }
 
+    func testMainBrowserCancelsAdditionalBasicAuthChallengesWhilePreloadPromptIsPending() throws {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNil(browserInteractiveModalHostWindow(for: panel.webView))
+
+        let delegate = try XCTUnwrap(panel.webView.navigationDelegate)
+        let firstChallenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        let secondChallenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        var firstCompletionCalled = false
+        var secondDisposition: URLSession.AuthChallengeDisposition?
+        var secondCredential: URLCredential?
+
+        delegate.webView?(
+            panel.webView,
+            didReceive: firstChallenge
+        ) { _, _ in
+            firstCompletionCalled = true
+        }
+
+        delegate.webView?(
+            panel.webView,
+            didReceive: secondChallenge
+        ) { disposition, credential in
+            secondDisposition = disposition
+            secondCredential = credential
+        }
+
+        XCTAssertFalse(firstCompletionCalled)
+        XCTAssertEqual(secondDisposition, .cancelAuthenticationChallenge)
+        XCTAssertNil(secondCredential)
+    }
+
     func testBasicAuthPromptConfirmReturnsSessionCredential() {
         let proposed = URLCredential(user: "prefill", password: "old", persistence: .forSession)
         let challenge = makeAuthChallenge(

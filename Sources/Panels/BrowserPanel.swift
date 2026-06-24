@@ -8767,6 +8767,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
+    private var isHTTPBasicAuthPromptPending = false
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = lastAttemptedURL ?? webView.url
@@ -8819,13 +8820,28 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        if browserHandleHTTPBasicAuthenticationChallenge(
-            in: webView,
-            challenge: challenge,
-            presentAlert: presentAlert,
-            completionHandler: completionHandler
-        ) {
-            return
+        if browserShouldPromptForHTTPBasicAuth(challenge: challenge) {
+            guard !isHTTPBasicAuthPromptPending else {
+                completionHandler(.cancelAuthenticationChallenge, nil)
+                return
+            }
+
+            isHTTPBasicAuthPromptPending = true
+            let finishPrompt: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void = { [weak self] disposition, credential in
+                self?.isHTTPBasicAuthPromptPending = false
+                completionHandler(disposition, credential)
+            }
+
+            if browserHandleHTTPBasicAuthenticationChallenge(
+                in: webView,
+                challenge: challenge,
+                presentAlert: presentAlert,
+                completionHandler: finishPrompt
+            ) {
+                return
+            }
+
+            isHTTPBasicAuthPromptPending = false
         }
 
         // WKWebView rejects all authentication challenges by default when this
