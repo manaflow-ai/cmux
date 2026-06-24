@@ -1887,7 +1887,7 @@ actor BrowserSearchSuggestionService {
 
 /// BrowserPanel provides a WKWebView-based browser panel.
 /// Each browser panel can recover from WebContent crashes by replacing its web view.
-private enum BrowserInsecureHTTPNavigationIntent {
+enum BrowserInsecureHTTPNavigationIntent {
     case currentTab
     case newTab
 }
@@ -8532,7 +8532,7 @@ private func browserNavigationShouldRetargetSimpleUserGesturePopup(
     return false
 }
 
-private func browserNavigationDebugURL(_ url: URL?) -> String {
+func browserNavigationDebugURL(_ url: URL?) -> String {
     guard let url,
           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
         return "nil"
