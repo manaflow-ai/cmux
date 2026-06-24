@@ -812,6 +812,27 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
         )
     }
 
+    @MainActor
+    func tearDown(from webView: WKWebView) {
+        cancelActiveAuthorization()
+        uninstall(from: webView)
+    }
+
+    @MainActor
+    private func cancelActiveAuthorization() {
+        let controller = activeAuthorizationController
+        let continuation = activeAuthorizationContinuation
+        activeAuthorizationController = nil
+        activeAuthorizationContinuation = nil
+        activePresentationWindow = nil
+        controller?.delegate = nil
+        controller?.presentationContextProvider = nil
+        if #available(macOS 13.0, *) {
+            controller?.cancel()
+        }
+        continuation?.resume(throwing: BrowserWebAuthnBridgeError.notAllowed("The passkey request failed."))
+    }
+
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage,
