@@ -53,9 +53,11 @@ import Testing
         ]
         let registry = [try route(host: "100.9.9.9", port: 51999)]
 
-        let resolved = DeviceRegistryService.resolvedReconnectRoutes(
+        let resolved = MobileShellComposite.validatedReconnectRoutes(
             local: local,
-            registry: registry
+            registry: registry,
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
         )
         let reachable = MobileShellComposite.firstReconnectHostPortRoute(
             resolved,
@@ -65,6 +67,28 @@ import Testing
 
         #expect(reachable?.0 == "100.9.9.9")
         #expect(reachable?.1 == 51999)
+    }
+
+    @MainActor
+    @Test func unsupportedRegistryRoutesDoNotReplaceReachableLocalRoute() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let registry = [
+            try CmxAttachRoute(
+                id: "websocket",
+                kind: .websocket,
+                endpoint: .url("wss://example.invalid/cmux"),
+                priority: 0
+            ),
+        ]
+
+        let resolved = MobileShellComposite.validatedReconnectRoutes(
+            local: local,
+            registry: registry,
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(resolved == local)
     }
 
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {

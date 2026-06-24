@@ -1,3 +1,5 @@
+import CMUXMobileCore
+import CmuxMobilePairedMac
 import Foundation
 import Testing
 @testable import CmuxMobileShell
@@ -29,6 +31,20 @@ import Testing
         #expect(!defaultsDisabled)
         #expect(!environmentDisabled)
     }
+
+    @Test func automaticSecondaryAggregationIsCapped() throws {
+        let macs = try (0..<(MobileShellComposite.maximumAutomaticSecondaryMacCount + 3)).map { index in
+            try pairedMac(id: "mac-\(index)")
+        }
+
+        let candidates = MobileShellComposite.secondaryAggregationCandidates(
+            from: macs,
+            foregroundMacDeviceID: "mac-0"
+        )
+
+        #expect(candidates.count == MobileShellComposite.maximumAutomaticSecondaryMacCount)
+        #expect(candidates.map(\.macDeviceID) == (1...MobileShellComposite.maximumAutomaticSecondaryMacCount).map { "mac-\($0)" })
+    }
 }
 
 private func emptyDefaults() throws -> UserDefaults {
@@ -36,4 +52,23 @@ private func emptyDefaults() throws -> UserDefaults {
     let defaults = try #require(UserDefaults(suiteName: suiteName))
     defaults.removePersistentDomain(forName: suiteName)
     return defaults
+}
+
+private func pairedMac(id: String) throws -> MobilePairedMac {
+    MobilePairedMac(
+        macDeviceID: id,
+        displayName: id,
+        routes: [
+            try CmxAttachRoute(
+                id: "route-\(id)",
+                kind: .tailscale,
+                endpoint: .hostPort(host: "100.0.0.1", port: 51000)
+            ),
+        ],
+        createdAt: Date(timeIntervalSince1970: 1),
+        lastSeenAt: Date(timeIntervalSince1970: 2),
+        isActive: false,
+        stackUserID: "user-1",
+        teamID: "team-1"
+    )
 }

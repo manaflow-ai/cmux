@@ -525,6 +525,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
     private static let multiMacAggregationDefaultsKey = "multiMacAggregation"
+    static let maximumAutomaticSecondaryMacCount = 8
 
     private let multiMacAggregationDefaults: UserDefaults
     let clientID: String
@@ -1634,9 +1635,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) async -> MobilePairedMac {
         guard let deviceRegistry else { return mac }
         let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: mac.macDeviceID)
-        let routes = DeviceRegistryService.resolvedReconnectRoutes(
+        let routes = Self.validatedReconnectRoutes(
             local: mac.routes,
-            registry: registryRoutes
+            registry: registryRoutes,
+            supportedKinds: runtime?.supportedRouteKinds ?? [],
+            preferNonLoopback: Self.prefersNonLoopbackRoutes
         )
         guard routes != mac.routes, await isScopeCurrent(scope) else { return mac }
         var refreshed = mac
@@ -3069,9 +3072,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard await isAggregationScopeValid(scope) else { return }
         let macs = (try? await pairedMacStore.loadAll(stackUserID: scope.userID, teamID: scope.teamID)) ?? []
         guard await isAggregationScopeValid(scope) else { return }
-        let wanted = Set(macs.map(\.macDeviceID))
-            .subtracting(foregroundMacDeviceID.map { [$0] } ?? [])
-            .subtracting([""])
+        let candidateMacs = Self.secondaryAggregationCandidates(
+            from: macs,
+            foregroundMacDeviceID: foregroundMacDeviceID
+        )
+        let wanted = Set(candidateMacs.map(\.macDeviceID))
         // Tear down subscriptions for Macs that are gone or are now the foreground.
         for (macID, subscription) in secondaryMacSubscriptions where !wanted.contains(macID) {
             subscription.cancel()
@@ -3083,7 +3088,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // explicit refresh (foreground/pull) still updates a stream that was
         // suspended while backgrounded or whose pushes never started. If the
         // existing client is dead, recreate the subscription.
-        for mac in macs where wanted.contains(mac.macDeviceID) {
+        for mac in candidateMacs {
             // Re-check before each Mac so a sign-out / account/team switch
             // mid-loop stops us before we connect to or write state for another
             // scope.
