@@ -41,4 +41,16 @@ struct RemoteTmuxPaneForegroundState: Equatable, Sendable {
     var hasActiveCommand: Bool {
         alternateOn || (!command.isEmpty && !Self.plainShellCommands.contains(command))
     }
+
+    /// The coding agent whose CLI is foregrounded in this pane, or `nil` when the
+    /// foreground command isn't a known agent. Matches the pane's
+    /// `pane_current_command` (the foreground process `comm`) against the known
+    /// agent executable names — verified empirically that an interactive `claude`
+    /// reports `pane_current_command == "claude"` (not `node`). This is a coarse
+    /// "an agent CLI is running in this remote pane" signal: it cannot report
+    /// busy/idle or the model (the remote tmux exposes only the comm name).
+    var agentProvider: AgentSessionProviderID? {
+        guard !command.isEmpty else { return nil }
+        return AgentSessionProviderID.allCases.first { $0.executableName == command }
+    }
 }

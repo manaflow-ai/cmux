@@ -512,6 +512,28 @@ import Testing
         #expect(state.command == "node")
         #expect(state.hasActiveCommand)
     }
+
+    // MARK: - Remote agent classification (sidebar agent chip)
+
+    @Test func foregroundedAgentCLIsAreClassified() {
+        // An interactive `claude` reports pane_current_command == "claude"
+        // (verified empirically), so the comm name maps straight to a provider.
+        #expect(State(rawValue: "0|claude").agentProvider == .claude)
+        #expect(State(rawValue: "0|codex").agentProvider == .codex)
+        #expect(State(rawValue: "0|opencode").agentProvider == .opencode)
+    }
+
+    @Test func nonAgentForegroundCommandsAreNotClassified() {
+        // Shells and ordinary tools must not be mistaken for an agent.
+        for raw in ["0|bash", "0|-zsh", "0|vim", "0|node", "0|python", "0|", ""] {
+            #expect(State(rawValue: raw).agentProvider == nil, "raw=\(raw)")
+        }
+    }
+
+    @Test func agentClassificationIgnoresAlternateScreenFlag() {
+        // The provider is derived from the comm name regardless of alt-screen.
+        #expect(State(rawValue: "1|claude").agentProvider == .claude)
+    }
 }
 
 /// The `refresh-client -B` subscribe lines must keep their `name:target:format`
@@ -532,6 +554,23 @@ import Testing
         #expect(
             RemoteTmuxControlConnection.panePathSubscriptionCommand(paneId: 7)
                 == "refresh-client -B \"cmux_cwd_7:%7:#{pane_current_path}\""
+        )
+    }
+
+    @Test @MainActor func agentSubscribeCommandKeepsFormatQuoted() {
+        // Subscribes the remote agent hook's @cmux_agent user option (Option C).
+        // Same load-bearing quoting; verified live that setting the option pushes
+        // %subscription-changed cmux_agent_<pane> … : <value> on tmux 3.6a.
+        #expect(
+            RemoteTmuxControlConnection.paneAgentSubscriptionCommand(paneId: 12)
+                == "refresh-client -B \"cmux_agent_12:%12:#{@cmux_agent}\""
+        )
+    }
+
+    @Test @MainActor func gitSubscribeCommandKeepsFormatQuoted() {
+        #expect(
+            RemoteTmuxControlConnection.paneGitSubscriptionCommand(paneId: 4)
+                == "refresh-client -B \"cmux_git_4:%4:#{@cmux_git}\""
         )
     }
 }
