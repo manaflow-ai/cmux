@@ -988,6 +988,7 @@ private final class BrowserPasskeyAuthorizationGate {
     }
 }
 
+@MainActor
 final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithReply {
     private weak var installedWebView: WKWebView?
     private var activeAuthorizationController: ASAuthorizationController?
