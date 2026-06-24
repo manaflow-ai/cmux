@@ -168,7 +168,7 @@ struct TerminalTextSheetView: View {
 
     private func awaitCapture(_ capture: Task<String?, Never>) async -> (timedOut: Bool, text: String?) {
         let state = TerminalTextCaptureRaceState()
-        await withTaskCancellationHandler(operation: {
+        return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
                 let waiter = Task.detached(priority: .userInitiated) {
                     let text = await capture.value
