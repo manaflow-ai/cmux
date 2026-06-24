@@ -33,20 +33,18 @@ IPHONE_FRAME_URL = ("https://fastlane.github.io/frameit-frames/latest/"
 IPHONE_SCREEN_OFFSET = (75, 66)
 IPHONE_FRAME_SIZE = (1470, 3000)
 
-FONT_CANDIDATES = [
-    "/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-]
-# A CJK/RTL-capable font is needed for many locales; Arial Rounded lacks them.
+# Apple's SF Pro for the header (the native iOS font); a Unicode font covers
+# locales SF Pro lacks glyphs for (CJK, Arabic, Hebrew, Thai, Hindi, ...).
+SF_PRO = "/System/Library/Fonts/SFNS.ttf"
 FONT_UNICODE = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"
+FONT_CANDIDATES = [SF_PRO, "/System/Library/Fonts/SFNSRounded.ttf", FONT_UNICODE,
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
 
 
 def font_for(title):
-    # Use the rounded font for Latin titles; fall back to a Unicode font when the
-    # title has non-Latin characters (CJK, Cyrillic, Arabic, etc.).
-    if any(ord(c) > 0x2FF for c in title) and os.path.exists(FONT_UNICODE):
+    # SF Pro for Latin/Cyrillic/Greek; fall back to a Unicode font for scripts
+    # SF Pro doesn't cover (CJK etc.).
+    if any(ord(c) > 0x52F for c in title) and os.path.exists(FONT_UNICODE):
         return FONT_UNICODE
     return next((c for c in FONT_CANDIDATES if os.path.exists(c)), FONT_UNICODE)
 
@@ -75,9 +73,12 @@ def identify(path):
 
 def header_layer(tmp, title, cw, font, pt, box_w, box_h):
     cap = os.path.join(tmp, "cap.png")
-    subprocess.run([MAGICK, "-background", "none", "-fill", "white", "-font", font,
-                    "-pointsize", str(pt), "-size", f"{box_w}x{box_h}", "-gravity", "center",
-                    f"caption:{title}", cap], check=True)
+    cmd = [MAGICK, "-background", "none", "-fill", "white", "-font", font]
+    if font == SF_PRO:  # SF Pro is a variable font; render heavy for a bold header
+        cmd += ["-weight", "800"]
+    cmd += ["-pointsize", str(pt), "-size", f"{box_w}x{box_h}", "-gravity", "center",
+            f"caption:{title}", cap]
+    subprocess.run(cmd, check=True)
     return cap
 
 
@@ -143,7 +144,8 @@ def main():
     if not MAGICK:
         raise SystemExit("ImageMagick not found")
     ss = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(HERE, "..", "screenshots")
-    bg = os.path.join(HERE, "background.jpg")
+    bg_portrait = os.path.join(HERE, "bg_portrait.jpg")
+    bg_landscape = os.path.join(HERE, "bg_landscape.jpg")
     frame = ensure_iphone_frame()
     en, loc = load_titles()
     n = 0
@@ -161,9 +163,9 @@ def main():
             title = titles.get(f"{m.group(2)}-{m.group(3)}") or en.get(f"{m.group(2)}-{m.group(3)}") or ""
             src, dst = os.path.join(d, f), os.path.join(d, f[:-4] + "_framed.png")
             if "ipad" in m.group(1).lower():
-                compose_ipad(src, dst, bg, title)
+                compose_ipad(src, dst, bg_landscape, title)
             else:
-                compose_iphone(src, dst, bg, title, frame)
+                compose_iphone(src, dst, bg_portrait, title, frame)
             n += 1
     print(f"composed {n} framed screenshots")
 
