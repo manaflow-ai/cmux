@@ -226,6 +226,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// authoritative list confirms the workspace is gone or the close fails.
     var optimisticallyClosedWorkspaces: [MobileWorkspacePreview.ID: MobileWorkspacePreview] = [:]
     var optimisticallyClosedSelectedWorkspaceIDs: Set<MobileWorkspacePreview.ID> = []
+    var optimisticallyClosedReplacementSelections: [MobileWorkspacePreview.ID: MobileWorkspacePreview.ID] = [:]
 
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
@@ -6771,6 +6772,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         {
             optimisticallyClosedWorkspaces.removeValue(forKey: id)
             optimisticallyClosedSelectedWorkspaceIDs.remove(id)
+            optimisticallyClosedReplacementSelections.removeValue(forKey: id)
         }
     }
 

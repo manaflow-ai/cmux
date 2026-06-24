@@ -77,6 +77,24 @@ import Testing
         #expect(store.selectedTerminalID == "terminal-build")
     }
 
+    /// If the user selects another workspace while the close RPC is in flight,
+    /// rollback must not steal selection back to the rejected workspace.
+    @Test func rollbackPreservesUserSelectionAfterRejectedClose() {
+        let store = MobileShellComposite.preview()
+        store.setWorkspacesForTesting([
+            makeWorkspace(id: "workspace-main", macDeviceID: "mac-a"),
+            makeWorkspace(id: "workspace-docs", macDeviceID: "mac-a"),
+            makeWorkspace(id: "workspace-other", macDeviceID: "mac-a"),
+        ])
+        store.selectedWorkspaceID = "workspace-main"
+        store.applyOptimisticWorkspaceClose(id: "workspace-main")
+        store.selectedWorkspaceID = "workspace-other"
+
+        store.rollbackOptimisticWorkspaceClose(id: "workspace-main")
+
+        #expect(store.selectedWorkspaceID == "workspace-other")
+    }
+
     /// If the Mac rejects closing the last remaining selected workspace, rollback
     /// must restore selection too so the detail view does not stay blank.
     @Test func rollbackRestoresSelectionWhenLastWorkspaceCloseIsRejected() {

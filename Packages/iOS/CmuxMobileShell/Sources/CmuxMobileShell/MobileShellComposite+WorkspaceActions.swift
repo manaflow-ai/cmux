@@ -145,6 +145,7 @@ extension MobileShellComposite {
                 next = remaining.first
             }
             selectedWorkspaceID = next?.id
+            optimisticallyClosedReplacementSelections[id] = next?.id
         }
         recomputeDerivedWorkspaceState()
         if wasSelected {
@@ -162,8 +163,11 @@ extension MobileShellComposite {
             return
         }
         let wasSelected = optimisticallyClosedSelectedWorkspaceIDs.remove(id) != nil
+        let replacementSelection = optimisticallyClosedReplacementSelections.removeValue(forKey: id)
         recomputeDerivedWorkspaceState()
-        if (wasSelected || selectedWorkspaceID == nil), workspaces.contains(where: { $0.id == id }) {
+        let shouldRestoreSelection = selectedWorkspaceID == nil
+            || (wasSelected && selectedWorkspaceID == replacementSelection)
+        if shouldRestoreSelection, workspaces.contains(where: { $0.id == id }) {
             selectedWorkspaceID = id
             syncSelectedTerminalForWorkspace()
         }
