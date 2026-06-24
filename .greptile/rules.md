@@ -8,6 +8,7 @@ Review production Swift and runtime changes for:
 
 - Swift actor isolation mistakes.
 - Blocking runtime primitives and timing-based synchronization.
+- Browser socket automation commands that wait on WebKit/page callbacks from main actor paths instead of the socket worker.
 - Fixed sleeps, delays, and polling used as hacky synchronization.
 - Legacy concurrency patterns where Swift concurrency is available.
 - Incorrect `@concurrent` or `nonisolated async` behavior.
@@ -26,6 +27,7 @@ Review production Swift and runtime changes for:
 - Ambient global state: top-level free functions, global mutable vars, static-only namespace types, and new singletons that should be owned by a scoped type and injected.
 - Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
 - Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
+- Custom React composite UI built from raw elements when Base UI or an existing local component should own accessibility, focus, and keyboard behavior.
 
 ## Runtime No Hacky Sleeps
 
@@ -34,6 +36,14 @@ For production non-Swift app/runtime code and build/runtime scripts, flag fixed 
 Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal from the owning subsystem or a dedicated cancellation-aware timeout/retry abstraction with tests.
 
 Pass for deterministic test-only scaffolding, GitHub Actions workflow or action YAML sleeps used only for CI orchestration, pure presentation animation or progress timing, and existing delay code the PR does not introduce or worsen. Swift sleeps are covered by the Swift blocking runtime rule.
+
+## Browser Automation WebKit Waits Off Main
+
+For browser socket automation in `Sources/TerminalController.swift` and the cmux control socket policy, keep blocking waits off the main actor.
+
+Flag any `browser.*` command that waits on page JavaScript, WebKit callbacks, `WKHTTPCookieStore`, screenshot callbacks, or injected page hooks while routed through `.mainActor` or the main `processV2Command` switch. Require the command to be listed in `ControlCommandExecutionPolicy.socketWorkerMethods`, dispatched by the worker browser automation router, and covered by policy tests that prove worker routing.
+
+Worker-lane handlers may resolve panels, access WebKit/AppKit, or mutate browser state only inside explicit main hops such as `v2BrowserWithPanelContext` and `v2MainSync`. Pass for direct focus/show commands that do not wait, and for existing debt that the PR does not worsen.
 
 ## Full Internationalization
 
@@ -118,3 +128,21 @@ For production code that detects, identifies, or tracks correctness-critical sta
 Flag a correctness-critical value derived from a string/title/name heuristic (terminal title, window title, pane label, process-argv substring, display name) to decide agent type, session identity, liveness, or which conversation to show. Flag an "unreliable but better than nothing" fallback branch (a guess, a default, a best-effort branch) for state where a wrong value is a correctness bug. Flag more than one disagreeing source of truth for the same fact without one designated authority. Flag a throttle or polling interval placed on a correctness-critical read that introduces a visible staleness window when the consumer must reflect the change promptly.
 
 Pass for detection that uses a reliable structured source (explicit session id, registered agent descriptor, typed lifecycle event), a missing reliable signal that fails closed (no detection, control disabled, empty state) rather than guessing, a heuristic used only for a genuinely cosmetic non-authoritative hint, and coalescing/debouncing that does not delay the observable correctness-critical value.
+
+## React Base UI Accessibility
+
+For React UI changes under `web/**/*.tsx` and `web/**/*.jsx`, prefer `@base-ui-components/react` or an existing local component when building custom composite widgets.
+
+Flag custom dialogs, popovers, menus, context menus, checkboxes, selects, switches, tabs, tooltips, comboboxes, command menus, or similar interactive controls built from raw `div`/`span` elements, ad hoc ARIA, `tabIndex`, or hand-rolled keyboard handlers when Base UI or a shared component already provides the relevant primitive. Also flag wrappers around Base UI primitives that drop labels, focus restoration, controlled/uncontrolled state, keyboard support, or disabled/loading semantics.
+
+Pass for native semantic elements (`button`, `a`, `input`, `select`, `textarea`, `details`, `summary`) when they satisfy the behavior, cases with no relevant primitive where the PR owns complete semantics and keyboard/focus behavior, and existing custom UI not worsened by the PR.
+
+## Landing Page Registry Parity
+
+For PRs that add a new marketing landing page under `web/app/[locale]/(landing)/<slug>/page.tsx`, require the new path to be registered in every dependent registry in the same PR.
+
+Flag a new `(landing)` page (or a new path added to `web/app/sitemap.ts`) when it is missing from any of: `web/app/sitemap.ts`; `agentReadablePages` in `web/app/lib/agent-page-paths.ts` (this gives the page its `.md`/`.txt` agent-readable variant and `llms.txt` listing, and `tests/agent-page-variants.test.ts` asserts every sitemap path resolves to a variant, so a missing entry fails CI); the `ARTICLES` list in `web/app/[locale]/(landing)/guides/page.tsx`; or a `landing.links` label plus at least one internal cross-link from a sibling page. Also flag `agentReadablePages`/`sitemap.ts` drift, where a path exists in one but not the other.
+
+Localization of the new page copy into every locale is covered by the internationalization rule, not this one.
+
+Pass for routes intentionally kept out of the sitemap (legal, deeplink, redirect-only) when excluded consistently and not added to `agentReadablePages` either, non-landing routes, edits to existing landing pages, and existing registry drift the PR does not introduce or worsen.
