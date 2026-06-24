@@ -6,7 +6,10 @@ extension CMUXCLI {
         launchCommand: AgentHookLaunchCommandRecord?
     ) -> Bool {
         guard kind == "codex" else { return true }
-        return launchCommand?.arguments.isEmpty == false
-            || normalizedHookValue(launchCommand?.environment?["CODEX_HOME"]) != nil
+        if normalizedHookValue(launchCommand?.environment?["CODEX_HOME"]) != nil {
+            return true
+        }
+        guard launchCommand?.arguments.isEmpty == false else { return false }
+        return normalizedHookValue(launchCommand?.source)?.lowercased() != "process"
     }
 }

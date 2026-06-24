@@ -24,6 +24,7 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         let panel = UUID()
         let goodId = "019ef2bd-e6a3-7272-978e-bb375a60ad81"
         let weakId = "019ef6d3-572d-76e3-b5f0-adc4144085fc"
+        let processFallbackId = "019ef7df-037c-7c8f-8f5a-c3ffbc29e365"
         try writeHookStore(
             root: root,
             sessions: [
@@ -52,6 +53,18 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
                         ],
                         "capturedAt": 20,
                         "source": "environment",
+                    ]
+                ),
+                processFallbackId: codexHookRecord(
+                    sessionId: processFallbackId, workspaceId: ws, panelId: panel, cwd: worktree.path,
+                    transcriptPath: nil, updatedAt: 30,
+                    launchCommand: [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex", "--yolo"],
+                        "workingDirectory": worktree.path,
+                        "capturedAt": 30,
+                        "source": "process",
                     ]
                 ),
             ]
@@ -97,4 +110,3 @@ final class RestorableAgentSessionIndexCodexWeakRecordTests: XCTestCase {
         try data.write(to: stateDir.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
     }
 }
-
