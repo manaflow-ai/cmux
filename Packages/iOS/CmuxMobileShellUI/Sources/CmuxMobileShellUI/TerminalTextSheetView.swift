@@ -180,8 +180,8 @@ struct TerminalTextSheetView: View {
                     } catch {
                         return
                     }
-                    capture.cancel()
                     await state.finish(timedOut: true, text: nil)
+                    capture.cancel()
                 }
                 Task {
                     await state.install(continuation: continuation)
