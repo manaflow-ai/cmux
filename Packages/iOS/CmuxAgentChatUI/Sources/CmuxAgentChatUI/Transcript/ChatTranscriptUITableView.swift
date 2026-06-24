@@ -20,13 +20,7 @@ final class ChatTranscriptUITableView: UITableView {
         super.layoutSubviews()
         lastBoundsSize = bounds.size
         lastContentSize = contentSize
-        lastViewport = MobileScrollViewportSnapshot(
-            contentOffsetY: contentOffset.y,
-            boundsHeight: bounds.height,
-            adjustedBottomInset: adjustedContentInset.bottom,
-            contentHeight: contentSize.height,
-            atBottomThreshold: chatTranscriptAtBottomThreshold
-        )
+        recordViewport()
         #if DEBUG
         updateDebugAccessibilityValue()
         #endif
@@ -51,9 +45,20 @@ final class ChatTranscriptUITableView: UITableView {
             adjustedBottomInset: adjustedContentInset.bottom
         )
         setContentOffset(CGPoint(x: contentOffset.x, y: targetY), animated: false)
+        recordViewport()
         #if DEBUG
         updateDebugAccessibilityValue()
         #endif
+    }
+
+    private func recordViewport() {
+        lastViewport = MobileScrollViewportSnapshot(
+            contentOffsetY: contentOffset.y,
+            boundsHeight: bounds.height,
+            adjustedBottomInset: adjustedContentInset.bottom,
+            contentHeight: contentSize.height,
+            atBottomThreshold: chatTranscriptAtBottomThreshold
+        )
     }
 
     #if DEBUG

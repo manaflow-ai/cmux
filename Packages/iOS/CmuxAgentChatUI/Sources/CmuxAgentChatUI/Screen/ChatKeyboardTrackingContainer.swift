@@ -1,20 +1,28 @@
 #if os(iOS)
 import SwiftUI
 
-struct ChatKeyboardTrackingContainer<Content: View>: UIViewControllerRepresentable {
-    let content: Content
+struct ChatKeyboardTrackingContainer<Transcript: View, Composer: View>: UIViewControllerRepresentable {
+    let transcript: Transcript
+    let composer: Composer
+    let showsComposer: Bool
 
     func makeUIViewController(
         context: Context
-    ) -> ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Content>> {
-        ChatKeyboardTrackingViewController(rootView: ChatKeyboardTrackedRoot(content: content))
+    ) -> ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Transcript>, ChatKeyboardTrackedRoot<Composer>> {
+        ChatKeyboardTrackingViewController(
+            transcriptView: ChatKeyboardTrackedRoot(content: transcript),
+            composerView: ChatKeyboardTrackedRoot(content: composer),
+            showsComposer: showsComposer
+        )
     }
 
     func updateUIViewController(
-        _ uiViewController: ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Content>>,
+        _ uiViewController: ChatKeyboardTrackingViewController<ChatKeyboardTrackedRoot<Transcript>, ChatKeyboardTrackedRoot<Composer>>,
         context: Context
     ) {
-        uiViewController.rootView = ChatKeyboardTrackedRoot(content: content)
+        uiViewController.transcriptView = ChatKeyboardTrackedRoot(content: transcript)
+        uiViewController.composerView = ChatKeyboardTrackedRoot(content: composer)
+        uiViewController.showsComposer = showsComposer
     }
 }
 #endif

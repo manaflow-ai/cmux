@@ -4,20 +4,41 @@ import SwiftUI
 import UIKit
 
 @MainActor
-final class ChatKeyboardTrackingViewController<Content: View>: UIViewController {
-    var rootView: Content {
-        get { hostingController.rootView }
-        set { hostingController.rootView = newValue }
+final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>: UIViewController, UIGestureRecognizerDelegate {
+    var transcriptView: Transcript {
+        get { transcriptHostingController.rootView }
+        set { transcriptHostingController.rootView = newValue }
     }
 
-    private let hostingController: UIHostingController<Content>
-    private var hostedBottomConstraint: NSLayoutConstraint?
-    private var currentReservation: CGFloat = 0
-    private var latestKeyboardEndFrame: CGRect?
-    private typealias ScrollSnapshot = (scrollView: ChatTranscriptUITableView, snapshot: MobileScrollViewportSnapshot)
+    var composerView: Composer {
+        get { composerHostingController.rootView }
+        set { composerHostingController.rootView = newValue }
+    }
 
-    init(rootView: Content) {
-        hostingController = UIHostingController(rootView: rootView)
+    var showsComposer: Bool {
+        didSet { updateComposerVisibility() }
+    }
+
+    private let transcriptHostingController: UIHostingController<Transcript>
+    private let composerHostingController: UIHostingController<Composer>
+    private typealias ScrollSnapshot = (scrollView: ChatTranscriptUITableView, snapshot: MobileScrollViewportSnapshot)
+    private var composerZeroHeightConstraint: NSLayoutConstraint?
+    private var activeKeyboardScrollSnapshots: [ScrollSnapshot] = []
+    private var isRestoringKeyboardViewport = false
+    private weak var installedWindow: UIWindow?
+
+    private lazy var dismissTapRecognizer: UITapGestureRecognizer = {
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleDismissTap))
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesEnded = false
+        tap.delegate = self
+        return tap
+    }()
+
+    init(transcriptView: Transcript, composerView: Composer, showsComposer: Bool) {
+        transcriptHostingController = UIHostingController(rootView: transcriptView)
+        composerHostingController = UIHostingController(rootView: composerView)
+        self.showsComposer = showsComposer
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -32,21 +53,37 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
         super.viewDidLoad()
         view.backgroundColor = .clear
 
-        addChild(hostingController)
-        hostingController.view.backgroundColor = .clear
-        hostingController.safeAreaRegions = .container
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(hostingController.view)
+        addChild(transcriptHostingController)
+        transcriptHostingController.view.backgroundColor = .clear
+        transcriptHostingController.safeAreaRegions = .container
+        transcriptHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(transcriptHostingController.view)
 
-        let bottomConstraint = hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        hostedBottomConstraint = bottomConstraint
+        addChild(composerHostingController)
+        composerHostingController.view.backgroundColor = .clear
+        composerHostingController.safeAreaRegions = .container
+        composerHostingController.sizingOptions = [.intrinsicContentSize]
+        composerHostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        composerHostingController.view.setContentHuggingPriority(.required, for: .vertical)
+        composerHostingController.view.setContentCompressionResistancePriority(.required, for: .vertical)
+        view.addSubview(composerHostingController.view)
+
+        let zeroHeight = composerHostingController.view.heightAnchor.constraint(equalToConstant: 0)
+        composerZeroHeightConstraint = zeroHeight
+
         NSLayoutConstraint.activate([
-            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomConstraint,
+            transcriptHostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            transcriptHostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            transcriptHostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            transcriptHostingController.view.bottomAnchor.constraint(equalTo: composerHostingController.view.topAnchor),
+
+            composerHostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            composerHostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            composerHostingController.view.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
         ])
-        hostingController.didMove(toParent: self)
+        transcriptHostingController.didMove(toParent: self)
+        composerHostingController.didMove(toParent: self)
+        updateComposerVisibility()
 
         NotificationCenter.default.addObserver(
             self,
@@ -58,49 +95,76 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard let latestKeyboardEndFrame else { return }
-        let reservation = keyboardReservation(forScreenFrame: latestKeyboardEndFrame)
-        if abs(reservation - currentReservation) > 0.5 {
-            apply(reservation: reservation, preserving: trackedScrollSnapshots())
+        installDismissTapIfNeeded()
+        restoreKeyboardViewports(activeKeyboardScrollSnapshots)
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        installedWindow?.removeGestureRecognizer(dismissTapRecognizer)
+        installedWindow = nil
+    }
+
+    private func installDismissTapIfNeeded() {
+        if view.window !== installedWindow {
+            installedWindow?.removeGestureRecognizer(dismissTapRecognizer)
+            installedWindow = nil
         }
+        guard installedWindow == nil, let window = view.window else { return }
+        window.addGestureRecognizer(dismissTapRecognizer)
+        installedWindow = window
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
         guard let transition = MobileKeyboardTransition(notification: notification) else { return }
-        latestKeyboardEndFrame = transition.endFrame
-        let reservation = keyboardReservation(forScreenFrame: transition.endFrame)
-        guard abs(reservation - currentReservation) > 0.5 else { return }
-        let scrollSnapshots = trackedScrollSnapshots()
+        let scrollSnapshots = activeKeyboardScrollSnapshots.isEmpty
+            ? trackedScrollSnapshots()
+            : activeKeyboardScrollSnapshots
+        activeKeyboardScrollSnapshots = scrollSnapshots
         transition.animate {
-            self.apply(reservation: reservation, preserving: scrollSnapshots)
+            self.apply(preserving: scrollSnapshots)
+        } completion: { _ in
+            self.apply(preserving: scrollSnapshots)
+            self.activeKeyboardScrollSnapshots = []
         }
     }
 
-    private func apply(reservation: CGFloat, preserving scrollSnapshots: [ScrollSnapshot] = []) {
-        currentReservation = reservation
-        hostedBottomConstraint?.constant = -reservation
+    private func apply(preserving scrollSnapshots: [ScrollSnapshot] = []) {
+        view.window?.setNeedsLayout()
+        view.setNeedsLayout()
+        view.window?.layoutIfNeeded()
         view.layoutIfNeeded()
-        hostingController.view.layoutIfNeeded()
+        transcriptHostingController.view.layoutIfNeeded()
+        composerHostingController.view.layoutIfNeeded()
+        restoreKeyboardViewports(scrollSnapshots)
+    }
+
+    private func restoreKeyboardViewports(_ scrollSnapshots: [ScrollSnapshot]) {
+        guard !scrollSnapshots.isEmpty, !isRestoringKeyboardViewport else { return }
+        isRestoringKeyboardViewport = true
+        defer { isRestoringKeyboardViewport = false }
         for (scrollView, snapshot) in scrollSnapshots {
             scrollView.restoreKeyboardViewport(snapshot)
         }
-        view.window?.layoutIfNeeded()
-    }
-
-    private func keyboardReservation(forScreenFrame screenFrame: CGRect) -> CGFloat {
-        guard let window = view.window else { return 0 }
-        let keyboardFrame = window.convert(screenFrame, from: nil)
-        let viewFrame = view.convert(view.bounds, to: window)
-        return MobileKeyboardReservation(
-            keyboardFrameInWindow: keyboardFrame,
-            viewFrameInWindow: viewFrame
-        ).height
     }
 
     private func trackedScrollSnapshots() -> [ScrollSnapshot] {
-        trackedTranscriptTables(in: hostingController.view).map { tableView in
+        trackedTranscriptTables(in: transcriptHostingController.view).map { tableView in
             (scrollView: tableView, snapshot: tableView.keyboardViewportSnapshot())
         }
+    }
+
+    private func updateComposerVisibility() {
+        guard isViewLoaded else { return }
+        composerHostingController.view.isHidden = !showsComposer
+        composerZeroHeightConstraint?.isActive = !showsComposer
+        view.setNeedsLayout()
+    }
+
+    @objc private func handleDismissTap() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
     }
 
     private func trackedTranscriptTables(in view: UIView) -> [ChatTranscriptUITableView] {
@@ -112,6 +176,31 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
             tables.append(contentsOf: trackedTranscriptTables(in: subview))
         }
         return tables
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        guard let window = view.window else { return false }
+        let point = touch.location(in: window)
+        let transcriptFrame = transcriptHostingController.view.convert(
+            transcriptHostingController.view.bounds,
+            to: window
+        )
+        guard transcriptFrame.contains(point) else { return false }
+        let composerFrame = composerHostingController.view.convert(
+            composerHostingController.view.bounds,
+            to: window
+        )
+        return !composerFrame.contains(point)
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer
+    ) -> Bool {
+        true
     }
 }
 #endif
