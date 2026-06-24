@@ -2081,6 +2081,8 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         host: String = "basic-auth.test",
         method: String,
         realm: String? = "EnableIT",
+        protocolName: String = "https",
+        port: Int = 443,
         proposedCredential: URLCredential? = nil,
         previousFailureCount: Int = 0,
         isProxy: Bool = false
@@ -2098,8 +2100,8 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         } else {
             protectionSpace = URLProtectionSpace(
                 host: host,
-                port: 443,
-                protocol: "https",
+                port: port,
+                protocol: protocolName,
                 realm: realm,
                 authenticationMethod: method
             )
@@ -2348,6 +2350,99 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         XCTAssertEqual(promptMessage?.contains("\u{202E}"), false)
         XCTAssertEqual(promptMessage?.contains("\u{200B}"), false)
         XCTAssertEqual(promptMessage?.unicodeScalars.contains("\u{0007}"), false)
+    }
+
+    func testBasicAuthPromptShowsSanitizedOriginWithNonDefaultPort() {
+        let challenge = makeAuthChallenge(
+            host: "localhost",
+            method: NSURLAuthenticationMethodHTTPBasic,
+            realm: nil,
+            protocolName: "http",
+            port: 8443
+        )
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var promptMessage: String?
+
+        alertSpy.beforeResponding = { accessoryView in
+            promptMessage = self.textFields(in: accessoryView)
+                .first(where: { !$0.isEditable })?
+                .stringValue
+        }
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            windowProvider: { nil }
+        ) { _, _ in }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(alertSpy.runModalCallCount, 1)
+        XCTAssertEqual(promptMessage?.contains("http://localhost:8443"), true)
+    }
+
+    func testBasicAuthPromptCoordinatorSeparatesProtocolProtectionSpaces() {
+        let coordinator = BrowserHTTPBasicAuthPromptCoordinator()
+        let httpChallenge = makeAuthChallenge(
+            host: "same-origin.test",
+            method: NSURLAuthenticationMethodHTTPBasic,
+            protocolName: "http",
+            port: 8080
+        )
+        let httpsChallenge = makeAuthChallenge(
+            host: "same-origin.test",
+            method: NSURLAuthenticationMethodHTTPBasic,
+            protocolName: "https",
+            port: 8080
+        )
+        var promptCompletions: [BrowserHTTPBasicAuthPromptCoordinator.Completion] = []
+        var firstDisposition: URLSession.AuthChallengeDisposition?
+        var secondDisposition: URLSession.AuthChallengeDisposition?
+
+        XCTAssertTrue(coordinator.handle(
+            challenge: httpChallenge,
+            startPrompt: { finishPrompt in
+                promptCompletions.append(finishPrompt)
+                return true
+            }
+        ) { disposition, _ in
+            firstDisposition = disposition
+        })
+
+        XCTAssertTrue(coordinator.handle(
+            challenge: httpsChallenge,
+            startPrompt: { finishPrompt in
+                promptCompletions.append(finishPrompt)
+                return true
+            }
+        ) { disposition, _ in
+            secondDisposition = disposition
+        })
+
+        XCTAssertEqual(promptCompletions.count, 1)
+        guard promptCompletions.count == 1 else {
+            XCTFail("expected 1 active Basic Auth prompt, got \(promptCompletions.count)")
+            return
+        }
+        XCTAssertNil(secondDisposition)
+
+        promptCompletions[0](
+            .useCredential,
+            URLCredential(user: "alice", password: "secret", persistence: .forSession)
+        )
+
+        XCTAssertEqual(firstDisposition, .useCredential)
+        XCTAssertNil(secondDisposition)
+        XCTAssertEqual(promptCompletions.count, 2)
+        guard promptCompletions.count == 2 else {
+            XCTFail("expected queued Basic Auth prompt to start after first completion")
+            return
+        }
+
+        promptCompletions[1](.cancelAuthenticationChallenge, nil)
+
+        XCTAssertEqual(secondDisposition, .cancelAuthenticationChallenge)
     }
 
     func testBasicAuthPromptShowsPreviousFailureMessage() {

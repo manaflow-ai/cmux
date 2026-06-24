@@ -8463,10 +8463,55 @@ private func browserSanitizedHTTPBasicAuthPromptText(_ text: String) -> String {
     return String(trimmed.prefix(browserHTTPBasicAuthPromptTextMaxLength))
 }
 
+private func browserDefaultPort(forHTTPBasicAuthProtocol protocolName: String?) -> Int? {
+    switch protocolName?.lowercased() {
+    case "http":
+        return 80
+    case "https":
+        return 443
+    default:
+        return nil
+    }
+}
+
+private func browserHTTPBasicAuthPromptOrigin(
+    protectionSpace: URLProtectionSpace
+) -> String {
+    let host = browserSanitizedHTTPBasicAuthPromptText(protectionSpace.host)
+    guard !host.isEmpty else {
+        return String(
+            localized: "browser.dialog.auth.basic.unknownHost",
+            defaultValue: "this site"
+        )
+    }
+
+    let rawProtocol = protectionSpace.`protocol` ?? ""
+    let protocolName = browserSanitizedHTTPBasicAuthPromptText(rawProtocol).lowercased()
+    let defaultPort = browserDefaultPort(forHTTPBasicAuthProtocol: protocolName)
+
+    let displayHost: String
+    if host.contains(":") && !host.hasPrefix("[") && !host.hasSuffix("]") {
+        displayHost = "[\(host)]"
+    } else {
+        displayHost = host
+    }
+
+    let port = protectionSpace.port
+    let authority: String
+    if port > 0, port != defaultPort {
+        authority = "\(displayHost):\(port)"
+    } else {
+        authority = displayHost
+    }
+
+    let origin = protocolName.isEmpty ? authority : "\(protocolName)://\(authority)"
+    return browserSanitizedHTTPBasicAuthPromptText(origin)
+}
+
 private func browserHTTPBasicAuthPromptMessage(
     challenge: URLAuthenticationChallenge
 ) -> String {
-    let host = browserSanitizedHTTPBasicAuthPromptText(challenge.protectionSpace.host)
+    let origin = browserHTTPBasicAuthPromptOrigin(protectionSpace: challenge.protectionSpace)
     if let rawRealm = challenge.protectionSpace.realm {
         let realm = browserSanitizedHTTPBasicAuthPromptText(rawRealm)
         guard !realm.isEmpty else {
@@ -8474,20 +8519,20 @@ private func browserHTTPBasicAuthPromptMessage(
                 localized: "browser.dialog.auth.basic.messageHost",
                 defaultValue: "%@ requires a username and password."
             )
-            return String(format: format, locale: Locale.current, host)
+            return String(format: format, locale: Locale.current, origin)
         }
         let format = String(
             localized: "browser.dialog.auth.basic.messageHostAndRealm",
             defaultValue: "%1$@ requires a username and password for \"%2$@\"."
         )
-        return String(format: format, locale: Locale.current, host, realm)
+        return String(format: format, locale: Locale.current, origin, realm)
     }
 
     let format = String(
         localized: "browser.dialog.auth.basic.messageHost",
         defaultValue: "%@ requires a username and password."
     )
-    return String(format: format, locale: Locale.current, host)
+    return String(format: format, locale: Locale.current, origin)
 }
 
 func browserHandleHTTPBasicAuthenticationChallenge(
@@ -8609,12 +8654,14 @@ func browserHandleHTTPBasicAuthenticationChallenge(
 private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
     let host: String
     let port: Int
+    let protocolName: String?
     let realm: String?
     let authenticationMethod: String
 
     init(_ protectionSpace: URLProtectionSpace) {
         host = protectionSpace.host
         port = protectionSpace.port
+        protocolName = protectionSpace.`protocol`
         realm = protectionSpace.realm
         authenticationMethod = protectionSpace.authenticationMethod
     }
