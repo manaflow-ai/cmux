@@ -16,24 +16,26 @@ public enum ClaudeResumeKey: String, Sendable {
 /// compacted-session resume menu. Kept free of AppKit/ghostty so it is fully
 /// unit-testable; the app-side controller supplies the rendered screen text and
 /// performs the side effects (reading the pane, sending keys).
-public enum ClaudeResumePrompt {
+public struct ClaudeResumePrompt: Sendable {
     /// Distinctive option labels Claude Code prints for the resume menu. Matching
     /// the two "Resume …" labels together is specific enough not to fire on
     /// ordinary conversation. The apostrophe in "Don't ask me again" is avoided
     /// on purpose (straight-vs-curly quote ambiguity across renderers).
-    public static let summaryLabel = "Resume from summary"
-    public static let fullLabel = "Resume full session as-is"
-    public static let dontAskLabel = "ask me again"
+    private static let summaryLabel = "Resume from summary"
+    private static let fullLabel = "Resume full session as-is"
+    private static let dontAskLabel = "ask me again"
 
     /// Selection-pointer glyphs Ink-style menus render next to the active row.
     private static let pointerGlyphs: Set<Character> = ["❯", "›", "▶", "▸", "➤"]
+
+    public init() {}
 
     /// True when the resume menu is currently on screen. Requires all three
     /// option labels together — a deliberately strict signal so the responder
     /// never synthesizes keys just because one phrase appears in ordinary
     /// terminal output.
-    public static func isVisible(in screen: String) -> Bool {
-        screen.contains(summaryLabel) && screen.contains(fullLabel) && screen.contains(dontAskLabel)
+    public func isVisible(in screen: String) -> Bool {
+        screen.contains(Self.summaryLabel) && screen.contains(Self.fullLabel) && screen.contains(Self.dontAskLabel)
     }
 
     /// The keys needed to land on `mode`'s option and confirm it, given the
@@ -47,13 +49,13 @@ public enum ClaudeResumePrompt {
     /// target row and press Enter. Detecting the row order (rather than
     /// hard-coding "press Down once") keeps this working if Claude reorders the
     /// options.
-    public static func keystrokes(for mode: ClaudeResumeMode, in screen: String) -> [ClaudeResumeKey]? {
+    public func keystrokes(for mode: ClaudeResumeMode, in screen: String) -> [ClaudeResumeKey]? {
         guard mode != .ask, isVisible(in: screen) else { return nil }
 
         let targetLabel: String
         switch mode {
-        case .full: targetLabel = fullLabel
-        case .summary: targetLabel = summaryLabel
+        case .full: targetLabel = Self.fullLabel
+        case .summary: targetLabel = Self.summaryLabel
         case .ask: return nil
         }
 
@@ -63,10 +65,10 @@ public enum ClaudeResumePrompt {
         var pointerPosition: Int?
         for rawLine in screen.split(separator: "\n", omittingEmptySubsequences: false) {
             let line = String(rawLine)
-            guard line.contains(summaryLabel) || line.contains(fullLabel) || line.contains(dontAskLabel) else {
+            guard line.contains(Self.summaryLabel) || line.contains(Self.fullLabel) || line.contains(Self.dontAskLabel) else {
                 continue
             }
-            if line.contains(where: { pointerGlyphs.contains($0) }) {
+            if line.contains(where: { Self.pointerGlyphs.contains($0) }) {
                 pointerPosition = optionLines.count
             }
             optionLines.append(line)
@@ -98,9 +100,11 @@ public enum ClaudeResumePrompt {
 public final class ClaudeResumeAutoResponder {
     public let mode: ClaudeResumeMode
     public private(set) var hasResponded = false
+    private let prompt: ClaudeResumePrompt
 
-    public init(mode: ClaudeResumeMode) {
+    public init(mode: ClaudeResumeMode, prompt: ClaudeResumePrompt = ClaudeResumePrompt()) {
         self.mode = mode
+        self.prompt = prompt
     }
 
     /// Returns the keys to send if the menu is now visible and we haven't already
@@ -108,7 +112,7 @@ public final class ClaudeResumeAutoResponder {
     /// later call never double-fires.
     public func evaluate(screen: String) -> [ClaudeResumeKey]? {
         guard !hasResponded, mode != .ask else { return nil }
-        guard let keys = ClaudeResumePrompt.keystrokes(for: mode, in: screen) else { return nil }
+        guard let keys = prompt.keystrokes(for: mode, in: screen) else { return nil }
         hasResponded = true
         return keys
     }
