@@ -8,18 +8,14 @@ import UIKit
 ///
 /// All keyboard/scroll decisions live in ``KeyboardSyncMachine`` (a pure,
 /// host-tested reducer). This controller is the thin adapter: it feeds UIKit
-/// signals in as events and performs the effects the machine returns. The two
-/// inset clocks are kept mutually exclusive by the machine, not by ad hoc flags:
+/// signals in as events and performs the effects the machine returns. The key
+/// rule the machine enforces: the inset is written only while the keyboard is
+/// actually moving (`dismissing`/`releasing`); plain scrolling (`scrolling`),
+/// keyboard open or closed, never writes it.
 ///
-/// - Resting transitions (show/hide, snap-back, docked height change) animate
-///   the inset with the keyboard's own duration and curve from the notification.
-/// - The interactive dismiss drag and its release spring are driven by a
-///   `CADisplayLink` in `.common` mode that reads the composer's
-///   presentation-layer top each frame, because the keyboard frame notifications
-///   do not fire during the drag.
-///
-/// One scalar (the composer top) feeds both the composer position (free, it is
-/// the accessory) and the list inset, so they can never disagree.
+/// In DEBUG it also writes a transition log to `Documents/chatlab.log` and
+/// floats a JANK button: press it whenever the UI feels janky and the marker
+/// lands in the log next to the surrounding state transitions.
 @MainActor
 final class ChatLabViewController: UIViewController {
     private let store: ChatConversationStore
@@ -30,15 +26,20 @@ final class ChatLabViewController: UIViewController {
     private let jumpButton = UIButton(type: .system)
     private var jumpButtonBottomConstraint: NSLayoutConstraint!
 
-    /// The single source of truth for keyboard/scroll sync. Mutated only here, on
-    /// the main actor.
+    /// The single source of truth for keyboard/scroll sync.
     private var machine = KeyboardSyncMachine()
-    /// The per-frame clock for the interactive drag and its release spring. Owned
-    /// while the machine is in `dragging`/`releasing`.
+    /// Whether the software keyboard is currently raised, derived from the
+    /// keyboard frame (not from will-show/hide, which the accessory dock can
+    /// fire spuriously). Drives whether a drag can be an interactive dismiss.
+    private var keyboardOpen = false
+    /// The per-frame clock for the interactive dismiss and its release spring.
     private var dragLink: CADisplayLink?
 
     #if DEBUG
     private let probe = ChatLabMetricsProbe()
+    private let jankButton = UIButton(type: .system)
+    /// Inset writes in the current dismiss episode, logged at stop for jank triage.
+    private var perFrameWrites = 0
     #endif
 
     init(store: ChatConversationStore) {
@@ -61,6 +62,10 @@ final class ChatLabViewController: UIViewController {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
 
+        #if DEBUG
+        ChatLabLog.shared.startSession("chatlab \(store.descriptor.id)")
+        #endif
+
         addChild(list)
         list.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(list.view)
@@ -76,9 +81,15 @@ final class ChatLabViewController: UIViewController {
             guard let self else { return }
             Task { await store.send(text: text) }
         }
-        composer.onHeightChange = { [weak self] in self?.dispatch(.composerHeightChanged) }
+        composer.onHeightChange = { [weak self] in
+            guard let self else { return }
+            dispatch(.composerHeightChanged(keyboardOpen: keyboardOpen))
+        }
 
-        list.onBeginDragging = { [weak self] _ in self?.dispatch(.beganDragging) }
+        list.onBeginDragging = { [weak self] _ in
+            guard let self else { return }
+            dispatch(.beganDragging(keyboardOpen: keyboardOpen))
+        }
         list.onEndDragging = { [weak self] _ in self?.dispatch(.endedDragging) }
         list.onScroll = { [weak self] scrollView in self?.updateJumpButton(scrollView) }
 
@@ -105,6 +116,7 @@ final class ChatLabViewController: UIViewController {
 
         #if DEBUG
         view.addSubview(probe.probeView)
+        configureJankButton()
         #endif
 
         observeAgentState()
@@ -120,11 +132,15 @@ final class ChatLabViewController: UIViewController {
 
     // MARK: Machine plumbing
 
-    /// Feed one UIKit signal into the machine and perform whatever it returns.
-    /// `note` carries the keyboard animation timing when the event came from a
-    /// keyboard notification.
+    /// Feed one UIKit signal into the machine, log the transition, and perform
+    /// whatever it returns.
     private func dispatch(_ event: KeyboardSyncEvent, note: Notification? = nil) {
-        perform(machine.handle(event), note: note)
+        let before = machine.state
+        let effects = machine.handle(event)
+        #if DEBUG
+        recordTransition(before: before, after: machine.state, event: event, effects: effects)
+        #endif
+        perform(effects, note: note)
     }
 
     private func perform(_ effects: [KeyboardSyncEffect], note: Notification?) {
@@ -148,8 +164,6 @@ final class ChatLabViewController: UIViewController {
             case .resignTextView:
                 composer.editor.resignFirstResponder()
             case .dockAccessory:
-                // Re-become first responder so the accessory bar stays docked at
-                // the bottom instead of vanishing with the keyboard.
                 becomeFirstResponder()
             case .ignoreKeyboardNotification:
                 break
@@ -160,10 +174,12 @@ final class ChatLabViewController: UIViewController {
     // MARK: Keyboard notifications (resting transitions)
 
     private func registerKeyboardNotifications() {
-        let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+        // keyboardWillChangeFrame covers show, hide, and resize, and carries the
+        // frame we derive keyboardOpen from, so it is the only observer we need.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(keyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification, object: nil
+        )
     }
 
     @objc private func handleListTap() {
@@ -171,24 +187,23 @@ final class ChatLabViewController: UIViewController {
         dispatch(.tapToDismiss)
     }
 
-    @objc private func keyboardWillShow(_ note: Notification) { dispatch(.keyboardWillShow, note: note) }
-    @objc private func keyboardWillHide(_ note: Notification) { dispatch(.keyboardWillHide, note: note) }
-
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
         guard let info = note.userInfo,
               let endFrame = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else { return }
+        // Open == the keyboard adds height beyond the docked bar. Derived from the
+        // frame so a spurious accessory-dock show/hide can't flip it.
+        let overlap = overlapFromKeyboardTopScreen(endFrame.minY)
+        keyboardOpen = overlap > restingOverlap + 8
         dispatch(.keyboardFrameWillChange(keyboardTop: endFrame.minY), note: note)
     }
 
     // MARK: Interactive drag sync
     //
-    // The link runs from drag-begin until the composer settles — crucially
-    // INCLUDING the release phase, where UIKit springs the keyboard to its
-    // committed position (dismissed or snapped back). By reading the composer's
-    // presentation layer every frame we follow that real spring exactly, in
-    // lockstep, with no curve to match and nothing to fight. Lifecycle is driven
-    // by the machine's `startLink`/`stopLink` effects.
+    // The link runs from the start of a keyboard-open drag (as a read-only
+    // observer) until the composer settles. It WRITES the inset only once the
+    // machine is in dismissing/releasing; during plain scrolling it samples the
+    // composer to detect the dismiss engaging and writes nothing.
 
     private func startDragLink() {
         #if DEBUG
@@ -244,9 +259,9 @@ final class ChatLabViewController: UIViewController {
         applyOverlap(overlap, animated: duration > 0, adjustOffset: true, duration: duration, rawCurve: rawCurve)
     }
 
-    /// Per-frame inset during the interactive drag/release: read the list bottom
-    /// live and glue the inset to the composer's presentation top. No offset write
-    /// (the pan / spring own it) and no animation.
+    /// Per-frame inset during the interactive dismiss/release: read the list
+    /// bottom live and glue the inset to the composer's presentation top. No
+    /// offset write (the pan / spring own it) and no animation.
     private func applyPerFrameInset(composerTop: CGFloat) {
         guard let listBottomScreen = screenFrame(of: list.view, usePresentation: false)?.maxY else { return }
         let dynamicOverlap = listBottomScreen - composerTop
@@ -288,10 +303,6 @@ final class ChatLabViewController: UIViewController {
         let apply = {
             collection.contentInset.top = overlap
             collection.verticalScrollIndicatorInsets.top = overlap
-            // Only the at-newest case moves the offset: pin the newest message
-            // above the composer. When scrolled up, an inset change alone does
-            // not move visible content, so leaving the offset keeps the reader
-            // exactly where they are (no jump).
             if adjustOffset, pinned {
                 collection.contentOffset.y = -overlap
             }
@@ -306,8 +317,6 @@ final class ChatLabViewController: UIViewController {
                 self.view.layoutIfNeeded()
             }
         } else {
-            // No layoutIfNeeded on the per-frame drag path; inset/offset writes
-            // take effect immediately and a full layout pass each frame jitters.
             apply()
         }
     }
@@ -341,9 +350,6 @@ final class ChatLabViewController: UIViewController {
         ])
     }
 
-    /// Shows the pill whenever the user has scrolled away from the newest
-    /// message; hides it at the bottom. A new message arriving while scrolled up
-    /// keeps the pill visible (the reader's position is untouched).
     private func updateJumpButton(_ scrollView: UIScrollView) {
         let atBottom = KeyboardSyncSolver.isPinnedToBottom(
             contentOffsetY: scrollView.contentOffset.y,
@@ -362,7 +368,6 @@ final class ChatLabViewController: UIViewController {
 
     @objc private func scrollToNewest() {
         let collection = list.collectionView
-        // Inverted list: the visual bottom (newest) is the minimum offset.
         collection.setContentOffset(CGPoint(x: 0, y: -collection.contentInset.top), animated: true)
     }
 
@@ -388,5 +393,67 @@ final class ChatLabViewController: UIViewController {
         let inWindow = superview.convert(rect, to: nil)
         return window.screen.coordinateSpace.convert(inWindow, from: window.coordinateSpace)
     }
+
+    // MARK: Debug logging + JANK button
+
+    #if DEBUG
+    private func configureJankButton() {
+        var config = UIButton.Configuration.filled()
+        config.cornerStyle = .capsule
+        config.baseBackgroundColor = .systemRed
+        config.baseForegroundColor = .white
+        config.title = "JANK"
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = .systemFont(ofSize: 12, weight: .bold)
+            return outgoing
+        }
+        jankButton.configuration = config
+        jankButton.accessibilityIdentifier = "ChatLabJankMarker"
+        jankButton.translatesAutoresizingMaskIntoConstraints = false
+        jankButton.alpha = 0.85
+        jankButton.addTarget(self, action: #selector(jankTapped), for: .touchUpInside)
+        view.addSubview(jankButton)
+        NSLayoutConstraint.activate([
+            jankButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            jankButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            jankButton.heightAnchor.constraint(equalToConstant: 30),
+        ])
+    }
+
+    @objc private func jankTapped() {
+        ChatLabLog.shared.mark("JANK state=\(machine.state) kbOpen=\(keyboardOpen) writes=\(perFrameWrites)")
+    }
+
+    private func recordTransition(before: KeyboardSyncState, after: KeyboardSyncState, event: KeyboardSyncEvent, effects: [KeyboardSyncEffect]) {
+        var notes: [String] = []
+        for effect in effects {
+            switch effect {
+            case .applyPerFrame: perFrameWrites += 1
+            case .startLink: notes.append("startLink")
+            case .stopLink: notes.append("stopLink writes=\(perFrameWrites)"); perFrameWrites = 0
+            case .reconcile: notes.append("reconcile")
+            case .applyAnimated(let target): notes.append("applyAnimated(\(target))")
+            case .ignoreKeyboardNotification: notes.append("ignoredFrame")
+            case .invalidateComposerIntrinsicSize, .resignTextView, .dockAccessory: break
+            }
+        }
+        // Stay silent for the common case: an observer tick that changes nothing.
+        guard before != after || !notes.isEmpty else { return }
+        let head = before != after ? "→\(after) (was \(before))" : "·\(after)"
+        ChatLabLog.shared.log("\(head) [\(Self.name(event))] kbOpen=\(keyboardOpen) \(notes.joined(separator: " "))")
+    }
+
+    private static func name(_ event: KeyboardSyncEvent) -> String {
+        switch event {
+        case .beganDragging: return "began"
+        case .endedDragging: return "ended"
+        case .keyboardFrameWillChange(let top): return "frame@\(Int(top))"
+        case .composerHeightChanged: return "height"
+        case .linkTick: return "tick"
+        case .tapToDismiss: return "tap"
+        }
+    }
+    #endif
 }
 #endif

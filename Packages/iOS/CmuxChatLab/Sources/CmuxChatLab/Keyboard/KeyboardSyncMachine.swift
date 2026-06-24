@@ -4,197 +4,200 @@ import CoreGraphics
 /// controller as a pure value type so it unit-tests on the host (no UIKit, no
 /// device, no display link, no keyboard).
 ///
-/// The whole subsystem holds one invariant every frame: the inverted list's
-/// bottom inset equals the overlap between the list's bottom edge and the
-/// composer's top edge. The composer is the keyboard's `inputAccessoryView`, so
-/// UIKit moves it for free; our only job is to keep the inset tracking it. The
-/// hard part is that **two different clocks** can drive the composer:
+/// The whole subsystem holds one invariant: the inverted list's bottom inset
+/// equals the overlap between the list's bottom edge and the composer's top
+/// edge. The composer is the keyboard's `inputAccessoryView`, so UIKit moves it
+/// for free; our only job is to keep the inset tracking it. The inset has
+/// exactly one owner at a time, and which owner depends on a single question:
+/// **is the keyboard actually moving?**
 ///
-/// - **Notifications** (`keyboardWillChangeFrame`) tell us a target ahead of
-///   time with a duration and curve. They fire for show, programmatic hide, and
-///   accessory (composer) resize.
-/// - **The interactive dismiss drag** fires NO notification; the composer rides
-///   the finger and then a release spring, so we sample its presentation layer
-///   per frame with a `CADisplayLink`.
+/// - It is NOT moving during plain content scrolling (keyboard closed, or
+///   keyboard open and the user scrolls the history). Then nobody writes the
+///   inset; the scroll view's pan owns the offset.
+/// - It IS moving during an interactive dismiss drag and its release spring.
+///   Then a `CADisplayLink` owns the inset, sampling the composer's presentation
+///   layer each frame (the keyboard frame notifications do not fire during the
+///   drag).
 ///
-/// These must be mutually exclusive (one clock at a time) or they fight. That
-/// mutual exclusion is the entire reason a state machine exists. The minimal set
-/// of states is:
+/// The states:
 ///
-/// - ``KeyboardSyncState/idle``: no drag; notifications drive the inset.
-/// - ``KeyboardSyncState/dragging``: finger down during an interactive dismiss;
-///   the display link owns the inset; notifications are ignored.
-/// - ``KeyboardSyncState/releasing``: finger lifted but the release spring is
-///   still settling; still link-driven; notifications still ignored.
+/// - ``KeyboardSyncState/idle``: no finger; notifications own the inset.
+/// - ``KeyboardSyncState/scrolling``: finger down, keyboard not moving. Inset
+///   frozen. When the keyboard is open a read-only display-link *observer* runs
+///   to detect the moment an interactive dismiss engages; it writes nothing.
+/// - ``KeyboardSyncState/dismissing``: the keyboard is riding the finger down.
+///   The link writes the inset every frame; notifications are ignored.
+/// - ``KeyboardSyncState/releasing``: finger up; the link rides the release
+///   spring and settles, then reconciles.
 ///
-/// `releasing` is just `dragging` after the finger lifts; it is named separately
-/// only because the settle detector runs there. `keyboardVisible` is an input
-/// bit (set by show/hide), not a state.
+/// The crucial correction over a naive model: a keyboard-open scroll-up is
+/// `scrolling`, NOT a dismiss. Writing the inset every frame during such a
+/// scroll (the old behavior) hammered `contentInset` against the user's own pan.
 public enum KeyboardSyncState: Equatable, Sendable {
     case idle
-    case dragging
+    case scrolling
+    case dismissing
     case releasing
 }
 
-/// An event fed to the machine. Each maps to one concrete UIKit signal:
-/// `beganDragging`/`endedDragging` to the scroll-view drag delegate,
-/// `keyboardWill*` to the keyboard notifications, `linkTick` to the
-/// `CADisplayLink`, `composerHeightChanged` to the growing text view, and
-/// `tapToDismiss` to the tap-the-list gesture.
+/// An event fed to the machine, each mapping to one concrete UIKit signal.
 public enum KeyboardSyncEvent: Equatable, Sendable {
-    case beganDragging
+    /// The user began a drag. `keyboardOpen` (derived by the controller from the
+    /// keyboard frame, not from will-show/hide) decides whether an interactive
+    /// dismiss is even possible, i.e. whether the observer link should run.
+    case beganDragging(keyboardOpen: Bool)
     /// Finger lifted. Sourced from `scrollViewDidEndDragging` REGARDLESS of
     /// `willDecelerate`: the touch ends here whether or not momentum follows.
-    /// (The bug this fixes: gating on `!decelerate` left the finger "down"
-    /// through a fling's deceleration, tying keyboard-settle to scroll-momentum.)
     case endedDragging
-    case keyboardWillShow
-    case keyboardWillHide
-    /// The keyboard/accessory is animating to a new frame. `keyboardTop` is the
-    /// frame's top edge in screen space.
+    /// The keyboard/accessory is animating to a new frame (`keyboardTop` is its
+    /// top edge in screen space).
     case keyboardFrameWillChange(keyboardTop: CGFloat)
-    /// The composer's intrinsic height changed (text grew/shrank).
-    case composerHeightChanged
+    /// The composer's intrinsic height changed. `keyboardOpen` decides whether
+    /// the docked resting inset needs an explicit re-apply.
+    case composerHeightChanged(keyboardOpen: Bool)
     /// One display-link frame. `composerTop` is the composer's presentation-layer
-    /// top in screen space; the machine uses it for settle detection.
+    /// top in screen space.
     case linkTick(composerTop: CGFloat)
-    /// The user tapped the list to dismiss the keyboard.
+    /// The user tapped the list to dismiss the keyboard (controller only sends
+    /// this while the field is first responder).
     case tapToDismiss
 }
 
-/// Where the inset target comes from when the machine asks for an animated
-/// apply. The controller turns this into a concrete overlap using live geometry.
+/// Where an animated inset apply should target.
 public enum KeyboardInsetTarget: Equatable, Sendable {
-    /// Derive the overlap from this keyboard/accessory top (screen space).
     case keyboardTop(CGFloat)
-    /// The composer is docked: use the resting overlap (bar height + safe area).
     case resting
 }
 
-/// A side effect the controller must perform. The machine never touches UIKit;
-/// it only decides *what* should happen and lets the controller do it. Modeling
-/// effects as data is what makes the transitions assertable in a host test.
+/// A side effect the controller performs. Modeling effects as data is what makes
+/// the transitions assertable in a host test.
 public enum KeyboardSyncEffect: Equatable, Sendable {
-    /// Start the per-frame display link (enter interactive tracking).
+    /// Start the display link. In `scrolling` it runs read-only (observer); in
+    /// `dismissing`/`releasing` it writes the inset.
     case startLink
-    /// Stop the display link (tracking finished).
     case stopLink
-    /// Animate the inset to `target` using the triggering notification's
-    /// duration/curve (or a short default for height changes).
     case applyAnimated(KeyboardInsetTarget)
-    /// Write the inset unanimated from this per-frame composer top.
     case applyPerFrame(composerTop: CGFloat)
-    /// Snap the inset to the true settled target after a release, absorbing the
-    /// committed keyboard frame that was ignored while the link owned the inset.
+    /// Snap to the settled target after a release, absorbing the committed
+    /// keyboard frame that was ignored while the link owned the inset.
     case reconcile
-    /// The composer's accessory needs its intrinsic size invalidated.
     case invalidateComposerIntrinsicSize
-    /// Resign the text view to lower the keyboard (tap-to-dismiss).
     case resignTextView
-    /// Re-dock the accessory so the bar stays at the bottom after dismiss.
     case dockAccessory
-    /// A keyboard frame notification arrived while the link owns the inset, so it
-    /// must be dropped (the guard). Emitted for explicitness/testability; the
-    /// controller does nothing.
     case ignoreKeyboardNotification
 }
 
-/// Pure reducer for the keyboard/scroll sync. Held by the controller as a
-/// `var` and mutated on the main actor; value semantics keep it test-friendly.
+/// Pure reducer for the keyboard/scroll sync.
 public struct KeyboardSyncMachine: Sendable {
     public private(set) var state: KeyboardSyncState = .idle
-    public private(set) var keyboardVisible = false
 
+    /// True while the display link is running (observer or writer).
+    private var linkActive = false
+    /// The composer's top at the start of an observed scroll; movement beyond
+    /// `engageThreshold` from it means the interactive dismiss has engaged.
+    private var engageBaseline: CGFloat?
     private var settledFrames = 0
     private var lastComposerTop: CGFloat?
+
+    private let engageThreshold: CGFloat
     private let settleEpsilon: CGFloat
     private let settleFrameThreshold: Int
 
     /// - Parameters:
+    ///   - engageThreshold: How far the composer must move from its scroll-start
+    ///     position before we treat the gesture as a dismiss (not a scroll).
     ///   - settleEpsilon: Per-frame composer movement below which a release is
     ///     considered stationary.
     ///   - settleFrameThreshold: Consecutive stationary frames that end a release.
-    public init(settleEpsilon: CGFloat = 0.5, settleFrameThreshold: Int = 3) {
+    public init(engageThreshold: CGFloat = 4, settleEpsilon: CGFloat = 0.5, settleFrameThreshold: Int = 3) {
+        self.engageThreshold = engageThreshold
         self.settleEpsilon = settleEpsilon
         self.settleFrameThreshold = settleFrameThreshold
     }
 
-    /// True while the display link owns the inset (`dragging` or `releasing`).
-    /// This is exactly the window in which keyboard notifications are ignored.
-    public var ownsInsetViaLink: Bool { state != .idle }
+    /// True while the display link owns (writes) the inset.
+    public var ownsInsetViaLink: Bool { state == .dismissing || state == .releasing }
 
     public mutating func handle(_ event: KeyboardSyncEvent) -> [KeyboardSyncEffect] {
         switch event {
-        case .keyboardWillShow:
-            keyboardVisible = true
-            return []
-        case .keyboardWillHide:
-            keyboardVisible = false
-            return []
-        case .beganDragging:
-            return handleBegan()
+        case .beganDragging(let keyboardOpen):
+            return handleBegan(keyboardOpen: keyboardOpen)
         case .endedDragging:
             return handleEnded()
         case .keyboardFrameWillChange(let top):
             return handleFrameChange(top)
-        case .composerHeightChanged:
-            return handleHeightChange()
+        case .composerHeightChanged(let keyboardOpen):
+            return handleHeightChange(keyboardOpen: keyboardOpen)
         case .linkTick(let top):
             return handleTick(top)
         case .tapToDismiss:
-            return keyboardVisible ? [.resignTextView, .dockAccessory] : []
+            return [.resignTextView, .dockAccessory]
         }
     }
 
-    private mutating func handleBegan() -> [KeyboardSyncEffect] {
+    private mutating func handleBegan(keyboardOpen: Bool) -> [KeyboardSyncEffect] {
         switch state {
         case .idle:
-            // Only an interactive dismiss is possible while the keyboard is up.
-            // With it down, a drag is a plain history scroll: stay idle, no link.
-            guard keyboardVisible else { return [] }
-            state = .dragging
+            state = .scrolling
+            engageBaseline = nil
             settledFrames = 0
             lastComposerTop = nil
-            return [.startLink]
+            // Only a keyboard that is up can be dismissed, so only then do we run
+            // the observer to watch for the dismiss engaging. Keyboard closed: a
+            // drag is a plain history scroll, no link at all.
+            if keyboardOpen {
+                linkActive = true
+                return [.startLink]
+            }
+            return []
         case .releasing:
-            // Re-grab mid-spring: the link is already live, just go back to
-            // finger-down so the settle detector stops.
-            state = .dragging
+            // Re-grab mid-spring: the keyboard is still moving, so go back to
+            // dismissing. The link is already live.
+            state = .dismissing
             settledFrames = 0
             return []
-        case .dragging:
+        case .scrolling, .dismissing:
             return []
         }
     }
 
     private mutating func handleEnded() -> [KeyboardSyncEffect] {
-        // Finger up. Only meaningful mid-drag; otherwise (idle history scroll, or
-        // an already-released spring) it is a no-op.
-        guard state == .dragging else { return [] }
-        state = .releasing
-        settledFrames = 0
-        return []
+        switch state {
+        case .scrolling:
+            // The dismiss never engaged: it was a plain scroll. Tear down the
+            // observer (if any) and return to idle. The inset was never touched.
+            let effects: [KeyboardSyncEffect] = linkActive ? [.stopLink] : []
+            state = .idle
+            linkActive = false
+            engageBaseline = nil
+            return effects
+        case .dismissing:
+            state = .releasing
+            settledFrames = 0
+            return []
+        case .idle, .releasing:
+            return []
+        }
     }
 
     private func handleFrameChange(_ top: CGFloat) -> [KeyboardSyncEffect] {
         switch state {
-        case .idle:
+        case .idle, .scrolling:
+            // In scrolling the observer is read-only, so notifications may still
+            // own the inset (they essentially never fire mid-drag anyway).
             return [.applyAnimated(.keyboardTop(top))]
-        case .dragging, .releasing:
-            // The link owns the inset; a competing animation here would fight it.
+        case .dismissing, .releasing:
             return [.ignoreKeyboardNotification]
         }
     }
 
-    private func handleHeightChange() -> [KeyboardSyncEffect] {
+    private func handleHeightChange(keyboardOpen: Bool) -> [KeyboardSyncEffect] {
         var effects: [KeyboardSyncEffect] = [.invalidateComposerIntrinsicSize]
-        // The inset only needs an explicit apply when the keyboard is DOWN and we
-        // are idle: the docked bar grew, so the resting overlap grew. When the
-        // keyboard is UP, resizing the accessory fires its own
-        // `keyboardWillChangeFrame` that owns the inset (with the real curve), so
-        // applying here too would double up with a conflicting target. When the
-        // link owns the inset (dragging/releasing), it covers the change.
-        if state == .idle, !keyboardVisible {
+        // Explicit inset apply only when idle AND keyboard down: the docked bar
+        // grew so the resting overlap grew. Keyboard up while idle: the accessory
+        // resize fires its own frame change that owns the inset. While the link
+        // is involved (scrolling/dismissing/releasing), never apply here.
+        if state == .idle, !keyboardOpen {
             effects.append(.applyAnimated(.resting))
         }
         return effects
@@ -203,11 +206,24 @@ public struct KeyboardSyncMachine: Sendable {
     private mutating func handleTick(_ top: CGFloat) -> [KeyboardSyncEffect] {
         switch state {
         case .idle:
-            // The link should not be running here; ignore a stray late tick.
             return []
-        case .dragging:
-            // Finger down: glue the inset, never settle (the keyboard may be
-            // parked under a held finger).
+        case .scrolling:
+            // Observer: write nothing until the composer actually moves, which is
+            // the only reliable signal that the interactive dismiss engaged.
+            guard linkActive else { return [] }
+            guard let base = engageBaseline else {
+                engageBaseline = top
+                lastComposerTop = top
+                return []
+            }
+            lastComposerTop = top
+            if abs(top - base) > engageThreshold {
+                state = .dismissing
+                return [.applyPerFrame(composerTop: top)]
+            }
+            return []
+        case .dismissing:
+            // Finger down: glue the inset, never settle.
             lastComposerTop = top
             return [.applyPerFrame(composerTop: top)]
         case .releasing:
@@ -217,6 +233,8 @@ public struct KeyboardSyncMachine: Sendable {
                 if settledFrames >= settleFrameThreshold {
                     state = .idle
                     settledFrames = 0
+                    linkActive = false
+                    engageBaseline = nil
                     return [.stopLink, .reconcile]
                 }
                 return [.applyPerFrame(composerTop: top)]
