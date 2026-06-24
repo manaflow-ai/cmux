@@ -8,21 +8,10 @@ import Security
 /// That keeps bypass grants scoped to the lifetime of the relevant browser
 /// surface while preserving the exact failed `URLRequest` for replay.
 final class BrowserSSLTrustBypassState {
-    private struct TrustGrant: Hashable {
-        let scope: BrowserSSLTrustScope
-        let fingerprint: BrowserServerTrustFingerprint
-    }
-
-    private struct PendingBypass {
-        let grant: TrustGrant
-        let request: URLRequest
-        let expiresAt: Date
-    }
-
-    private var bypassedTrusts: Set<TrustGrant> = []
+    private var bypassedTrusts: Set<BrowserSSLTrustGrant> = []
     private var observedFingerprints: [BrowserSSLTrustScope: BrowserServerTrustFingerprint] = [:]
     private var observedFingerprintOrder: [BrowserSSLTrustScope] = []
-    private var pendingBypasses: [String: PendingBypass] = [:]
+    private var pendingBypasses: [String: BrowserPendingSSLTrustBypass] = [:]
     private var pendingTokenOrder: [String] = []
     private let tokenLifetime: TimeInterval
     private let maximumPendingBypassCount: Int
@@ -65,7 +54,7 @@ final class BrowserSSLTrustBypassState {
     }
 
     func isBypassed(scope: BrowserSSLTrustScope, fingerprint: BrowserServerTrustFingerprint) -> Bool {
-        bypassedTrusts.contains(TrustGrant(scope: scope, fingerprint: fingerprint))
+        bypassedTrusts.contains(BrowserSSLTrustGrant(scope: scope, fingerprint: fingerprint))
     }
 
     func createPendingBypassAction(for request: URLRequest) -> URL? {
@@ -78,8 +67,8 @@ final class BrowserSSLTrustBypassState {
         let token = UUID().uuidString
         let currentDate = now()
         purgeExpiredPendingBypasses(now: currentDate)
-        pendingBypasses[token] = PendingBypass(
-            grant: TrustGrant(scope: scope, fingerprint: fingerprint),
+        pendingBypasses[token] = BrowserPendingSSLTrustBypass(
+            grant: BrowserSSLTrustGrant(scope: scope, fingerprint: fingerprint),
             request: request,
             expiresAt: currentDate.addingTimeInterval(tokenLifetime)
         )

@@ -137,6 +137,7 @@
 		1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */; };
 		A5001404 /* BrowserPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001414 /* BrowserPanelView.swift */; };
 		D0E0F0B0A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */; };
+		C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */; };
 		A5007420 /* BrowserPopupWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5007421 /* BrowserPopupWindowController.swift */; };
 		7B5F1A2E9C0D4B6A8E217304 /* BrowserReliabilityRegressionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B5F1A2E9C0D4B6A8E217303 /* BrowserReliabilityRegressionUITests.swift */; };
 		BFBAC1A77CEE7A2DF91DA02C /* BrowserRemoteWorkspaceStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */; };
@@ -147,6 +148,7 @@
 		C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */; };
 		C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */; };
 		C2035A060000000000000001 /* BrowserSSLTrustBypassStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */; };
+		C2035A080000000000000001 /* BrowserSSLTrustGrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */; };
 		C2035A040000000000000001 /* BrowserSSLTrustScope.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2035A040000000000000002 /* BrowserSSLTrustScope.swift */; };
 		4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */ = {isa = PBXBuildFile; fileRef = 048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */; };
 		C7B800062D4202A13C962D2D /* BrowserSystemProxyMirrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */; };
@@ -1283,6 +1285,7 @@
 		58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelTests.swift; sourceTree = "<group>"; };
 		A5001414 /* BrowserPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelView.swift; sourceTree = "<group>"; };
 		D0E0F0B1A1B2C3D4E5F60718 /* BrowserPaneNavigationKeybindUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPaneNavigationKeybindUITests.swift; sourceTree = "<group>"; };
+		C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPendingSSLTrustBypass.swift; sourceTree = "<group>"; };
 		A5007421 /* BrowserPopupWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPopupWindowController.swift; sourceTree = "<group>"; };
 		7B5F1A2E9C0D4B6A8E217303 /* BrowserReliabilityRegressionUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserReliabilityRegressionUITests.swift; sourceTree = "<group>"; };
 		109D0E38E29A8779FA0BAE82 /* BrowserRemoteWorkspaceStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserRemoteWorkspaceStatus.swift; sourceTree = "<group>"; };
@@ -1293,6 +1296,7 @@
 		C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserServerTrustFingerprint.swift; sourceTree = "<group>"; };
 		C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustBypassState.swift; sourceTree = "<group>"; };
 		C2035A060000000000000002 /* BrowserSSLTrustBypassStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSSLTrustBypassStateTests.swift; sourceTree = "<group>"; };
+		C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustGrant.swift; sourceTree = "<group>"; };
 		C2035A040000000000000002 /* BrowserSSLTrustScope.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSSLTrustScope.swift; sourceTree = "<group>"; };
 		048DACB3F8147BCBDD266297 /* BrowserSystemProxyMirror.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserSystemProxyMirror.swift; sourceTree = "<group>"; };
 		8D828DA0070335773EBAE83F /* BrowserSystemProxyMirrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSystemProxyMirrorTests.swift; sourceTree = "<group>"; };
@@ -2775,8 +2779,10 @@
 				C2035A010000000000000002 /* BrowserErrorPage.swift */,
 				C2035A020000000000000002 /* BrowserErrorPageContent.swift */,
 				C2035A030000000000000002 /* BrowserSSLTrustBypassState.swift */,
+				C2035A080000000000000002 /* BrowserSSLTrustGrant.swift */,
 				C2035A040000000000000002 /* BrowserSSLTrustScope.swift */,
 				C2035A050000000000000002 /* BrowserServerTrustFingerprint.swift */,
+				C2035A090000000000000002 /* BrowserPendingSSLTrustBypass.swift */,
 				C2035A070000000000000002 /* URLRequest+BrowserFailedNavigation.swift */,
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
@@ -3874,6 +3880,7 @@
 				A5001402 /* BrowserPanel.swift in Sources */,
 				C62530010000000000000001 /* BrowserPanelReloadMode.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,
+				C2035A090000000000000001 /* BrowserPendingSSLTrustBypass.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
 				BFBAC1A77CEE7A2DF91DA02C /* BrowserRemoteWorkspaceStatus.swift in Sources */,
 				4472A0014472A0014472A001 /* BrowserScreenshot.swift in Sources */,
@@ -3882,6 +3889,7 @@
 				A5008371 /* BrowserSearchOverlay.swift in Sources */,
 				C2035A050000000000000001 /* BrowserServerTrustFingerprint.swift in Sources */,
 				C2035A030000000000000001 /* BrowserSSLTrustBypassState.swift in Sources */,
+				C2035A080000000000000001 /* BrowserSSLTrustGrant.swift in Sources */,
 				C2035A040000000000000001 /* BrowserSSLTrustScope.swift in Sources */,
 				4BBF42E8A86EAAB94BC9EA16 /* BrowserSystemProxyMirror.swift in Sources */,
 				0796994CA7CCA25DB990BFEF /* BrowserSystemProxyWatcher.swift in Sources */,
