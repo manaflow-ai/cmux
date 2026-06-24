@@ -67,9 +67,6 @@ extension AppDelegate {
             _ = CanvasActionExecutor(workspace: workspace).perform(.toggleOverview)
         } else {
             _ = routedManager?.toggleFocusedSplitZoom()
-#if DEBUG
-            recordGotoSplitZoomIfNeeded(tabManager: routedManager)
-#endif
         }
     }
 }

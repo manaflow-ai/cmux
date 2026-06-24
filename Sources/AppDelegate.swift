@@ -11413,7 +11413,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         writeGotoSplitTestData(updates)
     }
 
-    func recordGotoSplitZoomIfNeeded(tabManager: TabManager? = nil) {
+    private func recordGotoSplitZoomIfNeeded(tabManager: TabManager? = nil) {
         guard isGotoSplitUITestRecordingEnabled() else { return }
         guard let workspace = (tabManager ?? self.tabManager)?.selectedWorkspace else { return }
 
@@ -13608,6 +13608,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .toggleSplitZoom) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
             performToggleSplitZoomShortcut(tabManager: routedManager)
+#if DEBUG
+            if routedManager?.selectedWorkspace?.layoutMode != .canvas {
+                recordGotoSplitZoomIfNeeded(tabManager: routedManager)
+            }
+#endif
             return true
         }
         if matchConfiguredShortcut(event: event, action: .equalizeSplits) { performEqualizeSplitsShortcut(); return true }
