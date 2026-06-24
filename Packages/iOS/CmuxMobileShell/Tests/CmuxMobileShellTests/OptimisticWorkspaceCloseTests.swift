@@ -136,6 +136,47 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.keys.contains("workspace-docs"))
     }
 
+    /// Pending close filtering follows the Mac-local workspace id and owning Mac,
+    /// not the derived row id, so aggregation row-id scoping changes cannot show a
+    /// workspace while its close is still in flight.
+    @Test func pendingCloseSurvivesAggregationRowIDShapeChange() {
+        let store = MobileShellComposite.preview()
+        let docs = makeWorkspace(id: "workspace-docs", macDeviceID: "mac-a")
+        let main = makeWorkspace(id: "workspace-main", macDeviceID: "mac-a")
+        store.setWorkspaceStatesForTesting(
+            [
+                "mac-a": MacWorkspaceState(
+                    macDeviceID: "mac-a",
+                    workspaces: [docs, main],
+                    status: .connected
+                ),
+            ],
+            foregroundMacDeviceID: "mac-a"
+        )
+
+        store.applyOptimisticWorkspaceClose(id: "workspace-docs")
+        store.setWorkspaceStatesForTesting(
+            [
+                "mac-a": MacWorkspaceState(
+                    macDeviceID: "mac-a",
+                    workspaces: [docs, main],
+                    status: .connected
+                ),
+                "mac-b": MacWorkspaceState(
+                    macDeviceID: "mac-b",
+                    workspaces: [makeWorkspace(id: "workspace-other", macDeviceID: "mac-b")],
+                    status: .connected
+                ),
+            ],
+            foregroundMacDeviceID: "mac-a"
+        )
+
+        #expect(!store.workspaces.contains {
+            $0.rpcWorkspaceID == "workspace-docs" && $0.macDeviceID == "mac-a"
+        })
+        #expect(store.optimisticallyClosedWorkspaces.keys.contains("workspace-docs"))
+    }
+
     /// Secondary full-list refreshes are authoritative for that Mac and must
     /// retire a pending close once the closed remote id disappears.
     @Test func secondarySnapshotRetiresPendingCloseForThatMac() throws {
@@ -169,5 +210,23 @@ import Testing
         let payload: [String: Any] = ["workspaces": workspaceObjects]
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try MobileSyncWorkspaceListResponse.decode(data)
+    }
+
+    private func makeWorkspace(
+        id: MobileWorkspacePreview.ID,
+        macDeviceID: String
+    ) -> MobileWorkspacePreview {
+        MobileWorkspacePreview(
+            id: id,
+            macDeviceID: macDeviceID,
+            name: id.rawValue,
+            terminals: [
+                MobileTerminalPreview(
+                    id: MobileTerminalPreview.ID(rawValue: "\(id.rawValue)-terminal"),
+                    name: "Terminal",
+                    isFocused: true
+                ),
+            ]
+        )
     }
 }

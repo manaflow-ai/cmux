@@ -3405,7 +3405,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
         if !optimisticallyClosedWorkspaces.isEmpty {
             derived.removeAll { workspace in
-                optimisticallyClosedWorkspaces[workspace.id] != nil
+                optimisticallyClosedWorkspaces.values.contains {
+                    pendingOptimisticClose(
+                        $0,
+                        matchesRemoteID: workspace.rpcWorkspaceID,
+                        macDeviceID: workspace.macDeviceID
+                    )
+                }
             }
         }
         // Stamp per-Mac user color/icon overrides from pairedMacs so every
