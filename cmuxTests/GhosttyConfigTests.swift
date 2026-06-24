@@ -2078,18 +2078,18 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
 
         // Out-of-range / invalid raw values that must be canonicalized.
         defaults.set("not-a-real-mode", forKey: BrowserThemeMode.modeKey)
-        defaults.set("not-a-real-variant", forKey: BrowserImportHintSettings.variantKey)
-        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
-        defaults.set(999.0, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
+        defaults.set("not-a-real-variant", forKey: BrowserImportHintRepository.variantKey)
+        defaults.set(999, forKey: BrowserToolbarAccessorySpacingDebugRepository.key)
+        defaults.set(999.0, forKey: BrowserProfilePopoverDebugRepository.horizontalPaddingKey)
+        defaults.set(-5.0, forKey: BrowserProfilePopoverDebugRepository.verticalPaddingKey)
 
-        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+        BrowserDefaultsNormalizer().normalize(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), BrowserThemeMode.defaultMode.rawValue)
-        XCTAssertEqual(defaults.string(forKey: BrowserImportHintSettings.variantKey), BrowserImportHintSettings.defaultVariant.rawValue)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey), BrowserProfilePopoverDebugSettings.defaultHorizontalPadding, accuracy: 0.0001)
-        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey), BrowserProfilePopoverDebugSettings.defaultVerticalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.string(forKey: BrowserImportHintRepository.variantKey), BrowserImportHintRepository.defaultVariant.rawValue)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugRepository.key), BrowserToolbarAccessorySpacingDebugRepository.defaultSpacing)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugRepository.horizontalPaddingKey), BrowserProfilePopoverDebugRepository.defaultHorizontalPadding, accuracy: 0.0001)
+        XCTAssertEqual(defaults.double(forKey: BrowserProfilePopoverDebugRepository.verticalPaddingKey), BrowserProfilePopoverDebugRepository.defaultVerticalPadding, accuracy: 0.0001)
 
         // Registered fallbacks are available for keys that were never set.
         XCTAssertEqual(defaults.string(forKey: BrowserSearchSettingsStore.searchEngineKey), BrowserSearchSettingsStore.defaultSearchEngine.rawValue)
@@ -2102,15 +2102,15 @@ final class BrowserDefaultsNormalizationTests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let validSpacing = BrowserToolbarAccessorySpacingDebugSettings.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
+        let validSpacing = BrowserToolbarAccessorySpacingDebugRepository.supportedValues.last ?? BrowserToolbarAccessorySpacingDebugRepository.defaultSpacing
         let validThemeRaw = BrowserThemeMode.mode(for: "dark").rawValue
         defaults.set(validThemeRaw, forKey: BrowserThemeMode.modeKey)
-        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
+        defaults.set(validSpacing, forKey: BrowserToolbarAccessorySpacingDebugRepository.key)
 
-        BrowserPanel.normalizeBrowserDefaults(defaults: defaults)
+        BrowserDefaultsNormalizer().normalize(defaults: defaults)
 
         XCTAssertEqual(defaults.string(forKey: BrowserThemeMode.modeKey), validThemeRaw)
-        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugSettings.key), validSpacing)
+        XCTAssertEqual(defaults.integer(forKey: BrowserToolbarAccessorySpacingDebugRepository.key), validSpacing)
     }
 }
 

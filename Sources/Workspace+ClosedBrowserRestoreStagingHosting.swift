@@ -44,7 +44,7 @@ extension Workspace: ClosedBrowserRestoreStagingHosting {
     }
 
     func stagingIsTemporaryHistoryURL(_ url: URL?) -> Bool {
-        browserIsTemporaryHistoryURL(url)
+        CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL(url)
     }
 
     func stagingFallbackPlan(forPane pane: PaneID) -> ClosedBrowserRestoreFallbackPlan? {

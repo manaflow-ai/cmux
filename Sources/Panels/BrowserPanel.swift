@@ -262,27 +262,6 @@ final class BrowserProfileStore: ObservableObject {
 // seam to `RealizedBrowserImportExecutionPlan.realized(from:profileResolver:)`.
 extension BrowserProfileStore: BrowserImportProfileResolving {}
 
-func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
-    BrowserHistoryLocation.normalizedNamespace(bundleIdentifier: bundleIdentifier)
-}
-
-func browserIsTemporaryHistoryURL(_ url: URL?) -> Bool {
-    guard let url else { return false }
-    if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
-        return true
-    }
-    guard url.fragment == "cmux-diff-viewer",
-          url.scheme?.lowercased() == "http",
-          let host = url.host else {
-        return false
-    }
-    return RemoteLoopbackProxyAlias.isLoopbackHost(host) ||
-        RemoteLoopbackProxyAlias.localhostFamilyHost(
-            forAliasHost: host,
-            aliasHost: RemoteLoopbackProxyAlias.aliasHost
-        ) != nil
-}
-
 @MainActor
 final class BrowserHistoryStore: ObservableObject {
     static let shared = BrowserHistoryStore()
@@ -385,7 +364,7 @@ final class BrowserHistoryStore: ObservableObject {
         loadIfNeeded()
 
         guard let url else { return }
-        guard !browserIsTemporaryHistoryURL(url) else { return }
+        guard !CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL(url) else { return }
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return }
         // Skip URLs whose host lacks a TLD (e.g. "https://news.").
@@ -431,7 +410,7 @@ final class BrowserHistoryStore: ObservableObject {
         loadIfNeeded()
 
         guard let url else { return }
-        guard !browserIsTemporaryHistoryURL(url) else { return }
+        guard !CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL(url) else { return }
         guard let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https" else { return }
         // Skip URLs whose host lacks a TLD (e.g. "https://news.").
@@ -963,7 +942,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// classification (diff viewer + remote loopback proxy alias) is inverted into
     /// the injected sanitizer seam.
     private var restoredSessionHistory = RestoredSessionHistory(
-        sanitizer: SessionHistoryURLSanitizer { browserIsTemporaryHistoryURL($0) }
+        sanitizer: SessionHistoryURLSanitizer { CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL($0) }
     )
 
     private var usesRestoredSessionHistory: Bool {
@@ -1861,66 +1840,12 @@ final class BrowserPanel: Panel, ObservableObject {
     ///
     /// Always targets `UserDefaults.standard`: the guard is process-wide, so an
     /// injectable suite here would silently no-op for every caller after the first.
-    /// Tests exercise ``normalizeBrowserDefaults(defaults:)`` directly with a
+    /// Tests exercise ``CmuxBrowser/BrowserDefaultsNormalizer`` directly with a
     /// scratch suite instead.
     static func bootstrapBrowserDefaultsIfNeeded() {
         guard !hasBootstrappedBrowserDefaults else { return }
         hasBootstrappedBrowserDefaults = true
-        normalizeBrowserDefaults(defaults: .standard)
-    }
-
-    /// Registers fallback defaults and writes back canonical values for any stored
-    /// browser setting whose raw value is legacy or out of range.
-    ///
-    /// Pure with respect to the injected `defaults`, so it is unit-testable against
-    /// a scratch `UserDefaults(suiteName:)` without touching `UserDefaults.standard`.
-    static func normalizeBrowserDefaults(defaults: UserDefaults) {
-        defaults.register(defaults: [
-            BrowserSearchSettingsStore.searchEngineKey: BrowserSearchSettingsStore.defaultSearchEngine.rawValue,
-            BrowserSearchSettingsStore.customSearchEngineNameKey: BrowserSearchSettingsStore.defaultCustomSearchEngineName,
-            BrowserSearchSettingsStore.customSearchEngineURLTemplateKey: BrowserSearchSettingsStore.defaultCustomSearchEngineURLTemplate,
-            BrowserSearchSettingsStore.searchSuggestionsEnabledKey: BrowserSearchSettingsStore.defaultSearchSuggestionsEnabled,
-            BrowserToolbarAccessorySpacingDebugSettings.key: BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing,
-            BrowserProfilePopoverDebugSettings.horizontalPaddingKey: BrowserProfilePopoverDebugSettings.defaultHorizontalPadding,
-            BrowserProfilePopoverDebugSettings.verticalPaddingKey: BrowserProfilePopoverDebugSettings.defaultVerticalPadding,
-            BrowserThemeMode.modeKey: BrowserThemeMode.defaultMode.rawValue,
-        ])
-
-        let resolvedThemeMode = BrowserThemeMode.mode(defaults: defaults)
-        let currentThemeRaw = defaults.string(forKey: BrowserThemeMode.modeKey)
-            ?? BrowserThemeMode.defaultMode.rawValue
-        if currentThemeRaw != resolvedThemeMode.rawValue {
-            defaults.set(resolvedThemeMode.rawValue, forKey: BrowserThemeMode.modeKey)
-        }
-
-        let hintRepository = BrowserImportHintRepository(defaults: defaults)
-        let resolvedHintVariant = hintRepository.variant()
-        let currentHintRaw = defaults.string(forKey: BrowserImportHintRepository.variantKey)
-            ?? BrowserImportHintRepository.defaultVariant.rawValue
-        if currentHintRaw != resolvedHintVariant.rawValue {
-            defaults.set(resolvedHintVariant.rawValue, forKey: BrowserImportHintRepository.variantKey)
-        }
-
-        let resolvedToolbarSpacing = BrowserToolbarAccessorySpacingDebugSettings.current(defaults: defaults)
-        let currentToolbarSpacing = (defaults.object(forKey: BrowserToolbarAccessorySpacingDebugSettings.key) as? Int)
-            ?? BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
-        if currentToolbarSpacing != resolvedToolbarSpacing {
-            defaults.set(resolvedToolbarSpacing, forKey: BrowserToolbarAccessorySpacingDebugSettings.key)
-        }
-
-        let resolvedHorizontalPadding = BrowserProfilePopoverDebugSettings.currentHorizontalPadding(defaults: defaults)
-        let currentHorizontalPadding = (defaults.object(forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey) as? NSNumber)?.doubleValue
-            ?? BrowserProfilePopoverDebugSettings.defaultHorizontalPadding
-        if currentHorizontalPadding != resolvedHorizontalPadding {
-            defaults.set(resolvedHorizontalPadding, forKey: BrowserProfilePopoverDebugSettings.horizontalPaddingKey)
-        }
-
-        let resolvedVerticalPadding = BrowserProfilePopoverDebugSettings.currentVerticalPadding(defaults: defaults)
-        let currentVerticalPadding = (defaults.object(forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey) as? NSNumber)?.doubleValue
-            ?? BrowserProfilePopoverDebugSettings.defaultVerticalPadding
-        if currentVerticalPadding != resolvedVerticalPadding {
-            defaults.set(resolvedVerticalPadding, forKey: BrowserProfilePopoverDebugSettings.verticalPaddingKey)
-        }
+        BrowserDefaultsNormalizer().normalize(defaults: .standard)
     }
 
     init(
@@ -5742,7 +5667,7 @@ extension BrowserPanel {
     /// Shared sanitizer mirroring the restored-session-history URL rules, used by
     /// the surface's WebKit-touching resolution helpers.
     private static let sessionHistoryURLSanitizer = SessionHistoryURLSanitizer {
-        browserIsTemporaryHistoryURL($0)
+        CmuxDiffViewerURLSchemeHandler.isTemporaryHistoryURL($0)
     }
 
     private static func serializableSessionHistoryURLString(_ url: URL?) -> String? {

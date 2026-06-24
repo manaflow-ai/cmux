@@ -2,18 +2,6 @@ import CMUXAgentLaunch
 import CmuxFoundation
 import Foundation
 
-/// App-side forwarder for the Grok session-path helpers that moved into
-/// `CMUXAgentLaunch.GrokSessionResolver`. Kept so existing call sites (and the
-/// `cmuxTests` suite) can keep using the original `GrokSessionLocator` spelling
-/// for the pure, FileManager-independent path helpers.
-enum GrokSessionLocator {
-    /// Forwards to `GrokSessionResolver.encodedSessionCWD(_:)`. Pure byte-level
-    /// percent-encoding, so a default resolver instance is sufficient.
-    static func encodedSessionCWD(_ cwd: String) -> String {
-        GrokSessionResolver().encodedSessionCWD(cwd)
-    }
-}
-
 extension SessionIndexStore {
     private struct RegisteredAgentJSONLMetadata {
         var title: String = ""

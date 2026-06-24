@@ -112,7 +112,10 @@ struct BrowserPanelView: View {
     // Toolbar/omnibar sizes derived from the tab bar font size. Names and call
     // sites are unchanged; the values now scale via `chromeMetrics`.
     private var chromeMetrics: BrowserChromeMetrics {
-        BrowserChromeMetrics(tabBarFontSize: tabBarFontSize)
+        BrowserChromeMetrics(
+            tabBarFontSize: tabBarFontSize,
+            referenceFontSize: GhosttyConfig.defaultSurfaceTabBarFontSize
+        )
     }
     private var addressBarButtonSize: CGFloat { chromeMetrics.buttonIconSize }
     private var addressBarButtonHitSize: CGFloat { chromeMetrics.buttonHitSize }

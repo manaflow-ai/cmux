@@ -652,7 +652,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let grokHome = tempDir.appendingPathComponent("grok-home", isDirectory: true)
         let sessionsRoot = grokHome.appendingPathComponent("sessions", isDirectory: true)
         let historyURL = sessionsRoot
-            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("chat_history.jsonl", isDirectory: false)
         try FileManager.default.createDirectory(
@@ -698,7 +698,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let sessionId = "grok-metadata-session"
         let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
         let historyURL = sessionsRoot
-            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("chat_history.jsonl", isDirectory: false)
         try FileManager.default.createDirectory(
@@ -751,7 +751,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let sessionId = "grok-late-branch-session"
         let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
         let historyURL = sessionsRoot
-            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("chat_history.jsonl", isDirectory: false)
         try FileManager.default.createDirectory(
@@ -794,7 +794,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let grokHome = tempDir.appendingPathComponent("shell-grok-home", isDirectory: true)
         let historyURL = grokHome
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("chat_history.jsonl", isDirectory: false)
         try FileManager.default.createDirectory(
@@ -856,7 +856,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let grokHome = tempDir.appendingPathComponent("custom-state-grok-home", isDirectory: true)
         let historyURL = grokHome
             .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("chat_history.jsonl", isDirectory: false)
         try FileManager.default.createDirectory(
@@ -911,7 +911,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let sessionId = "custom-grok-session-123"
         let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
         let historyURL = sessionsRoot
-            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
             .appendingPathComponent(sessionId, isDirectory: true)
             .appendingPathComponent("chat_history.jsonl", isDirectory: false)
         try FileManager.default.createDirectory(
@@ -961,7 +961,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
         func writeHistory(cwd: String, sessionId: String, prompt: String) throws {
             let historyURL = sessionsRoot
-                .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+                .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
                 .appendingPathComponent(sessionId, isDirectory: true)
                 .appendingPathComponent("chat_history.jsonl", isDirectory: false)
             try FileManager.default.createDirectory(
@@ -1011,7 +1011,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let sessionsRoot = grokHome.appendingPathComponent("sessions", isDirectory: true)
         func writeHistory(cwd: String, sessionId: String, prompt: String) throws {
             let historyURL = sessionsRoot
-                .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+                .appendingPathComponent(GrokSessionResolver().encodedSessionCWD(cwd), isDirectory: true)
                 .appendingPathComponent(sessionId, isDirectory: true)
                 .appendingPathComponent("chat_history.jsonl", isDirectory: false)
             try FileManager.default.createDirectory(
