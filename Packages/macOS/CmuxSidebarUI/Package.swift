@@ -15,6 +15,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxSidebar"),
+        // WorkspaceIndicatorStyle is carried in TabItemSettingsSnapshot.
+        .package(path: "../CmuxSettings"),
         .package(path: "../CmuxFoundation"),
         // ExtensionSidebarBrowserStackDropRow/Planner + CmuxSidebarProviderWorkspaceMove
         // back the extension browser-stack drop delegates.
@@ -29,6 +31,7 @@ let package = Package(
             name: "CmuxSidebarUI",
             dependencies: [
                 .product(name: "CmuxSidebar", package: "CmuxSidebar"),
+                .product(name: "CmuxSettings", package: "CmuxSettings"),
                 .product(name: "CmuxFoundation", package: "CmuxFoundation"),
                 .product(name: "CmuxSidebarProviderKit", package: "CmuxSidebarProviderKit"),
                 .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),

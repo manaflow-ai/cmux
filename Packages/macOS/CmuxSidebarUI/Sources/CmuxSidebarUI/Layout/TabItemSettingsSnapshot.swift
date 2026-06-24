@@ -1,16 +1,14 @@
 public import CoreGraphics
+public import CmuxSettings
 public import CmuxSidebar
 
-/// The resolved sidebar-row settings ``TabItemView`` reads, mirrored into a
-/// package value type so the lifted row never references the app target's
-/// `SidebarTabItemSettingsSnapshot` (whose initializer pulls `UserDefaults`, the
-/// setting catalog, and Ghostty config). The app converts its snapshot into this
-/// once per parent body eval; `Equatable` keeps it in the row's `==`.
-///
-/// Indicator-style-derived appearance (border, leading rail, swatch colors) is
-/// resolved app-side into ``TabItemRowStyle`` rather than carried here, so this
-/// snapshot needs no `CmuxSettings.WorkspaceIndicatorStyle` dependency.
-public struct TabItemSettingsSnapshot: Equatable {
+/// The resolved sidebar-row settings ``TabItemView`` reads. This is the single
+/// settings-snapshot value type for the sidebar row: the app target builds it
+/// from `UserDefaults`, the setting catalog, and Ghostty config (see the
+/// app-side `TabItemSettingsSnapshot` factory) and stores it directly on the
+/// row, where `Equatable` keeps it in the row's `==` and `Sendable` lets the
+/// generic ``SidebarTabItemSettingsStore`` republish it.
+public struct TabItemSettingsSnapshot: Equatable, Sendable {
     public let hidesAllDetails: Bool
     public let wrapsWorkspaceTitles: Bool
     public let showsWorkspaceDescription: Bool
@@ -28,6 +26,7 @@ public struct TabItemSettingsSnapshot: Equatable {
     public let openPullRequestLinksInCmuxBrowser: Bool
     public let openPortLinksInCmuxBrowser: Bool
     public let showsNotificationMessage: Bool
+    public let activeTabIndicatorStyle: WorkspaceIndicatorStyle
     public let selectionColorHex: String?
     public let notificationBadgeColorHex: String?
     public let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
@@ -51,6 +50,7 @@ public struct TabItemSettingsSnapshot: Equatable {
         openPullRequestLinksInCmuxBrowser: Bool,
         openPortLinksInCmuxBrowser: Bool,
         showsNotificationMessage: Bool,
+        activeTabIndicatorStyle: WorkspaceIndicatorStyle,
         selectionColorHex: String?,
         notificationBadgeColorHex: String?,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility,
@@ -73,6 +73,7 @@ public struct TabItemSettingsSnapshot: Equatable {
         self.openPullRequestLinksInCmuxBrowser = openPullRequestLinksInCmuxBrowser
         self.openPortLinksInCmuxBrowser = openPortLinksInCmuxBrowser
         self.showsNotificationMessage = showsNotificationMessage
+        self.activeTabIndicatorStyle = activeTabIndicatorStyle
         self.selectionColorHex = selectionColorHex
         self.notificationBadgeColorHex = notificationBadgeColorHex
         self.visibleAuxiliaryDetails = visibleAuxiliaryDetails

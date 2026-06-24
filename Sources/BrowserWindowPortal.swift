@@ -2023,93 +2023,6 @@ final class WindowBrowserPortal: NSObject {
         return frameInWindow
     }
 
-    private static func frameExtendsOutsideBounds(_ frame: NSRect, bounds: NSRect, epsilon: CGFloat = 0.5) -> Bool {
-        frame.minX < bounds.minX - epsilon ||
-            frame.minY < bounds.minY - epsilon ||
-            frame.maxX > bounds.maxX + epsilon ||
-            frame.maxY > bounds.maxY + epsilon
-    }
-
-    private static func hasVisibleInspectorDescendant(in root: NSView) -> Bool {
-        var stack: [NSView] = [root]
-        while let current = stack.popLast() {
-            if current !== root {
-                if cmuxIsWebInspectorObject(current),
-                   !current.isHidden,
-                   current.alphaValue > 0,
-                   current.frame.width > 1,
-                   current.frame.height > 1 {
-                    return true
-                }
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
-    }
-
-    private static func inferredBottomDockedInspectorFrame(
-        in containerView: NSView,
-        primaryWebView: WKWebView,
-        epsilon: CGFloat = 1
-    ) -> NSRect? {
-        let pageFrame = primaryWebView.frame
-        let containerBounds = containerView.bounds
-
-        let candidates = containerView.subviews.compactMap { candidate -> NSRect? in
-            guard candidate !== primaryWebView else { return nil }
-            guard hasVisibleInspectorDescendant(in: candidate) else { return nil }
-
-            let frame = candidate.frame
-            guard frame.width > 1, frame.height > 1 else { return nil }
-            let overlapWidth = min(pageFrame.maxX, frame.maxX) - max(pageFrame.minX, frame.minX)
-            guard overlapWidth > min(pageFrame.width, frame.width) * 0.7 else { return nil }
-            guard frame.minY <= containerBounds.minY + epsilon else { return nil }
-            guard frame.maxY <= pageFrame.minY + epsilon else { return nil }
-            return frame
-        }
-
-        return candidates.max(by: { $0.height < $1.height })
-    }
-
-    private static func repairedBottomDockedPageFrame(
-        in containerView: NSView,
-        primaryWebView: WKWebView,
-        epsilon: CGFloat = 0.5
-    ) -> NSRect? {
-        let pageFrame = primaryWebView.frame
-        let containerBounds = containerView.bounds
-        guard frameExtendsOutsideBounds(pageFrame, bounds: containerBounds, epsilon: epsilon),
-              let inspectorFrame = inferredBottomDockedInspectorFrame(
-                  in: containerView,
-                  primaryWebView: primaryWebView
-              ) else {
-            return nil
-        }
-
-        return NSRect(
-            x: containerBounds.minX,
-            y: inspectorFrame.maxY,
-            width: containerBounds.width,
-            height: max(0, containerBounds.maxY - inspectorFrame.maxY)
-        )
-    }
-
-#if DEBUG
-    private static func inspectorSubviewCount(in root: NSView) -> Int {
-        var stack: [NSView] = [root]
-        var count = 0
-        while let current = stack.popLast() {
-            for subview in current.subviews {
-                if cmuxIsWebInspectorObject(subview) {
-                    count += 1
-                }
-                stack.append(subview)
-            }
-        }
-        return count
-    }
-#endif
-
     private static func isView(_ view: NSView, above reference: NSView, in container: NSView) -> Bool {
         guard let viewIndex = container.subviews.firstIndex(of: view),
               let referenceIndex = container.subviews.firstIndex(of: reference) else {
@@ -2153,7 +2066,7 @@ final class WindowBrowserPortal: NSObject {
         // Moving it into the portal can leave WebKit window observers pointing at a
         // stale host during user-initiated inspector-window close.
         let primaryTransferView = directTransferChild(of: sourceSuperview, containing: primaryWebView) ?? primaryWebView
-        if Self.containsInspectorView(in: primaryTransferView) {
+        if WebInspectorLayoutDetector().containsInspectorView(in: primaryTransferView) {
             append(primaryWebView)
         } else {
             append(primaryTransferView)
@@ -2162,7 +2075,11 @@ final class WindowBrowserPortal: NSObject {
         for view in sourceSuperview.subviews {
             if view === primaryWebView { continue }
             let className = String(describing: type(of: view))
-            if cmuxIsWebInspectorClassName(className) || Self.containsInspectorView(in: view) {
+            // TODO(refactor): cmuxIsWebInspectorClassName is an app-side free function
+            // in App/ShortcutRoutingSupport.swift duplicating the package's
+            // String.cmuxIsWebInspectorClassName; collapse onto the package predicate
+            // in a separate move.
+            if cmuxIsWebInspectorClassName(className) || WebInspectorLayoutDetector().containsInspectorView(in: view) {
                 continue
             }
             guard className.contains("WK") else { continue }
@@ -2170,17 +2087,6 @@ final class WindowBrowserPortal: NSObject {
         }
 
         return relatedSubviews
-    }
-
-    private static func containsInspectorView(in root: NSView) -> Bool {
-        var stack: [NSView] = [root]
-        while let current = stack.popLast() {
-            if cmuxIsWebInspectorObject(current) {
-                return true
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
     }
 
     private func appendHostedWebKitSubviews(
@@ -3292,10 +3198,10 @@ final class WindowBrowserPortal: NSObject {
         let inspectorHeightFromOverflow = max(0, preNormalizeWebFrame.maxY - containerBounds.maxY)
         let inspectorHeightApprox = max(inspectorHeightFromInsets, inspectorHeightFromOverflow)
 #if DEBUG
-        let inspectorSubviews = Self.inspectorSubviewCount(in: containerView)
+        let inspectorSubviews = WebInspectorLayoutDetector().inspectorSubviewCount(in: containerView)
 #endif
         if containerOwnsWebView,
-           let repairedBottomDockFrame = Self.repairedBottomDockedPageFrame(
+           let repairedBottomDockFrame = WebInspectorLayoutDetector().repairedBottomDockedPageFrame(
                in: containerView,
                primaryWebView: webView
            ) {
@@ -3317,7 +3223,7 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             refreshReasons.append("webFrameBottomDock")
-        } else if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+        } else if containerOwnsWebView && WebInspectorLayoutDetector().frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
             let oldWebFrame = preNormalizeWebFrame
             CATransaction.begin()
             CATransaction.setDisableActions(true)

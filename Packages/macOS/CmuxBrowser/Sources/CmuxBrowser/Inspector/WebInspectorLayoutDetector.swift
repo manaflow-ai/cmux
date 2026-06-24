@@ -1,4 +1,5 @@
 public import AppKit
+public import WebKit
 
 /// Pure NSView-tree / NSRect predicates that detect a WebKit Web Inspector by its
 /// on-screen layout shape.
@@ -130,5 +131,110 @@ public struct WebInspectorLayoutDetector {
             }
         }
         return count
+    }
+
+    /// Whether the subtree rooted at `root` contains any Web Inspector chrome,
+    /// matching `root` itself or any descendant. Used to decide whether a WebKit
+    /// transfer subtree is the inspector frontend that must stay with WebKit rather
+    /// than being moved into the portal.
+    public func containsInspectorView(in root: NSView) -> Bool {
+        var stack: [NSView] = [root]
+        while let current = stack.popLast() {
+            if current.cmuxIsWebInspectorObject {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
+    }
+
+    /// Whether `frame` pokes outside `bounds` on any edge by more than `epsilon`.
+    /// Used to decide whether a docked-inspector layout has pushed the page frame
+    /// off its container and needs repair.
+    public func frameExtendsOutsideBounds(
+        _ frame: NSRect,
+        bounds: NSRect,
+        epsilon: CGFloat = 0.5
+    ) -> Bool {
+        frame.minX < bounds.minX - epsilon ||
+            frame.minY < bounds.minY - epsilon ||
+            frame.maxX > bounds.maxX + epsilon ||
+            frame.maxY > bounds.maxY + epsilon
+    }
+
+    /// Whether the subtree rooted at `root` (root excluded) holds a visible
+    /// inspector leaf: shown, opaque, and larger than a 1×1 placeholder in both
+    /// dimensions. Walks an explicit stack so deep trees never overflow.
+    public func hasVisibleInspectorDescendant(in root: NSView) -> Bool {
+        var stack: [NSView] = [root]
+        while let current = stack.popLast() {
+            if current !== root {
+                if current.cmuxIsWebInspectorObject,
+                   !current.isHidden,
+                   current.alphaValue > 0,
+                   current.frame.width > 1,
+                   current.frame.height > 1 {
+                    return true
+                }
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
+    }
+
+    /// The frame of a bottom-docked Web Inspector inside `containerView`, inferred
+    /// from layout: a sibling of `primaryWebView` that hosts visible inspector
+    /// chrome, overlaps the page horizontally by more than 70%, sits flush with the
+    /// container bottom, and ends at or below the page top. Returns the tallest such
+    /// candidate, or `nil` when no bottom dock is present.
+    public func inferredBottomDockedInspectorFrame(
+        in containerView: NSView,
+        primaryWebView: WKWebView,
+        epsilon: CGFloat = 1
+    ) -> NSRect? {
+        let pageFrame = primaryWebView.frame
+        let containerBounds = containerView.bounds
+
+        let candidates = containerView.subviews.compactMap { candidate -> NSRect? in
+            guard candidate !== primaryWebView else { return nil }
+            guard hasVisibleInspectorDescendant(in: candidate) else { return nil }
+
+            let frame = candidate.frame
+            guard frame.width > 1, frame.height > 1 else { return nil }
+            let overlapWidth = min(pageFrame.maxX, frame.maxX) - max(pageFrame.minX, frame.minX)
+            guard overlapWidth > min(pageFrame.width, frame.width) * 0.7 else { return nil }
+            guard frame.minY <= containerBounds.minY + epsilon else { return nil }
+            guard frame.maxY <= pageFrame.minY + epsilon else { return nil }
+            return frame
+        }
+
+        return candidates.max(by: { $0.height < $1.height })
+    }
+
+    /// The corrected page frame for `primaryWebView` when a bottom-docked inspector
+    /// has pushed it outside `containerView`: the full container width seated above
+    /// the inspector's top edge. Returns `nil` when the page is within bounds or no
+    /// bottom dock is inferred.
+    public func repairedBottomDockedPageFrame(
+        in containerView: NSView,
+        primaryWebView: WKWebView,
+        epsilon: CGFloat = 0.5
+    ) -> NSRect? {
+        let pageFrame = primaryWebView.frame
+        let containerBounds = containerView.bounds
+        guard frameExtendsOutsideBounds(pageFrame, bounds: containerBounds, epsilon: epsilon),
+              let inspectorFrame = inferredBottomDockedInspectorFrame(
+                  in: containerView,
+                  primaryWebView: primaryWebView
+              ) else {
+            return nil
+        }
+
+        return NSRect(
+            x: containerBounds.minX,
+            y: inspectorFrame.maxY,
+            width: containerBounds.width,
+            height: max(0, containerBounds.maxY - inspectorFrame.maxY)
+        )
     }
 }

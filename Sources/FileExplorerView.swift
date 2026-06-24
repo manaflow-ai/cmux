@@ -13,95 +13,6 @@ private func fileExplorerDebugResponder(_ responder: NSResponder?) -> String {
 }
 #endif
 
-private final class FileExplorerExternalOpenRequest: NSObject {
-    let fileURL: URL
-    let applicationURL: URL?
-
-    init(fileURL: URL, applicationURL: URL?) {
-        self.fileURL = fileURL
-        self.applicationURL = applicationURL
-    }
-}
-
-private func addFileExplorerExternalOpenItems(
-    to menu: NSMenu,
-    fileURL: URL,
-    target: AnyObject,
-    action: Selector
-) {
-    let strings = FileExternalOpenStrings.live
-    let applications = FileExternalOpenApplicationResolver.live.applications(for: fileURL)
-    let primaryApplication = applications.first { $0.isDefault } ?? applications.first
-    let otherApplications = applications.filter { application in
-        application.id != primaryApplication?.id
-    }
-
-    if let primaryApplication {
-        let openItem = NSMenuItem(
-            title: strings.openInApplication(primaryApplication.displayName),
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(
-            fileURL: fileURL,
-            applicationURL: primaryApplication.url
-        )
-        menu.addItem(openItem)
-
-        guard !otherApplications.isEmpty else { return }
-        let openWithMenu = NSMenu(title: strings.openWithMenu)
-        for application in otherApplications {
-            let appItem = NSMenuItem(
-                title: application.displayName,
-                action: action,
-                keyEquivalent: ""
-            )
-            appItem.target = target
-            appItem.representedObject = FileExplorerExternalOpenRequest(
-                fileURL: fileURL,
-                applicationURL: application.url
-            )
-            openWithMenu.addItem(appItem)
-        }
-        let openWithItem = NSMenuItem(title: strings.openWithMenu, action: nil, keyEquivalent: "")
-        openWithItem.submenu = openWithMenu
-        menu.addItem(openWithItem)
-    } else {
-        let openItem = NSMenuItem(
-            title: strings.openExternally,
-            action: action,
-            keyEquivalent: ""
-        )
-        openItem.target = target
-        openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
-        menu.addItem(openItem)
-    }
-}
-
-/// Perform the configured double-click action for a FILE in the file explorer.
-///
-/// Shared by every file-activation gesture (the outline view's double-click and
-/// the search results list's double-click / Return) so the behavior stays
-/// consistent across surfaces. Callers must guard for local providers and skip
-/// directories before calling this — only readable local files reach here.
-@MainActor
-private func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {
-    let action = FileExplorerDoubleClickActionSettings.resolvedAction()
-    let hasPreferredEditor = PreferredEditorSettingsStore(defaults: .standard).resolvedCommand != nil
-    switch FileExplorerDoubleClickActionSettings.fileActivation(
-        action: action,
-        hasPreferredEditorCommand: hasPreferredEditor
-    ) {
-    case .preview:
-        onOpenFilePreview(path)
-    case .defaultEditor:
-        FileExternalOpener.live.openDefault(fileURL: URL(fileURLWithPath: path))
-    case .preferredEditor:
-        PreferredEditorService(defaults: .standard).open(URL(fileURLWithPath: path))
-    }
-}
-
 // MARK: - File Explorer Panel (single NSViewRepresentable)
 
 enum FileExplorerPanelPresentation: Equatable {
@@ -652,7 +563,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 onOpenFilePreview(node.path)
                 return
             }
-            performFileExplorerFileOpen(path: node.path, onOpenFilePreview: onOpenFilePreview)
+            FileExplorerFileOpener().open(path: node.path, onOpenFilePreview: onOpenFilePreview)
         }
 
         // MARK: - Context Menu (NSMenuDelegate)
@@ -667,9 +578,11 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let isLocal = store.provider is LocalFileExplorerProvider
 
             if !node.isDirectory && isLocal {
-                addFileExplorerExternalOpenItems(
+                let fileURL = URL(fileURLWithPath: node.path)
+                FileExternalOpenMenuBuilder(strings: FileExternalOpenStrings.live).appendExternalOpenItems(
                     to: menu,
-                    fileURL: URL(fileURLWithPath: node.path),
+                    fileURL: fileURL,
+                    applications: FileExternalOpenApplicationResolver.live.applications(for: fileURL),
                     target: self,
                     action: #selector(contextMenuOpenExternally(_:))
                 )
@@ -710,8 +623,9 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
-            guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
-            FileExternalOpener.live.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
+            guard let payload = sender.representedObject as? FileExternalOpenMenuActionPayload,
+                  case let .open(applicationURL) = payload.action else { return }
+            FileExternalOpener.live.open(fileURL: payload.fileURL, applicationURL: applicationURL)
         }
 
         @objc private func contextMenuRevealInFinder(_ sender: NSMenuItem) {
@@ -1549,7 +1463,7 @@ final class FileExplorerContainerView: NSView {
             coordinator.onOpenFilePreview(path)
             return
         }
-        performFileExplorerFileOpen(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
+        FileExplorerFileOpener().open(path: path, onOpenFilePreview: coordinator.onOpenFilePreview)
     }
 
     @objc private func openSelectedSearchResultFromTable(_ sender: NSTableView) {
@@ -1562,8 +1476,9 @@ final class FileExplorerContainerView: NSView {
     }
 
     @objc private func contextMenuOpenSearchResultExternally(_ sender: NSMenuItem) {
-        guard let request = sender.representedObject as? FileExplorerExternalOpenRequest else { return }
-        FileExternalOpener.live.open(fileURL: request.fileURL, applicationURL: request.applicationURL)
+        guard let payload = sender.representedObject as? FileExternalOpenMenuActionPayload,
+              case let .open(applicationURL) = payload.action else { return }
+        FileExternalOpener.live.open(fileURL: payload.fileURL, applicationURL: applicationURL)
     }
 
     @objc private func contextMenuRevealSearchResultInFinder(_ sender: NSMenuItem) {
@@ -1699,9 +1614,11 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        addFileExplorerExternalOpenItems(
+        let externalOpenFileURL = URL(fileURLWithPath: searchSnapshot.results[row].path)
+        FileExternalOpenMenuBuilder(strings: FileExternalOpenStrings.live).appendExternalOpenItems(
             to: menu,
-            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+            fileURL: externalOpenFileURL,
+            applications: FileExternalOpenApplicationResolver.live.applications(for: externalOpenFileURL),
             target: self,
             action: #selector(contextMenuOpenSearchResultExternally(_:))
         )

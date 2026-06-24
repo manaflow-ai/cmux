@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import Foundation
 
 @MainActor
@@ -341,7 +342,7 @@ struct CmuxConfigExecutor {
             target: target.rawValue,
             workspaceCommand: nil,
             configPath: configSourcePath.map(canonicalPath),
-            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            projectRoot: configSourcePath.map { canonicalPath(CmuxConfigImagePath(configSourcePath: $0).projectRoot) },
             iconFingerprint: icon?.projectLocalImageFingerprint(
                 configSourcePath: iconSourcePath ?? configSourcePath,
                 globalConfigPath: globalConfigPath
@@ -364,7 +365,7 @@ struct CmuxConfigExecutor {
             target: nil,
             workspaceCommand: command,
             configPath: configSourcePath.map(canonicalPath),
-            projectRoot: configSourcePath.map { canonicalPath(CmuxButtonIcon.projectRoot(forConfigPath: $0)) },
+            projectRoot: configSourcePath.map { canonicalPath(CmuxConfigImagePath(configSourcePath: $0).projectRoot) },
             iconFingerprint: icon?.projectLocalImageFingerprint(
                 configSourcePath: iconSourcePath ?? configSourcePath,
                 globalConfigPath: globalConfigPath

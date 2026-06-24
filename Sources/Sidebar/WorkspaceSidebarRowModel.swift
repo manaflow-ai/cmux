@@ -55,7 +55,7 @@ struct WorkspaceSidebarRowModel {
     let allRemoteContextMenuTargetsDisconnected: Bool
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot
-    let settings: SidebarTabItemSettingsSnapshot
+    let settings: TabItemSettingsSnapshot
     /// The color scheme used to resolve appearance. The row re-derives the model
     /// per render with the live scheme via ``withColorScheme(_:)`` so selection
     /// color overrides track light/dark changes.
@@ -1022,36 +1022,6 @@ struct WorkspaceSidebarRowModel {
     private func promptNewWorkspaceGroup(workspaceIds: [UUID]) {
         guard !workspaceIds.isEmpty else { return }
         tabManager.createWorkspaceGroup(name: "", childWorkspaceIds: workspaceIds)
-    }
-
-    // MARK: - Settings snapshot bridge
-
-    /// Converts the app-side ``SidebarTabItemSettingsSnapshot`` into the package
-    /// value type the row stores and compares in `==`.
-    var packageSettings: TabItemSettingsSnapshot {
-        TabItemSettingsSnapshot(
-            hidesAllDetails: settings.hidesAllDetails,
-            wrapsWorkspaceTitles: settings.wrapsWorkspaceTitles,
-            showsWorkspaceDescription: settings.showsWorkspaceDescription,
-            sidebarShortcutHintXOffset: settings.sidebarShortcutHintXOffset,
-            sidebarShortcutHintYOffset: settings.sidebarShortcutHintYOffset,
-            alwaysShowShortcutHints: settings.alwaysShowShortcutHints,
-            sidebarFontScale: settings.sidebarFontScale,
-            showsGitBranch: settings.showsGitBranch,
-            usesVerticalBranchLayout: settings.usesVerticalBranchLayout,
-            stacksBranchAndDirectory: settings.stacksBranchAndDirectory,
-            usesLastSegmentPath: settings.usesLastSegmentPath,
-            showsGitBranchIcon: settings.showsGitBranchIcon,
-            showsSSH: settings.showsSSH,
-            makesPullRequestsClickable: settings.makesPullRequestsClickable,
-            openPullRequestLinksInCmuxBrowser: settings.openPullRequestLinksInCmuxBrowser,
-            openPortLinksInCmuxBrowser: settings.openPortLinksInCmuxBrowser,
-            showsNotificationMessage: settings.showsNotificationMessage,
-            selectionColorHex: settings.selectionColorHex,
-            notificationBadgeColorHex: settings.notificationBadgeColorHex,
-            visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
-            iMessageModeEnabled: settings.iMessageModeEnabled
-        )
     }
 
     var packageContextMenuPinState: TabItemContextMenuPinState? {

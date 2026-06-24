@@ -465,11 +465,12 @@ final class CmuxWebView: WKWebView {
         }
         let result = super.becomeFirstResponder()
         if result {
-            let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
             NotificationCenter.default.post(
                 name: .browserDidBecomeFirstResponderWebView,
                 object: self,
-                userInfo: [pointerInitiatedKey: pointerFocusAllowanceDepth > 0]
+                userInfo: Notification.browserFirstResponderUserInfo(
+                    pointerInitiated: pointerFocusAllowanceDepth > 0
+                )
             )
         }
 #if DEBUG

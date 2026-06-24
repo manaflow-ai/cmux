@@ -117,7 +117,7 @@ extension TerminalController {
             }
 
             let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
-            let cookies = (v2BrowserCookieStoreAll(store) ?? []).map(v2BrowserCookieDict)
+            let cookies = (browserAutomation.cookies.allCookies(in: store) ?? []).map(browserAutomation.cookies.cookieDictionary(from:))
 
             let state: [String: Any] = [
                 "url": browserPanel.currentURL?.absoluteString ?? "",
@@ -183,8 +183,8 @@ extension TerminalController {
             if let cookieRows = raw["cookies"] as? [[String: Any]] {
                 let store = browserPanel.webView.configuration.websiteDataStore.httpCookieStore
                 for row in cookieRows {
-                    if let cookie = v2BrowserCookieFromObject(row, fallbackURL: browserPanel.currentURL) {
-                        _ = v2BrowserCookieStoreSet(store, cookie: cookie)
+                    if let cookie = browserAutomation.cookies.cookie(from: row, fallbackURL: browserPanel.currentURL) {
+                        _ = browserAutomation.cookies.setCookie(cookie, in: store)
                     }
                 }
             }

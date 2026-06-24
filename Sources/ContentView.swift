@@ -5638,63 +5638,26 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 #endif
 }
 
-struct SidebarTabItemSettingsSnapshot: Equatable {
-    let hidesAllDetails: Bool
-    let wrapsWorkspaceTitles: Bool
-    let showsWorkspaceDescription: Bool
-    let sidebarShortcutHintXOffset: Double
-    let sidebarShortcutHintYOffset: Double
-    let alwaysShowShortcutHints: Bool
-    let sidebarFontScale: CGFloat
-    let showsGitBranch: Bool
-    let usesVerticalBranchLayout: Bool
-    let stacksBranchAndDirectory: Bool
-    let usesLastSegmentPath: Bool
-    let showsGitBranchIcon: Bool
-    let showsSSH: Bool
-    let makesPullRequestsClickable: Bool
-    let openPullRequestLinksInCmuxBrowser: Bool
-    let openPortLinksInCmuxBrowser: Bool
-    let showsNotificationMessage: Bool
-    let activeTabIndicatorStyle: WorkspaceIndicatorStyle
-    let selectionColorHex: String?
-    let notificationBadgeColorHex: String?
-    let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
-    let iMessageModeEnabled: Bool
-
-    init(
+/// App-side factory that builds the lifted ``CmuxSidebarUI/TabItemSettingsSnapshot``
+/// from app-only inputs the package type deliberately cannot reach: the
+/// `UserDefaults`-backed setting catalog, the debug shortcut-hint settings, the
+/// resolved sidebar font scale, and the app's `Browser`/`IMessage`/title-wrap
+/// settings. This is the single producer of the row's settings snapshot; the
+/// row stores the package value directly, so no app-side twin type exists.
+extension TabItemSettingsSnapshot {
+    static func make(
         defaults: UserDefaults = .standard,
         sidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize
-    ) {
-        sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
-        sidebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultSidebarHintY
-        alwaysShowShortcutHints = ShortcutHintDebugSettings().alwaysShowHints
-        sidebarFontScale = SidebarTabItemFontScale.scale(for: sidebarFontSize)
+    ) -> TabItemSettingsSnapshot {
         let settings = UserDefaultsSettingsClient(defaults: defaults)
         let catalog = SettingCatalog()
-        showsGitBranch = Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true)
-        usesVerticalBranchLayout = settings.value(for: catalog.sidebar.branchVerticalLayout)
-        stacksBranchAndDirectory = settings.value(for: catalog.sidebar.stackBranchDirectory)
-        usesLastSegmentPath = settings.value(for: catalog.sidebar.pathLastSegmentOnly)
-        showsGitBranchIcon = Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false)
-        showsSSH = Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH)
-        makesPullRequestsClickable = settings.value(for: catalog.sidebar.makePullRequestsClickable)
-        openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
-            defaults: defaults
-        )
-        openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
-            defaults: defaults
-        )
 
-        hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
-        wrapsWorkspaceTitles = SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults)
+        let hidesAllDetails = settings.value(for: catalog.sidebar.hideAllDetails)
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: catalog.sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: catalog.sidebar.showNotificationMessage),
             hideAllDetails: hidesAllDetails
         )
-        showsWorkspaceDescription = detailVisibility.showsWorkspaceDescription
-        showsNotificationMessage = detailVisibility.showsNotificationMessage
 
         let showsMetadata = Self.bool(defaults: defaults, key: "sidebarShowStatusPills", defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata)
         let showsLog = Self.bool(defaults: defaults, key: "sidebarShowLog", defaultValue: SidebarWorkspaceDetailDefaults.showLog)
@@ -5702,20 +5665,43 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         let showsBranchDirectory = Self.bool(defaults: defaults, key: "sidebarShowBranchDirectory", defaultValue: SidebarWorkspaceDetailDefaults.showBranchDirectory)
         let showsPullRequests = Self.bool(defaults: defaults, key: "sidebarShowPullRequest", defaultValue: SidebarWorkspaceDetailDefaults.showPullRequests)
         let showsPorts = Self.bool(defaults: defaults, key: "sidebarShowPorts", defaultValue: SidebarWorkspaceDetailDefaults.showPorts)
-        visibleAuxiliaryDetails = SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
-            showMetadata: showsMetadata,
-            showLog: showsLog,
-            showProgress: showsProgress,
-            showBranchDirectory: showsBranchDirectory,
-            showPullRequests: showsPullRequests,
-            showPorts: showsPorts,
-            hideAllDetails: hidesAllDetails
-        )
 
-        activeTabIndicatorStyle = settings.value(for: catalog.workspaceColors.indicatorStyle)
-        selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
-        notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
-        iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+        return TabItemSettingsSnapshot(
+            hidesAllDetails: hidesAllDetails,
+            wrapsWorkspaceTitles: SidebarWorkspaceTitleWrapSettings.wraps(defaults: defaults),
+            showsWorkspaceDescription: detailVisibility.showsWorkspaceDescription,
+            sidebarShortcutHintXOffset: ShortcutHintDebugSettings.defaultSidebarHintX,
+            sidebarShortcutHintYOffset: ShortcutHintDebugSettings.defaultSidebarHintY,
+            alwaysShowShortcutHints: ShortcutHintDebugSettings().alwaysShowHints,
+            sidebarFontScale: SidebarTabItemFontScale.scale(for: sidebarFontSize),
+            showsGitBranch: Self.bool(defaults: defaults, key: "sidebarShowGitBranch", defaultValue: true),
+            usesVerticalBranchLayout: settings.value(for: catalog.sidebar.branchVerticalLayout),
+            stacksBranchAndDirectory: settings.value(for: catalog.sidebar.stackBranchDirectory),
+            usesLastSegmentPath: settings.value(for: catalog.sidebar.pathLastSegmentOnly),
+            showsGitBranchIcon: Self.bool(defaults: defaults, key: "sidebarShowGitBranchIcon", defaultValue: false),
+            showsSSH: Self.bool(defaults: defaults, key: "sidebarShowSSH", defaultValue: SidebarWorkspaceDetailDefaults.showSSH),
+            makesPullRequestsClickable: settings.value(for: catalog.sidebar.makePullRequestsClickable),
+            openPullRequestLinksInCmuxBrowser: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
+                defaults: defaults
+            ),
+            openPortLinksInCmuxBrowser: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
+                defaults: defaults
+            ),
+            showsNotificationMessage: detailVisibility.showsNotificationMessage,
+            activeTabIndicatorStyle: settings.value(for: catalog.workspaceColors.indicatorStyle),
+            selectionColorHex: defaults.string(forKey: "sidebarSelectionColorHex"),
+            notificationBadgeColorHex: defaults.string(forKey: "sidebarNotificationBadgeColorHex"),
+            visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility.resolved(
+                showMetadata: showsMetadata,
+                showLog: showsLog,
+                showProgress: showsProgress,
+                showBranchDirectory: showsBranchDirectory,
+                showPullRequests: showsPullRequests,
+                showPorts: showsPorts,
+                hideAllDetails: hidesAllDetails
+            ),
+            iMessageModeEnabled: IMessageModeSettings.isEnabled(defaults: defaults)
+        )
     }
 
     private static func bool(
@@ -5726,7 +5712,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         guard defaults.object(forKey: key) != nil else { return defaultValue }
         return defaults.bool(forKey: key)
     }
-
 }
 
 // `SidebarDragState`, `SidebarWorkspaceDragRegistry`, and the DEBUG-only
@@ -5788,16 +5773,16 @@ struct VerticalTabsSidebar: View {
     // Thin app-side adapter over the lifted, snapshot-generic
     // `CmuxSidebarUI.SidebarTabItemSettingsStore`. The composition point here
     // supplies everything the package store cannot reach: the app snapshot
-    // builder (settings catalog + defaults + resolved font size), the live
+    // factory (settings catalog + defaults + resolved font size), the live
     // Ghostty sidebar-font-size loader (formerly the caseless
     // `SidebarFontSizeProvider`), the font-size clamp, and the two
     // notification names to observe. Readers see `tabItemSettingsStore.snapshot`
-    // as the app `SidebarTabItemSettingsSnapshot` exactly as before.
-    @State private var tabItemSettingsStore = SidebarTabItemSettingsStore<SidebarTabItemSettingsSnapshot>(
+    // as the package `TabItemSettingsSnapshot` directly.
+    @State private var tabItemSettingsStore = SidebarTabItemSettingsStore<TabItemSettingsSnapshot>(
         initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize,
         clampFontSize: { GhosttyConfig.clampedSidebarFontSize($0) },
         snapshotBuilder: { sidebarFontSize in
-            SidebarTabItemSettingsSnapshot(
+            TabItemSettingsSnapshot.make(
                 defaults: .standard,
                 sidebarFontSize: sidebarFontSize
             )
@@ -6157,7 +6142,7 @@ struct VerticalTabsSidebar: View {
         let workspaceCount: Int
         let canCloseWorkspace: Bool
         let workspaceNumberShortcut: StoredShortcut
-        let tabItemSettings: SidebarTabItemSettingsSnapshot
+        let tabItemSettings: TabItemSettingsSnapshot
         let tabIndexById: [UUID: Int]
         let workspaceById: [UUID: Workspace]
         let workspaceGroupIdByWorkspaceId: [UUID: UUID?]
@@ -7624,7 +7609,7 @@ struct VerticalTabsSidebar: View {
             allRemoteContextMenuTargetsDisconnected: allRemoteContextMenuTargetsDisconnected,
             contextMenuPinState: rowModel.packageContextMenuPinState,
             workspaceGroupMenuSnapshot: renderContext.workspaceGroupMenuSnapshot,
-            settings: rowModel.packageSettings,
+            settings: rowModel.settings,
             immediateObservationPublisher: tab.sidebarImmediateObservationPublisher,
             observationPublisher: tab.sidebarObservationPublisher,
             workspaceObservationCoalesceInterval: WorkspaceSidebarRowModel.workspaceObservationCoalesceInterval,
