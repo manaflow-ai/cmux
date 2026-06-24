@@ -6737,11 +6737,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // work). Today there is one connected Mac, so all rows share its id.
             workspace.macDeviceID = activeTicket?.macDeviceID
             let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
-            guard !optimisticallyClosedWorkspaces.values.contains(where: {
-                pendingOptimisticClose($0, matchesRemoteID: workspace.id, macDeviceID: foregroundMacID)
-            }) else {
-                return nil
-            }
             guard let existingWorkspace = workspaces.first(where: {
                 workspaceMatchesRemoteID($0, remoteID: workspace.id, macDeviceID: foregroundMacID)
             }) else {

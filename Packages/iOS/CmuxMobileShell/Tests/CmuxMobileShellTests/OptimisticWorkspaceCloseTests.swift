@@ -131,9 +131,12 @@ import Testing
         let response = try makeListResponse(ids: ["workspace-main", "workspace-docs"])
         let reconciled = store.remoteWorkspacesPreservingSnapshots(from: response)
 
-        #expect(reconciled.map(\.id.rawValue) == ["workspace-main"])
-        // Still pending: the close has not been confirmed by the Mac.
-        #expect(store.optimisticallyClosedWorkspaces.keys.contains("workspace-docs"))
+        #expect(reconciled.map(\.id.rawValue) == ["workspace-main", "workspace-docs"])
+        store.setWorkspacesForTesting(reconciled)
+        #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main"])
+        store.rollbackOptimisticWorkspaceClose(id: "workspace-docs")
+        #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main", "workspace-docs"])
+        #expect(store.optimisticallyClosedWorkspaces.isEmpty)
     }
 
     /// An authoritative snapshot that omits the workspace confirms the close, so
