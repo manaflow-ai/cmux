@@ -546,12 +546,42 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
+    private let sslBypassState = BrowserSSLTrustBypassState()
+    private var lastAttemptedURL: URL?
+    private var lastAttemptedRequest: URLRequest?
+
+    private func recordAttemptedRequest(_ request: URLRequest) {
+        lastAttemptedRequest = request
+        lastAttemptedURL = request.url
+    }
+
+    private func requestForFailedNavigation(failedURL: String) -> URLRequest? {
+        if let lastAttemptedRequest,
+           lastAttemptedRequest.url != nil {
+            if browserRequestMatchesFailedNavigation(lastAttemptedRequest, failedURL: failedURL) {
+                return lastAttemptedRequest
+            }
+        }
+        guard let url = URL(string: failedURL) else { return nil }
+        return URLRequest(url: url)
+    }
 
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
+        if let url = navigationAction.request.url,
+           url.scheme == "cmux-browser-action",
+           url.host == "bypass-ssl" {
+            decisionHandler(.cancel)
+            if let request = sslBypassState.consumePendingBypassAction(url) {
+                recordAttemptedRequest(request)
+                browserLoadRequest(request, in: webView)
+            }
+            return
+        }
+
         // Only guard main-frame navigations
         guard navigationAction.targetFrame?.isMainFrame != false else {
             decisionHandler(.allow)
@@ -561,6 +591,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
+        }
+
+        if let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            recordAttemptedRequest(navigationAction.request)
         }
 
         // External URL schemes → hand off to macOS
@@ -583,6 +618,31 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        lastAttemptedURL = webView.url ?? lastAttemptedRequest?.url
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return
+        }
+        if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
+            return
+        }
+
+        let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
+            ?? lastAttemptedURL?.absoluteString
+            ?? ""
+        browserLoadErrorPage(
+            in: webView,
+            failedURL: failedURL,
+            failedRequest: requestForFailedNavigation(failedURL: failedURL),
+            error: nsError,
+            sslBypassState: sslBypassState
+        )
     }
 
     func webView(
@@ -622,6 +682,13 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
+        if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
+           let trust = challenge.protectionSpace.serverTrust,
+           sslBypassState.isBypassed(host: challenge.protectionSpace.host) {
+            completionHandler(.useCredential, URLCredential(trust: trust))
+            return
+        }
+
         // Parity with main browser: performDefaultHandling enables system keychain
         // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)

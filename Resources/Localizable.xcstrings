@@ -10774,6 +10774,40 @@
         }
       }
     },
+    "browser.error.bypass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proceed Anyway (Unsafe)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このまま続ける（安全ではありません）"
+          }
+        }
+      }
+    },
+    "browser.error.cantOpen.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page could not be opened. Check the address and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページを開けませんでした。アドレスを確認してからもう一度お試しください。"
+          }
+        }
+      }
+    },
     "browser.error.cantOpen.title": {
       "extractionState": "manual",
       "localizations": {
