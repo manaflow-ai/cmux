@@ -6057,6 +6057,7 @@ class TerminalController {
         if let error = v2RegisterDiffViewerURLIfNeeded(params: params, url: url) {
             return error
         }
+        let browserURL = CmuxDiffViewerURLSchemeHandler.shared.restorableSchemeURL(for: url) ?? url
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create browser", data: nil)
         v2MainSync {
@@ -6064,14 +6065,14 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            if let url,
+            if let browserURL,
                respectExternalOpenRules,
-               BrowserLinkOpenSettings.shouldOpenExternally(url) {
-                guard NSWorkspace.shared.open(url) else {
+               BrowserLinkOpenSettings.shouldOpenExternally(browserURL) {
+                guard NSWorkspace.shared.open(browserURL) else {
                     result = .err(
                         code: "external_open_failed",
                         message: "Failed to open URL externally",
-                        data: ["url": url.absoluteString]
+                        data: ["url": browserURL.absoluteString]
                     )
                     return
                 }
@@ -6088,7 +6089,7 @@ class TerminalController {
                     "created_split": false,
                     "placement_strategy": "external",
                     "opened_externally": true,
-                    "url": url.absoluteString
+                    "url": browserURL.absoluteString
                 ])
                 return
             }
@@ -6109,7 +6110,7 @@ class TerminalController {
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             let omnibarVisible = v2Bool(params, "show_omnibar") ?? true
             let transparentBackground = v2Bool(params, "transparent_background") ?? false
-            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(url)
+            let bypassRemoteProxy = v2Bool(params, "bypass_remote_proxy") ?? v2IsDiffViewerURL(browserURL)
 
             var createdSplit = true
             var placementStrategy = "split_right"
@@ -6117,7 +6118,7 @@ class TerminalController {
             if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
                 createdPanel = ws.newBrowserSurface(
                     inPane: targetPane,
-                    url: url,
+                    url: browserURL,
                     focus: focus,
                     selectWhenNotFocused: true,
                     creationPolicy: .automationPreload,
@@ -6131,7 +6132,7 @@ class TerminalController {
                 createdPanel = ws.newBrowserSplit(
                     from: sourceSurfaceId,
                     orientation: .horizontal,
-                    url: url,
+                    url: browserURL,
                     focus: focus,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible,
@@ -6166,7 +6167,8 @@ class TerminalController {
                 "placement_strategy": placementStrategy,
                 "show_omnibar": createdPanel?.isOmnibarVisible ?? omnibarVisible,
                 "transparent_background": transparentBackground,
-                "bypass_remote_proxy": bypassRemoteProxy
+                "bypass_remote_proxy": bypassRemoteProxy,
+                "url": v2OrNull(browserURL?.absoluteString)
             ])
         }
         return result
@@ -6177,9 +6179,7 @@ class TerminalController {
         if url.scheme?.lowercased() == CmuxDiffViewerURLSchemeHandler.scheme {
             return true
         }
-        return url.scheme?.lowercased() == "http" &&
-            url.host == "127.0.0.1" &&
-            url.fragment == "cmux-diff-viewer"
+        return CmuxDiffViewerURLSchemeHandler.diffViewerComponents(from: url) != nil
     }
 
     private func v2RegisterDiffViewerURLIfNeeded(params: [String: Any], url: URL?) -> V2CallResult? {
