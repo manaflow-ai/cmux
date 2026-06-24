@@ -20,11 +20,11 @@ public struct ClaudeResumePrompt: Sendable {
     public init() {}
 
     /// True when the resume menu is currently on screen. Requires all three
-    /// option labels together — a deliberately strict signal so the responder
-    /// never synthesizes keys just because one phrase appears in ordinary
-    /// terminal output.
+    /// numbered option rows in one contiguous block — a deliberately strict
+    /// signal so the responder never synthesizes keys just because matching
+    /// phrases appear in ordinary terminal output.
     public func isVisible(in screen: String) -> Bool {
-        screen.contains(Self.summaryLabel) && screen.contains(Self.fullLabel) && screen.contains(Self.dontAskLabel)
+        menuOptionBlock(in: screen) != nil
     }
 
     /// The keys needed to land on `mode`'s option and confirm it, given the
@@ -48,22 +48,22 @@ public struct ClaudeResumePrompt: Sendable {
         case .ask: return nil
         }
 
-        // Single pass over the screen: collect the menu's option rows (in display
-        // order) and note which row currently carries the selection pointer.
-        var optionLines: [String] = []
+        guard let optionLines = menuOptionBlock(in: screen) else { return nil }
+
+        // Single pass over the option block: find the target row and the row
+        // currently carrying the selection pointer.
+        var targetPosition: Int?
         var pointerPosition: Int?
-        for rawLine in screen.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(rawLine)
-            guard line.contains(Self.summaryLabel) || line.contains(Self.fullLabel) || line.contains(Self.dontAskLabel) else {
-                continue
+        for (index, line) in optionLines.enumerated() {
+            if line.contains(targetLabel) {
+                targetPosition = index
             }
             if line.contains(where: { Self.pointerGlyphs.contains($0) }) {
-                pointerPosition = optionLines.count
+                pointerPosition = index
             }
-            optionLines.append(line)
         }
 
-        guard let targetPosition = optionLines.firstIndex(where: { $0.contains(targetLabel) }) else {
+        guard let targetPosition else {
             return nil
         }
         // Claude highlights the recommended (first) row by default; if no pointer
@@ -79,5 +79,51 @@ public struct ClaudeResumePrompt: Sendable {
         }
         keys.append(.enter)
         return keys
+    }
+
+    private func menuOptionBlock(in screen: String) -> [String]? {
+        var window: [String] = []
+        var labels: [Int] = []
+        var latestCompleteBlock: [String]?
+
+        for rawLine in screen.split(separator: "\n", omittingEmptySubsequences: false) {
+            let line = String(rawLine)
+            guard let label = optionLabelIndex(in: line) else {
+                window.removeAll(keepingCapacity: true)
+                labels.removeAll(keepingCapacity: true)
+                continue
+            }
+
+            window.append(line)
+            labels.append(label)
+            if window.count > 3 {
+                window.removeFirst()
+                labels.removeFirst()
+            }
+
+            if window.count == 3 && Set(labels).count == 3 {
+                latestCompleteBlock = window
+            }
+        }
+
+        return latestCompleteBlock
+    }
+
+    private func optionLabelIndex(in line: String) -> Int? {
+        var row = line.trimmingCharacters(in: .whitespaces)
+        if let first = row.first, Self.pointerGlyphs.contains(first) {
+            row.removeFirst()
+            row = row.trimmingCharacters(in: .whitespaces)
+        }
+        guard let numberSeparator = row.firstIndex(of: ".") else { return nil }
+        let number = row[..<numberSeparator]
+        guard !number.isEmpty, number.allSatisfy(\.isNumber) else { return nil }
+
+        let labelStart = row.index(after: numberSeparator)
+        let labelText = row[labelStart...]
+        if labelText.contains(Self.summaryLabel) { return 0 }
+        if labelText.contains(Self.fullLabel) { return 1 }
+        if labelText.contains(Self.dontAskLabel) { return 2 }
+        return nil
     }
 }

@@ -39,7 +39,11 @@ final class ClaudeResumeAutoResponderController {
         guard mode != .ask else { return }
         panels.setObject(panel, forKey: Self.panelKey(for: panel.id))
         responders[panel.id] = ClaudeResumeAutoResponder(mode: mode)
-        deadlines[panel.id] = now.addingTimeInterval(Self.watchWindow)
+        if panel.surface.hasLiveSurface {
+            deadlines[panel.id] = now.addingTimeInterval(Self.watchWindow)
+        } else {
+            deadlines.removeValue(forKey: panel.id)
+        }
         startTimerIfNeeded()
     }
 
@@ -82,14 +86,17 @@ final class ClaudeResumeAutoResponderController {
         for offset in 0..<count {
             let id = ids[(pollCursor + offset) % ids.count]
             guard let responder = responders[id] else { continue }
-            // Drop panes that went away or outlived the watch window.
-            guard let panel = panels.object(forKey: Self.panelKey(for: id)),
-                  let deadline = deadlines[id],
-                  now < deadline else {
+            // Drop panes that went away.
+            guard let panel = panels.object(forKey: Self.panelKey(for: id)) else {
                 removeEntry(id)
                 continue
             }
             guard panel.surface.hasLiveSurface else { continue }
+            let deadline = liveDeadline(for: id, now: now)
+            guard now < deadline else {
+                removeEntry(id)
+                continue
+            }
             guard let screen = TerminalController.shared.readTerminalTextForSnapshot(
                 terminalPanel: panel,
                 includeScrollback: false,
@@ -106,6 +113,15 @@ final class ClaudeResumeAutoResponderController {
         }
         pollCursor = (pollCursor + count) % max(ids.count, 1)
         if responders.isEmpty { stopTimer() }
+    }
+
+    private func liveDeadline(for id: UUID, now: Date) -> Date {
+        if let deadline = deadlines[id] {
+            return deadline
+        }
+        let deadline = now.addingTimeInterval(Self.watchWindow)
+        deadlines[id] = deadline
+        return deadline
     }
 
     private func removeEntry(_ id: UUID) {
