@@ -887,8 +887,7 @@ final class MobileHostService {
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
-        let routes = listenerPort.map { resolvedRoutes(port: $0) } ?? []
-        return makeStatus(routes: routes)
+        return makeStatus(routes: activeLaneRoutes())
     }
 
     /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
@@ -993,14 +992,16 @@ final class MobileHostService {
     }
 
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
-        let isRunning = listener != nil && listenerPort != nil
+        // `isRunning` reflects whichever lane is active (iroh route published, or
+        // the TCP listener bound). The ephemeral-fallback flag is TCP-only.
+        let tcpRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
-            isRunning: isRunning,
+            isRunning: isActiveLaneRunning,
             port: listenerPort,
             configuredPort: Self.configuredPort(),
             // The actual bind outcome, not a recomputation from current defaults:
             // editing the preferred port before a restart must not flip this.
-            usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
+            usesEphemeralFallback: tcpRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
@@ -1153,12 +1154,10 @@ final class MobileHostService {
         routeID: String? = nil,
         routeKind: String? = nil
     ) async throws -> [String: Any] {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = resolvedRoutes(port: listenerPort)
-        } else {
-            routes = []
-        }
+        // The active lane's routes, which in an iroh mode is the published iroh
+        // route (no TCP listenerPort). Without this, cmuxRelay/ownRelay minted an
+        // empty route set and the phone had nothing to dial.
+        let routes = activeLaneRoutes()
         let selectedRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,
@@ -1245,12 +1244,16 @@ final class MobileHostService {
             id: id,
             byteConnection: byteConnection,
             authorizeRequest: { request in
-                await MobileHostService.shared.authorizationError(for: request)
+                if !Self.requiresAuthorization(method: request.method) {
+                    return nil
+                }
+                return await MobileHostService.shared.authorizationError(for: request)
             },
             onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                guard let clientID = Self.clientID(from: request.params) else {
+                    return
                 }
+                await MobileHostService.shared.recordClientID(clientID, for: id)
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1264,10 +1267,22 @@ final class MobileHostService {
                 return result
             },
             onClose: { id in
+                MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }
         )
-        activeConnections[id] = session
+        // Register in the SAME registry as TCP connections so iroh sessions are
+        // counted in status, receive server-pushed event fanout, and are torn
+        // down on stop()/limit exactly like the TCP lane.
+        guard MobileHostConnectionRegistry.shared.insert(
+            session,
+            id: id,
+            limit: Self.maximumActiveConnectionCount
+        ) else {
+            mobileHostLog.error("mobile host rejected \(transport, privacy: .public) connection because active connection limit was reached")
+            byteConnection.close()
+            return
+        }
         Task { await session.start() }
     }
 
@@ -1367,7 +1382,9 @@ final class MobileHostService {
     }
 
     private func acceptIrohStream(_ stream: CmxIrohByteStream) {
-        guard activeConnections.count < Self.maximumActiveConnectionCount else {
+        // registerConnection enforces the limit against the registry; this is a
+        // cheap pre-check to avoid building a session we'd only reject.
+        guard MobileHostConnectionRegistry.shared.count < Self.maximumActiveConnectionCount else {
             mobileHostLog.error("mobile host rejected iroh connection because active connection limit was reached")
             Task { await stream.close() }
             return
@@ -1401,6 +1418,27 @@ final class MobileHostService {
             return irohRoute.map { [$0] } ?? []
         }
         return routeResolver.routes(port: port).routes
+    }
+
+    /// The routes the active lane currently publishes — the single source of
+    /// truth for status snapshots and minted tickets. Accounts for iroh modes
+    /// having no TCP `listenerPort` (the iroh branch of `resolvedRoutes` ignores
+    /// the port), so a cmuxRelay/ownRelay Mac can still mint a usable pairing
+    /// code once its iroh route is published.
+    private func activeLaneRoutes() -> [CmxAttachRoute] {
+        if Self.currentTransportMode().usesIroh {
+            return irohRoute != nil ? resolvedRoutes(port: listenerPort ?? 0) : []
+        }
+        return listenerPort.map { resolvedRoutes(port: $0) } ?? []
+    }
+
+    /// Whether the active lane is bound and dialable: the iroh route is
+    /// published (iroh modes), or the TCP listener has a bound port (tailscale).
+    private var isActiveLaneRunning: Bool {
+        if Self.currentTransportMode().usesIroh {
+            return irohRoute != nil
+        }
+        return listener != nil && listenerPort != nil
     }
 
     private nonisolated static let irohSecretKeyKeychainService = "dev.cmux.iroh.host-secret-key"
