@@ -2,7 +2,9 @@ public import CMUXMobileCore
 import Foundation
 
 /// The production ``CmxRoutePinging``: opens (and immediately closes) a real TCP
-/// connection over ``CmxNetworkByteTransport`` and times the connect.
+/// connection over ``CmxNetworkByteTransport`` and times the connect. Lives in
+/// the transport package (the only place that knows the concrete socket layer);
+/// the protocol and result type it satisfies live in CMUXMobileCore.
 public struct CmxNetworkRoutePinger: CmxRoutePinging {
     /// Creates a pinger that dials real TCP connections via ``CmxNetworkByteTransport``.
     public init() {}
@@ -39,9 +41,40 @@ public struct CmxNetworkRoutePinger: CmxRoutePinging {
             return .reachable(latencyMilliseconds: elapsed.cmxWholeMilliseconds)
         } catch let error as CmxNetworkByteTransportError {
             await transport.close()
-            return CmxRoutePingResult(transportError: error)
+            return Self.result(for: error)
         } catch {
             await transport.close()
+            return .failed(description: String(describing: error))
+        }
+    }
+
+    /// Fold a transport error into a ping result, reusing the transport's own
+    /// ``CmxConnectFailureKind`` classification. Kept here (not on the core
+    /// result type) so the core package stays free of transport types.
+    private static func result(for error: CmxNetworkByteTransportError) -> CmxRoutePingResult {
+        switch error {
+        case .connectionTimedOut:
+            return .timedOut
+        case let .connectionFailed(description, kind):
+            switch kind {
+            case .connectionRefused:
+                return .refused
+            case .hostUnreachable:
+                return .unreachable
+            case .timedOut:
+                return .timedOut
+            case .dnsFailed:
+                return .dnsFailed
+            case .permissionDenied:
+                return .permissionDenied
+            case .secureChannelFailed, .generic:
+                return .failed(description: description)
+            }
+        case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
+             .unsupportedRouteKind, .unsupportedEndpoint:
+            return .unsupportedRoute
+        case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
+             .sendAlreadyInProgress, .receiveFailed, .sendFailed:
             return .failed(description: String(describing: error))
         }
     }

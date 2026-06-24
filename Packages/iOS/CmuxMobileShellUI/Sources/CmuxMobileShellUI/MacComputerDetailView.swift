@@ -4,7 +4,6 @@ import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
-import CmuxMobileTransport
 import SwiftUI
 
 /// Comprehensive per-computer detail + debug sheet, pushed from the Computers
@@ -19,9 +18,6 @@ import SwiftUI
 struct MacComputerDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
-    /// Reachability prober. Injected as a seam (default = the real network
-    /// pinger) so the UI depends on the protocol and tests can substitute a fake.
-    var pinger: any CmxRoutePinging = CmxNetworkRoutePinger()
     @Environment(\.dismiss) private var dismiss
 
     @State private var pendingRemoval = false
@@ -384,7 +380,7 @@ struct MacComputerDetailView: View {
         guard !routes.isEmpty, !isPinging else { return }
         isPinging = true
         pingResults = [:]
-        let pinger = pinger
+        let store = store
         let signatures = Dictionary(
             routes.map { (routeSignature($0), $0) },
             uniquingKeysWith: { first, _ in first }
@@ -392,7 +388,7 @@ struct MacComputerDetailView: View {
         Task {
             await withTaskGroup(of: (String, CmxRoutePingResult).self) { group in
                 for (signature, route) in signatures {
-                    group.addTask { (signature, await pinger.ping(route)) }
+                    group.addTask { (signature, await store.pingRoute(route)) }
                 }
                 for await (signature, result) in group {
                     pingResults[signature] = result

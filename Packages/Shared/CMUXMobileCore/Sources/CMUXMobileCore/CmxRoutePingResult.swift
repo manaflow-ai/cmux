@@ -1,5 +1,3 @@
-import Foundation
-
 /// The outcome of a single reachability probe (``CmxRoutePinging/ping(_:timeoutNanoseconds:)``)
 /// against one route's address. This is a pure TCP connect: it proves whether the
 /// phone can open a socket to the Mac's host/port right now, independent of the
@@ -7,8 +5,9 @@ import Foundation
 /// Computers screen's ping: a workspace can show "Disconnected" (the live stream
 /// dropped) while the Mac is perfectly reachable, and this surfaces that fact.
 ///
-/// Failure kinds mirror ``CmxConnectFailureKind`` so the UI can give the same
-/// actionable phrasing pairing already uses (refused = app not running, etc.).
+/// Lives in the core package (not the transport package) so UI/model code can
+/// depend on the result and the ``CmxRoutePinging`` seam without importing the
+/// concrete network transport.
 public enum CmxRoutePingResult: Sendable, Equatable {
     /// The TCP connection opened; the Mac is reachable. Carries the round-trip
     /// connect latency in whole milliseconds.
@@ -50,35 +49,5 @@ extension CmxRoutePingResult {
     public var isListening: Bool {
         if case .reachable = self { return true }
         return false
-    }
-
-    /// Fold a transport error into a ping result, reusing the transport's own
-    /// ``CmxConnectFailureKind`` classification.
-    init(transportError error: CmxNetworkByteTransportError) {
-        switch error {
-        case .connectionTimedOut:
-            self = .timedOut
-        case let .connectionFailed(description, kind):
-            switch kind {
-            case .connectionRefused:
-                self = .refused
-            case .hostUnreachable:
-                self = .unreachable
-            case .timedOut:
-                self = .timedOut
-            case .dnsFailed:
-                self = .dnsFailed
-            case .permissionDenied:
-                self = .permissionDenied
-            case .secureChannelFailed, .generic:
-                self = .failed(description: description)
-            }
-        case .emptyHost, .invalidPort, .invalidMaximumReceiveLength,
-             .unsupportedRouteKind, .unsupportedEndpoint:
-            self = .unsupportedRoute
-        case .notConnected, .alreadyClosed, .receiveAlreadyInProgress,
-             .sendAlreadyInProgress, .receiveFailed, .sendFailed:
-            self = .failed(description: String(describing: error))
-        }
     }
 }

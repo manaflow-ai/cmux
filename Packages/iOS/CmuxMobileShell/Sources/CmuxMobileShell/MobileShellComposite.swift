@@ -247,6 +247,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return result
     }
 
+    /// Reachability prober for the Computers screen. Owned here (the layer that
+    /// already knows the transport) so the SwiftUI package depends only on the
+    /// core ``CmxRoutePinging`` seam and never constructs the concrete network
+    /// service itself. `@ObservationIgnored`: it is stateless infrastructure, not
+    /// observed UI state.
+    @ObservationIgnored
+    private let routePinger: any CmxRoutePinging = CmxNetworkRoutePinger()
+
+    /// Probe whether the phone can reach this route right now (a direct TCP
+    /// connect, independent of the live subscription). See ``CmxRoutePinging``.
+    public func pingRoute(_ route: CmxAttachRoute) async -> CmxRoutePingResult {
+        await routePinger.ping(route)
+    }
+
     /// Device-local collapse state for workspace groups (per-device UI preference:
     /// collapsing on the phone must not collapse on the Mac). Seeded once from the
     /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
