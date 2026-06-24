@@ -20,6 +20,15 @@ final class SnapshotUITests: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         setupSnapshot(app)
 
+        // 0) Grid probe (temporary): reports the live cols x rows at the
+        // screenshot font so fixtures can be recorded at the exact width.
+        shoot("00-Probe", [
+            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
+            "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
+            "CMUX_UITEST_TERMINAL_TRANSCRIPT": "probe",
+            "CMUX_UITEST_TERMINAL_FONT_SIZE": "8",
+        ])
+
         // 1) Workspace list.
         shoot("01-Workspaces", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",

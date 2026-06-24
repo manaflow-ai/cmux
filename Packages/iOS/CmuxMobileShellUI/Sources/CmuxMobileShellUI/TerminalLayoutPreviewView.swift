@@ -39,10 +39,12 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             label.text = "runtime init failed: \(error.localizedDescription)"
             return label
         }
+        let fontSize = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_FONT_SIZE"]
+            .flatMap(Float32.init) ?? MobileTerminalFontPreference.defaultSize
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
-            fontSize: MobileTerminalFontPreference.defaultSize
+            fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = false
         // Keyboard down: show the full terminal with the recorded session.
@@ -68,6 +70,15 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
             guard feedContent, !didFeedContent, size.columns > 0, size.rows > 0 else { return }
             didFeedContent = true
+            // Grid probe: print the live cols x rows + a column ruler so a single
+            // screenshot reveals the exact terminal grid to record fixtures at.
+            if transcriptName == "probe" {
+                var s = "iOS TERMINAL GRID: \(size.columns) cols x \(size.rows) rows\r\n\r\n"
+                let ruler = (1...size.columns).map { String($0 % 10) }.joined()
+                s += ruler + "\r\n"
+                surfaceView.processOutput(Data(s.utf8))
+                return
+            }
             surfaceView.processOutput(TerminalPreviewTranscripts.transcript(named: transcriptName))
         }
     }
