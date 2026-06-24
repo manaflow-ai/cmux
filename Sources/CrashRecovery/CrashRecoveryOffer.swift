@@ -67,4 +67,19 @@ enum CrashRecoveryOfferPresenter {
             _ = workspace.resumeWhereWeLeftOff(defaults: defaults)
         }
     }
+
+    /// After an intentional relaunch (Sparkle update), silently auto-resume agents
+    /// when the user opted in (`resumeAgentsAfterUpdate`). No prompt — the relaunch
+    /// was deliberate. Windows always restore regardless; this only resumes agents.
+    static func resumeAfterIntentionalRelaunchIfNeeded(
+        in manager: TabManager,
+        launchState: CrashRecoveryLaunchState = .shared,
+        defaults: UserDefaults = .standard
+    ) {
+        guard launchState.restoreWasIntended,
+              CrashRecoverySettings.resumeAgentsAfterUpdate(defaults: defaults) else { return }
+        for workspace in resumableWorkspaces(in: manager, defaults: defaults) {
+            _ = workspace.resumeWhereWeLeftOff(defaults: defaults)
+        }
+    }
 }

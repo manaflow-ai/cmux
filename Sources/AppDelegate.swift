@@ -7258,6 +7258,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                   let manager = self.tabManagerFor(windowId: windowId)
                     ?? self.mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
                     ?? self.mainWindowContexts.values.first?.tabManager else { return }
+            // Update relaunch: silently auto-resume agents if opted in.
+            CrashRecoveryOfferPresenter.resumeAfterIntentionalRelaunchIfNeeded(in: manager)
+            // Crash: offer to resume (gated on crash + opt-in).
             CrashRecoveryOfferPresenter.presentOfferIfNeeded(in: manager)
         }
         return windowId
