@@ -8438,7 +8438,7 @@ private func browserShouldPromptForHTTPBasicAuth(
     challenge: URLAuthenticationChallenge
 ) -> Bool {
     challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodHTTPBasic
-        && !challenge.protectionSpace.isProxy
+        && !challenge.protectionSpace.isProxy()
 }
 
 private let browserHTTPBasicAuthPromptTextMaxLength = 240
