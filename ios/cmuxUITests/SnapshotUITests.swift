@@ -12,11 +12,12 @@ final class SnapshotUITests: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = true
-        setupSnapshot(app)
     }
 
     @MainActor
     func testCaptureAppStoreScreenshots() throws {
+        setupSnapshot(app)
+
         // 1) Workspace list.
         shoot("01-Workspaces", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",

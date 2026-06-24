@@ -1,0 +1,119 @@
+{
+  "ja": {
+    "01-Workspaces": "全エージェント、ワンタップで",
+    "02-Notifications": "エージェントの呼びかけを即座に",
+    "03-Claude": "Claude Codeをスマホから実行",
+    "04-Codex": "どこにいてもCodex",
+    "05-Opencode": "OpenCode、pi、どのエージェントも",
+    "06-Pi": "どこからでもシップ",
+    "07-Terminal": "iOSに本物のGhosttyターミナル"
+  },
+  "zh-Hans": {
+    "01-Workspaces": "所有 Agent，一触即达",
+    "02-Notifications": "Agent 需要你时，即刻知晓",
+    "03-Claude": "手机上运行 Claude Code",
+    "04-Codex": "Codex，随时随地",
+    "05-Opencode": "OpenCode、pi，任意 Agent",
+    "06-Pi": "随处发布",
+    "07-Terminal": "iOS 上的真正 Ghostty 终端"
+  },
+  "zh-Hant": {
+    "01-Workspaces": "所有 Agent，一觸即達",
+    "02-Notifications": "Agent 需要你時，即刻知曉",
+    "03-Claude": "在手機上執行 Claude Code",
+    "04-Codex": "Codex，隨時隨地",
+    "05-Opencode": "OpenCode、pi，任意 Agent",
+    "06-Pi": "隨處發布",
+    "07-Terminal": "iOS 上的真正 Ghostty 終端"
+  },
+  "ko": {
+    "01-Workspaces": "모든 에이전트, 한 번의 탭으로",
+    "02-Notifications": "에이전트가 부르는 순간 알림",
+    "03-Claude": "폰에서 Claude Code 실행",
+    "04-Codex": "어디서든 Codex",
+    "05-Opencode": "OpenCode, pi, 모든 에이전트",
+    "06-Pi": "어디서든 배포",
+    "07-Terminal": "iOS의 진짜 Ghostty 터미널"
+  },
+  "de-DE": {
+    "01-Workspaces": "Alle Agenten, ein Tippen",
+    "02-Notifications": "Sofort wissen, wenn ein Agent wartet",
+    "03-Claude": "Claude Code vom Handy aus",
+    "04-Codex": "Codex, wo immer du bist",
+    "05-Opencode": "OpenCode, pi, jeder Agent",
+    "06-Pi": "Von überall shippen",
+    "07-Terminal": "Echtes Ghostty-Terminal auf iOS"
+  },
+  "fr-FR": {
+    "01-Workspaces": "Tous vos agents, en un tap",
+    "02-Notifications": "Soyez alerté dès qu'un agent attend",
+    "03-Claude": "Lancez Claude Code depuis votre mobile",
+    "04-Codex": "Codex, où que vous soyez",
+    "05-Opencode": "OpenCode, pi, n'importe quel agent",
+    "06-Pi": "Shippez depuis n'importe où",
+    "07-Terminal": "Un vrai terminal Ghostty sur iOS"
+  },
+  "es-ES": {
+    "01-Workspaces": "Todos tus agentes, un toque",
+    "02-Notifications": "Entérate al instante cuando te necesitan",
+    "03-Claude": "Ejecuta Claude Code desde tu móvil",
+    "04-Codex": "Codex, donde estés",
+    "05-Opencode": "OpenCode, pi, cualquier agente",
+    "06-Pi": "Publica desde cualquier lugar",
+    "07-Terminal": "Un terminal Ghostty real en iOS"
+  },
+  "pt-BR": {
+    "01-Workspaces": "Todos os agentes, um toque",
+    "02-Notifications": "Saiba na hora que um agente precisa de você",
+    "03-Claude": "Execute Claude Code pelo celular",
+    "04-Codex": "Codex, onde você estiver",
+    "05-Opencode": "OpenCode, pi, qualquer agente",
+    "06-Pi": "Publique de qualquer lugar",
+    "07-Terminal": "Um terminal Ghostty de verdade no iOS"
+  },
+  "it": {
+    "01-Workspaces": "Tutti i tuoi agenti, un tocco",
+    "02-Notifications": "Sai subito quando un agente ti cerca",
+    "03-Claude": "Esegui Claude Code dal telefono",
+    "04-Codex": "Codex, ovunque tu sia",
+    "05-Opencode": "OpenCode, pi, qualsiasi agente",
+    "06-Pi": "Pubblica da qualsiasi posto",
+    "07-Terminal": "Un vero terminale Ghostty su iOS"
+  },
+  "ru": {
+    "01-Workspaces": "Все агенты — одно касание",
+    "02-Notifications": "Узнавай сразу, когда агент ждёт",
+    "03-Claude": "Запускай Claude Code с телефона",
+    "04-Codex": "Codex — где угодно",
+    "05-Opencode": "OpenCode, pi, любой агент",
+    "06-Pi": "Деплой из любой точки мира",
+    "07-Terminal": "Настоящий Ghostty-терминал на iOS"
+  },
+  "nl-NL": {
+    "01-Workspaces": "Al je agents, één tik weg",
+    "02-Notifications": "Weet meteen wanneer een agent je nodig heeft",
+    "03-Claude": "Voer Claude Code uit vanaf je telefoon",
+    "04-Codex": "Codex, waar je ook bent",
+    "05-Opencode": "OpenCode, pi, elke agent",
+    "06-Pi": "Ship vanuit elke plek",
+    "07-Terminal": "Een echte Ghostty-terminal op iOS"
+  },
+  "tr": {
+    "01-Workspaces": "Tüm agentlar, tek dokunuşta",
+    "02-Notifications": "Agent seni beklediğinde hemen bil",
+    "03-Claude": "Claude Code'u telefonundan çalıştır",
+    "04-Codex": "Codex, nerede olursan ol",
+    "05-Opencode": "OpenCode, pi, her agent",
+    "06-Pi": "Her yerden deploy et",
+    "07-Terminal": "iOS'ta gerçek bir Ghostty terminali"
+  },
+  "pl": {
+    "01-Workspaces": "Wszyscy agenci, jedno dotknięcie",
+    "02-Notifications": "Wiedz od razu, gdy agent na ciebie czeka",
+    "03-Claude": "Uruchom Claude Code z telefonu",
+    "04-Codex": "Codex, gdziekolwiek jesteś",
+    "05-Opencode": "OpenCode, pi, dowolny agent",
+    "06-Pi": "Deployuj skądkolwiek",
+    "07-Terminal": "Prawdziwy terminal Ghostty na iOS"
+  }
+}
