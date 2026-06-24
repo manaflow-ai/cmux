@@ -214,6 +214,25 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.isEmpty)
     }
 
+    /// An anonymous foreground refresh is authoritative only for ownerless rows, so
+    /// it must not confirm a pending close that belongs to a secondary Mac.
+    @Test func anonymousSnapshotDoesNotRetireSecondaryPendingClose() throws {
+        let store = MobileShellComposite.preview()
+        var snapshot = MobileWorkspacePreview(
+            id: "mac-b\u{1F}workspace-docs",
+            macDeviceID: "mac-b",
+            name: "Docs",
+            terminals: []
+        )
+        snapshot.remoteWorkspaceID = "workspace-docs"
+        store.optimisticallyClosedWorkspaces[snapshot.id] = snapshot
+
+        let response = try makeListResponse(ids: ["workspace-main"])
+        store.reconcileOptimisticClosures(against: response, macDeviceID: nil)
+
+        #expect(store.optimisticallyClosedWorkspaces.keys.contains(snapshot.id))
+    }
+
     private func makeListResponse(ids: [String]) throws -> MobileSyncWorkspaceListResponse {
         let workspaceObjects = ids.enumerated().map { index, id -> [String: Any] in
             [

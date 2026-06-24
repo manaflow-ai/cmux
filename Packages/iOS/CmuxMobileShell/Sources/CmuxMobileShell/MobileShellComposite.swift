@@ -6767,7 +6767,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !optimisticallyClosedWorkspaces.isEmpty else { return }
         let remoteIDs = Set(response.workspaces.map { MobileWorkspacePreview.ID(rawValue: $0.id) })
         for (id, snapshot) in optimisticallyClosedWorkspaces
-            where pendingOptimisticClose(snapshot, belongsToMacDeviceID: macDeviceID)
+            where pendingOptimisticClose(snapshot, canBeConfirmedByMacDeviceID: macDeviceID)
                 && !remoteIDs.contains(snapshot.rpcWorkspaceID)
         {
             optimisticallyClosedWorkspaces.removeValue(forKey: id)
@@ -6790,6 +6790,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         belongsToMacDeviceID macDeviceID: String?
     ) -> Bool {
         guard let macDeviceID, !macDeviceID.isEmpty else { return true }
+        guard let snapshotMacID = snapshot.macDeviceID, !snapshotMacID.isEmpty else { return true }
+        return snapshotMacID == macDeviceID
+    }
+
+    func pendingOptimisticClose(
+        _ snapshot: MobileWorkspacePreview,
+        canBeConfirmedByMacDeviceID macDeviceID: String?
+    ) -> Bool {
+        guard let macDeviceID, !macDeviceID.isEmpty else {
+            return snapshot.macDeviceID?.isEmpty ?? true
+        }
         guard let snapshotMacID = snapshot.macDeviceID, !snapshotMacID.isEmpty else { return true }
         return snapshotMacID == macDeviceID
     }
