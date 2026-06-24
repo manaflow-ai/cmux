@@ -125,11 +125,15 @@ final class MessageListController: UIViewController {
     /// the snapshot whenever it changes, then re-arms. This is the clean way to
     /// bridge an `@Observable` store into UIKit without an `ObservableObject`.
     private func observeRows() {
-        withObservationTracking {
-            applySnapshot(rows: store.rows)
+        // Read the tracked value inside the transaction and apply OUTSIDE it, so
+        // the (heavy) snapshot apply doesn't pull unrelated observable reads into
+        // the tracking set and re-fire spuriously.
+        let rows = withObservationTracking {
+            store.rows
         } onChange: { [weak self] in
             Task { @MainActor in self?.observeRows() }
         }
+        applySnapshot(rows: rows)
     }
 
     private func applySnapshot(rows: [ChatTranscriptRow]) {
@@ -138,7 +142,10 @@ final class MessageListController: UIViewController {
         snapshot.appendSections([0])
         // Inverted list: newest first so index 0 sits at the visual bottom.
         snapshot.appendItems(rows.reversed().map(\.id), toSection: 0)
-        dataSource.apply(snapshot, animatingDifferences: !rowsByID.isEmpty)
+        // Never animate: a prepended history page would otherwise animate in
+        // mid-scroll and visibly jump. New-message insert polish is a separate,
+        // targeted path (deferred), not blanket diff animation.
+        dataSource.apply(snapshot, animatingDifferences: false)
     }
 
     private static func statusText(_ status: ChatStatusTransition) -> String {

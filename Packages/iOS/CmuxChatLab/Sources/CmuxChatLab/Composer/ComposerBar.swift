@@ -4,23 +4,30 @@ import UIKit
 /// The composer bar. It IS the keyboard's `inputAccessoryView` (vended by the
 /// view controller), so the responder infrastructure moves it with the keyboard
 /// frame for frame, including through an interactive swipe-to-dismiss, with no
-/// per-frame code on our side. Height is driven by Auto Layout + an
-/// `intrinsicContentSize` override so the growing text view enlarges the
-/// keyboard region correctly.
+/// per-frame code on our side.
+///
+/// The text input sits inside a Liquid Glass capsule "pill" (`UIGlassEffect` on
+/// iOS 26, falling back to a thick material on iOS 18–25). Height is resolved in
+/// `textViewDidChange`/`layoutSubviews` via `GrowingTextHeightSolver` and pushed
+/// to an explicit constraint, which drives the bar's `intrinsicContentSize` and
+/// therefore the keyboard region height.
 final class ComposerBar: UIInputView {
+    private let pill = ComposerBar.makeGlassPill()
     private let textView = GrowingTextView()
     private let sendButton = UIButton(type: .system)
     private let placeholderLabel = UILabel()
-    private let separator = UIView()
 
     /// Invoked with the trimmed prompt when the user taps send.
     var onSend: ((String) -> Void)?
     /// Invoked whenever the bar's height changes (text grew/shrank) so the
-    /// owner can refresh the accessory's intrinsic size.
+    /// owner can refresh the accessory's intrinsic size and re-sync the list.
     var onHeightChange: (() -> Void)?
 
     private let verticalPadding: CGFloat = 8
+    private let minTextHeight: CGFloat = 36
+    private let maxTextHeight: CGFloat = 140
     private var resolvedTextHeight: CGFloat = 36
+    private var textHeightConstraint: NSLayoutConstraint!
 
     init() {
         super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 52), inputViewStyle: .keyboard)
@@ -37,35 +44,36 @@ final class ComposerBar: UIInputView {
     /// The text view that becomes first responder to raise the keyboard.
     var editor: UITextView { textView }
 
-    /// Resolved bar height; exposed for the measurement probe.
+    /// Resolved bar height; exposed for the measurement probe and list sync.
     var resolvedHeight: CGFloat { resolvedTextHeight + verticalPadding * 2 }
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: resolvedHeight)
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        pill.layer.cornerRadius = min(pill.bounds.height / 2, 22)
+        recomputeHeight()
+    }
+
     private func configure() {
-        separator.backgroundColor = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(separator)
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.clipsToBounds = true
+        pill.layer.cornerCurve = .continuous
+        addSubview(pill)
 
         textView.translatesAutoresizingMaskIntoConstraints = false
         textView.accessibilityIdentifier = "ChatLabComposerField"
-        textView.onHeightChange = { [weak self] height in
-            guard let self else { return }
-            resolvedTextHeight = height
-            invalidateIntrinsicContentSize()
-            onHeightChange?()
-        }
         textView.delegate = self
-        addSubview(textView)
+        pill.contentView.addSubview(textView)
 
         placeholderLabel.text = "Message"
         placeholderLabel.textColor = .placeholderText
         placeholderLabel.font = .preferredFont(forTextStyle: .body)
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.isAccessibilityElement = false
-        addSubview(placeholderLabel)
+        pill.contentView.addSubview(placeholderLabel)
 
         var config = UIButton.Configuration.filled()
         config.cornerStyle = .capsule
@@ -79,20 +87,23 @@ final class ComposerBar: UIInputView {
         sendButton.isEnabled = false
         addSubview(sendButton)
 
+        textHeightConstraint = textView.heightAnchor.constraint(equalToConstant: minTextHeight)
+
         NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.heightAnchor.constraint(equalToConstant: 0.5),
+            pill.topAnchor.constraint(equalTo: topAnchor, constant: verticalPadding),
+            pill.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalPadding),
+            pill.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
 
-            textView.topAnchor.constraint(equalTo: topAnchor, constant: verticalPadding),
-            textView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalPadding),
-            textView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            textView.topAnchor.constraint(equalTo: pill.contentView.topAnchor),
+            textView.bottomAnchor.constraint(equalTo: pill.contentView.bottomAnchor),
+            textView.leadingAnchor.constraint(equalTo: pill.contentView.leadingAnchor, constant: 6),
+            textView.trailingAnchor.constraint(equalTo: pill.contentView.trailingAnchor, constant: -6),
+            textHeightConstraint,
 
-            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 6),
+            placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 11),
             placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 8),
 
-            sendButton.leadingAnchor.constraint(equalTo: textView.trailingAnchor, constant: 8),
+            sendButton.leadingAnchor.constraint(equalTo: pill.trailingAnchor, constant: 8),
             sendButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             sendButton.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -verticalPadding),
             sendButton.widthAnchor.constraint(equalToConstant: 34),
@@ -100,13 +111,34 @@ final class ComposerBar: UIInputView {
         ])
     }
 
+    /// Resolves the clamped text height and pushes it to the constraint. Only
+    /// acts on an actual change so `layoutSubviews` can call it cheaply.
+    private func recomputeHeight() {
+        let width = textView.bounds.width
+        guard width > 0 else { return }
+        let fitting = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        let result = GrowingTextHeightSolver.solve(
+            fittingHeight: fitting,
+            minHeight: minTextHeight,
+            maxHeight: maxTextHeight
+        )
+        if textView.isScrollEnabled != result.scrollEnabled {
+            textView.isScrollEnabled = result.scrollEnabled
+        }
+        guard abs(result.height - resolvedTextHeight) > 0.5 else { return }
+        resolvedTextHeight = result.height
+        textHeightConstraint.constant = result.height
+        invalidateIntrinsicContentSize()
+        onHeightChange?()
+    }
+
     @objc private func sendTapped() {
         let trimmed = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         onSend?(trimmed)
         textView.text = ""
-        textView.invalidateIntrinsicContentSize()
         refreshState()
+        recomputeHeight()
     }
 
     private func refreshState() {
@@ -114,12 +146,20 @@ final class ComposerBar: UIInputView {
         placeholderLabel.isHidden = !textView.text.isEmpty
         sendButton.isEnabled = hasText
     }
+
+    /// A Liquid Glass capsule on iOS 26+, a thick-material capsule below that.
+    private static func makeGlassPill() -> UIVisualEffectView {
+        if #available(iOS 26.0, *) {
+            return UIVisualEffectView(effect: UIGlassEffect())
+        }
+        return UIVisualEffectView(effect: UIBlurEffect(style: .systemThickMaterial))
+    }
 }
 
 extension ComposerBar: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
-        textView.invalidateIntrinsicContentSize()
         refreshState()
+        recomputeHeight()
     }
 }
 #endif

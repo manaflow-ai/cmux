@@ -122,7 +122,7 @@ final class ChatLabViewController: UIViewController {
         let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
         let rawCurve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
         let overlap = overlapFromKeyboardTopScreen(endFrame.minY)
-        applyOverlap(overlap, animated: duration > 0, duration: duration, rawCurve: rawCurve)
+        applyOverlap(overlap, animated: duration > 0, adjustOffset: true, duration: duration, rawCurve: rawCurve)
     }
 
     // MARK: Interactive drag sync
@@ -153,7 +153,11 @@ final class ChatLabViewController: UIViewController {
         // stayed put and the residual would blow up to the full keyboard travel.
         let dynamicOverlap = listBottomScreen - composerTopScreen
         let overlap = max(restingOverlap, dynamicOverlap)
-        applyOverlap(overlap, animated: false, duration: 0, rawCurve: 0)
+        // Inset only during the drag: the scroll view's own pan already owns
+        // contentOffset (it is what moves the keyboard), so writing offset here
+        // fights the finger and jitters. No layoutIfNeeded either — an inset
+        // change applies immediately without a full layout pass.
+        applyOverlap(overlap, animated: false, adjustOffset: false, duration: 0, rawCurve: 0)
         #if DEBUG
         // Only sample while the keyboard is meaningfully raised; below the
         // resting position the overlap intentionally clamps and the residual is
@@ -184,10 +188,13 @@ final class ChatLabViewController: UIViewController {
     }
 
     private func applyOverlapForResting(animated: Bool) {
-        applyOverlap(restingOverlap, animated: animated, duration: 0.2, rawCurve: Int(UIView.AnimationCurve.easeInOut.rawValue))
+        applyOverlap(restingOverlap, animated: animated, adjustOffset: true, duration: 0.2, rawCurve: Int(UIView.AnimationCurve.easeInOut.rawValue))
     }
 
-    private func applyOverlap(_ overlap: CGFloat, animated: Bool, duration: Double, rawCurve: Int) {
+    /// Applies the list's bottom inset (and, for resting transitions, keeps the
+    /// content pinned). `adjustOffset` is false during the interactive drag, so
+    /// we never fight the scroll view's own pan.
+    private func applyOverlap(_ overlap: CGFloat, animated: Bool, adjustOffset: Bool, duration: Double, rawCurve: Int) {
         let collection = list.collectionView
         let oldInset = collection.contentInset.top
         let delta = KeyboardSyncSolver.offsetCompensation(previousInset: oldInset, newInset: overlap)
@@ -199,19 +206,25 @@ final class ChatLabViewController: UIViewController {
         let apply = {
             collection.contentInset.top = overlap
             collection.verticalScrollIndicatorInsets.top = overlap
-            if pinned {
-                collection.contentOffset.y = -overlap
-            } else {
-                collection.contentOffset.y += delta
+            if adjustOffset {
+                if pinned {
+                    collection.contentOffset.y = -overlap
+                } else {
+                    collection.contentOffset.y += delta
+                }
             }
             self.typingBottomConstraint.constant = -overlap - 4
-            self.view.layoutIfNeeded()
         }
 
         if animated {
             let options = UIView.AnimationOptions(rawValue: UInt(rawCurve) << 16)
-            UIView.animate(withDuration: duration, delay: 0, options: options, animations: apply)
+            UIView.animate(withDuration: duration, delay: 0, options: options) {
+                apply()
+                self.view.layoutIfNeeded()
+            }
         } else {
+            // No layoutIfNeeded on the per-frame drag path; inset/offset writes
+            // take effect immediately and a full layout pass each frame jitters.
             apply()
         }
     }
