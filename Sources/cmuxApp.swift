@@ -1285,6 +1285,11 @@ struct cmuxApp: App {
         }
         .disabled(pinState == nil)
 
+        Button(WorkspaceResumeCommands.menuLabel()) {
+            _ = WorkspaceResumeCommands.resumeSelectedWorkspace(in: manager)
+        }
+        .disabled(!WorkspaceResumeCommands.canResumeSelectedWorkspace(in: manager))
+
         Button(String(localized: "menu.view.renameWorkspace", defaultValue: "Rename Workspace…")) {
             _ = AppDelegate.shared?.requestRenameWorkspaceViaCommandPalette()
         }
