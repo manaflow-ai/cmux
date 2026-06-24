@@ -1,0 +1,98 @@
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// Behavior tests for the transcript-anchored breadcrumb (U12/R15/KTD12): a
+/// verified binding with a transcript path names that exact file; without a path
+/// it degrades to a summary-only nudge; an unverified verdict produces no
+/// breadcrumb at all; and the path is sanitized to stay a single safe line.
+@Suite struct ResumeBreadcrumbAnchorTests {
+
+    private func anchor(
+        name: String = "Fix order-to-go CLI",
+        kind: RestorableAgentKind = .claude,
+        path: String? = "/Users/me/.claude/projects/-Users-me-repo/sess-123.jsonl"
+    ) -> ResumeBreadcrumbBuilder.VerifiedResumeAnchor {
+        ResumeBreadcrumbBuilder.VerifiedResumeAnchor(
+            workspaceName: name,
+            agentKind: kind,
+            transcriptPath: path
+        )
+    }
+
+    @Test func verifiedWithPathNamesSummaryAndTranscript() {
+        let text = ResumeBreadcrumbBuilder.breadcrumb(forVerified: anchor())
+        #expect(text.contains("Fix order-to-go CLI"))
+        #expect(text.contains("/Users/me/.claude/projects/-Users-me-repo/sess-123.jsonl"))
+        #expect(text.localizedCaseInsensitiveContains("pick up where we left off"))
+        #expect(!text.contains("\n"))
+    }
+
+    @Test func verifiedWithoutPathFallsBackToSummaryNudge() {
+        let text = ResumeBreadcrumbBuilder.breadcrumb(forVerified: anchor(path: nil))
+        #expect(text.contains("Fix order-to-go CLI"))
+        #expect(text.localizedCaseInsensitiveContains("review your context"))
+        #expect(!text.localizedCaseInsensitiveContains("transcript"))
+        #expect(!text.contains("\n"))
+    }
+
+    @Test func unverifiedVerdictProducesNoBreadcrumb() {
+        // Covers R15: a context-less / mis-mapped window gets no confident nudge.
+        for reason: UnverifiedReason in [.noBinding, .transcriptMissing, .cwdMismatch, .noSessionId] {
+            #expect(ResumeBreadcrumbBuilder.breadcrumbIfVerified(.unverified(reason), anchor: anchor()) == nil)
+        }
+    }
+
+    @Test func verifiedVerdictProducesAnchoredBreadcrumb() {
+        let text = ResumeBreadcrumbBuilder.breadcrumbIfVerified(.verified, anchor: anchor())
+        #expect(text != nil)
+        #expect(text?.contains("sess-123.jsonl") == true)
+    }
+
+    @Test func emptyNameWithPathStillNamesTranscript() {
+        let text = ResumeBreadcrumbBuilder.breadcrumb(forVerified: anchor(name: "   "))
+        #expect(!text.contains("\"\""))
+        #expect(text.contains("sess-123.jsonl"))
+        #expect(text.localizedCaseInsensitiveContains("pick up where we left off"))
+    }
+
+    // MARK: - Path sanitization
+
+    @Test func tildePathIsExpanded() {
+        let text = ResumeBreadcrumbBuilder.breadcrumb(
+            forVerified: anchor(path: "~/.claude/projects/x/sess.jsonl")
+        )
+        #expect(!text.contains("~/"))
+        #expect(text.contains("/.claude/projects/x/sess.jsonl"))
+    }
+
+    @Test func pathPreservesSpacesButStripsControlChars() {
+        let cleaned = ResumeBreadcrumbBuilder.sanitizedPath("/Users/me/My Project/sess\n.jsonl")
+        #expect(cleaned != nil)
+        #expect(cleaned?.contains("My Project") == true) // internal space kept
+        #expect(cleaned?.contains("\n") == false)
+    }
+
+    @Test func pathSanitizerRejectsEmptyAndCapsLength() {
+        #expect(ResumeBreadcrumbBuilder.sanitizedPath(nil) == nil)
+        #expect(ResumeBreadcrumbBuilder.sanitizedPath("   \n ") == nil)
+        let long = "/" + String(repeating: "a", count: 600)
+        let capped = ResumeBreadcrumbBuilder.sanitizedPath(long, maxLength: 100)
+        #expect(capped != nil)
+        #expect((capped?.count ?? 0) <= 101) // 100 + ellipsis
+    }
+
+    @Test func quotesInPathCannotBreakInjection() {
+        // A path with a stray quote must not introduce an unbalanced wrapper.
+        let text = ResumeBreadcrumbBuilder.breadcrumb(
+            forVerified: anchor(name: "task", path: "/Users/me/a\"b/sess.jsonl")
+        )
+        // Only the two quotes wrapping the sanitized name remain.
+        #expect(text.filter { $0 == "\"" }.count == 2)
+    }
+}

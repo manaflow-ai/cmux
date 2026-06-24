@@ -65,6 +65,89 @@ enum ResumeBreadcrumbBuilder {
         return "\(lead) Please review your context and notes, then pick up where we left off."
     }
 
+    /// A *verified* restored binding's anchor for the forensic-recovery
+    /// breadcrumb (U12/R15): the window's summary, its agent, and — when known —
+    /// the exact on-disk transcript path that `ResumeFidelityGate` confirmed
+    /// belongs to this window. Constructed only from a verified binding; the
+    /// unverified path never reaches here (R15).
+    struct VerifiedResumeAnchor: Equatable, Sendable {
+        var workspaceName: String
+        var agentKind: RestorableAgentKind
+        /// The verified transcript path, when the binding carried one. Absent
+        /// when only the session id verified (no recorded transcript path).
+        var transcriptPath: String?
+
+        init(workspaceName: String, agentKind: RestorableAgentKind, transcriptPath: String? = nil) {
+            self.workspaceName = workspaceName
+            self.agentKind = agentKind
+            self.transcriptPath = transcriptPath
+        }
+    }
+
+    /// Builds the breadcrumb for a *verified* restored binding, pointing the
+    /// agent at its **specific** transcript when one is known (U12/KTD12).
+    ///
+    /// The v1 breadcrumb said "review your context and notes" — open-ended, which
+    /// is what let restored agents grep every transcript and adopt a foreign one
+    /// (Examples 2/3). When the binding verifies *and* carries a transcript path,
+    /// this names that exact file so reconstruction is bounded to the right
+    /// source. With no path, it degrades to the summary-only nudge (the verified
+    /// session id still drove a correct native `--resume`).
+    ///
+    /// Like `breadcrumb(workspaceName:agent:)` the result is a single sanitized
+    /// line, safe to inject as terminal startup input.
+    static func breadcrumb(forVerified anchor: VerifiedResumeAnchor) -> String {
+        let name = sanitizedName(anchor.workspaceName)
+        let lead: String
+        if let name {
+            lead = "We were working on \"\(name)\" in this window last session."
+        } else {
+            lead = "We were working in this window last session."
+        }
+        if let path = sanitizedPath(anchor.transcriptPath) {
+            return "\(lead) Your prior transcript for this window is at \(path) — review that file and pick up where we left off."
+        }
+        return "\(lead) Please review your context and notes, then pick up where we left off."
+    }
+
+    /// Verdict-gated breadcrumb: returns the transcript-anchored breadcrumb only
+    /// for a `.verified` binding, and `nil` for any unverified one (R15 — a
+    /// context-less / mis-mapped window gets no confident nudge; it routes to the
+    /// honest cwd-scoped recovery in U11 instead). Encodes the "suppress when
+    /// unverified" rule at the builder boundary so it is unit-testable.
+    static func breadcrumbIfVerified(
+        _ verdict: BindingVerdict,
+        anchor: VerifiedResumeAnchor
+    ) -> String? {
+        guard verdict == .verified else { return nil }
+        return breadcrumb(forVerified: anchor)
+    }
+
+    /// Collapses a raw transcript path into a safe single-line fragment for
+    /// injection as terminal startup input. Paths may legitimately contain
+    /// spaces, so internal whitespace is preserved (unlike `sanitizedName`); only
+    /// control characters / newlines (which would submit the prompt early) are
+    /// stripped, the tilde is expanded so the path is unambiguous, and length is
+    /// bounded. Returns `nil` when nothing usable remains.
+    static func sanitizedPath(_ raw: String?, maxLength: Int = 400) -> String? {
+        guard let raw else { return nil }
+        let expanded = (raw as NSString).expandingTildeInPath
+        var scalars = String.UnicodeScalarView()
+        for scalar in expanded.unicodeScalars {
+            if CharacterSet.controlCharacters.contains(scalar) || scalar == "\"" {
+                continue
+            }
+            scalars.append(scalar)
+        }
+        let cleaned = String(scalars).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return nil }
+        if cleaned.count > maxLength {
+            let clipped = String(cleaned.prefix(maxLength)).trimmingCharacters(in: .whitespaces)
+            return clipped.isEmpty ? nil : clipped + "\u{2026}"
+        }
+        return cleaned
+    }
+
     /// Collapses a raw workspace name into a safe single-line fragment suitable
     /// for injection as terminal startup input. Returns `nil` when nothing
     /// usable remains (so the caller uses the no-name template).

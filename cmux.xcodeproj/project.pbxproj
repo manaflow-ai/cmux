@@ -740,6 +740,7 @@
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */; };
 		C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000006 /* RestorableAgentTypes.swift */; };
+		A100000000000000000F1DC0 /* ResumeBreadcrumbAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1DC1 /* ResumeBreadcrumbAnchorTests.swift */; };
 		2AA45B767B0C44F7D8F7E145 /* ResumeBreadcrumbBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */; };
 		0EE515315475BBE141846305 /* ResumeBreadcrumbBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */; };
 		A100000000000000000F1DA0 /* ResumeFidelityGate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1DA1 /* ResumeFidelityGate.swift */; };
@@ -1838,6 +1839,7 @@
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
+		A100000000000000000F1DC1 /* ResumeBreadcrumbAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbAnchorTests.swift; path = "cmuxTests/ResumeBreadcrumbAnchorTests.swift"; sourceTree = SOURCE_ROOT; };
 		5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbBuilder.swift; path = "Sources/CrashRecovery/ResumeBreadcrumbBuilder.swift"; sourceTree = SOURCE_ROOT; };
 		21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbBuilderTests.swift; path = "cmuxTests/ResumeBreadcrumbBuilderTests.swift"; sourceTree = SOURCE_ROOT; };
 		A100000000000000000F1DA1 /* ResumeFidelityGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeFidelityGate.swift; path = "Sources/CrashRecovery/ResumeFidelityGate.swift"; sourceTree = SOURCE_ROOT; };
@@ -3100,6 +3102,7 @@
 				02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */,
 				F7E2BA4F69E754EDCCF3D69F /* WorkspaceResumePlannerTests.swift */,
 				A100000000000000000F1DB1 /* ResumeFidelityGateTests.swift */,
+				A100000000000000000F1DC1 /* ResumeBreadcrumbAnchorTests.swift */,
 				2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */,
 				21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */,
 				8BD298CD20B84B435B23F97F /* UncleanShutdownSentinelTests.swift */,
@@ -4744,6 +4747,7 @@
 					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
 					F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */,
+				A100000000000000000F1DC0 /* ResumeBreadcrumbAnchorTests.swift in Sources */,
 				0EE515315475BBE141846305 /* ResumeBreadcrumbBuilderTests.swift in Sources */,
 				A100000000000000000F1DB0 /* ResumeFidelityGateTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
