@@ -1,5 +1,5 @@
 import Foundation
 
-struct VSCodeProductMetadata: Decodable {
+nonisolated struct VSCodeProductMetadata: Decodable {
     let dataFolderName: String?
 }
