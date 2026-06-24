@@ -681,6 +681,40 @@
         }
       }
     },
+    "mobile.authScope.unavailableDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not finish loading your account. Check your connection, then retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントの読み込みを完了できませんでした。接続を確認してから再試行してください。"
+          }
+        }
+      }
+    },
+    "mobile.authScope.unavailableTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Account unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アカウントを利用できません"
+          }
+        }
+      }
+    },
     "mobile.common.retry": {
       "extractionState": "manual",
       "localizations": {

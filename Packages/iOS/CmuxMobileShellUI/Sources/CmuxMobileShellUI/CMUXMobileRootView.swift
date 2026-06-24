@@ -27,6 +27,7 @@ struct CMUXMobileRootView: View {
     @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = false
     @State private var didTimeoutAuthenticatedUserScopeWait = false
+    @State private var authenticatedUserScopeRetryGeneration = 0
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
@@ -139,7 +140,7 @@ struct CMUXMobileRootView: View {
             guard !isRestoringSession else { return }
             _ = consumePendingURLIfReady()
         }
-        .task(id: shouldWaitForAuthenticatedUserScopeBase) {
+        .task(id: authenticatedUserScopeDeadlineTaskID) {
             await updateAuthenticatedUserScopeDeadline()
         }
         .onChange(of: store.connectionState) { _, connectionState in
@@ -314,6 +315,10 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var authenticatedUserScopeDeadlineTaskID: Int {
+        (authenticatedUserScopeRetryGeneration &* 2) + (shouldWaitForAuthenticatedUserScopeBase ? 1 : 0)
+    }
+
     @MainActor
     private func updateAuthenticatedUserScopeDeadline() async {
         guard shouldWaitForAuthenticatedUserScopeBase else {
@@ -362,6 +367,7 @@ struct CMUXMobileRootView: View {
 
     private func retryAuthenticatedUserScope() {
         didTimeoutAuthenticatedUserScopeWait = false
+        authenticatedUserScopeRetryGeneration &+= 1
         store.resumeForegroundRefresh()
         Task {
             await authManager.revalidateSession()
