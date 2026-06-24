@@ -24,6 +24,8 @@ import Foundation
 public struct SettingCatalog: SettingCatalogSection {
     public let app = AppCatalogSection()
     public let terminal = TerminalCatalogSection()
+    /// Settings for the scroll-fixed terminal badge watermark (the `badge.*` keys).
+    public let badge = BadgeCatalogSection()
     public let notifications = NotificationsCatalogSection()
     public let sidebar = SidebarCatalogSection()
     public let sidebarAppearance = SidebarAppearanceCatalogSection()

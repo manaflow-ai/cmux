@@ -570,6 +570,55 @@
         }
       }
     },
+    "badge": {
+      "title": "badge",
+      "description": "Scroll-fixed terminal badge watermark from Settings > Terminal.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.badge.enabled",
+          "description": "Show a scroll-fixed watermark inside every terminal surface identifying its workspace and tab, similar to iTerm2's session badge."
+        },
+        "template": {
+          "type": "string",
+          "default": "{workspace} · {tab}",
+          "descriptionKey": "schemaDescriptions.badge.template",
+          "description": "Free-form badge text. The placeholders {workspace}, {tab}, {tabIndex}, and {workspaceIndex} are substituted per surface; any other text is shown as-is."
+        },
+        "position": {
+          "type": "string",
+          "enum": ["topLeading", "topTrailing", "bottomLeading", "bottomTrailing", "center"],
+          "default": "topTrailing",
+          "descriptionKey": "schemaDescriptions.badge.position",
+          "description": "Which corner (or center) of the terminal surface the badge anchors to."
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.18,
+          "descriptionKey": "schemaDescriptions.badge.opacity",
+          "description": "Badge opacity, from 0 (invisible) to 1 (fully opaque)."
+        },
+        "color": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.badge.color",
+          "description": "Badge text color, given as a SwiftUI color name (red, orange, yellow, green, mint, teal, cyan, blue, indigo, purple, pink, brown, black, white, gray) or a #RRGGBB hex string. Empty means follow the terminal's foreground/text color."
+        },
+        "fontSize": {
+          "type": "number",
+          "minimum": 8,
+          "maximum": 96,
+          "default": 28,
+          "descriptionKey": "schemaDescriptions.badge.fontSize",
+          "description": "Badge font size in points."
+        }
+      }
+    },
     "notifications": {
       "title": "notifications",
       "description": "Notification behavior from Settings > Notifications.",

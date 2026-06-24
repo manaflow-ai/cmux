@@ -86,6 +86,15 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "textBoxMaxLines": 10
   // },
 
+  // "badge": {
+  //   "enabled": true,
+  //   "template": "{workspace} · {tab}",
+  //   "position": "topTrailing",
+  //   "opacity": 0.18,
+  //   "color": "",
+  //   "fontSize": 28
+  // },
+
   // "browser": {
   //   "defaultSearchEngine": "kagi",
   //   // For an unlisted provider, set "defaultSearchEngine": "custom" and fill these:
