@@ -114,15 +114,18 @@ import Testing
 
     @Test func agentChatPreviewFlagIsDebugOnly() {
         let env = ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "1"]
+        let config = UITestEnvironmentConfig(environment: env)
         #if DEBUG
-        #expect(UITestConfig.agentChatPreviewEnabled(from: env) == true)
+        #expect(config.agentChatPreviewEnabled == true)
         #else
-        #expect(UITestConfig.agentChatPreviewEnabled(from: env) == false)
+        #expect(config.agentChatPreviewEnabled == false)
         #endif
     }
 
     @Test func agentChatPreviewFlagRequiresOne() {
-        #expect(UITestConfig.agentChatPreviewEnabled(from: [:]) == false)
-        #expect(UITestConfig.agentChatPreviewEnabled(from: ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "0"]) == false)
+        #expect(UITestEnvironmentConfig(environment: [:]).agentChatPreviewEnabled == false)
+        #expect(UITestEnvironmentConfig(
+            environment: ["CMUX_UITEST_AGENT_CHAT_PREVIEW": "0"]
+        ).agentChatPreviewEnabled == false)
     }
 }
