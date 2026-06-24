@@ -127,6 +127,39 @@ def run_zsh_with_late_user_function(shell_dir: Path, real_bin: Path, log_path: P
     return result.returncode, combined, read_lines(log_path)
 
 
+def run_zsh_with_noclobber_existing_shim(
+    shell_dir: Path,
+    real_bin: Path,
+    log_path: Path,
+    tmp_root: Path,
+) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["CMUX_SURFACE_ID"] = "cmux-noclobber-existing-shim"
+    env["TMPDIR"] = str(tmp_root)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "zsh",
+            "-fic",
+            f'setopt noclobber; source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            f'source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude zsh-noclobber-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
 def run_bash(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
     env = dict(os.environ)
     env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
@@ -399,6 +432,20 @@ printf 'current-wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
             failures.append(f"zsh late function case exited non-zero rc={rc}: {output}")
         elif lines != ["wrapper:zsh-late-function-case"]:
             failures.append(f"zsh late function case expected wrapper dispatch, saw {lines!r}")
+
+        zsh_noclobber_log = tmp / "zsh-noclobber.log"
+        rc, output, lines = run_zsh_with_noclobber_existing_shim(
+            shell_dir,
+            real_bin,
+            zsh_noclobber_log,
+            tmp,
+        )
+        if rc != 0:
+            failures.append(f"zsh noclobber case exited non-zero rc={rc}: {output}")
+        elif "file exists:" in output:
+            failures.append(f"zsh noclobber case should not emit file exists, saw {output!r}")
+        elif lines != ["wrapper:zsh-noclobber-case"]:
+            failures.append(f"zsh noclobber case expected wrapper dispatch, saw {lines!r}")
 
         bash_alias_log = tmp / "bash-alias.log"
         rc, output, lines = run_bash_with_alias(shell_dir, real_bin, bash_alias_log)
