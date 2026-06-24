@@ -109,7 +109,7 @@ actor RemoteTmuxSSHTransport {
     @discardableResult
     func ensureMasterReady() async throws -> Bool {
         try? host.ensureControlSocketDirectory()
-        if await masterIsRunning() { return true }
+        if try await masterIsRunning() { return true }
         // Open the master exactly once (single creator → no creation race), then
         // confirm. Cancellation propagates; any other launch failure means the
         // master could not be brought up, i.e. not ready.
@@ -120,18 +120,28 @@ actor RemoteTmuxSSHTransport {
         } catch {
             return false
         }
-        return await masterIsRunning()
+        return try await masterIsRunning()
     }
 
     /// Whether the shared ControlMaster is live and accepting sessions, via the
     /// local `ssh -O check` control command (hits the LOCAL socket, no network
     /// round-trip).
-    private func masterIsRunning() async -> Bool {
-        let result = try? await Self.runProcess(
-            executable: sshExecutablePath,
-            arguments: ["-O", "check", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]
-        )
-        return result?.succeeded ?? false
+    ///
+    /// Propagates `CancellationError` (so a cancelled ``ensureMasterReady`` aborts
+    /// instead of falling through to create the master); collapses only ordinary
+    /// launch/socket failures to `false` (master absent → not running).
+    private func masterIsRunning() async throws -> Bool {
+        do {
+            let result = try await Self.runProcess(
+                executable: sshExecutablePath,
+                arguments: ["-O", "check", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]
+            )
+            return result.succeeded
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return false
+        }
     }
 
     /// Tears down the shared SSH master (e.g. when the user removes a host).
