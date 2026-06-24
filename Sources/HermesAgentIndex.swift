@@ -72,21 +72,3 @@ extension SessionIndexStore {
     }
     #endif
 }
-
-extension SessionEntry {
-    static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
-        var parts = ["hermes"]
-        if source == "tui" {
-            parts.append("--tui")
-        }
-        parts.append("--resume \(Self.shellQuote(sessionId))")
-        if let model, !model.isEmpty {
-            parts.append("--model \(Self.shellQuote(model))")
-        }
-        let command = parts.joined(separator: " ")
-        guard let hermesHome, !hermesHome.isEmpty else {
-            return command
-        }
-        return "env HERMES_HOME=\(Self.shellQuote(hermesHome)) \(command)"
-    }
-}

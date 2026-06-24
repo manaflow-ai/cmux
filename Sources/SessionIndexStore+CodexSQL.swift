@@ -1,136 +1,38 @@
+import CMUXAgentLaunch
 import CmuxFoundation
 import Foundation
-import SQLite3
 
 extension SessionIndexStore {
-    private struct CodexThreadRecord: Sendable {
-        let sessionId: String
-        let rolloutPath: String
-        let cwd: String?
-        let titleField: String
-        let model: String?
-        let gitBranch: String?
-        let approvalMode: String?
-        let sandboxJSON: String?
-        let reasoningEffort: String?
-        let firstUserMessage: String
-        let updatedMs: Int64
-
-        var normalizedRolloutPath: String? {
-            let trimmed = rolloutPath.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return (trimmed as NSString).standardizingPath
-        }
-    }
-
     /// SQL-backed Codex loader. Returns nil if `state_5.sqlite` doesn't exist
     /// so the caller can fall back to the disk scan.
+    ///
+    /// The SQLite read (snapshot + query + row decode + needle match) lives in
+    /// `CMUXAgentLaunch.CodexThreadSQLResolver`; this loader is the thin app-side
+    /// seam that constructs the resolver with the app's `ripgrepScanner` and
+    /// `searchMaxFiles`, then maps each `CodexThreadRecord` onto a `SessionEntry`.
     nonisolated static func loadCodexEntriesViaSQL(
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag,
         dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath,
-        sessionsRoot: String = defaultCodexSessionsRoot()
+        sessionsRoot: String = (CodexSessionResolver().codexSessionsRoot(env: [:]) as NSString).standardizingPath
     ) async -> [SessionEntry]? {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: dbPath) else { return nil }
-
-        let snapshotDir = fm.temporaryDirectory.appendingPathComponent(
-            "cmux-codex-search-\(UUID().uuidString)", isDirectory: true
+        let resolver = CodexThreadSQLResolver(
+            ripgrepScanner: ripgrepScanner,
+            searchMaxFiles: searchMaxFiles,
+            fileManager: .default,
+            dbPath: dbPath,
+            sessionsRoot: sessionsRoot
         )
-        do { try fm.createDirectory(at: snapshotDir, withIntermediateDirectories: true) } catch { return nil }
-        defer { try? fm.removeItem(at: snapshotDir) }
-        let snapshotDB = snapshotDir.appendingPathComponent("state.db")
-        do { try fm.copyItem(atPath: dbPath, toPath: snapshotDB.path) } catch { return nil }
-        for sidecar in ["-wal", "-shm"] {
-            let src = dbPath + sidecar
-            let dst = snapshotDB.path + sidecar
-            if fm.fileExists(atPath: src) { try? fm.copyItem(atPath: src, toPath: dst) }
-        }
-
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(db?.sqliteErrorMessage ?? "unknown error"))")
-            sqlite3_close(db)
+        guard let records = await resolver.loadRecords(
+            needle: needle,
+            cwdFilter: cwdFilter,
+            offset: offset,
+            limit: limit,
+            errorBag: errorBag
+        ) else {
             return nil
         }
-        defer { sqlite3_close(db) }
-
-        var sql = """
-            SELECT id, rollout_path, cwd, title, model, git_branch,
-                   approval_mode, sandbox_policy, reasoning_effort,
-                   first_user_message, updated_at_ms
-            FROM threads
-            WHERE archived = 0
-            """
-        var conditions: [String] = []
-        if cwdFilter != nil {
-            conditions.append("cwd = ?1")
-        }
-        if !conditions.isEmpty {
-            sql += " AND " + conditions.joined(separator: " AND ")
-        }
-        if needle.isEmpty {
-            sql += " ORDER BY updated_at_ms DESC LIMIT \(limit) OFFSET \(offset)"
-        } else {
-            sql += " ORDER BY updated_at_ms DESC LIMIT \(searchMaxFiles)"
-        }
-
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(db.sqliteErrorMessage ?? "prepare failed"). Falling back to file scan.")
-            sqlite3_finalize(stmt)
-            return nil
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        if let cwdFilter {
-            sqlite3_bind_text(stmt, 1, cwdFilter, -1, SQLITE_TRANSIENT_FN)
-        }
-
-        var records: [CodexThreadRecord] = []
-        while sqlite3_step(stmt) == SQLITE_ROW {
-            records.append(CodexThreadRecord(
-                sessionId: stmt.sqliteColumnText(0) ?? "",
-                rolloutPath: stmt.sqliteColumnText(1) ?? "",
-                cwd: stmt.sqliteColumnText(2),
-                titleField: stmt.sqliteColumnText(3) ?? "",
-                model: stmt.sqliteColumnText(4),
-                gitBranch: stmt.sqliteColumnText(5),
-                approvalMode: stmt.sqliteColumnText(6),
-                sandboxJSON: stmt.sqliteColumnText(7),
-                reasoningEffort: stmt.sqliteColumnText(8),
-                firstUserMessage: stmt.sqliteColumnText(9) ?? "",
-                updatedMs: sqlite3_column_int64(stmt, 10)
-            ))
-        }
-        guard !needle.isEmpty else {
-            return records.map(codexEntry(from:))
-        }
-
-        guard limit > 0 else { return [] }
-        let normalizedSessionsRoot = (sessionsRoot as NSString).standardizingPath
-        let rgMatchedPaths = await codexRolloutPathsMatchingNeedle(needle, sessionsRoot: normalizedSessionsRoot)
-        var matchedCount = 0
-        var entries: [SessionEntry] = []
-        entries.reserveCapacity(min(limit, records.count))
-        for record in records {
-            if Task.isCancelled { break }
-            let matches = codexRecordMatchesMetadata(record, needle: needle)
-                || codexRecordMatchesRolloutContent(
-                    record,
-                    needle: needle,
-                    rgMatchedPaths: rgMatchedPaths,
-                    normalizedSessionsRoot: normalizedSessionsRoot
-                )
-            guard matches else { continue }
-            if matchedCount >= offset {
-                entries.append(codexEntry(from: record))
-                if entries.count >= limit { break }
-            }
-            matchedCount += 1
-        }
-        return entries
+        return records.map(codexEntry(from:))
     }
 
     #if DEBUG
@@ -140,7 +42,7 @@ extension SessionIndexStore {
         cwdFilter: String? = nil,
         offset: Int = 0,
         limit: Int = 100,
-        sessionsRoot: String = defaultCodexSessionsRoot()
+        sessionsRoot: String = (CodexSessionResolver().codexSessionsRoot(env: [:]) as NSString).standardizingPath
     ) async -> SearchOutcome {
         let bag = ErrorBag()
         let entries = await loadCodexEntriesViaSQL(
@@ -189,57 +91,5 @@ extension SessionIndexStore {
                 effort: record.reasoningEffort?.isEmpty == false ? record.reasoningEffort : nil
             )
         )
-    }
-
-    nonisolated private static func codexRecordMatchesMetadata(_ record: CodexThreadRecord, needle: String) -> Bool {
-        func fieldMatches(_ field: String?) -> Bool {
-            guard let field else { return false }
-            return field.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-        }
-
-        if fieldMatches(record.sessionId) { return true }
-        if fieldMatches(record.rolloutPath) { return true }
-        if fieldMatches(record.cwd) { return true }
-        if fieldMatches(record.titleField) { return true }
-        if fieldMatches(record.firstUserMessage) { return true }
-        if fieldMatches(record.gitBranch) { return true }
-        if fieldMatches(record.model) { return true }
-        if fieldMatches(record.approvalMode) { return true }
-        if fieldMatches(record.reasoningEffort) { return true }
-        return false
-    }
-
-    nonisolated private static func defaultCodexSessionsRoot() -> String {
-        let root = ("~/.codex/sessions" as NSString).expandingTildeInPath
-        return (root as NSString).standardizingPath
-    }
-
-    nonisolated private static func codexRolloutPathsMatchingNeedle(
-        _ needle: String,
-        sessionsRoot: String
-    ) async -> Set<String>? {
-        guard let matches = await ripgrepScanner.matchingPaths(
-            needle: needle,
-            root: sessionsRoot,
-            fileGlob: "*.jsonl"
-        ) else {
-            return nil
-        }
-        return Set(matches.map { ($0.path as NSString).standardizingPath })
-    }
-
-    nonisolated private static func codexRecordMatchesRolloutContent(
-        _ record: CodexThreadRecord,
-        needle: String,
-        rgMatchedPaths: Set<String>?,
-        normalizedSessionsRoot: String
-    ) -> Bool {
-        guard let path = record.normalizedRolloutPath else { return false }
-        let isUnderDefaultRoot = path == normalizedSessionsRoot
-            || path.hasPrefix(normalizedSessionsRoot + "/")
-        if let rgMatchedPaths, isUnderDefaultRoot {
-            return rgMatchedPaths.contains(path)
-        }
-        return fileContainsNeedle(url: URL(fileURLWithPath: path), needle: needle)
     }
 }

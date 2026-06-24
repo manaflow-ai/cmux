@@ -32,7 +32,38 @@ public struct OpenCodeDatabaseSnapshot: Sendable {
     /// - Throws: Any filesystem error raised while creating the directory or
     ///   copying the database/sidecars; the partial directory is cleaned up first.
     public static func make(prefix: String) throws -> OpenCodeDatabaseSnapshot? {
-        let fileManager = FileManager.default
+        try make(
+            prefix: prefix,
+            sourcePath: sourcePath,
+            databaseFilename: "opencode.db",
+            fileManager: .default
+        )
+    }
+
+    /// Copies an arbitrary SQLite database (and its `-wal`/`-shm` sidecars) into a
+    /// freshly created, uniquely named temporary directory so a reader can open it
+    /// `SQLITE_OPEN_READONLY` without contending with the writing process.
+    ///
+    /// The OpenCode-specific ``make(prefix:)`` delegates here; other agents (Codex's
+    /// `state_5.sqlite`) inject their own `sourcePath`/`databaseFilename`.
+    ///
+    /// - Parameters:
+    ///   - prefix: A short label prepended to the snapshot directory name
+    ///     (followed by a UUID) so concurrent snapshots never collide.
+    ///   - sourcePath: The expanded path of the live database to copy.
+    ///   - databaseFilename: The filename to copy the database to inside the
+    ///     snapshot directory (its `-wal`/`-shm` sidecars are copied alongside).
+    ///   - fileManager: Filesystem used to test for, create, and copy paths.
+    /// - Returns: A snapshot owning the temporary directory, or `nil` when the
+    ///   source database file does not exist.
+    /// - Throws: Any filesystem error raised while creating the directory or
+    ///   copying the database/sidecars; the partial directory is cleaned up first.
+    public static func make(
+        prefix: String,
+        sourcePath: String,
+        databaseFilename: String,
+        fileManager: FileManager = .default
+    ) throws -> OpenCodeDatabaseSnapshot? {
         guard fileManager.fileExists(atPath: sourcePath) else { return nil }
 
         let snapshotDir = fileManager.temporaryDirectory.appendingPathComponent(
@@ -41,7 +72,7 @@ public struct OpenCodeDatabaseSnapshot: Sendable {
         )
         try fileManager.createDirectory(at: snapshotDir, withIntermediateDirectories: true)
 
-        let snapshotDB = snapshotDir.appendingPathComponent("opencode.db")
+        let snapshotDB = snapshotDir.appendingPathComponent(databaseFilename)
         do {
             try fileManager.copyItem(atPath: sourcePath, toPath: snapshotDB.path)
         } catch {

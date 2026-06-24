@@ -95,6 +95,62 @@ extension [String] {
         return !value.isEmpty && !value.hasPrefix("-") ? value : nil
     }
 
+    /// The explicit resume/session id carried by any of `options` (space form,
+    /// `option value`) or `valuePrefixes` (`option=value` form), trimmed of
+    /// surrounding whitespace and newlines; `nil` when no such option carries a
+    /// non-empty value.
+    ///
+    /// Byte-faithful to the agent CLI argv scan cmux uses for explicit session
+    /// detection: the space form requires the following token to not begin with
+    /// `-` (so it is a value, not the next option), while the `=` form accepts any
+    /// non-empty trimmed value. Kind-agnostic: the caller supplies the option set
+    /// for the specific agent (claude, codex, …) so no agent enum leaks here.
+    ///
+    /// - Parameters:
+    ///   - options: The flag tokens whose following argv element is the value,
+    ///     e.g. `["--resume", "-r", "--session-id"]`.
+    ///   - valuePrefixes: The `option=` prefixes whose remainder is the value,
+    ///     e.g. `["--resume=", "--session-id="]`.
+    public func explicitSessionID(options: Set<String>, valuePrefixes: [String]) -> String? {
+        var index = startIndex
+        while index < endIndex {
+            let argument = self[index]
+            if options.contains(argument),
+               index + 1 < endIndex,
+               !self[index + 1].hasPrefix("-") {
+                return Self.normalizedSessionValue(self[index + 1])
+            }
+            for prefix in valuePrefixes where argument.hasPrefix(prefix) {
+                return Self.normalizedSessionValue(String(argument.dropFirst(prefix.count)))
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    /// The value of the first positional argument that immediately follows `token`
+    /// (e.g. codex's `resume <id>` subcommand form), trimmed; `nil` when `token`
+    /// is absent, is the last element, or is followed by something beginning with
+    /// `-`.
+    ///
+    /// - Parameter token: The positional subcommand token, e.g. `"resume"`.
+    public func positionalSessionID(afterToken token: String) -> String? {
+        guard let index = firstIndex(of: token),
+              index + 1 < endIndex,
+              !self[index + 1].hasPrefix("-") else {
+            return nil
+        }
+        return Self.normalizedSessionValue(self[index + 1])
+    }
+
+    private static func normalizedSessionValue(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return rawValue
+    }
+
     /// The Grok resume session id from `-r`/`--resume` (space or `=` form); `nil`
     /// when none carries a non-option value.
     public var grokResumeSessionID: String? {

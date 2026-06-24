@@ -26,64 +26,22 @@ nonisolated private let sessionIndexLogger = Logger(
 
 // MARK: - Store
 
-enum SessionGrouping: String, CaseIterable, Identifiable, Codable {
-    case directory
-    case agent
+// `SessionGrouping`, `SectionKey`, `IndexSection`, and `SectionIcon` moved to
+// CmuxSessionIndex (Models/). Typealiased here so the ~consumers stay
+// byte-identical. The localized grouping `label` stays app-side (it binds
+// `String(localized:)` against the app bundle) as an extension below.
+typealias SessionGrouping = CmuxSessionIndex.SessionGrouping
+typealias SectionKey = CmuxSessionIndex.SectionKey
+typealias IndexSection = CmuxSessionIndex.IndexSection
+typealias SectionIcon = CmuxSessionIndex.SectionIcon
 
-    var id: String { rawValue }
-
+extension SessionGrouping {
     var label: String {
         switch self {
         case .directory: return String(localized: "sessionIndex.group.directory", defaultValue: "By folder")
         case .agent: return String(localized: "sessionIndex.group.agent", defaultValue: "By agent")
         }
     }
-
-    var symbolName: String {
-        switch self {
-        case .directory: return "folder"
-        case .agent: return "person.2"
-        }
-    }
-}
-
-/// Identifier for a section in the index. For agent grouping, raw value is `agent:<rawValue>`;
-/// for directory grouping, `dir:<absolute path>` (or `dir:` for unknown).
-struct SectionKey: Hashable {
-    let raw: String
-
-    static func agent(_ a: SessionAgent) -> SectionKey { SectionKey(raw: "agent:" + a.rawValue) }
-    static func directory(_ path: String?) -> SectionKey { SectionKey(raw: "dir:" + (path ?? "")) }
-
-    var isDirectory: Bool { raw.hasPrefix("dir:") }
-}
-
-struct IndexSection: Identifiable, Equatable {
-    let key: SectionKey
-    let title: String
-    let icon: SectionIcon
-    let entries: [SessionEntry]
-
-    var id: SectionKey { key }
-
-    /// Whether to render the "Show more" affordance for this section.
-    ///
-    /// Directory sections are derived from `scanAll()`'s global, per-agent-capped
-    /// pool, so their in-memory `entries` are only a preview that can under-report
-    /// a folder's true on-disk session count (issue #6302). "Show more" is the
-    /// only trigger for the complete folder-scoped query (`loadDirectorySnapshot`),
-    /// so always offer it for directory sections; otherwise a folder that
-    /// contributed ≤ `rowLimit` sessions to the capped pool would have the rest of
-    /// its sessions permanently unreachable from the UI. Agent sections aren't
-    /// folder-truncated this way, so they keep the simple count threshold.
-    func shouldOfferShowMore(rowLimit: Int) -> Bool {
-        key.isDirectory || entries.count > rowLimit
-    }
-}
-
-enum SectionIcon: Equatable {
-    case agent(SessionAgent)
-    case folder
 }
 
 /// Owns the "which section is currently being dragged" bit, separate from
@@ -636,20 +594,13 @@ final class SessionIndexStore {
 
     // MARK: - Deep search (popover "Show more")
 
-    enum SearchScope {
-        case agent(SessionAgent)
-        /// Filter by absolute cwd; nil/"" = unknown-folder bucket.
-        case directory(String?)
-    }
-
-    /// What the popover gets back. `errors` is non-empty when one or more
-    /// agents failed to read their data source (schema mismatch, file missing,
-    /// SQL error). UI should surface them so users see why the list looks
-    /// short or empty rather than thinking nothing matched.
-    struct SearchOutcome: Sendable {
-        var entries: [SessionEntry]
-        var errors: [String]
-    }
+    // `SearchScope` and `SearchOutcome` moved to CmuxSessionIndex (Models/).
+    // Kept as nested typealiases so `SessionIndexStore.SearchScope` /
+    // `SessionIndexStore.SearchOutcome` (views/tests) and the bare
+    // `SearchScope` / `SearchOutcome` spellings in the store's extension files
+    // (Hermes/RovoDev/Codex) stay byte-identical.
+    typealias SearchScope = CmuxSessionIndex.SearchScope
+    typealias SearchOutcome = CmuxSessionIndex.SearchOutcome
 
     /// Paginated on-demand search across the full filesystem (Claude/Codex) and
     /// SQLite (OpenCode). Empty query is allowed and returns the most-recent

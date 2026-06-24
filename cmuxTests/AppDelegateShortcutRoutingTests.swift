@@ -2,6 +2,7 @@ import XCTest
 import CmuxBrowserUI
 import CmuxCommandPaletteUI
 import CmuxTerminal
+import CmuxWindowing
 import AppKit
 import Carbon.HIToolbox
 import Combine
@@ -9329,12 +9330,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             afterWritingTemporaryFileURL: fileURL,
             to: pasteboard
         )
-        XCTAssertTrue(TextBoxPasteboardRestorationToken.shouldRestore(pasteboard: pasteboard, token: token))
+        XCTAssertTrue(TextBoxPasteboardRestorationToken.shouldRestore(
+            pasteboard: pasteboard,
+            token: token,
+            fileURLReader: PasteboardServiceFileURLReader()
+        ))
 
         pasteboard.clearContents()
         pasteboard.setString("new user clipboard", forType: .string)
 
-        XCTAssertFalse(TextBoxPasteboardRestorationToken.shouldRestore(pasteboard: pasteboard, token: token))
+        XCTAssertFalse(TextBoxPasteboardRestorationToken.shouldRestore(
+            pasteboard: pasteboard,
+            token: token,
+            fileURLReader: PasteboardServiceFileURLReader()
+        ))
     }
 
     func testTextBoxPasteboardRestorationAllowsSameTemporaryFileAfterChangeCountAdvance() throws {
@@ -9359,7 +9368,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             TextBoxPasteboardRestorationToken.shouldRestore(
                 pasteboard: pasteboard,
-                token: staleChangeCountToken
+                token: staleChangeCountToken,
+                fileURLReader: PasteboardServiceFileURLReader()
             )
         )
     }
@@ -9382,7 +9392,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
-                token: firstToken
+                token: firstToken,
+                fileURLReader: PasteboardServiceFileURLReader()
             )
         )
 
@@ -9391,7 +9402,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(
             TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
-                token: firstToken
+                token: firstToken,
+                fileURLReader: PasteboardServiceFileURLReader()
             )
         )
         let userClipboardSnapshot = snapshotPasteboardItems(pasteboard)
@@ -9405,7 +9417,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertTrue(
             TextBoxPasteboardRestorationToken.isCurrentTemporaryWrite(
                 pasteboard: pasteboard,
-                token: secondToken
+                token: secondToken,
+                fileURLReader: PasteboardServiceFileURLReader()
             )
         )
 

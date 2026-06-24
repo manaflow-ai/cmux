@@ -9,7 +9,7 @@ import CmuxFoundation
 /// The localized `displayTitle` and the resume-command rendering remain app-side
 /// extensions: the former binds `String(localized:)` against the app bundle, and the
 /// latter routes the Hermes case through an app-side resume builder.
-public struct SessionEntry: Identifiable, Hashable {
+public struct SessionEntry: Identifiable, Hashable, Sendable {
     public let id: String
     public let agent: SessionAgent
     /// Native session identifier for the agent's CLI (used to build the resume command).
@@ -118,6 +118,25 @@ public struct SessionEntry: Identifiable, Hashable {
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     public static func shellQuote(_ value: String) -> String {
         value.shellQuoted
+    }
+
+    /// Builds the `hermes` CLI command that resumes a Hermes-agent session,
+    /// injecting the captured source/model and the `HERMES_HOME` env override
+    /// when the session's state DB lives outside the default Hermes home.
+    public static func hermesResumeCommand(sessionId: String, source: String?, model: String?, hermesHome: String?) -> String {
+        var parts = ["hermes"]
+        if source == "tui" {
+            parts.append("--tui")
+        }
+        parts.append("--resume \(Self.shellQuote(sessionId))")
+        if let model, !model.isEmpty {
+            parts.append("--model \(Self.shellQuote(model))")
+        }
+        let command = parts.joined(separator: " ")
+        guard let hermesHome, !hermesHome.isEmpty else {
+            return command
+        }
+        return "env HERMES_HOME=\(Self.shellQuote(hermesHome)) \(command)"
     }
 
     /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.
