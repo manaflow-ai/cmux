@@ -158,7 +158,7 @@ extension TerminalController: ControlWorkspaceContext {
         guard let ws = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             return .notFound
         }
-        guard tabManager.canCloseWorkspace(ws) else {
+        guard tabManager.tabs.count > 1, tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
         }
         tabManager.closeWorkspace(ws)

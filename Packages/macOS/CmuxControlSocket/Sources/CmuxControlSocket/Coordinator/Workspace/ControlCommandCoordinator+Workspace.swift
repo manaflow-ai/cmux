@@ -221,6 +221,7 @@ extension ControlCommandCoordinator {
             ]))
         case .resolved(let windowID):
             return .ok(.object([
+                "closed": .bool(true),
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
                 "workspace_id": .string(workspaceID.uuidString),
