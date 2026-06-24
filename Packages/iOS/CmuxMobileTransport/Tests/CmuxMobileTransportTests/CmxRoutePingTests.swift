@@ -15,7 +15,7 @@ import Testing
         endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
     )
 
-    let result = await cmxPingRoute(route, timeoutNanoseconds: 5_000_000_000)
+    let result = await CmxNetworkRoutePinger().ping(route, timeoutNanoseconds: 5_000_000_000)
 
     guard case let .reachable(latency) = result else {
         Issue.record("expected .reachable, got \(result)")
@@ -36,7 +36,7 @@ import Testing
         endpoint: .hostPort(host: "127.0.0.1", port: Int(port))
     )
 
-    let result = await cmxPingRoute(route, timeoutNanoseconds: 5_000_000_000)
+    let result = await CmxNetworkRoutePinger().ping(route, timeoutNanoseconds: 5_000_000_000)
 
     #expect(result == .refused)
 }
@@ -48,9 +48,28 @@ import Testing
         endpoint: .peer(id: "node-1", relayHint: nil, directAddrs: [], relayURL: nil)
     )
 
-    let result = await cmxPingRoute(route)
+    let result = await CmxNetworkRoutePinger().ping(route)
 
     #expect(result == .unsupportedRoute)
+}
+
+@Test func routePingingProtocolIsFakeableWithoutSockets() async throws {
+    // Proves the injection seam: a caller (the Computers screen) can depend on
+    // `any CmxRoutePinging` and substitute a fake, no real network required.
+    struct StubPinger: CmxRoutePinging {
+        let result: CmxRoutePingResult
+        func ping(_ route: CmxAttachRoute, timeoutNanoseconds: UInt64) async -> CmxRoutePingResult {
+            result
+        }
+    }
+    let route = try CmxAttachRoute(
+        id: "tailscale",
+        kind: .tailscale,
+        endpoint: .hostPort(host: "100.64.1.2", port: 49831)
+    )
+    let pinger: any CmxRoutePinging = StubPinger(result: .reachable(latencyMilliseconds: 7))
+
+    #expect(await pinger.ping(route) == .reachable(latencyMilliseconds: 7))
 }
 
 /// Minimal TCP listener that accepts and silently holds connections, used to

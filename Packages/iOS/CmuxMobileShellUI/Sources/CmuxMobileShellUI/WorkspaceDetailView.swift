@@ -73,6 +73,16 @@ struct WorkspaceDetailView: View {
         workspace.terminals.first { $0.id == store.selectedTerminalID } ?? workspace.terminals.first
     }
 
+    /// Whether the store's global ``connectionError`` describes THIS workspace's
+    /// Mac. The error is a single foreground/pairing surface, not keyed per Mac,
+    /// so it only applies when this workspace shows the global status (its own
+    /// `macConnectionStatus` is nil = it is the foreground/primary Mac) and that
+    /// status is offline. A secondary Mac with its own `.unavailable` status must
+    /// fall back to the generic copy rather than borrow an unrelated error.
+    private var showsGlobalConnectionError: Bool {
+        connectionStatus == .unavailable && workspace.macConnectionStatus == nil
+    }
+
     /// Extra blank top padding for the terminal/chat, on top of the safe area. The
     /// grid already sits below the nav bar (in the top safe area), so this is just
     /// a hairline so the first row is not jammed against the bar's bottom edge.
@@ -367,11 +377,16 @@ struct WorkspaceDetailView: View {
                 TerminalDisconnectedOverlay(
                     status: connectionStatus,
                     host: host,
-                    // Surface the specific classified reason only for the offline
-                    // state; during a reconnect the generic progress copy reads
-                    // better than a possibly-stale last error.
-                    detail: connectionStatus == .unavailable ? store.connectionError : nil,
-                    guidance: connectionStatus == .unavailable ? store.connectionErrorGuidance : nil
+                    // Surface the specific classified reason only when it actually
+                    // belongs to THIS workspace's Mac. `store.connectionError` is a
+                    // single global foreground/pairing error, so it's only valid
+                    // when this workspace falls back to the global status
+                    // (`macConnectionStatus == nil` = the foreground/primary Mac);
+                    // a secondary Mac with its own `.unavailable` status must not
+                    // borrow another Mac's error. Gated to the offline state too,
+                    // so a reconnect shows the generic progress copy.
+                    detail: showsGlobalConnectionError ? store.connectionError : nil,
+                    guidance: showsGlobalConnectionError ? store.connectionErrorGuidance : nil
                 ) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,

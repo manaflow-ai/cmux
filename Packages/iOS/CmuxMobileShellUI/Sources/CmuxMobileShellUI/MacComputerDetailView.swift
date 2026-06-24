@@ -19,6 +19,9 @@ import SwiftUI
 struct MacComputerDetailView: View {
     @Bindable var store: CMUXMobileShellStore
     let macDeviceID: String
+    /// Reachability prober. Injected as a seam (default = the real network
+    /// pinger) so the UI depends on the protocol and tests can substitute a fake.
+    var pinger: any CmxRoutePinging = CmxNetworkRoutePinger()
     @Environment(\.dismiss) private var dismiss
 
     @State private var pendingRemoval = false
@@ -371,10 +374,11 @@ struct MacComputerDetailView: View {
         guard !routes.isEmpty, !isPinging else { return }
         isPinging = true
         pingResults = [:]
+        let pinger = pinger
         Task {
             await withTaskGroup(of: (String, CmxRoutePingResult).self) { group in
                 for route in routes {
-                    group.addTask { (route.id, await cmxPingRoute(route)) }
+                    group.addTask { (route.id, await pinger.ping(route)) }
                 }
                 for await (routeID, result) in group {
                     pingResults[routeID] = result
