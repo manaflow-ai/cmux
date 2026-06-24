@@ -28,12 +28,13 @@ describe("apns payload", () => {
       body: "Agent finished",
       workspaceId: "ws-1",
       surfaceId: "sf-2",
+      macDeviceId: "mac-3",
     }) as { aps: Record<string, unknown>; cmux: Record<string, string> };
 
     expect(payload.aps.alert).toEqual({ title: "claude", subtitle: "issue-118", body: "Agent finished" });
     expect(payload.aps["interruption-level"]).toBe("time-sensitive");
     expect(payload.aps.sound).toBe("default");
-    expect(payload.cmux).toEqual({ workspaceId: "ws-1", surfaceId: "sf-2" });
+    expect(payload.cmux).toEqual({ workspaceId: "ws-1", surfaceId: "sf-2", macDeviceId: "mac-3" });
   });
 
   test("omits cmux block when no ids", () => {
@@ -186,6 +187,7 @@ describe("apns route policy", () => {
       body: " done ",
       workspaceId: " ws-1 ",
       surfaceId: " sf-1 ",
+      macDeviceId: " mac-1 ",
       notificationId: " n-1 ",
       hideContent: true,
     });
@@ -199,6 +201,7 @@ describe("apns route policy", () => {
         body: "done",
         workspaceId: "ws-1",
         surfaceId: "sf-1",
+        macDeviceId: "mac-1",
         notificationId: "n-1",
         dismissedIds: [],
         badgeCount: null,
@@ -227,6 +230,7 @@ describe("apns route policy", () => {
         body: "done",
         workspaceId: null,
         surfaceId: null,
+        macDeviceId: null,
         notificationId: null,
         dismissedIds: [],
         badgeCount: null,
@@ -255,6 +259,7 @@ describe("apns route policy", () => {
         body: "",
         workspaceId: null,
         surfaceId: null,
+        macDeviceId: null,
         notificationId: null,
         dismissedIds: ["n-1", "n-2"],
         badgeCount: 4,

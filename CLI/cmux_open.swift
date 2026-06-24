@@ -7524,21 +7524,13 @@ extension CMUXCLI {
     }
 
     private func diffViewerPrepaintStyle(appearance: DiffViewerAppearance) -> String {
-        let lightBackground = diffViewerCSSColor(
-            appearance.lightTheme.background,
-            opacity: appearance.backgroundOpacity
-        )
-        let darkBackground = diffViewerCSSColor(
-            appearance.darkTheme.background,
-            opacity: appearance.backgroundOpacity
-        )
         let lightForeground = diffViewerCSSColor(appearance.lightTheme.foreground)
         let darkForeground = diffViewerCSSColor(appearance.darkTheme.foreground)
         return """
         <style id="cmux-diff-viewer-prepaint">
           :root {
             color-scheme: light dark;
-            background: \(lightBackground);
+            background: transparent;
           }
           html,
           body,
@@ -7548,16 +7540,16 @@ extension CMUXCLI {
           html,
           body {
             margin: 0;
-            background: \(lightBackground);
+            background: transparent;
             color: \(lightForeground);
           }
           @media (prefers-color-scheme: dark) {
             :root {
-              background: \(darkBackground);
+              background: transparent;
             }
             html,
             body {
-              background: \(darkBackground);
+              background: transparent;
               color: \(darkForeground);
             }
           }

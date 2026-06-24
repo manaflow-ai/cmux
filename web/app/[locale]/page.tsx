@@ -178,16 +178,20 @@ function HomeContent() {
           </ul>
         </section>
 
-        {/* Screenshot */}
+        {/* Screenshot: bleeds wider than the text column but stays bounded to
+            the viewport so it always fits on screen with a left/right gutter.
+            The width tracks the viewport minus a 1.5rem gutter on each side and
+            is capped at 90rem; left-1/2 + -translate-x-1/2 keeps it centered
+            over the narrower text column. */}
         <div
           data-dev="screenshot"
-          className="mt-12 mb-12 sm:-mx-24 md:-mx-40 lg:-mx-72 xl:-mx-96"
+          className="mt-12 mb-12 relative left-1/2 -translate-x-1/2 w-[min(90rem,100vw_-_3rem)]"
         >
           <HeroScreenshot />
         </div>
 
         {/* FAQ */}
-        <div data-dev="faq-top-spacer" style={{ height: 0 }} />
+        <div data-dev="faq-top-spacer" style={{ height: 32 }} />
         <section data-dev="faq" className="mb-10">
           <h2 className="text-xs font-medium text-muted tracking-tight mb-3">
             {t("faq")}
@@ -217,7 +221,18 @@ function HomeContent() {
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqIosQ")}</p>
-              <p className="text-muted">{t("faqIosA")}</p>
+              <p className="text-muted">
+                {t.rich("faqIosA", {
+                  foundersLink: (chunks) => (
+                    <a
+                      href="https://github.com/manaflow-ai/cmux#founders-edition"
+                      className={linkClass}
+                    >
+                      {chunks}
+                    </a>
+                  ),
+                })}
+              </p>
             </div>
             <div>
               <p className="font-medium mb-1">{t("faqAgentsQ")}</p>

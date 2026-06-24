@@ -174,6 +174,41 @@ public struct CMUXMobileRootScene: View {
         )
     }
 
+    /// Wrap the local paired-Mac store with selected-team scoping, and then add
+    /// the DO-backup decorator when `mobilePairedMacBackup` is on and a presence
+    /// service URL resolves. Team scoping is unconditional: selected-team
+    /// boundaries must hold even in Release builds where backup is off.
+    @MainActor
+    private func makeBackedUpPairedMacStore(
+        restoreBoundary: PairedMacRestoreBoundary
+    ) -> (any MobilePairedMacStoring)? {
+        guard let store = pairedMacStore else { return nil }
+        let coordinator = auth.coordinator
+        let scopedStore = TeamScopedPairedMacStore(
+            inner: store,
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+        guard MobilePairedMacBackup.resolved().isEnabled,
+              let baseURL = PresenceClient.resolvedServiceBaseURL() else {
+            return scopedStore
+        }
+        let client = PairedMacBackupClient(
+            serviceBaseURL: baseURL,
+            tokenSource: PresenceTokenSource(
+                accessToken: { try? await coordinator.accessToken() },
+                currentUserID: { await coordinator.currentUser?.id }
+            ),
+            teamIDProvider: { await coordinator.resolvedTeamID }
+        )
+        return BackingUpPairedMacStore(
+            inner: scopedStore,
+            backup: client,
+            teamIDProvider: { await coordinator.resolvedTeamID },
+            restoreBoundary: restoreBoundary,
+            pendingDeleteStore: UserDefaultsPairedMacPendingDeleteStore()
+        )
+    }
+
     public var body: some View {
         content
             .environment(auth.coordinator)
@@ -204,8 +239,11 @@ public struct CMUXMobileRootScene: View {
 
     @MainActor
     private func makeStore() -> CMUXMobileShellStore {
+        let coordinator = auth.coordinator
         let identityProvider = AuthCoordinatorIdentityProvider(coordinator: auth.coordinator)
         let deviceRegistry = makeDeviceRegistry()
+        let restoreBoundary = PairedMacRestoreBoundary()
+        let backedUpPairedMacStore = makeBackedUpPairedMacStore(restoreBoundary: restoreBoundary)
         let feedbackEmailSubmitter = MobileFeedbackEmailClient(apiBaseURL: auth.config.apiBaseURL)
         let feedbackStampProvider: @MainActor () -> MobileFeedbackStamp = {
             MobileFeedbackStamp.current()
@@ -213,10 +251,12 @@ public struct CMUXMobileRootScene: View {
         #if DEBUG
         return CMUXMobileShellStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
+            pairedMacStore: backedUpPairedMacStore,
+            pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
+            teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             analytics: analytics,
             diagnosticLog: diagnosticLog,
@@ -227,10 +267,12 @@ public struct CMUXMobileRootScene: View {
         #else
         return CMUXMobileShellStore(
             runtime: runtime,
-            pairedMacStore: pairedMacStore,
+            pairedMacStore: backedUpPairedMacStore,
+            pairedMacRestoreBoundary: restoreBoundary,
             deviceRegistry: deviceRegistry,
             presence: makePresenceClient(),
             identityProvider: identityProvider,
+            teamIDProvider: { await coordinator.resolvedTeamID },
             reachability: reachability,
             analytics: analytics,
             feedbackEmailSubmitter: feedbackEmailSubmitter,

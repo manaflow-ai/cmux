@@ -3842,6 +3842,49 @@ struct CMUXCLI {
         case "remotes", "remote":
             try runRemotesCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
+        case "mobile":
+            let sub = commandArgs.first?.lowercased()
+            let rest = Array(commandArgs.dropFirst())
+            let mobileUsage = String(
+                localized: "cli.mobile.setFont.usage",
+                defaultValue: "Usage: cmux mobile set-font <points> [--surface <id>] [--workspace <id>]"
+            )
+            switch sub {
+            case "set-font":
+                guard let sizeArg = rest.first(where: { !$0.hasPrefix("--") }),
+                      let size = Double(sizeArg), size.isFinite, size > 0 else {
+                    throw CLIError(message: mobileUsage)
+                }
+                var params: [String: Any] = ["font_size": size]
+                if let surface = optionValue(rest, name: "--surface") {
+                    params["surface_id"] = surface
+                }
+                if let workspace = optionValue(rest, name: "--workspace") {
+                    params["workspace_id"] = workspace
+                }
+                let response = try client.sendV2(method: "mobile.terminal.set_font", params: params)
+                if jsonOutput {
+                    print(jsonString(response))
+                    break
+                }
+                let delivered = (response["delivered"] as? Bool) ?? false
+                if delivered {
+                    print(localizedFormat(
+                        "cli.mobile.setFont.applied",
+                        defaultValue: "Set mobile terminal font to %@pt on connected device(s).",
+                        sizeArg
+                    ))
+                } else {
+                    print(localizedFormat(
+                        "cli.mobile.setFont.appliedNoDevice",
+                        defaultValue: "Set mobile terminal font to %@pt (no iOS device is currently connected).",
+                        sizeArg
+                    ))
+                }
+            default:
+                throw CLIError(message: mobileUsage)
+            }
+
         case "rpc":
             guard let method = commandArgs.first?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !method.isEmpty else {
@@ -5278,6 +5321,7 @@ struct CMUXCLI {
         "markdown",
         "mark-notification-read",
         "memory",
+        "mobile",
         "move-surface",
         "move-tab-to-new-workspace",
         "move-workspace-to-window",
@@ -27254,7 +27298,7 @@ function looksLikeOpenCodeScript(value) {
 function isOpenCodeInternalWorkerArg(value) {
   if (!value) return false;
   const normalized = String(value).replaceAll("\\", "/");
-  return normalized.includes("/$bunfs/") && normalized.includes("/src/cli/cmd/tui/worker.js");
+  return normalized.includes("/$bunfs/") && normalized.endsWith("/tui/worker.js");
 }
 
 function withoutOpenCodeInternalWorkerArgs(argv) {
