@@ -29779,6 +29779,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 return target
             }
+            if (directWorkspaceArg != nil || directSurfaceArg != nil), binding == nil { return nil }
 
             guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
 #if DEBUG
