@@ -35,19 +35,15 @@ platform :ios do
   desc "localized titles (fastlane frameit). Requires imagemagick."
   lane :frame do
     ss = File.expand_path("screenshots", __dir__)
-    prep = File.expand_path("frame_assets/prepare_frames.py", __dir__)
-    ipad = File.expand_path("frame_assets/compose_ipad.py", __dir__)
-    sh("python3", prep, ss)
-    # frameit applies the real photographic frame to the iPhone shots (it skips
-    # the landscape iPad — frameit has no landscape iPad frame).
-    frame_screenshots(path: ss)
-    # The iPad is composited bezel-less in landscape (latest real screen, no
-    # dated frame, since frameit has no current/landscape iPad frame).
-    sh("python3", ipad, ss)
-    # Build the HTML gallery (screenshots/preview/index.html) for review; CI
-    # uploads it inside the screenshots artifact.
+    # Premium composition: stitch the screenshot into the real iPhone device
+    # frame (frameit's frame PNG) and place it large under a bold header; iPad is
+    # a large bezel-less landscape screen with a bold header. (Plain frameit
+    # shrinks the tall device under the title and leaves big dead margins.)
+    sh("python3", File.expand_path("frame_assets/compose_shots.py", __dir__), ss)
+    # Build the HTML gallery (screenshots/index.html) for review; CI uploads it
+    # inside the screenshots artifact.
     sh("python3", File.expand_path("frame_assets/generate_preview.py", __dir__), ss)
-    UI.message("Framed screenshots + preview/index.html written")
+    UI.message("Framed screenshots + gallery written")
   end
 
   desc "Upload the captured screenshots to the com.cmux.app App Store listing"
