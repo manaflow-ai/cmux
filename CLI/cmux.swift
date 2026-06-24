@@ -30840,7 +30840,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                let lifecycle = agentLifecycle(for: summary.status)
+                // Persisted (durable) lifecycle must mirror the live decision below:
+                // a routine waiting reminder (status `.needsInput` but not blocking)
+                // must NOT durably write `.needsInput`, or it clobbers the Stop hook's
+                // stored `.idle` and the index fallback (used after restart / when no
+                // in-memory state exists) treats the pane as non-hibernatable. Only a
+                // genuinely blocking notification persists `.needsInput`; a completion
+                // persists `.idle`; everything else leaves the stored lifecycle alone.
+                let lifecycle: AgentHibernationLifecycleState?
+                if summary.isBlocking {
+                    lifecycle = agentLifecycle(for: summary.status)
+                } else if summary.status == .idle {
+                    lifecycle = .idle
+                } else {
+                    lifecycle = nil
+                }
                 // These agents use completion notifications as turn boundaries;
                 // keep the route but close nested prompt depth.
                 if (def.name == "grok" || def.name == "antigravity"),
