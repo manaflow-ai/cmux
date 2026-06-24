@@ -1,0 +1,1 @@
+終端機,AI代理,claude,codex,ssh,開發者,devops,遠端,cli,自動化,cmux,ghostty
