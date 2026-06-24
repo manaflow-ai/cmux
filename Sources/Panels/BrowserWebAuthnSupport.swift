@@ -740,7 +740,9 @@ private struct BrowserWebAuthnClientDataContext {
 
     static func resolve(for message: WKScriptMessage) throws -> Self {
         let callerOrigin = BrowserWebAuthnSecurityOrigin(origin: message.frameInfo.securityOrigin)
-        let topLevelOrigin = message.webView?.url.flatMap(BrowserWebAuthnSecurityOrigin.init(url:))
+        let topLevelOrigin =
+            message.webView?.url.flatMap(BrowserWebAuthnSecurityOrigin.init(url:)) ??
+            (message.frameInfo.isMainFrame ? callerOrigin : nil)
 
         let crossOrigin: ASPublicKeyCredentialClientData.CrossOriginValue?
         if message.frameInfo.isMainFrame {
@@ -765,8 +767,9 @@ private struct BrowserWebAuthnClientDataContext {
     }
 
     func validatePermitted() throws {
-        guard callerOrigin.isPotentiallyTrustworthyWebAuthnOrigin,
-              topLevelOrigin?.isPotentiallyTrustworthyWebAuthnOrigin ?? true else {
+        guard let topLevelOrigin,
+              callerOrigin.isPotentiallyTrustworthyWebAuthnOrigin,
+              topLevelOrigin.isPotentiallyTrustworthyWebAuthnOrigin else {
             throw BrowserWebAuthnBridgeError.security("Passkey access requires a secure origin.")
         }
         guard crossOrigin == nil else {
