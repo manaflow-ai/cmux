@@ -162,6 +162,35 @@ struct CmuxSystemSymbolImage: View {
     var alignment: Alignment = .center
     var appliesGlobalFontMagnification = false
 
+    init(
+        systemName: String,
+        pointSize: CGFloat,
+        weight: Font.Weight? = nil,
+        alignment: Alignment = .center,
+        appliesGlobalFontMagnification: Bool = false
+    ) {
+        self.systemName = systemName
+        self.pointSize = pointSize
+        self.weight = weight
+        self.alignment = alignment
+        self.appliesGlobalFontMagnification = appliesGlobalFontMagnification
+    }
+
+    init(
+        magnified systemName: String,
+        pointSize: CGFloat,
+        weight: Font.Weight? = nil,
+        alignment: Alignment = .center
+    ) {
+        self.init(
+            systemName: systemName,
+            pointSize: pointSize,
+            weight: weight,
+            alignment: alignment,
+            appliesGlobalFontMagnification: true
+        )
+    }
+
     var body: some View {
         let rasterSize = RenderableSystemSymbol.resolvedRasterPointSize(
             pointSize,
