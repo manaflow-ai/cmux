@@ -290,6 +290,43 @@ final class VSCodeCLILaunchConfigurationBuilderTests: XCTestCase {
         XCTAssertEqual(configuration?.supportsUserDataDirectoryArgument, true)
     }
 
+    func testLaunchConfigurationsKeepCachedCodeServerFallbackAfterCodeTunnel() {
+        let builder = VSCodeCLILaunchConfigurationBuilder()
+        let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
+        let productURL = appURL.appendingPathComponent("Contents/Resources/app/product.json", isDirectory: false)
+        let cacheURL = URL(fileURLWithPath: "/Users/tester/.vscode/cli/serve-web", isDirectory: true)
+        let lruURL = cacheURL.appendingPathComponent("lru.json", isDirectory: false)
+        let codeTunnelPath = "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code-tunnel"
+        let cachedCodeServerPath = "/Users/tester/.vscode/cli/serve-web/server-new/bin/code-server"
+
+        let configurations = builder.launchConfigurations(
+            vscodeApplicationURL: appURL,
+            homeDirectoryURL: URL(fileURLWithPath: "/Users/tester", isDirectory: true),
+            baseEnvironment: [
+                "ELECTRON_RUN_AS_NODE": "stale",
+            ],
+            isExecutableAtPath: { $0 == codeTunnelPath || $0 == cachedCodeServerPath },
+            dataAtURL: { url in
+                if url == productURL {
+                    return Data(#"{"dataFolderName": ".vscode"}"#.utf8)
+                }
+                if url == lruURL {
+                    return Data(#"["server-new"]"#.utf8)
+                }
+                return nil
+            },
+            contentsOfDirectoryAtURL: { _ in
+                XCTFail("Expected lru.json to select the cached code-server binary")
+                return []
+            },
+            contentModificationDateAtURL: { _ in nil }
+        )
+
+        XCTAssertEqual(configurations.map(\.executableURL.path), [codeTunnelPath, cachedCodeServerPath])
+        XCTAssertEqual(configurations.map(\.usesCodeTunnelWrapper), [true, false])
+        XCTAssertEqual(configurations.map(\.supportsUserDataDirectoryArgument), [false, true])
+    }
+
     func testLaunchConfigurationUsesCodeTunnelBinaryWhenNoCacheExists() {
         let builder = VSCodeCLILaunchConfigurationBuilder()
         let appURL = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)

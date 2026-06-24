@@ -1,10 +1,13 @@
 import CmuxCore
 import CmuxFoundation
+import Darwin
 import Foundation
 
 final class VSCodeServeWebController {
     static let shared = VSCodeServeWebController()
     private static let serveWebStartupTimeoutSeconds: TimeInterval = 60
+    private static let serveWebTerminationTimeoutSeconds: TimeInterval = 5
+    private static let serveWebKillTimeoutSeconds: TimeInterval = 2
 
     private enum LaunchAttemptResult {
         case launched(process: Process, url: URL)
@@ -162,27 +165,30 @@ final class VSCodeServeWebController {
             return launchProcessOverride(vscodeApplicationURL, expectedGeneration)
         }
 
-        guard let launchConfiguration = launchConfigurationBuilder.launchConfiguration(
+        let launchConfigurations = launchConfigurationBuilder.launchConfigurations(
             vscodeApplicationURL: vscodeApplicationURL
-        ) else { return nil }
+        )
+        guard let primaryLaunchConfiguration = launchConfigurations.first else { return nil }
 
         // Use the child-process environment so CMUX_* overrides that survive
         // nodeSafeEnvironment are also honored by serve-web option resolution.
         guard let launchOptions = VSCodeServeWebLaunchOptions.resolve(
-            environment: launchConfiguration.environment
+            environment: primaryLaunchConfiguration.environment
         ) else { return nil }
 
         let launchOptionCandidates = [launchOptions] + [launchOptions.ephemeralPortFallback()].compactMap { $0 }
-        for launchOptions in launchOptionCandidates {
-            switch launchServeWebProcessCandidate(
-                launchConfiguration: launchConfiguration,
-                launchOptions: launchOptions,
-                expectedGeneration: expectedGeneration
-            ) {
-            case .launched(let process, let url):
-                return (process, url)
-            case .failed(let retryable):
-                guard retryable else { return nil }
+        for launchConfiguration in launchConfigurations {
+            for launchOptions in launchOptionCandidates {
+                switch launchServeWebProcessCandidate(
+                    launchConfiguration: launchConfiguration,
+                    launchOptions: launchOptions,
+                    expectedGeneration: expectedGeneration
+                ) {
+                case .launched(let process, let url):
+                    return (process, url)
+                case .failed(let retryable):
+                    guard retryable else { return nil }
+                }
             }
         }
         return nil
@@ -204,6 +210,7 @@ final class VSCodeServeWebController {
         process.standardError = stderrPipe
 
         let collector = ServeWebOutputCollector()
+        let terminationSemaphore = DispatchSemaphore(value: 0)
         let outputReader: (FileHandle) -> Void = { fileHandle in
             switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
@@ -218,6 +225,7 @@ final class VSCodeServeWebController {
         stderrPipe.fileHandleForReading.readabilityHandler = outputReader
 
         process.terminationHandler = { [weak self] terminatedProcess in
+            terminationSemaphore.signal()
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
@@ -261,8 +269,14 @@ final class VSCodeServeWebController {
               let serveWebURL = collector.webUIURL else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
+            let didTerminate: Bool
             if process.isRunning {
-                Self.terminateAndWaitForExit(process)
+                didTerminate = Self.terminateAndWaitForExit(
+                    process,
+                    terminationSemaphore: terminationSemaphore
+                )
+            } else {
+                didTerminate = true
             }
             queue.sync {
                 if self.launchingProcess === process {
@@ -273,15 +287,28 @@ final class VSCodeServeWebController {
                     self.serveWebURL = nil
                 }
             }
-            return .failed(retryable: !process.isRunning)
+            return .failed(retryable: didTerminate)
         }
 
         return .launched(process: process, url: serveWebURL)
     }
 
-    private static func terminateAndWaitForExit(_ process: Process) {
+    private static func terminateAndWaitForExit(
+        _ process: Process,
+        terminationSemaphore: DispatchSemaphore
+    ) -> Bool {
         process.terminate()
-        process.waitUntilExit()
+        if terminationSemaphore.wait(timeout: .now() + serveWebTerminationTimeoutSeconds) == .success {
+            return true
+        }
+
+        if process.isRunning {
+            _ = Darwin.kill(process.processIdentifier, SIGKILL)
+        }
+        if terminationSemaphore.wait(timeout: .now() + serveWebKillTimeoutSeconds) == .success {
+            return true
+        }
+        return !process.isRunning
     }
 
     private static func completeOnMain(_ completion: @escaping (URL?) -> Void, with url: URL?) {

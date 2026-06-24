@@ -22,23 +22,76 @@ struct VSCodeCLILaunchConfigurationBuilder {
             (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         }
     ) -> VSCodeCLILaunchConfiguration? {
+        launchConfigurations(
+            vscodeApplicationURL: vscodeApplicationURL,
+            homeDirectoryURL: homeDirectoryURL,
+            baseEnvironment: baseEnvironment,
+            isExecutableAtPath: isExecutableAtPath,
+            dataAtURL: dataAtURL,
+            contentsOfDirectoryAtURL: contentsOfDirectoryAtURL,
+            contentModificationDateAtURL: contentModificationDateAtURL,
+            includeFallbacks: false
+        ).first
+    }
+
+    func launchConfigurations(
+        vscodeApplicationURL: URL,
+        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment,
+        isExecutableAtPath: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        dataAtURL: (URL) -> Data? = { try? Data(contentsOf: $0) },
+        contentsOfDirectoryAtURL: (URL) -> [URL] = { url in
+            (try? FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )) ?? []
+        },
+        contentModificationDateAtURL: (URL) -> Date? = { url in
+            (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        }
+    ) -> [VSCodeCLILaunchConfiguration] {
+        launchConfigurations(
+            vscodeApplicationURL: vscodeApplicationURL,
+            homeDirectoryURL: homeDirectoryURL,
+            baseEnvironment: baseEnvironment,
+            isExecutableAtPath: isExecutableAtPath,
+            dataAtURL: dataAtURL,
+            contentsOfDirectoryAtURL: contentsOfDirectoryAtURL,
+            contentModificationDateAtURL: contentModificationDateAtURL,
+            includeFallbacks: true
+        )
+    }
+
+    private func launchConfigurations(
+        vscodeApplicationURL: URL,
+        homeDirectoryURL: URL,
+        baseEnvironment: [String: String],
+        isExecutableAtPath: (String) -> Bool,
+        dataAtURL: (URL) -> Data?,
+        contentsOfDirectoryAtURL: (URL) -> [URL],
+        contentModificationDateAtURL: (URL) -> Date?,
+        includeFallbacks: Bool
+    ) -> [VSCodeCLILaunchConfiguration] {
         let contentsURL = vscodeApplicationURL.appendingPathComponent("Contents", isDirectory: true)
         let environment = nodeSafeEnvironment(from: baseEnvironment)
         let codeTunnelURL = contentsURL.appendingPathComponent("Resources/app/bin/code-tunnel", isDirectory: false)
+        var configurations: [VSCodeCLILaunchConfiguration] = []
 
         if isExecutableAtPath(codeTunnelURL.path) {
             var codeTunnelEnvironment = environment
             codeTunnelEnvironment["ELECTRON_RUN_AS_NODE"] = "1"
-            return VSCodeCLILaunchConfiguration(
+            configurations.append(VSCodeCLILaunchConfiguration(
                 executableURL: codeTunnelURL,
                 argumentsPrefix: ["serve-web"],
                 environment: codeTunnelEnvironment,
                 usesCodeTunnelWrapper: true,
                 supportsUserDataDirectoryArgument: false
-            )
+            ))
         }
 
-        if let codeServerURL = preferredCachedCodeServerURL(
+        if (includeFallbacks || configurations.isEmpty),
+           let codeServerURL = preferredCachedCodeServerURL(
             contentsURL: contentsURL,
             homeDirectoryURL: homeDirectoryURL,
             isExecutableAtPath: isExecutableAtPath,
@@ -48,16 +101,16 @@ struct VSCodeCLILaunchConfigurationBuilder {
         ) {
             var codeServerEnvironment = environment
             codeServerEnvironment.removeValue(forKey: "ELECTRON_RUN_AS_NODE")
-            return VSCodeCLILaunchConfiguration(
+            configurations.append(VSCodeCLILaunchConfiguration(
                 executableURL: codeServerURL,
                 argumentsPrefix: [],
                 environment: codeServerEnvironment,
                 usesCodeTunnelWrapper: false,
                 supportsUserDataDirectoryArgument: true
-            )
+            ))
         }
 
-        return nil
+        return configurations
     }
 
     private func nodeSafeEnvironment(from baseEnvironment: [String: String]) -> [String: String] {
