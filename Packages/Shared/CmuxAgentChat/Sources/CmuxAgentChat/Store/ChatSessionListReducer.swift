@@ -56,15 +56,17 @@ public struct ChatSessionListReducer: Sendable {
                 updated.append(descriptor)
             }
             return updated
-        case .stateChanged(let state):
-            // A state push carries no workspace; only ever update an entry
-            // already in the (workspace-scoped) list, never insert.
-            guard let index = sessions.firstIndex(where: { $0.id == frame.sessionID }) else {
-                return sessions
-            }
-            var updated = sessions
-            updated[index] = updated[index].withState(state)
-            return updated
+        case .stateChanged:
+            // The bare state push carries NO version, so applying it here would
+            // let a duplicated or reordered frame clobber newer state the list
+            // already holds (the host emits an unversioned `stateChanged` AND a
+            // versioned `descriptorChanged` for the SAME transition, so the list
+            // always gets the state through the version-gated descriptor path
+            // above). The list is therefore driven solely by `descriptorChanged`;
+            // the unversioned `stateChanged` is a no-op for the list. The focused
+            // conversation's `ChatConversationStore` still consumes `stateChanged`
+            // directly for its own live state (it is not version-reconciled).
+            return sessions
         case .appended, .updated, .terminalBlocks, .reset, .unknown:
             // Transcript-content frames don't affect the session list.
             return sessions

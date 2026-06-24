@@ -60,15 +60,36 @@ struct ChatSessionListReducerTests {
         #expect(reducer.applying(frame, to: []).map(\.id) == ["s9"])
     }
 
-    @Test("a stateChanged updates an existing session (ended -> read-only)")
-    func stateChangedUpdatesExisting() {
+    @Test("an unversioned stateChanged never mutates the list (descriptorChanged is authoritative)")
+    func stateChangedIsNoOpForList() {
         let reducer = ChatSessionListReducer(workspaceID: "ws-1")
         let seed = [descriptor("s1", state: Self.working)]
+        // The host pairs every transition with a versioned descriptorChanged, so
+        // the bare stateChanged must not touch the list (it carries no version
+        // and would otherwise be a clobber vector).
         let frame = ChatSessionEventFrame(sessionID: "s1", event: .stateChanged(.ended))
-        let result = reducer.applying(frame, to: seed)
+        #expect(reducer.applying(frame, to: seed) == seed)
+    }
+
+    @Test("a reordered stateChanged cannot regress newer descriptor state (clobber guard)")
+    func stateChangedDoesNotClobberNewerDescriptor() {
+        let reducer = ChatSessionListReducer(workspaceID: "ws-1")
+        func desc(_ state: ChatAgentState, _ version: Int) -> ChatSessionDescriptor {
+            ChatSessionDescriptor(
+                id: "s1", agentKind: .codex, workspaceID: "ws-1",
+                terminalID: "s1", state: state, version: version
+            )
+        }
+        // The list has the newest state (ended, v7) from a versioned descriptor.
+        let seed = [desc(.ended, 7)]
+        // A late, reordered bare stateChanged(working) arrives. Before this fix
+        // it overwrote the row back to working with the stale version; now it is
+        // ignored, so the ended (read-only) state the list authoritatively holds
+        // survives.
+        let stale = ChatSessionEventFrame(sessionID: "s1", event: .stateChanged(Self.working))
+        let result = reducer.applying(stale, to: seed)
         #expect(result.first?.state == .ended)
-        // identity and bindings survive the state-only fold
-        #expect(result.first?.terminalID == "s1")
+        #expect(result.first?.version == 7)
     }
 
     @Test("a stateChanged for an unknown session never inserts")

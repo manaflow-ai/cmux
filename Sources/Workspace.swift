@@ -1263,17 +1263,19 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 hasResumeStartupWork: restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil
             )
-            // cmux is itself resuming this agent session onto the restored surface
-            // (snapshot.id is the ghostty surface id, i.e. CMUX_SURFACE_ID). Some
-            // agents (codex) fire NO SessionStart hook on resume, so record the
-            // (session, surface) binding from cmux's own authority here instead of
-            // waiting for a hook that will not arrive; otherwise the chat registry
-            // keeps the stale pre-relaunch record (dead pid -> .ended) and the iOS
-            // GUI shows it read-only. See AgentChatSessionRegistry.noteResumeInitiated.
-            // The (session id, agent source) being resumed comes from the
-            // restorable-agent snapshot when present, else from the agent-hook
-            // resume binding (most restores carry only the binding, whose
-            // `checkpointId` IS the agent session id).
+            // cmux is itself resuming this agent session onto the restored surface.
+            // Some agents (codex) fire NO SessionStart hook on resume, and an
+            // `sr codex resume` bypasses the hook-injecting shim entirely, so
+            // record the (session, surface) binding from cmux's own authority
+            // instead of waiting for a hook that will not arrive; otherwise the
+            // chat registry keeps the stale pre-relaunch record (dead pid ->
+            // .ended) and the iOS GUI shows it read-only. The actual call is made
+            // AFTER the surface is created, keyed on the real `terminalPanel.id`
+            // (which differs from `snapshot.id` when a surface-id collision forces
+            // a fresh id on restore-into-live / duplicate-workspace). The
+            // (session id, agent source) comes from the restorable-agent snapshot
+            // when present, else from the agent-hook resume binding (most restores
+            // carry only the binding, whose `checkpointId` IS the agent session id).
             let resumeReboundSession: (sessionID: String, source: String)? = {
                 if let restorableAgent {
                     return (restorableAgent.sessionId, restorableAgent.kind.rawValue)
@@ -1288,16 +1290,6 @@ extension Workspace {
                 }
                 return nil
             }()
-            if restoredBindingLaunch != nil || restoredAgentResumeLaunch != nil,
-               let resumeReboundSession {
-                AgentChatTranscriptService.recordResumeIntent(
-                    sessionID: resumeReboundSession.sessionID,
-                    source: resumeReboundSession.source,
-                    surfaceID: snapshot.id.uuidString,
-                    workspaceID: id.uuidString,
-                    workingDirectory: workingDirectory
-                )
-            }
             let restoredRemotePTYSessionID: String? = {
                 guard remoteConfiguration?.preserveAfterTerminalExit == true,
                       remoteConfiguration?.persistentDaemonSlot != nil else {
@@ -1395,6 +1387,27 @@ extension Workspace {
                 restoredSurfaceId: reusableSurfaceId
             ) else {
                 return nil
+            }
+            // Re-bind the resumed agent session from cmux's own authority, keyed
+            // on the surface that was actually created. `terminalPanel.id` equals
+            // `snapshot.id` on the normal path, but on a surface-id collision
+            // (restore-into-live / duplicate-workspace) `newTerminalSurface`
+            // minted a fresh id, so keying on `snapshot.id` would bind to a
+            // surface that does not exist and the GUI would never find the
+            // session. This is unconditional on whether cmux runs the resume
+            // command itself: a restored surface that CARRIES a resumable agent
+            // binding must flip its registry record to live/.idle so the iOS GUI
+            // is editable, even when auto-resume is off and the user resumes
+            // manually (e.g. `sr codex resume`). Recording .idle here is the safe
+            // direction per the spec — never invent `ended`.
+            if let resumeReboundSession {
+                AgentChatTranscriptService.recordResumeIntent(
+                    sessionID: resumeReboundSession.sessionID,
+                    source: resumeReboundSession.source,
+                    surfaceID: terminalPanel.id.uuidString,
+                    workspaceID: id.uuidString,
+                    workingDirectory: workingDirectory
+                )
             }
             if let restoredRemotePTYSessionID {
                 registerRemoteRelayIDAliases(

@@ -100,7 +100,7 @@ extension TerminalController {
         for record in service.sessionRecords(workspaceID: nil) {
             guard let surfaceID = record.surfaceID,
                   let surfaceUUID = UUID(uuidString: surfaceID),
-                  let terminalPanel = workspace.terminalPanel(for: surfaceUUID) else {
+                  workspace.terminalPanel(for: surfaceUUID) != nil else {
                 continue
             }
             // A LIVE session must still be the current agent on the terminal, so
@@ -111,11 +111,7 @@ extension TerminalController {
             // fresh pull must not drop it — dropping it is what made the toggle
             // go stale and vanish on tap after the agent exited.
             if record.state != .ended,
-               !mobileChatRecordMatchesAgent(
-                   record: record,
-                   workspace: workspace,
-                   terminalPanel: terminalPanel
-               ) {
+               !mobileChatRecordMatchesAgent(record: record) {
                 continue
             }
             // Re-stamp stale-workspace records to W so the seed and live pushes
@@ -397,42 +393,29 @@ extension TerminalController {
                   requireTerminal: true
               ),
               let surfaceId = resolved.surfaceId,
-              let terminalPanel = resolved.workspace.terminalPanel(for: surfaceId) else {
+              resolved.workspace.terminalPanel(for: surfaceId) != nil else {
             return false
         }
-        return mobileChatRecordMatchesAgent(
-            record: record,
-            workspace: resolved.workspace,
-            terminalPanel: terminalPanel
-        )
+        return mobileChatRecordMatchesAgent(record: record)
     }
 
-    /// Agent-match core: whether an already-resolved `(workspace, terminalPanel)`
-    /// still looks like the agent the record represents. Resolution-free so the
-    /// workspace-filtered listing path can call it with the surface's CURRENT
-    /// workspace rather than the record's stale stored one.
-    private func mobileChatRecordMatchesAgent(
-        record: AgentChatSessionRecord,
-        workspace: Workspace,
-        terminalPanel: TerminalPanel
-    ) -> Bool {
-        let title = workspace.panelTitle(panelId: terminalPanel.id) ?? terminalPanel.displayTitle
-        let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let context = WorkspaceContentView.terminalAgentContext(panel: terminalPanel, workspace: workspace)
-        switch record.agentKind {
-        case .claude:
-            return TextBoxAgentDetection.isClaudeCode(context: context)
-                || normalizedTitle.contains("claude")
-                || title.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("✳")
-        case .codex:
-            return TextBoxAgentDetection.codex.matches(context: context)
-                || normalizedTitle.contains("codex")
-        case .other(let source):
-            return !source.isEmpty && (
-                context.localizedCaseInsensitiveContains(source)
-                    || normalizedTitle.contains(source.lowercased())
-            )
-        }
+    /// Agent-match core: whether the record's bound surface (already resolved to
+    /// a live terminal by the caller) still hosts the agent.
+    ///
+    /// Deterministic per the agent-session spec (principle 2): the surface
+    /// binding is authoritative — NEVER the terminal title or screen-scraped
+    /// agent detection, which can both hide a correctly-bound live session (a
+    /// renamed title or a scrolled-off banner) and mis-attribute. The reliable
+    /// signal is process liveness: when cmux knows the agent pid, a live pid
+    /// means the agent is still here and a dead pid means it is gone (the
+    /// process-exit watcher ends it). When the pid is unknown — a session
+    /// re-bound on resume from cmux's own authority, whose pid is not backfilled
+    /// until the agent's own hooks arrive (e.g. an `sr codex resume` that
+    /// bypasses the hook-injecting shim) — trust the durable surface binding
+    /// rather than inventing a negative that would wrongly hide a live session.
+    private func mobileChatRecordMatchesAgent(record: AgentChatSessionRecord) -> Bool {
+        guard let pid = record.pid else { return true }
+        return kill(pid_t(pid), 0) == 0 || errno == EPERM
     }
 
     private func mobileChatTerminalPanel(sessionID: String) async -> TerminalPanel? {
