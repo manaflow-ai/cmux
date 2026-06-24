@@ -30,6 +30,10 @@
 
 html {
   background: var(--background);
+  /* Always reserve the scrollbar gutter so opening a modal (which locks body
+     scroll via `overflow: hidden`) doesn't remove the scrollbar and shift the
+     page. No effect with overlay scrollbars. */
+  scrollbar-gutter: stable;
 }
 
 body {
