@@ -158,25 +158,14 @@ function WaitlistBody({
     }
     setStatus("submitting");
     const platforms = chosen;
-    // Best-effort SDK calls: identify the visitor by their email so the signup
-    // becomes a real PostHog person (queryable in People), and enroll them in
-    // each platform's Early Access Feature so they show up as a managed
-    // enrollee. `$set_once` keeps `waitlist_email` as the original address. This
-    // is the *waitlist* email and may differ from the account email they later
-    // sign in with; reconcile at app sign-in by identifying the canonical id.
-    posthog.identify(trimmed, { email: trimmed }, { waitlist_email: trimmed });
-    for (const p of platforms) {
-      posthog.updateEarlyAccessFeatureEnrollment(
-        WAITLIST_EARLY_ACCESS_FLAGS[p],
-        true,
-        "concept",
-      );
-    }
-    // The SDK calls above are fire-and-forget, so the authoritative signup is an
-    // awaited POST straight to PostHog's capture endpoint: success only shows
-    // when delivery is confirmed, and the event `$set`s the email + enrollment
-    // so the record persists server-side even if the SDK requests are blocked.
-    // A minimum delay keeps the spinner pleasant when the request is fast.
+    // Record the signup with an awaited POST to PostHog's capture endpoint
+    // (success only shows on confirmed delivery). The event carries
+    // `distinct_id: email` and `$set`s the email + Early Access enrollment, so
+    // the waitlist person/enrollee is created under that email. We deliberately
+    // do NOT call `posthog.identify`, which would rewrite the visitor's live
+    // session identity to the waitlist email and deanonymize their own
+    // analytics; their browsing stays anonymous. A minimum delay keeps the
+    // spinner pleasant when the request is fast.
     const [ok] = await Promise.all([
       recordWaitlistSignup(trimmed, platforms, location),
       new Promise<void>((resolve) => {
