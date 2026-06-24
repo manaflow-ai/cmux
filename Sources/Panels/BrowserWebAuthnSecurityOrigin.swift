@@ -8,24 +8,25 @@ struct BrowserWebAuthnSecurityOrigin {
 
     init(origin: WKSecurityOrigin) {
         scheme = origin.protocol.lowercased()
-        host = origin.host.lowercased()
+        host = Self.normalizedHost(origin.host)
         port = Self.normalizedPort(scheme: scheme, port: origin.port)
     }
 
     init?(url: URL) {
         guard let scheme = url.scheme?.lowercased(),
-              let host = url.host?.lowercased() else {
+              let host = url.host else {
             return nil
         }
 
         self.scheme = scheme
-        self.host = host
+        self.host = Self.normalizedHost(host)
         port = Self.normalizedPort(scheme: scheme, port: url.port)
     }
 
     var serializedString: String {
         let isDefaultHTTPS = scheme == "https" && port == 443
         let isDefaultHTTP = scheme == "http" && port == 80
+        let host = Self.serializedHost(host)
         if isDefaultHTTPS || isDefaultHTTP || port < 0 {
             return "\(scheme)://\(host)"
         }
@@ -59,7 +60,6 @@ struct BrowserWebAuthnSecurityOrigin {
         return host == "localhost" ||
             host.hasSuffix(".localhost") ||
             host == "::1" ||
-            host == "[::1]" ||
             isIPv4LoopbackHost
     }
 
@@ -89,5 +89,17 @@ struct BrowserWebAuthnSecurityOrigin {
         default:
             return -1
         }
+    }
+
+    private static func normalizedHost(_ host: String) -> String {
+        let lowercased = host.lowercased()
+        if lowercased.hasPrefix("[") && lowercased.hasSuffix("]") {
+            return String(lowercased.dropFirst().dropLast())
+        }
+        return lowercased
+    }
+
+    private static func serializedHost(_ host: String) -> String {
+        host.contains(":") ? "[\(host)]" : host
     }
 }

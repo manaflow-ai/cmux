@@ -135,6 +135,16 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func webAuthnSecurityOriginSerializesIPv6LoopbackOrigins() throws {
+        let origin = try #require(
+            BrowserWebAuthnSecurityOrigin(url: URL(string: "http://[::1]:3000")!)
+        )
+
+        #expect(origin.serializedString == "http://[::1]:3000")
+        #expect(origin.isPotentiallyTrustworthyWebAuthnOrigin)
+    }
+
+    @Test
     func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
         let panel = BrowserPanel(
             workspaceId: UUID(),

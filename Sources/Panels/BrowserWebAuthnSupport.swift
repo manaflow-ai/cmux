@@ -1269,6 +1269,10 @@ private extension BrowserWebAuthnCoordinator {
         guard let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
             request.publicKey.rpId
         ) else { return nil }
+        if let appID = request.publicKey.extensions?.appid, !appID.isEmpty {
+            // U2F AppID/facet validation is a separate browser trust boundary; keep it on WebKit.
+            return nil
+        }
         let clientData = try clientDataContext.clientData(challenge: request.publicKey.challenge.data)
         let allowCredentials = (request.publicKey.allowCredentials ?? []).filter(\.isPublicKeyCredential)
         let transportSummary = BrowserWebAuthnTransportSummary(descriptors: allowCredentials)
