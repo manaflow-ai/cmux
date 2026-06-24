@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 import CmuxSidebar

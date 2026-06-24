@@ -569,26 +569,9 @@ private extension VaultObservedAgentProcess {
     }
 }
 
-private extension CmuxVaultAgentDetectRule {
-    func matches(_ process: VaultObservedAgentProcess) -> Bool {
-        var expectedNames = processNames
-        if let processName {
-            expectedNames.append(processName)
-        }
-        guard !expectedNames.isEmpty || !argvContains.isEmpty || !alternateArgvContains.isEmpty else {
-            return false
-        }
-        let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
-            process.executableBasenames.contains { candidate in
-                candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
-            }
-        }
-        let argvContainsMatch = argvContains.isEmpty || process.argumentsContainAll(argvContains)
-        let alternateArgvContainsMatch = !alternateArgvContains.isEmpty
-            && process.argumentsContainAll(alternateArgvContains)
-        return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch
-    }
-}
+// `CmuxVaultAgentDetectRule.matches(_:)` now lives in `CMUXAgentLaunch`
+// (Vault/CmuxVaultAgentDetectRule.swift), co-located with the rule type. It is
+// `public` there and reads only the public `VaultObservedAgentProcess` surface.
 
 private struct VaultAgentSessionIDResolution {
     let sessionId: String

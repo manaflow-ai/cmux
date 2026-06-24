@@ -1,4 +1,5 @@
 import Bonsplit
+import CMUXAgentLaunch
 import CmuxFoundation
 import CmuxWorkspaces
 import Combine
