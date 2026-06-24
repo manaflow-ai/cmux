@@ -99,8 +99,18 @@ extension TextBoxInputContainer {
     }
 
     var submitActionPresentation: TextBoxSubmitActionPresentation {
+        Self.submitActionPresentation(
+            selectedSubmitAction: selectedSubmitAction,
+            shouldForceTextEntrySubmit: shouldForceTextEntrySubmit
+        )
+    }
+
+    static func submitActionPresentation(
+        selectedSubmitAction: TextBoxSubmitAction,
+        shouldForceTextEntrySubmit: Bool
+    ) -> TextBoxSubmitActionPresentation {
         TextBoxSubmitActionPresentation(
-            action: effectiveSubmitAction,
+            action: selectedSubmitAction,
             isForcedTextEntry: shouldForceTextEntrySubmit && selectedSubmitAction.kind != .textEntry
         )
     }

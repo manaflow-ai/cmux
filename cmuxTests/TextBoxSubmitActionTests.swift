@@ -329,6 +329,19 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testForcedTextEntryPresentationKeepsCycledActionVisible() {
+        let selectedAction = TextBoxSubmitAction.builtInActions[0]
+
+        let presentation = TextBoxInputContainer.submitActionPresentation(
+            selectedSubmitAction: selectedAction,
+            shouldForceTextEntrySubmit: true
+        )
+
+        XCTAssertEqual(presentation.action.id, selectedAction.id)
+        XCTAssertTrue(presentation.isForcedTextEntry)
+    }
+
+    @Test
     func testTextBoxCycleSubmitActionUsesConfiguredShortcut() {
         let originalShortcut = KeyboardShortcutSettings.shortcut(for: .cycleTextBoxSubmitAction)
         defer {
