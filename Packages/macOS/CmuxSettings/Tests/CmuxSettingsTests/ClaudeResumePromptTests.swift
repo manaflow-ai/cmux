@@ -87,4 +87,17 @@ struct ClaudeResumePromptTests {
         #expect(prompt.keystrokes(for: .summary, in: screen) == [.up, .enter])
         #expect(prompt.keystrokes(for: .full, in: screen) == [.enter])
     }
+
+    @Test func ignoresCompleteMenuBlockWhenLaterPromptTextAppears() {
+        let stale = """
+        ❯ 1. Resume from summary (recommended)
+          2. Resume full session as-is
+          3. Don't ask me again
+
+        austins-macbook % echo done
+        """
+
+        #expect(!prompt.isVisible(in: stale))
+        #expect(prompt.keystrokes(for: .full, in: stale) == nil)
+    }
 }

@@ -91,6 +91,9 @@ public struct ClaudeResumePrompt: Sendable {
             guard let label = optionLabelIndex(in: line) else {
                 window.removeAll(keepingCapacity: true)
                 labels.removeAll(keepingCapacity: true)
+                if !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    latestCompleteBlock = nil
+                }
                 continue
             }
 
