@@ -2759,9 +2759,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     nonisolated static func isBlankBrowserPageURL(_ url: URL?) -> Bool {
-        guard let url else { return true }
-        let value = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
-        return value.caseInsensitiveCompare("about:blank") == .orderedSame
+        BrowserBlankPageClassifier().isBlankBrowserPageURL(url)
     }
 
     nonisolated static func isBlankBrowserPage(
@@ -2770,16 +2768,12 @@ final class BrowserPanel: Panel, ObservableObject {
         pendingNavigationURL: URL?,
         isMainFrameProvisionalNavigationActive: Bool
     ) -> Bool {
-        if isMainFrameProvisionalNavigationActive,
-           !isBlankBrowserPageURL(pendingNavigationURL) {
-            return false
-        }
-        if !isBlankBrowserPageURL(pendingNavigationURL),
-           isBlankBrowserPageURL(liveURL),
-           isBlankBrowserPageURL(currentURL) {
-            return false
-        }
-        return isBlankBrowserPageURL(liveURL) && isBlankBrowserPageURL(currentURL)
+        BrowserBlankPageClassifier().isBlankBrowserPage(
+            liveURL: liveURL,
+            currentURL: currentURL,
+            pendingNavigationURL: pendingNavigationURL,
+            isMainFrameProvisionalNavigationActive: isMainFrameProvisionalNavigationActive
+        )
     }
 
     nonisolated static func drawsWebViewBackground(
@@ -3519,17 +3513,11 @@ final class BrowserPanel: Panel, ObservableObject {
         return URLSession(configuration: configuration)
     }
 
+    /// Thin forwarder to ``BrowserRemoteProxyURLResolver/displayURL(for:)`` (moved
+    /// into CmuxBrowser/Navigation). Keeps the existing `Self.remoteProxyDisplayURL(_:)`
+    /// call sites stable.
     private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
-        guard let url else { return nil }
-        guard let host = RemoteLoopbackProxyAlias.normalizeHost(url.host ?? "") else { return url }
-        guard let displayHost = RemoteLoopbackProxyAlias.localhostFamilyHost(
-            forAliasHost: host,
-            aliasHost: RemoteLoopbackProxyAlias.aliasHost
-        ) else { return url }
-
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = displayHost
-        return components?.url ?? url
+        BrowserRemoteProxyURLResolver().displayURL(for: url)
     }
 
     private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {

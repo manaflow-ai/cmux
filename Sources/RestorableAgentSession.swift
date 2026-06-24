@@ -330,10 +330,10 @@ struct RestorableAgentSessionIndex: Sendable {
         let processIDs: Set<Int>
     }
 
-    enum ProcessDetectedSessionIDSource: Sendable {
-        case explicit
-        case inferredLatestSessionFile
-    }
+    /// App-side spelling of the lifted ``CMUXAgentLaunch/ProcessDetectedSessionIDSource``,
+    /// kept so existing `RestorableAgentSessionIndex.ProcessDetectedSessionIDSource`
+    /// references continue to resolve after the enum moved into `CMUXAgentLaunch`.
+    typealias ProcessDetectedSessionIDSource = CMUXAgentLaunch.ProcessDetectedSessionIDSource
 
     typealias ProcessDetectedSnapshotEntry = (
         snapshot: SessionRestorableAgentSnapshot,

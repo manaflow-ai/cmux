@@ -1672,20 +1672,6 @@ struct BrowserPanelView: View {
         }
     }
 
-    private func browserFocusResponderChainContains(
-        _ start: NSResponder?,
-        target: NSResponder
-    ) -> Bool {
-        var current = start
-        var hops = 0
-        while let responder = current, hops < 64 {
-            if responder === target { return true }
-            current = responder.nextResponder
-            hops += 1
-        }
-        return false
-    }
-
     private func isPanelFocusedInModel() -> Bool {
         guard let app = AppDelegate.shared,
               let manager = app.tabManagerFor(tabId: panel.workspaceId),
@@ -1723,7 +1709,7 @@ struct BrowserPanelView: View {
         let window = browserFocusWindow()
         let firstResponder = window?.firstResponder
         let firstResponderType = browserFocusResponderDescription(firstResponder)
-        let webResponder = browserFocusResponderChainContains(firstResponder, target: panel.webView) ? 1 : 0
+        let webResponder = (firstResponder?.responderChain(contains: panel.webView) ?? false) ? 1 : 0
         var line =
             "browser.focus.trace event=\(event) panel=\(panel.id.uuidString.prefix(5)) " +
             "panelFocused=\(isFocused ? 1 : 0) addrFocused=\(addressBarFocused ? 1 : 0) " +
@@ -2493,7 +2479,7 @@ struct BrowserPanelView: View {
                         return
                     }
                     var hasWebViewResponder =
-                        browserFocusResponderChainContains(window.firstResponder, target: panel.webView)
+                        window.firstResponder?.responderChain(contains: panel.webView) ?? false
                     if !hasWebViewResponder {
                         let fallbackFocusedWebView = window.makeFirstResponder(panel.webView)
                         hasWebViewResponder = fallbackFocusedWebView
@@ -4139,17 +4125,6 @@ struct WebViewRepresentable: NSViewRepresentable {
     }
     #endif
 
-    private static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var r = start
-        var hops = 0
-        while let cur = r, hops < 64 {
-            if cur === target { return true }
-            r = cur.nextResponder
-            hops += 1
-        }
-        return false
-    }
-
     private static func isLikelyInspectorResponder(_ responder: NSResponder?) -> Bool {
         guard let responder else { return false }
         if cmuxIsWebInspectorObject(responder) {
@@ -4172,7 +4147,7 @@ struct WebViewRepresentable: NSViewRepresentable {
         _ responder: NSResponder?,
         webView: WKWebView
     ) -> (needsResign: Bool, flags: String) {
-        let inWebViewChain = responderChainContains(responder, target: webView)
+        let inWebViewChain = responder?.responderChain(contains: webView) ?? false
         let inspectorResponder = isLikelyInspectorResponder(responder)
         let needsResign = inWebViewChain || inspectorResponder
         return (
@@ -4895,7 +4870,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
             return
         }
-        if isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
+        if isPanelFocused && (window.firstResponder?.responderChain(contains: webView) ?? false) {
             if panel.shouldSuppressWebViewFocus() {
 #if DEBUG
                 cmuxDebugLog(
@@ -4917,7 +4892,7 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 return
             }
-            if responderChainContains(window.firstResponder, target: webView) {
+            if window.firstResponder?.responderChain(contains: webView) ?? false {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.focus.content.apply panel=\(panel.id.uuidString.prefix(5)) " +
@@ -4936,7 +4911,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 "action=focus result=\(result ? 1 : 0) fr=\(responderDescription(window.firstResponder))"
             )
 #endif
-        } else if !isPanelFocused && responderChainContains(window.firstResponder, target: webView) {
+        } else if !isPanelFocused && (window.firstResponder?.responderChain(contains: webView) ?? false) {
             // Only force-resign WebView focus when this panel itself is not focused.
             // If the panel is focused but the omnibar-focus state is briefly stale, aggressively
             // clearing first responder here can undo programmatic webview focus (socket tests).

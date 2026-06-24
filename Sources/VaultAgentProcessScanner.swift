@@ -573,47 +573,11 @@ private extension VaultObservedAgentProcess {
 // (Vault/CmuxVaultAgentDetectRule.swift), co-located with the rule type. It is
 // `public` there and reads only the public `VaultObservedAgentProcess` surface.
 
-private struct VaultAgentSessionIDResolution {
-    let sessionId: String
-    let source: RestorableAgentSessionIndex.ProcessDetectedSessionIDSource
-}
-
-private extension CmuxVaultAgentSessionIDSource {
-    func sessionIDResolution(
-        from process: VaultObservedAgentProcess,
-        registration: CmuxVaultAgentRegistration,
-        fileManager: FileManager
-    ) -> VaultAgentSessionIDResolution? {
-        switch self {
-        case .argvOption(let option):
-            guard let sessionId = process.arguments.nonOptionValue(afterOption: option) else { return nil }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
-        case .piSessionFile:
-            let locator = PiSessionLocator(fileManager: fileManager)
-            let piRegistration = registration.piSessionRegistration
-            if let session = process.piCompatibleSessionID {
-                let sessionId = locator.resolvedSessionPath(
-                    session,
-                    for: process,
-                    registration: piRegistration
-                ) ?? session
-                return VaultAgentSessionIDResolution(sessionId: sessionId, source: .explicit)
-            }
-            guard let sessionId = locator.latestSessionPath(
-                for: process,
-                registration: piRegistration
-            ) else {
-                return nil
-            }
-            return VaultAgentSessionIDResolution(sessionId: sessionId, source: .inferredLatestSessionFile)
-        case .grokSessionDirectory:
-            if let session = process.arguments.grokResumeSessionID {
-                return VaultAgentSessionIDResolution(sessionId: session, source: .explicit)
-            }
-            return nil
-        }
-    }
-}
+// `VaultAgentSessionIDResolution`, `ProcessDetectedSessionIDSource`, and
+// `CmuxVaultAgentSessionIDSource.sessionIDResolution(from:registration:fileManager:)`
+// now live in `CMUXAgentLaunch` (Vault/CmuxVaultAgentSessionIDSource+Resolution.swift),
+// co-located with the source enum. The enum is reached app-side via the
+// `RestorableAgentSessionIndex.ProcessDetectedSessionIDSource` typealias.
 
 private extension CmuxTopProcessSnapshot {
     func cmuxScopedProcessIDsByPanelKey() -> [RestorableAgentSessionIndex.PanelKey: Set<Int>] {
@@ -634,19 +598,9 @@ private extension CmuxTopProcessSnapshot {
 // value(afterOption:) / nonOptionValue(afterOption:) / piCompatibleSessionID(startingAt:) /
 // grokResumeSessionID) now live in `CMUXAgentLaunch` (AgentArgumentVectorValues.swift).
 
-// `PiSessionLocator` (app-side resolver for the process- and registration-coupled
-// pieces of a `pi`-compatible agent's session layout) now lives in `CMUXAgentLaunch`
-// (PiSessionLocator.swift), taking a `PiSessionRegistration` value instead of the
-// app registry type. See `CmuxVaultAgentRegistration.piSessionRegistration`.
-
-private extension CmuxVaultAgentRegistration {
-    /// The package-side `PiSessionRegistration` value carrying the three fields
-    /// `PiSessionLocator` reads, decoupling the package from this app registry type.
-    var piSessionRegistration: PiSessionRegistration {
-        PiSessionRegistration(
-            id: id,
-            sessionDirectory: sessionDirectory,
-            builtInOmpSessionDirectory: CmuxVaultAgentRegistration.builtInOmp.sessionDirectory
-        )
-    }
-}
+// `PiSessionLocator` (resolver for the process- and registration-coupled pieces
+// of a `pi`-compatible agent's session layout) and the
+// `CmuxVaultAgentRegistration.piSessionRegistration` conversion it consumes now
+// live in `CMUXAgentLaunch` (PiSessionLocator.swift and
+// Vault/CmuxVaultAgentSessionIDSource+Resolution.swift respectively), taking a
+// `PiSessionRegistration` value instead of the app registry type.
