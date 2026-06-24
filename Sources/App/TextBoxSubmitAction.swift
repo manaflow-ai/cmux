@@ -44,9 +44,9 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
     static let builtInActions: [TextBoxSubmitAction] = [
         TextBoxSubmitAction(
             id: "claude",
-            title: "Claude",
+            title: "Claude Dangerous",
             kind: .commandTemplate,
-            commandTemplate: "claude",
+            commandTemplate: "claude --dangerously-skip-permissions",
             preservePromptAfterLaunch: true,
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
@@ -54,9 +54,9 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
         ),
         TextBoxSubmitAction(
             id: "codex",
-            title: "Codex",
+            title: "Codex Yolo",
             kind: .commandTemplate,
-            commandTemplate: "codex",
+            commandTemplate: "codex --dangerously-bypass-approvals-and-sandbox",
             preservePromptAfterLaunch: true,
             systemImage: "sparkles",
             assetName: "AgentIcons/Codex",

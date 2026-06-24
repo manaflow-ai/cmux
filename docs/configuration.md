@@ -80,9 +80,9 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
     "textBoxSubmitActions": [
       {
         "id": "codex",
-        "title": "Codex",
+        "title": "Codex Yolo",
         "kind": "commandTemplate",
-        "commandTemplate": "codex",
+        "commandTemplate": "codex --dangerously-bypass-approvals-and-sandbox",
         "preservePromptAfterLaunch": true,
         "systemImage": "sparkles",
         "assetName": "AgentIcons/Codex",
@@ -105,7 +105,7 @@ Press Shift-Tab in the TextBox to cycle the default action. This shortcut is `sh
 Built-in action IDs: `claude`, `codex`, `opencode`, `pi`.
 
 Set `textBoxDefaultSubmitAction` to `text-entry` to force plain Text Entry for new terminals.
-Built-in provider actions launch the provider and keep the prompt in the TextBox. Once the provider owns the terminal, submit again to send the prompt through Text Entry. This avoids storing prompt text in shell history or process arguments. Add provider permission flags in a custom `textBoxSubmitActions` entry if you want that behavior.
+Built-in Claude and Codex actions launch with their dangerous/yolo permission flags and keep the prompt in the TextBox. Once the provider owns the terminal, submit again to send the prompt through Text Entry. This avoids storing prompt text in shell history or process arguments.
 
 Action fields:
 

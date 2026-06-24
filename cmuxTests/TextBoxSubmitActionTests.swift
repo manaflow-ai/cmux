@@ -118,8 +118,8 @@ struct TextBoxSubmitActionTests {
             }
         )
 
-        XCTAssertEqual(launchCommandsByID["claude"], "claude")
-        XCTAssertEqual(launchCommandsByID["codex"], "codex")
+        XCTAssertEqual(launchCommandsByID["claude"], "claude --dangerously-skip-permissions")
+        XCTAssertEqual(launchCommandsByID["codex"], "codex --dangerously-bypass-approvals-and-sandbox")
         XCTAssertEqual(launchCommandsByID["opencode"], "opencode")
         XCTAssertEqual(launchCommandsByID["pi"], "pi")
         XCTAssertTrue(TextBoxSubmitAction.builtInActions.allSatisfy { $0.command(forPrompt: "secret") == nil })
@@ -129,9 +129,9 @@ struct TextBoxSubmitActionTests {
     @Test
     func testProviderLaunchEventsKeepPromptInTextBoxUntilAgentIsActive() {
         XCTAssertEqual(
-            TextBoxSubmit.launchDispatchEvents(launchCommand: "codex"),
+            TextBoxSubmit.launchDispatchEvents(launchCommand: "codex --dangerously-bypass-approvals-and-sandbox"),
             [
-                .pasteText("codex"),
+                .pasteText("codex --dangerously-bypass-approvals-and-sandbox"),
                 .namedKey("return"),
             ]
         )
@@ -199,7 +199,7 @@ struct TextBoxSubmitActionTests {
     func testDefaultConfigTemplateIncludesTextBoxLaunchPromptFlag() {
         let template = CmuxSettingsFileStore.defaultTemplate()
 
-        XCTAssertTrue(template.contains(#""commandTemplate" : "codex""#))
+        XCTAssertTrue(template.contains(#""commandTemplate" : "codex --dangerously-bypass-approvals-and-sandbox""#))
         XCTAssertTrue(template.contains(#""preservePromptAfterLaunch" : true"#))
     }
 
@@ -273,7 +273,7 @@ struct TextBoxSubmitActionTests {
             pendingProviderLaunchAction: codex
         )
 
-        XCTAssertEqual(context, "initialCommand:codex")
+        XCTAssertEqual(context, "initialCommand:codex --dangerously-bypass-approvals-and-sandbox")
         XCTAssertTrue(TextBoxAgentDetection.supportsAgentPrefixes(context: context))
     }
 

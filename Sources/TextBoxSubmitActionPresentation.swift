@@ -37,9 +37,9 @@ struct TextBoxSubmitActionPresentation: Equatable {
         case TextBoxSubmitAction.textEntryAction.id:
             return String(localized: "textbox.submitAction.textEntry", defaultValue: "Text Entry")
         case "claude":
-            return String(localized: "textbox.submitAction.claude", defaultValue: "Claude")
+            return String(localized: "textbox.submitAction.claude", defaultValue: "Claude Dangerous")
         case "codex":
-            return String(localized: "textbox.submitAction.codex", defaultValue: "Codex")
+            return String(localized: "textbox.submitAction.codex", defaultValue: "Codex Yolo")
         case "opencode":
             return String(localized: "textbox.submitAction.opencode", defaultValue: "OpenCode")
         case "pi":

@@ -206,7 +206,7 @@ struct TextBoxSendButtonStyle: ButtonStyle {
 
     private func backgroundColor(isPressed: Bool) -> Color {
         guard canSend else {
-            return Color.white.opacity(0.18)
+            return backgroundColor.opacity(0.30)
         }
         return isPressed ? backgroundColor.opacity(0.72) : backgroundColor
     }
