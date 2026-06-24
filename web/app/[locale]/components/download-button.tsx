@@ -3,7 +3,7 @@
 import { Menu } from "@base-ui-components/react/menu";
 import { useTranslations } from "next-intl";
 import posthog from "posthog-js";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Link, usePathname } from "../../../i18n/navigation";
 import {
   DOWNLOAD_CONFIRMATION_HREF,
@@ -32,30 +32,6 @@ export function DownloadButton({
   const isSmall = size === "sm";
   const [waitlistPlatform, setWaitlistPlatform] =
     useState<WaitlistPlatform | null>(null);
-
-  // Press-drag-release: press the caret, drag onto an item, release to select
-  // it (native macOS menu behavior). Base UI opens the menu on `mousedown`, but
-  // the published rc.0 drops the release-to-select reliably for some item types
-  // (link items in particular). We bridge it: arm a flag on the trigger press,
-  // and on an item's mouseup while armed, trigger that item's own click. Normal
-  // clicks clear the flag first (the bubble-phase disarm below runs after the
-  // item handler), so they fall through to Base UI without firing twice.
-  const dragArmedRef = useRef(false);
-  const armPressDrag = () => {
-    dragArmedRef.current = true;
-    document.addEventListener(
-      "mouseup",
-      () => {
-        dragArmedRef.current = false;
-      },
-      { once: true },
-    );
-  };
-  const handleItemMouseUp = (event: React.MouseEvent<HTMLElement>) => {
-    if (!dragArmedRef.current) return;
-    dragArmedRef.current = false;
-    event.currentTarget.click();
-  };
 
   // Open the waitlist dialog on the next frame. Selecting a menu item fires
   // inside a pointer gesture; opening the dialog synchronously lets that same
@@ -157,7 +133,6 @@ export function DownloadButton({
           <Menu.Trigger
             className={caretZone}
             aria-label={t("otherPlatforms")}
-            onPointerDown={armPressDrag}
           >
             {caretIcon}
           </Menu.Trigger>
@@ -169,7 +144,6 @@ export function DownloadButton({
                     onConfirmationPage ? <a href={macHref} /> : <Link href={macHref} />
                   }
                   onClick={captureMac}
-                  onMouseUp={handleItemMouseUp}
                   className={menuItemClass}
                 >
                   <PlatformIcon name="macos" />
@@ -183,7 +157,6 @@ export function DownloadButton({
                       platform: "ios",
                     })
                   }
-                  onMouseUp={handleItemMouseUp}
                   className={menuItemClass}
                 >
                   <PlatformIcon name="ios" />
@@ -205,7 +178,6 @@ export function DownloadButton({
                         });
                         openWaitlist(platform);
                       }}
-                      onMouseUp={handleItemMouseUp}
                       className={menuItemClass}
                     >
                       <PlatformIcon name={platform} />
