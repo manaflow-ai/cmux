@@ -17,13 +17,4 @@ struct ChatKeyboardTrackingContainer<Content: View>: UIViewControllerRepresentab
         uiViewController.rootView = ChatKeyboardTrackedRoot(content: content)
     }
 }
-
-struct ChatKeyboardTrackedRoot<Content: View>: View {
-    let content: Content
-
-    var body: some View {
-        content
-            .ignoresSafeArea(.keyboard, edges: .bottom)
-    }
-}
 #endif
