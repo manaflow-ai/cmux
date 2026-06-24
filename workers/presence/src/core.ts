@@ -37,6 +37,9 @@ export interface PresenceInstance {
   /** "mac" | "ios" | "linux" | ... free-form, mirrors the registry. */
   platform: string;
   displayName?: string;
+  /** The app's bundle id, so clients can label the build channel (Stable /
+   * Nightly / RC / DEV). Absent for older hosts that don't report it. */
+  bundleId?: string;
   capabilities: string[];
   online: boolean;
   /** Epoch ms of the last heartbeat received. */
@@ -58,6 +61,7 @@ export interface HeartbeatInput {
   tag: string;
   platform: string;
   displayName?: string;
+  bundleId?: string;
   capabilities?: string[];
   /** True when the host is shutting down cleanly and wants an immediate
    * offline transition instead of waiting out the timeout. */
@@ -114,6 +118,7 @@ export function applyHeartbeat(
     tag: beat.tag,
     platform: beat.platform,
     displayName: beat.displayName ?? existing?.displayName,
+    bundleId: beat.bundleId ?? existing?.bundleId,
     capabilities: beat.capabilities ?? existing?.capabilities ?? [],
     online: true,
     lastSeenAt: nowMs,
@@ -147,6 +152,7 @@ function applyGoodbye(
     tag: beat.tag,
     platform: beat.platform,
     displayName: beat.displayName ?? existing?.displayName,
+    bundleId: beat.bundleId ?? existing?.bundleId,
     capabilities: beat.capabilities ?? existing?.capabilities ?? [],
     online: false,
     lastSeenAt: existing?.lastSeenAt ?? nowMs,

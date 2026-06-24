@@ -42,24 +42,25 @@ public final class CanvasRootView: NSView {
     /// pinch, never fires `didEndLiveMagnify`), so portals re-anchor once the
     /// zoom gesture stops.
     var zoomSettleTask: Task<Void, Never>?
+    var paneBodyFocusMonitor: Any?
     private var hasPlacedInitialViewport = false
     /// One-per-session throttle for the Command+scroll discovery hint.
     static var didShowCommandScrollHintThisSession = false
     var commandScrollHintTask: Task<Void, Never>?
     var commandScrollHintHost: NSHostingView<CanvasCommandScrollHint>?
-    /// A saved viewport waiting to be applied once the scroll view is laid
-    /// out (contentSize settled). Cleared when successfully applied.
+    /// A saved viewport waiting for contentSize to settle. Cleared when applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
+    var isDiscreteZoomAnimationActive = false
+    var discreteZoomAnimationGeneration: UInt64 = 0
+    var shouldReduceMotionForDiscreteZoom: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     /// True while programmatically applying a saved viewport, so the scroll
     /// events that causes don't overwrite the saved value with transients.
     private var isApplyingSavedViewport = false
-
     /// Extra viewport fraction kept rendering around the visible rect so
     /// panes don't flicker on at the edge mid-flick.
     private static let lifecycleMarginFraction: CGFloat = 0.5
     static let revealMargin: CGFloat = 24
     static let overviewPadding: CGFloat = 48
-
     struct DragSession {
         let paneID: CanvasPaneID
         let region: CanvasPaneHitRegion
@@ -156,9 +157,13 @@ public final class CanvasRootView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
-            removeCommandScrollMonitor(); detachMinimapOverlay()
+            removeCommandScrollMonitor()
+            removePaneBodyFocusMonitor()
+            detachMinimapOverlay()
         } else {
-            installCommandScrollMonitor(); syncMinimapOverlayHost()
+            installCommandScrollMonitor()
+            installPaneBodyFocusMonitor()
+            syncMinimapOverlayHost()
         }
     }
 
@@ -183,6 +188,7 @@ public final class CanvasRootView: NSView {
         clipBoundsObserver = nil
         scrollSettleObservers.forEach { NotificationCenter.default.removeObserver($0) }
         scrollSettleObservers = []
+        cancelDiscreteZoomAnimation()
         commandScrollHintTask?.cancel()
         commandScrollHintTask = nil
         resetMinimapVisibility()
@@ -196,6 +202,7 @@ public final class CanvasRootView: NSView {
         minimapView.onInteractionBegan = nil
         minimapView.onInteractionEnded = nil
         removeCommandScrollMonitor()
+        removePaneBodyFocusMonitor()
         if model.viewport === self {
             model.viewport = nil
         }
@@ -255,7 +262,6 @@ public final class CanvasRootView: NSView {
         }
     }
 
-
     /// Creates/removes pane views to match the model's pane set and brings
     /// each pane's mount and chrome up to date from the cached descriptors.
     /// Runs on every sync and after external model mutations (socket verbs).
@@ -285,6 +291,7 @@ public final class CanvasRootView: NSView {
                 paneViews[pane.id] = paneView
             }
             reconcileMount(for: pane, in: paneView)
+            updateMountState(for: pane)
             paneView.updateChrome(chrome(for: pane))
         }
     }
@@ -311,19 +318,13 @@ public final class CanvasRootView: NSView {
         }
     }
 
-    /// Builds the pane's strip chrome from the latest descriptors.
-    func chrome(for pane: CanvasPane) -> CanvasPaneChrome {
-        let tabs = pane.panelIds.compactMap { descriptorsByPanelId[$0.rawValue]?.tab }
-        let isFocused = pane.panelIds.contains { descriptorsByPanelId[$0.rawValue]?.isFocused == true }
-        let closeLabel = descriptorsByPanelId[pane.selectedPanelId.rawValue]?.closeActionLabel
-            ?? descriptorsByPanelId.values.first?.closeActionLabel
-            ?? ""
-        return CanvasPaneChrome(
-            tabs: tabs,
-            selectedTabId: pane.selectedPanelId.rawValue,
-            isFocused: isFocused,
-            closeActionLabel: closeLabel
-        )
+    /// Lets the host apply panel-specific presentation state to the pane's
+    /// selected content without exposing host panel types to the canvas package.
+    func updateMountState(for pane: CanvasPane) {
+        let selected = pane.selectedPanelId.rawValue
+        guard let mount = mounts[selected],
+              let descriptor = descriptorsByPanelId[selected] else { return }
+        descriptor.updateMount(mount)
     }
 
     func applyZOrder() {
@@ -450,7 +451,10 @@ public final class CanvasRootView: NSView {
     /// render; everything else stops (Ghostty occlusion). Frames never change
     /// while offscreen, so re-entry never reflows.
     func updateLifecycle() {
-        let visible = scrollView.contentView.documentVisibleRect
+        updateLifecycle(visibleRect: scrollView.contentView.documentVisibleRect)
+    }
+
+    func updateLifecycle(visibleRect visible: CGRect) {
         let margin = CGSize(
             width: visible.width * Self.lifecycleMarginFraction,
             height: visible.height * Self.lifecycleMarginFraction

@@ -41,7 +41,7 @@ private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
     @Test func doesNotReadTextViewDelegateForClassification() {
         final class DelegateTrackingTextView: NSTextView {
             private(set) var delegateReadCount = 0
-            override var delegate: NSTextViewDelegate? {
+            override var delegate: (any NSTextViewDelegate)? {
                 get {
                     delegateReadCount += 1
                     return super.delegate

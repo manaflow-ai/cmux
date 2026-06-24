@@ -33,6 +33,8 @@ on:
         description: >-
           macOS runner label to build on. Blacksmith (blacksmith-6vcpu-macos-26),
           our self-hosted fleet (cmux-macos-26 / cmux-aws-macos-15), warp, or depot.
+          This is the dev-build offload path (reload-cloud), not required CI, so
+          targeting the fleet for a build is intentional.
         required: false
         default: blacksmith-6vcpu-macos-26
         type: string
@@ -76,16 +78,7 @@ jobs:
       - name: Select Xcode
         run: |
           set -euo pipefail
-          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
-            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
-          else
-            XCODE_APP="$(find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null | sort | tail -n 1 || true)"
-            [ -n "$XCODE_APP" ] || { echo "No Xcode.app under /Applications" >&2; exit 1; }
-            XCODE_DIR="$XCODE_APP/Contents/Developer"
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
-          export DEVELOPER_DIR="$XCODE_DIR"
-          xcodebuild -version
+          ./scripts/select-ci-xcode.sh
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -113,6 +106,26 @@ jobs:
           echo "app_path=$app_path" >> "$GITHUB_OUTPUT"
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
+
+      # iOS links the CmuxIrohFFI xcframework (gitignored, built from the Rust
+      # crate under Native/cmux-iroh). The macOS path builds it via
+      # reload.sh -> ensure-cmux-iroh.sh; the iOS archive below runs xcodebuild
+      # directly, so provision it here or SwiftPM fails with "local binary target
+      # 'CmuxIrohFFIBinary' ... does not contain a binary artifact". Guarded so
+      # source refs that predate the crate are a no-op (scripts come from
+      # inputs.ref, not this workflow's ref). install-rust-ci.sh is idempotent.
+      - name: Provision cmux-iroh FFI (iOS)
+        if: ${{ inputs.platform == 'ios' }}
+        run: |
+          set -euo pipefail
+          if [ -f scripts/ensure-cmux-iroh.sh ]; then
+            export PATH="$HOME/.cargo/bin:$PATH"
+            [ -f scripts/install-rust-ci.sh ] && ./scripts/install-rust-ci.sh
+            export PATH="$HOME/.cargo/bin:$PATH"
+            ./scripts/ensure-cmux-iroh.sh
+          else
+            echo "scripts/ensure-cmux-iroh.sh absent in source ref; skipping iroh FFI provisioning"
+          fi
 
       # --- iOS: build an UNSIGNED debug archive (signed locally by the caller) ---
       - name: Build unsigned iOS archive

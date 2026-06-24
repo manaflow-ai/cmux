@@ -27,11 +27,22 @@ on:
         default: false
         type: boolean
   schedule:
-    # Nightly at 09:10 UTC. The decide job skips the run only when the current
-    # main HEAD was already uploaded by a prior successful run (SHA compare, not
-    # a wall-clock window), so a failed or missed nightly retries the
-    # not-yet-uploaded commit instead of permanently stranding it.
-    - cron: "10 9 * * *"
+    # Every ~2h (at :17 to stay off the top-of-hour rush). The decide job skips a
+    # run only when the current main HEAD was already uploaded by a prior
+    # successful run (SHA compare, not a wall-clock window), so an iOS-affecting
+    # change reaches internal TestFlight within ~2h of landing on main, and a
+    # failed or missed run retries the not-yet-uploaded commit instead of
+    # permanently stranding it.
+    #
+    # Why ~2h and not a push trigger / per-commit: a per-push lane needs either a
+    # shared concurrency group (which cancels superseded pending runs into red
+    # checks) or per-SHA concurrency (which removes the serialization that keeps
+    # parallel archives from racing on the timestamp build number). ~2h spacing
+    # keeps runs from overlapping (an archive+upload takes ~30-60m), so this
+    # single per-ref lane stays serialized and uploads never collide. If faster
+    # turnaround is ever needed, tighten the interval (still > one archive's
+    # duration) rather than adding a push trigger.
+    - cron: "17 */2 * * *"
 
 concurrency:
   group: ios-testflight-${{ github.ref_name }}
@@ -46,10 +57,11 @@ permissions:
 jobs:
   decide:
     name: Decide whether a TestFlight upload is needed
-    runs-on: ${{ vars.LINUX_RUNNER || 'warp-ubuntu-latest-x64-4x' }}
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
+      last_uploaded_sha: ${{ steps.decide.outputs.last_uploaded_sha }}
     steps:
       - name: Decide whether a TestFlight upload is needed
         id: decide
@@ -61,31 +73,59 @@ jobs:
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const { owner, repo } = context.repo;
 
-            // workflow_dispatch always builds (the operator asked for it).
-            // Scheduled runs build unless the current commit has ALREADY been
-            // uploaded by a prior successful run. We compare HEAD to the head_sha
-            // of the most recent successful run of this workflow, not a wall-clock
-            // window: a failed or missed nightly leaves the last success on an
-            // older SHA, so the next run retries the un-uploaded commit instead of
-            // stranding it. A successful run either uploaded HEAD or correctly
-            // skipped an already-uploaded HEAD, so its head_sha is always an
-            // uploaded commit.
-            let needsBuild = true;
+            // The head_sha of the most recent successful run of this workflow on
+            // main is the last uploaded beta commit. We always resolve it: the
+            // schedule SHA-compare uses it to skip an already-uploaded HEAD, AND
+            // the upload job uses it as the base of the "What to Test" commit range
+            // so each build's notes reflect what changed since the previous beta.
+            // branch:'main' is required: the upload job is gated on
+            // github.ref == 'refs/heads/main', so a workflow_dispatch run on a
+            // feature branch SUCCEEDS without uploading anything. Without this
+            // filter its branch SHA would become last_uploaded_sha and poison the
+            // next real beta's notes base (the generator also fails closed to a
+            // fallback line when the base is not an ancestor of HEAD).
             let lastUploadedSha = null;
-            if (!forceBuild && context.eventName === 'schedule') {
+            let lookupFailed = false;
+            try {
               const runs = await github.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: 'ios-testflight.yml',
+                branch: 'main',
                 status: 'success',
                 per_page: 1,
               });
               lastUploadedSha = runs.data.workflow_runs[0]?.head_sha ?? null;
+            } catch (e) {
+              lookupFailed = true;
+              core.warning(`could not resolve last uploaded sha: ${e.message}`);
+            }
+
+            // A scheduled run must FAIL CLOSED when the history lookup ERRORED: a
+            // null last-uploaded SHA reads as "not HEAD" below, so the lane would
+            // re-upload the same already-shipped main commit every 2h with a fresh
+            // build number and fallback notes. Before this job wrapped the lookup in
+            // try/catch the throw failed the job here; preserve that. A genuine
+            // no-prior-run (the API SUCCEEDED but returned no runs) is NOT a failure:
+            // lookupFailed stays false and the first beta builds normally.
+            if (context.eventName === 'schedule' && lookupFailed) {
+              core.setFailed('could not resolve the last uploaded beta SHA (workflow run history lookup failed); refusing to auto-upload to avoid duplicate TestFlight builds');
+              return;
+            }
+
+            // workflow_dispatch always builds (the operator asked for it).
+            // Scheduled runs build unless HEAD was ALREADY uploaded by a prior
+            // successful run (a SHA compare, not a wall-clock window: a failed or
+            // missed run leaves the last success on an older SHA, so the next run
+            // retries the un-uploaded commit instead of stranding it).
+            let needsBuild = true;
+            if (!forceBuild && context.eventName === 'schedule') {
               needsBuild = lastUploadedSha !== context.sha;
             }
 
             const shouldBuild = forceBuild || context.eventName === 'workflow_dispatch' || needsBuild;
             core.setOutput('should_build', shouldBuild ? 'true' : 'false');
+            core.setOutput('last_uploaded_sha', lastUploadedSha || '');
             core.summary
               .addHeading('iOS TestFlight upload decision')
               .addTable([
@@ -104,7 +144,7 @@ jobs:
     # blocks publishing arbitrary code by dispatching the workflow against a
     # feature branch (the ASC secrets are only meant to ship reviewed main).
     if: needs.decide.outputs.should_build == 'true' && github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'macos-26' }}
+    runs-on: ${{ vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     env:
       ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
@@ -115,6 +155,10 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          # Full history + tags so generate-testflight-notes.sh can walk the
+          # commit range since the last beta and --auto-version can read ios-v*.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Select Xcode
         run: |
@@ -249,9 +293,19 @@ jobs:
           # The script writes the CFBundleVersion that actually shipped here (the
           # monotonic guard may bump it), so the summary reports the real value.
           CMUX_BUILD_NUMBER_OUT_FILE: ${{ runner.temp }}/cmux-final-build-number.txt
+          # The previous beta's commit (the last successful run's head_sha): base
+          # of the per-build "What to Test" commit range. Empty on the very first
+          # run / a missing history, where the generator falls back gracefully.
+          LAST_UPLOADED_SHA: ${{ needs.decide.outputs.last_uploaded_sha }}
         run: |
           set -euo pipefail
-          ARGS=(--lane beta --signing manual)
+          # --auto-version: every beta stamps the next-release marketing version.
+          # --notes-from-range: auto-generate the Internal "What to Test" from the
+          # commits since the previous beta (skipped if we have no base SHA yet).
+          ARGS=(--lane beta --signing manual --auto-version)
+          if [ -n "${LAST_UPLOADED_SHA:-}" ]; then
+            ARGS+=(--notes-from-range "$LAST_UPLOADED_SHA")
+          fi
           if [ -n "${INPUT_BUILD_NUMBER:-}" ]; then
             ARGS+=(--build-number "$INPUT_BUILD_NUMBER")
           fi

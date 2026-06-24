@@ -34,12 +34,56 @@ extension CMUXMobileShellStore {
         return deeplinkWorkspaceNavigationRequest?.workspaceID
     }
 
+    /// The current UI row id for a Mac-local workspace id, if that workspace is
+    /// loaded. Push payloads carry Mac-local ids; the aggregated list may scope
+    /// row ids by Mac for SwiftUI identity.
+    public func workspaceID(matchingRemoteWorkspaceID remoteWorkspaceID: String) -> MobileWorkspacePreview.ID? {
+        workspaceID(matchingRemoteWorkspaceID: remoteWorkspaceID, macDeviceID: nil)
+    }
+
+    /// The current UI row id for a Mac-local workspace id owned by a specific
+    /// Mac. New push payloads carry the Mac's device id so duplicate local
+    /// workspace ids across paired Macs do not resolve to the first visible row.
+    public func workspaceID(
+        matchingRemoteWorkspaceID remoteWorkspaceID: String,
+        macDeviceID: String?
+    ) -> MobileWorkspacePreview.ID? {
+        rowWorkspaceID(
+            forRemoteWorkspaceID: MobileWorkspacePreview.ID(rawValue: remoteWorkspaceID),
+            macDeviceID: macDeviceID
+        )
+    }
+
+    /// Whether the visible selection matches a Mac-local workspace id.
+    public func selectedWorkspaceMatches(remoteWorkspaceID: String) -> Bool {
+        selectedWorkspaceMatches(remoteWorkspaceID: remoteWorkspaceID, macDeviceID: nil)
+    }
+
+    /// Whether the visible selection matches a Mac-local workspace id owned by
+    /// a specific Mac.
+    public func selectedWorkspaceMatches(remoteWorkspaceID: String, macDeviceID: String?) -> Bool {
+        guard let selectedWorkspaceID,
+              let selectedWorkspace = workspaces.first(where: { $0.id == selectedWorkspaceID }),
+              selectedWorkspace.rpcWorkspaceID.rawValue == remoteWorkspaceID else {
+            return false
+        }
+        guard let macDeviceID, !macDeviceID.isEmpty else { return true }
+        return selectedWorkspace.macDeviceID == macDeviceID
+    }
+
     /// The workspace whose terminal list contains `surfaceID`, if any. Used by
     /// the push coordinator to resolve surface-only notification deep links to
     /// a navigable workspace, and to keep a tap parked until the terminal's
     /// snapshot has arrived.
     public func workspaceID(containingSurfaceID surfaceID: String) -> MobileWorkspacePreview.ID? {
-        workspaceID(forTerminalID: surfaceID)
+        workspaceID(containingSurfaceID: surfaceID, macDeviceID: nil)
+    }
+
+    /// The workspace owned by `macDeviceID` whose terminal list contains
+    /// `surfaceID`, if any. Legacy payloads without a Mac id keep the historical
+    /// first-match behavior.
+    public func workspaceID(containingSurfaceID surfaceID: String, macDeviceID: String?) -> MobileWorkspacePreview.ID? {
+        workspaceID(forTerminalID: surfaceID, macDeviceID: macDeviceID)
     }
 
     /// Whether `surfaceID` is a terminal of the workspace `workspaceID`.
@@ -52,7 +96,16 @@ extension CMUXMobileShellStore {
 
     /// The workspace whose terminal list contains `terminalID`, if any.
     func workspaceID(forTerminalID terminalID: String) -> MobileWorkspacePreview.ID? {
+        workspaceID(forTerminalID: terminalID, macDeviceID: nil)
+    }
+
+    /// The workspace owned by `macDeviceID` whose terminal list contains
+    /// `terminalID`, if any.
+    func workspaceID(forTerminalID terminalID: String, macDeviceID: String?) -> MobileWorkspacePreview.ID? {
         for workspace in workspaces {
+            if let macDeviceID, !macDeviceID.isEmpty, workspace.macDeviceID != macDeviceID {
+                continue
+            }
             if workspace.terminals.contains(where: { $0.id.rawValue == terminalID }) {
                 return workspace.id
             }

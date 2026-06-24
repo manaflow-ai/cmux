@@ -54,7 +54,20 @@ struct CLICodexHookTimeoutRegressionTests {
         #expect(promptCommands.allSatisfy { $0.contains("agent_pid=") && $0.contains("CMUX_CODEX_PID=") })
         #expect(stopCommands.count == 1, "Installer should install one stop hook")
         #expect(stopCommands.allSatisfy { !$0.contains("nohup sh -c") && !$0.contains(">/dev/null 2>&1 &") })
-        #expect(feedCommands.count == 2, "Installer should keep Codex feed hooks for PreToolUse and PermissionRequest")
+        let expectedFeedEvents: Set<String> = [
+            "PreToolUse",
+            "PermissionRequest",
+            "PostToolUse",
+            "PreCompact",
+            "PostCompact",
+            "SubagentStart",
+            "SubagentStop",
+        ]
+        let installedFeedEvents = Set(feedCommands.compactMap { command in
+            expectedFeedEvents.first { command.contains("--event \($0)") }
+        })
+        #expect(feedCommands.count == expectedFeedEvents.count, "Installer should install every Codex feed hook")
+        #expect(installedFeedEvents == expectedFeedEvents)
         #expect(feedCommands.allSatisfy { !$0.contains("nohup sh -c") && !$0.contains(">/dev/null 2>&1 &") })
     }
 

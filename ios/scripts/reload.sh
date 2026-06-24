@@ -12,6 +12,12 @@ Build, install, and launch the cmux iOS app with an isolated tag.
 By default this reloads only the simulator. Use --device to also reload the
 first available paired iPhone/iPad, or --device-only to skip the simulator.
 
+After install, the app is launched signed in (dogfood creds) and auto-paired to
+the tagged Mac app. Opt out granularly:
+  --no-sign-in   plain launch, no auto sign-in (implies no auto-pair)
+  --no-attach    sign in, but do not auto-pair to the Mac
+  --no-setup     plain install + launch (today's behavior)
+
 Device signing uses the local Xcode account, or App Store Connect API
 credentials from ASC_API_KEY_ID, ASC_API_ISSUER_ID, ASC_API_KEY_PATH, or
 ios/Config/AppStoreConnect.local.plist. Set IOS_DEVELOPMENT_TEAM or pass
@@ -19,15 +25,11 @@ ios/Config/AppStoreConnect.local.plist. Set IOS_DEVELOPMENT_TEAM or pass
 EOF
 }
 
-sanitize_tag() {
-  local raw="$1"
-  local cleaned
-  cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="dev"
-  fi
-  echo "$cleaned"
-}
+# Tag -> slug. Delegates to the shared helper (scripts/lib/mobile-attach.sh,
+# sourced below) so the bundle id this builds/installs always matches the one
+# scripts/mobile-dev-launch.sh later signs in / pairs against, including for edge
+# tags that sanitize to empty. Do not reintroduce a local sanitizer here.
+sanitize_tag() { cmux_attach__slug "$1"; }
 
 require_option_value() {
   local option="$1"
@@ -49,6 +51,11 @@ RELOAD_SIMULATOR=1
 RELOAD_DEVICE=0
 ALLOW_PROVISIONING_UPDATES=1
 ALLOW_DEVICE_REGISTRATION=0
+# Auto-setup: after install + launch, sign in (inject dogfood creds) and auto-pair
+# to the tagged Mac app. Default ON; opt out granularly.
+NO_SIGN_IN=0
+NO_ATTACH=0
+NO_SETUP=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -100,6 +107,18 @@ while [[ $# -gt 0 ]]; do
       LAUNCH=0
       shift
       ;;
+    --no-sign-in)
+      NO_SIGN_IN=1
+      shift
+      ;;
+    --no-attach)
+      NO_ATTACH=1
+      shift
+      ;;
+    --no-setup)
+      NO_SETUP=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -132,6 +151,17 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Shared tag/identity + attach helpers; sanitize_tag() above delegates here so the
+# built bundle id matches the signed-launch bundle id. Sourced before any
+# sanitize_tag call below.
+# shellcheck source=../../scripts/lib/mobile-attach.sh
+source "$IOS_DIR/../scripts/lib/mobile-attach.sh"
+# Fail closed on tags with no alphanumerics (their slug collapses onto the shared
+# fallback identity), matching the macOS reload's reject-empty behavior.
+if ! cmux_attach_tag_has_alnum "$TAG"; then
+  echo "error: --tag '$TAG' has no letters or digits; pick a tag with at least one alphanumeric character" >&2
+  exit 1
+fi
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 TAG_SLUG="$(sanitize_tag "$TAG")"
@@ -139,6 +169,35 @@ DISPLAY_NAME="cmux DEV $TAG"
 BUNDLE_ID="dev.cmux.ios.$TAG_SLUG"
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData/cmux-ios-$TAG_SLUG"
 DESTINATION="platform=iOS Simulator,name=$SIMULATOR_NAME"
+MOBILE_DEV_LAUNCH="$IOS_DIR/../scripts/mobile-dev-launch.sh"
+
+# Auto-setup launch: relaunch the just-installed app signed in (dogfood creds
+# injected) and, unless --no-attach, auto-paired to the tagged Mac app. Delegates
+# to scripts/mobile-dev-launch.sh so there is ONE signed-launch path. Returns
+# non-zero on any failure so callers can warn + leave the app installed. $1 =
+# device|simulator, $2 = device install id (device only).
+auto_setup_launch() {
+  local kind="$1" id="${2:-}"
+  local args=(--tag "$TAG")
+  if [[ "$kind" == "device" ]]; then
+    args+=(--device)
+    [[ -n "$id" ]] && args+=(--device-id "$id")
+  else
+    # --detach: do not attach the simulator console (would block this script).
+    # Pass the exact resolved UDID so the launch targets the sim we installed
+    # onto, not just the first booted sim sharing the name.
+    args+=(--simulator "$SIMULATOR_NAME" --detach)
+    [[ -n "$id" ]] && args+=(--simulator-id "$id")
+  fi
+  # Auto-pair by default (--ensure-mac enables the pairing host + launches the
+  # tagged Mac app if down, then mints a ticket); --no-attach signs in only.
+  [[ "$NO_ATTACH" -eq 0 ]] && args+=(--ensure-mac)
+  if [[ ! -x "$MOBILE_DEV_LAUNCH" ]]; then
+    echo "warning: $MOBILE_DEV_LAUNCH not found/executable; cannot auto-sign-in" >&2
+    return 1
+  fi
+  "$MOBILE_DEV_LAUNCH" "${args[@]}"
+}
 
 # Dev-build identity baked into the app's Info.plist (CMUXGitSHA / CMUXDevTag),
 # surfaced in-app under Settings > About so a dogfood build is tellable. The
@@ -408,6 +467,7 @@ reload_simulator() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME" \
     CMUX_GIT_SHA="$GIT_SHA" \
     CMUX_DEV_TAG="$TAG" \
+    CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}" \
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist \
     CODE_SIGNING_ALLOWED=NO \
     SWIFT_OPTIMIZATION_LEVEL=-O \
@@ -444,7 +504,12 @@ PY
 
   if [[ "$LAUNCH" -eq 1 ]]; then
     xcrun simctl terminate "$SIM_ID" "$BUNDLE_ID" >/dev/null 2>&1 || true
-    xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+    if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
+      xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+    elif ! auto_setup_launch simulator "$SIM_ID"; then
+      echo "warning: signed launch failed; launching plain (sign in manually)" >&2
+      xcrun simctl launch "$SIM_ID" "$BUNDLE_ID" >/dev/null
+    fi
   fi
 
   cat <<EOF
@@ -509,6 +574,7 @@ reload_device() {
     PRODUCT_DISPLAY_NAME="$DISPLAY_NAME"
     CMUX_GIT_SHA="$GIT_SHA"
     CMUX_DEV_TAG="$TAG"
+    CMUX_PRESENCE_BASE_URL="${CMUX_PRESENCE_BASE_URL:-}"
     EXCLUDED_SOURCE_FILE_NAMES=Info.plist
     CODE_SIGNING_ALLOWED=YES
     CODE_SIGN_STYLE=Automatic
@@ -542,8 +608,20 @@ reload_device() {
     # Build + install already succeeded; a launch failure (most commonly a
     # LOCKED device — "could not be unlocked") must not fail the whole reload
     # or skip the QR marker update below. Warn and continue.
-    if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
-      echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
+    if [[ "$NO_SETUP" -eq 1 || "$NO_SIGN_IN" -eq 1 ]]; then
+      # Plain launch (no sign-in / no pair). --no-sign-in implies no auto-setup
+      # since attaching without a signed-in session is meaningless.
+      if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
+        echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
+      fi
+    elif ! auto_setup_launch device "$selected_device_install_id"; then
+      # Auto sign-in/pair failed (e.g. missing dogfood creds, helper, or Mac).
+      # Fall back to a plain launch so the freshly installed app still opens,
+      # matching the simulator path and the previous device behavior.
+      echo "warning: signed launch failed; launching plain (sign in manually)" >&2
+      if ! xcrun devicectl device process launch --terminate-existing --device "$selected_device_install_id" "$BUNDLE_ID" >/dev/null 2>&1; then
+        echo "warning: installed but could not launch $BUNDLE_ID (device locked? unlock the iPhone and tap the app)" >&2
+      fi
     fi
   fi
 
