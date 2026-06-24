@@ -354,12 +354,19 @@ final class RemoteTmuxController {
         windowRegistry.bind(host: host, windowId: windowId)
 
         let bootstrapWorkspaceId = manager.tabs.first?.id
-        // Establish & confirm the shared ControlMaster before the attach burst, so
-        // the per-session `tmux -CC attach` connections (each ControlMaster=auto)
-        // attach to a ready master instead of all racing to create it — which on a
-        // cold first attach made all but one session fail to mirror. See
-        // RemoteTmuxSSHTransport.ensureMasterReady.
-        await transport(for: host).ensureMasterReady()
+        // Confirm the shared ControlMaster is ready before the attach burst, so the
+        // per-session `tmux -CC attach` connections (each ControlMaster=auto) attach
+        // to a ready master instead of all racing to create it — which on a cold
+        // first attach made all but one session fail to mirror. Fail closed: if
+        // readiness can't be confirmed, tear down the window rather than firing the
+        // burst against a cold master. See RemoteTmuxSSHTransport.ensureMasterReady.
+        guard try await transport(for: host).ensureMasterReady() else {
+            windowRegistry.unbind(hostHash: host.connectionHash)
+            transportRegistry.remove(connectionHash: host.connectionHash)
+            RemoteTmuxSSHTransport.spawnControlMasterExit(host: host)
+            appDelegate.discardMainWindowWithoutClosedHistory(windowId: windowId)
+            throw RemoteTmuxError.unreachable("SSH ControlMaster not ready for \(host.destination)")
+        }
         for session in sessions {
             do {
                 try mirrorSession(host: host, sessionName: session.name, into: manager)
@@ -403,10 +410,12 @@ final class RemoteTmuxController {
             throw RemoteTmuxError.unreachable("app not ready")
         }
         let sessions = try await listSessions(host: host)
-        // Warm the shared ControlMaster before the burst (see ensureMasterReady):
+        // Confirm the shared ControlMaster before the burst (see ensureMasterReady):
         // without it, concurrent ControlMaster=auto attaches race to create the
-        // master and all but one fail on a cold first mirror.
-        await transport(for: host).ensureMasterReady()
+        // master and all but one fail on a cold first mirror. Fail closed.
+        guard try await transport(for: host).ensureMasterReady() else {
+            throw RemoteTmuxError.unreachable("SSH ControlMaster not ready for \(host.destination)")
+        }
         for session in sessions {
             // One session failing to attach must not abort mirroring the rest.
             do {
