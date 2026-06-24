@@ -117,7 +117,6 @@ extension TextBoxInputContainer {
 
     func sendButton(
         canSend: Bool,
-        foreground: Color,
         presentation: TextBoxSubmitActionPresentation
     ) -> some View {
         Button {
@@ -127,7 +126,7 @@ extension TextBoxInputContainer {
             }
             submit()
         } label: {
-            submitActionImage(presentation.action)
+            submitButtonActionImage(presentation.action, canSend: canSend)
                 .cmuxFont(size: TextBoxLayout.sendSymbolSize, weight: .bold)
                 .frame(
                     width: TextBoxSubmitActionImageSupport.iconSize,
@@ -138,7 +137,6 @@ extension TextBoxInputContainer {
         .buttonStyle(TextBoxSendButtonStyle(
             canSend: canSend
         ))
-        .foregroundStyle(canSend ? Color.black.opacity(0.86) : foreground.opacity(0.38))
         .help(presentation.helpText)
         .accessibilityLabel(presentation.accessibilityLabel)
         .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
@@ -170,6 +168,31 @@ extension TextBoxInputContainer {
                     systemImage: "book"
                 )
             }
+        }
+    }
+
+    @ViewBuilder
+    func submitButtonActionImage(_ action: TextBoxSubmitAction, canSend: Bool) -> some View {
+        let iconOpacity = canSend ? 0.86 : 0.38
+        if let image = submitActionNSImage(for: action) {
+            Image(nsImage: image)
+                .renderingMode(action.id == "codex" ? .template : .original)
+                .resizable()
+                .scaledToFit()
+                .foregroundStyle(Color.black)
+                .opacity(iconOpacity)
+                .frame(
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
+                )
+        } else {
+            Image(systemName: action.systemImage)
+                .foregroundStyle(Color.black)
+                .opacity(iconOpacity)
+                .frame(
+                    width: TextBoxSubmitActionImageSupport.iconSize,
+                    height: TextBoxSubmitActionImageSupport.iconSize
+                )
         }
     }
 

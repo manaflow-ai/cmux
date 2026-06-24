@@ -2552,7 +2552,7 @@ struct TextBoxInputContainer: View {
             .frame(height: clampedHeight)
             .frame(maxWidth: .infinity)
 
-            sendButton(canSend: canSend, foreground: foreground, presentation: submitActionPresentation)
+            sendButton(canSend: canSend, presentation: submitActionPresentation)
                 .offset(x: TextBoxLayout.trailingButtonHorizontalOffset)
                 .padding(.bottom, TextBoxLayout.buttonBottomPadding)
             }
