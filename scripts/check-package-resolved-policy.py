@@ -83,14 +83,9 @@ def tracked_package_manifests_at_ref(
     include_allowed_vendor: bool,
 ) -> dict[str, Path]:
     manifests: dict[str, Path] = {}
-    for manifest in git_stdout(
-        "ls-tree",
-        "-r",
-        "--name-only",
-        ref,
-        "--",
-        "*Package.swift",
-    ).splitlines():
+    for manifest in git_stdout("ls-tree", "-r", "--name-only", ref).splitlines():
+        if Path(manifest).name != "Package.swift":
+            continue
         if has_skipped_part(manifest):
             continue
         if not include_allowed_vendor and is_allowed_vendor_path(manifest):
