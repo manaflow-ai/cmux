@@ -1,18 +1,21 @@
-import XCTest
-@testable import CMUXAgentLaunch
+import CMUXAgentLaunch
+import Testing
 
-/// The hibernation lifecycle correctness for every coding-agent type funnels through
-/// one shared decision: `agentNotificationIsBlockingPrompt`. Both the dedicated Claude
-/// hook lane and the generic agent-hook lane (codex, grok, gemini, opencode, cursor,
-/// kiro, antigravity, rovodev, copilot, codebuddy, factory, qoder, hermes-agent, pi,
-/// amp, and custom vault agents) use it to decide whether a Notification may flip the
-/// lifecycle to `.needsInput`. A routine "waiting for input" reminder must NOT be
-/// blocking, or it clobbers the Stop hook's `.idle` and the pane never hibernates
-/// (the "only codex hibernates" class of bug). This suite pins that contract.
-final class AgentNotificationBlockingClassifierTests: XCTestCase {
-    func testGenuinelyBlockingNotificationsAreBlocking() {
-        // Permission / approval prompts and errors are the only notifications a user
-        // must act on; they keep the pane live across every agent type.
+/// The hibernation lifecycle correctness for every coding-agent kind funnels through
+/// one shared decision: `AgentNotificationClassifier.isBlockingPrompt`. Both the
+/// dedicated Claude hook lane and the generic agent-hook lane (codex, grok, gemini,
+/// opencode, cursor, kiro, antigravity, rovodev, copilot, codebuddy, factory, qoder,
+/// hermes-agent, pi, amp, and custom vault agents) use it to decide whether a
+/// Notification may flip the lifecycle to `.needsInput`. A routine "waiting for input"
+/// reminder must NOT be blocking, or it clobbers the Stop hook's `.idle` and the pane
+/// never hibernates (the "only codex hibernates" class of bug). This suite pins that
+/// contract.
+@Suite("AgentNotificationClassifier")
+struct AgentNotificationBlockingClassifierTests {
+    @Test("Permission/approval prompts and errors are blocking")
+    func genuinelyBlockingNotificationsAreBlocking() {
+        // The only notifications a user must act on; they keep the pane live across
+        // every agent kind.
         let blocking = [
             "permission",
             "approve",
@@ -30,14 +33,15 @@ final class AgentNotificationBlockingClassifierTests: XCTestCase {
             "uncaught exception in tool call",
         ]
         for message in blocking {
-            XCTAssertTrue(
-                agentNotificationIsBlockingPrompt(signal: "", message: message),
+            #expect(
+                AgentNotificationClassifier.isBlockingPrompt(signal: "", message: message),
                 "Expected blocking for message \(message.debugDescription)"
             )
         }
     }
 
-    func testRoutineNotificationsAreNotBlocking() {
+    @Test("Waiting/completion/attention reminders are not blocking")
+    func routineNotificationsAreNotBlocking() {
         // Routine waiting/idle reminders, completions, and generic attention must NOT
         // be blocking: they leave the Stop hook's `.idle` intact so the agent hibernates.
         let nonBlocking = [
@@ -55,19 +59,18 @@ final class AgentNotificationBlockingClassifierTests: XCTestCase {
             "",
         ]
         for message in nonBlocking {
-            XCTAssertFalse(
-                agentNotificationIsBlockingPrompt(signal: "", message: message),
+            #expect(
+                !AgentNotificationClassifier.isBlockingPrompt(signal: "", message: message),
                 "Expected NOT blocking for message \(message.debugDescription)"
             )
         }
     }
 
-    func testSignalFieldAlsoDrivesBlocking() {
-        // The blocking decision considers the structured signal (event/reason), not just
-        // the free-text message — a `reason: permission_prompt` with an empty message is
-        // still blocking.
-        XCTAssertTrue(agentNotificationIsBlockingPrompt(signal: "permission_prompt", message: ""))
-        XCTAssertTrue(agentNotificationIsBlockingPrompt(signal: "error", message: "something happened"))
-        XCTAssertFalse(agentNotificationIsBlockingPrompt(signal: "notification", message: "waiting"))
+    @Test("The structured signal field also drives the blocking decision")
+    func signalFieldAlsoDrivesBlocking() {
+        // A `reason: permission_prompt` with an empty message is still blocking.
+        #expect(AgentNotificationClassifier.isBlockingPrompt(signal: "permission_prompt", message: ""))
+        #expect(AgentNotificationClassifier.isBlockingPrompt(signal: "error", message: "something happened"))
+        #expect(!AgentNotificationClassifier.isBlockingPrompt(signal: "notification", message: "waiting"))
     }
 }
