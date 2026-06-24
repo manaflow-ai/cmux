@@ -2175,6 +2175,59 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         XCTAssertEqual(alertSpy.runModalCallCount, 1)
     }
 
+    func testBasicAuthPromptCanDeferThroughInjectedPresenter() {
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var presenterCalled = false
+        var completionCalled = false
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            presentAlert: { alert, presentedWebView, _, _ in
+                presenterCalled = true
+                XCTAssertTrue(alert === alertSpy)
+                XCTAssertTrue(presentedWebView === webView)
+            }
+        ) { _, _ in
+            completionCalled = true
+        }
+
+        XCTAssertTrue(handled)
+        XCTAssertTrue(presenterCalled)
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+        XCTAssertFalse(completionCalled)
+    }
+
+    func testBasicAuthPromptPresenterCancelCancelsChallenge() {
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var disposition: URLSession.AuthChallengeDisposition?
+        var credential: URLCredential?
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            presentAlert: { _, _, _, cancel in
+                cancel()
+            }
+        ) { returnedDisposition, returnedCredential in
+            disposition = returnedDisposition
+            credential = returnedCredential
+        }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+        XCTAssertEqual(disposition, .cancelAuthenticationChallenge)
+        XCTAssertNil(credential)
+    }
+
     func testBasicAuthPromptConfirmReturnsSessionCredential() {
         let proposed = URLCredential(user: "prefill", password: "old", persistence: .forSession)
         let challenge = makeAuthChallenge(

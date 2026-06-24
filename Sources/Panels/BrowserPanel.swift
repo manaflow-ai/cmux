@@ -8494,13 +8494,12 @@ func browserHandleHTTPBasicAuthenticationChallenge(
     challenge: URLAuthenticationChallenge,
     alertFactory: @escaping () -> NSAlert = { NSAlert() },
     windowProvider: (() -> NSWindow?)? = nil,
+    presentAlert: @escaping BrowserAlertPresenter = browserPresentAlert,
     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
 ) -> Bool {
     guard browserShouldPromptForHTTPBasicAuth(challenge: challenge) else {
         return false
     }
-
-    let resolvedWindowProvider = windowProvider ?? { webView.window }
 
     let presentPrompt = {
         let alert = alertFactory()
@@ -8583,10 +8582,18 @@ func browserHandleHTTPBasicAuthenticationChallenge(
             }
         }
 
-        if let window = resolvedWindowProvider() {
-            alert.beginSheetModal(for: window, completionHandler: handleResponse)
+        let handleCancel = {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+
+        if let windowProvider {
+            if let window = windowProvider() {
+                alert.beginSheetModal(for: window, completionHandler: handleResponse)
+            } else {
+                handleResponse(alert.runModal())
+            }
         } else {
-            handleResponse(alert.runModal())
+            presentAlert(alert, webView, handleResponse, handleCancel)
         }
     }
 
@@ -8815,6 +8822,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         if browserHandleHTTPBasicAuthenticationChallenge(
             in: webView,
             challenge: challenge,
+            presentAlert: presentAlert,
             completionHandler: completionHandler
         ) {
             return
