@@ -108,7 +108,7 @@ enum RenderableSystemSymbol {
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
         let image = (configuredImage.copy() as? NSImage) ?? configuredImage
         image.isTemplate = true
-        image.size = NSSize(width: rasterSize, height: rasterSize)
+        image.size = fittedSymbolSize(configuredImage.size, maximumDimension: rasterSize)
         appKitImageCache[cacheKey] = image
         appKitImageCacheInsertionOrder.append(cacheKey)
         while appKitImageCacheInsertionOrder.count > appKitImageCacheLimit {
@@ -116,6 +116,18 @@ enum RenderableSystemSymbol {
             appKitImageCache.removeValue(forKey: evictedKey)
         }
         return image
+    }
+
+    static func fittedSymbolSize(_ naturalSize: NSSize, maximumDimension: CGFloat) -> NSSize {
+        let maximumDimension = clampedRasterPointSize(maximumDimension)
+        guard naturalSize.width.isFinite,
+              naturalSize.height.isFinite,
+              naturalSize.width > 0,
+              naturalSize.height > 0 else {
+            return NSSize(width: maximumDimension, height: maximumDimension)
+        }
+        let scale = maximumDimension / max(naturalSize.width, naturalSize.height)
+        return NSSize(width: naturalSize.width * scale, height: naturalSize.height * scale)
     }
 
     private static func nsFontWeight(for weight: Font.Weight?) -> NSFont.Weight {
