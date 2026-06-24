@@ -45,7 +45,10 @@ async function recordWaitlistSignup(
     ]),
   );
   try {
-    const res = await fetch(`${host.replace(/\/+$/, "")}/i/v0/e/`, {
+    // `/e/` is the capture endpoint posthog-js itself posts events to (through
+    // the same first-party `api_host` proxy), so this matches the SDK's path
+    // and payload shape rather than inventing a new one.
+    const res = await fetch(`${host.replace(/\/+$/, "")}/e/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       keepalive: true,
