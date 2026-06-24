@@ -19,6 +19,11 @@ final class ClaudeResumeAutoResponderController {
     /// times a second and stop watching after the window (if the session wasn't
     /// compacted the menu never appears and we quietly give up).
     private static let pollInterval: TimeInterval = 0.4
+    /// Bound failed restore/startup cases that never produce a live surface. This
+    /// is deliberately much longer than the live watch window so paced restore
+    /// and cold hidden panes can still start their prompt watch when they become
+    /// live.
+    private static let pendingWindow: TimeInterval = 30 * 60
     private static let watchWindow: TimeInterval = 45
     /// Cap snapshot reads per tick so a large restore (~1000 panes) spreads the
     /// work across ticks instead of doing an O(N) sweep every poll.
@@ -27,6 +32,7 @@ final class ClaudeResumeAutoResponderController {
     private var timer: DispatchSourceTimer?
     private let panels = NSMapTable<NSString, TerminalPanel>.strongToWeakObjects()
     private var responders: [UUID: ClaudeResumeAutoResponder] = [:]
+    private var pendingDeadlines: [UUID: Date] = [:]
     private var deadlines: [UUID: Date] = [:]
     private var pollCursor = 0
 
@@ -39,6 +45,7 @@ final class ClaudeResumeAutoResponderController {
         guard mode != .ask else { return }
         panels.setObject(panel, forKey: Self.panelKey(for: panel.id))
         responders[panel.id] = ClaudeResumeAutoResponder(mode: mode)
+        pendingDeadlines[panel.id] = now.addingTimeInterval(Self.pendingWindow)
         if panel.surface.hasLiveSurface {
             deadlines[panel.id] = now.addingTimeInterval(Self.watchWindow)
         } else {
@@ -91,6 +98,11 @@ final class ClaudeResumeAutoResponderController {
                 removeEntry(id)
                 continue
             }
+            guard let pendingDeadline = pendingDeadlines[id],
+                  now < pendingDeadline else {
+                removeEntry(id)
+                continue
+            }
             guard panel.surface.hasLiveSurface else { continue }
             let deadline = liveDeadline(for: id, now: now)
             guard now < deadline else {
@@ -127,6 +139,7 @@ final class ClaudeResumeAutoResponderController {
     private func removeEntry(_ id: UUID) {
         panels.removeObject(forKey: Self.panelKey(for: id))
         responders.removeValue(forKey: id)
+        pendingDeadlines.removeValue(forKey: id)
         deadlines.removeValue(forKey: id)
     }
 
