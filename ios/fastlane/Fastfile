@@ -44,7 +44,10 @@ platform :ios do
     # The iPad is composited bezel-less in landscape (latest real screen, no
     # dated frame, since frameit has no current/landscape iPad frame).
     sh("python3", ipad, ss)
-    UI.message("Framed screenshots written alongside originals (*_framed.png)")
+    # Build the HTML gallery (screenshots/preview/index.html) for review; CI
+    # uploads it inside the screenshots artifact.
+    sh("python3", File.expand_path("frame_assets/generate_preview.py", __dir__), ss)
+    UI.message("Framed screenshots + preview/index.html written")
   end
 
   desc "Upload the captured screenshots to the com.cmux.app App Store listing"
