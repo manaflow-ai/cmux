@@ -1269,31 +1269,28 @@ struct RestorableAgentSessionIndex: Sendable {
         if claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup) {
             return true
         }
-        // Fall back to the authoritative signal: the claude Stop hook sets
-        // `isRestorable == true` only for a genuinely resumable session. Transcript
-        // resolution legitimately misses (custom CLAUDE_CONFIG_DIR, account-scoped or
-        // forked roots, project-dir encoding drift); discarding a would-be-restorable
-        // session there made claude silently never hibernate while codex did (the
-        // classic "only codex hibernates" report).
+        // Fail closed: claude is restorable only when a transcript file is actually
+        // found by one of the checks above. `isRestorable` is sticky hook state, not
+        // proof the conversation can replay; trusting it when no transcript resolves
+        // risks SIGTERMing a live pane and then failing `claude --resume` into a dead
+        // shell, which is worse than not hibernating. The systemic "only codex
+        // hibernates" cause is the notification-lifecycle clobber fixed elsewhere in
+        // this change; that does not require relaxing this gate.
         //
-        // Fail closed unless the hook actually RECORDED a transcript path. The three
-        // miss cases above all still record a path (the file just isn't resolvable from
-        // here); a record with no path at all never proved a transcript and is not
-        // trusted. This bounds the residual risk to "path recorded but file later
-        // deleted" — there `claude --resume` exits cleanly to a shell (the conversation
-        // was already gone; nothing the live pane held is lost), which beats permanently
-        // never hibernating every hard-to-locate-transcript session. Log it so the gap
-        // stays diagnosable, not silent.
-        if record.isRestorable == true,
-           normalizedNonEmptyValue(record.transcriptPath) != nil {
-            #if DEBUG
+        // Emit a diagnostic when a claude record claims `isRestorable == true` but no
+        // transcript resolved, so if hard-to-locate-transcript sessions (custom
+        // CLAUDE_CONFIG_DIR, forked roots, encoding drift) ever cause real
+        // never-hibernation, it is observable here instead of guessed at — the
+        // evidence-driven fix would then be to make the transcript lookup resolve
+        // those roots, not to fail open.
+        #if DEBUG
+        if record.isRestorable == true {
             cmuxDebugLog(
-                "agentHib.restorable.claudeTranscriptMissing session=\(record.sessionId.prefix(8)) "
-                    + "transcriptPath=\(record.transcriptPath ?? "<nil>") — trusting isRestorable=true"
+                "agentHib.restorable.claudeTranscriptUnresolved session=\(record.sessionId.prefix(8)) "
+                    + "transcriptPath=\(record.transcriptPath ?? "<nil>") — failing closed (no transcript found)"
             )
-            #endif
-            return true
         }
+        #endif
         return false
     }
 
