@@ -14,7 +14,21 @@ struct AgentChatDemoScreen: View {
         NavigationStack {
             Group {
                 if let stack {
-                    ChatScreen(store: stack.store, onOpenTerminal: {})
+                    ChatScreen(
+                        store: stack.store,
+                        providesOwnChrome: false,
+                        onOpenTerminal: {}
+                    )
+                    .mobileTerminalNavigationChrome()
+                    .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            ChatSessionHeaderView(
+                                descriptor: stack.store.descriptor,
+                                agentState: stack.store.agentState,
+                                isConnected: stack.store.isConnected
+                            )
+                        }
+                    }
                 } else {
                     ProgressView()
                         .task {

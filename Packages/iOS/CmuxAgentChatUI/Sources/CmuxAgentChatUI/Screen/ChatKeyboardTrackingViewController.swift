@@ -33,6 +33,7 @@ final class ChatKeyboardTrackingViewController<Content: View>: UIViewController 
 
         addChild(hostingController)
         hostingController.view.backgroundColor = .clear
+        hostingController.safeAreaRegions = .container
         hostingController.view.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(hostingController.view)
 
