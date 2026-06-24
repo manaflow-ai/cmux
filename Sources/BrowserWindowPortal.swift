@@ -796,8 +796,8 @@ final class WindowBrowserHostView: NSView {
     }
 
     private func hostedInspectorDividerCandidate(in slot: WindowBrowserSlotView) -> HostedInspectorDividerHit? {
-        let inspectorCandidates = Self.visibleDescendants(in: slot)
-            .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
+        let inspectorCandidates = WebInspectorLayoutDetector().visibleDescendants(in: slot)
+            .filter { Self.isVisibleHostedInspectorCandidate($0) && WebInspectorLayoutDetector().isInspectorView($0) }
             .sorted { lhs, rhs in
                 let lhsFrame = slot.convert(lhs.bounds, from: lhs)
                 let rhsFrame = slot.convert(rhs.bounds, from: rhs)
@@ -834,7 +834,7 @@ final class WindowBrowserHostView: NSView {
             let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
                 guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
                 guard candidate !== inspectorView else { return nil }
-                guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
+                guard WebInspectorLayoutDetector().verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
                     return nil
                 }
                 guard let dockSide = HostedInspectorDockSide.resolve(
@@ -880,13 +880,13 @@ final class WindowBrowserHostView: NSView {
     private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
         let pageFrame = hit.slotView.convert(hit.pageView.bounds, from: hit.pageView)
         let inspectorFrame = hit.slotView.convert(hit.inspectorView.bounds, from: hit.inspectorView)
-        let overlap = Self.verticalOverlap(between: pageFrame, and: inspectorFrame)
+        let overlap = WebInspectorLayoutDetector().verticalOverlap(between: pageFrame, and: inspectorFrame)
         let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
         return (overlap * 1_000) + coverageWidth + pageFrame.width
     }
 
     private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
-        let overlap = Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame)
+        let overlap = WebInspectorLayoutDetector().verticalOverlap(between: pageView.frame, and: inspectorView.frame)
         let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
         return (overlap * 1_000) + coverageWidth + pageView.frame.width
     }
@@ -1049,10 +1049,6 @@ final class WindowBrowserHostView: NSView {
         return nil
     }
 
-    private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
-        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
-    }
-
     private static func rectApproximatelyEqual(_ lhs: NSRect, _ rhs: NSRect, epsilon: CGFloat = 0.01) -> Bool {
         abs(lhs.origin.x - rhs.origin.x) <= epsilon &&
             abs(lhs.origin.y - rhs.origin.y) <= epsilon &&
@@ -1063,20 +1059,6 @@ final class WindowBrowserHostView: NSView {
     private static func sizeApproximatelyEqual(_ lhs: NSSize, _ rhs: NSSize, epsilon: CGFloat = 0.01) -> Bool {
         abs(lhs.width - rhs.width) <= epsilon &&
             abs(lhs.height - rhs.height) <= epsilon
-    }
-
-    private static func visibleDescendants(in root: NSView) -> [NSView] {
-        var descendants: [NSView] = []
-        var stack = Array(root.subviews.reversed())
-        while let view = stack.popLast() {
-            descendants.append(view)
-            stack.append(contentsOf: view.subviews.reversed())
-        }
-        return descendants
-    }
-
-    private static func isInspectorView(_ view: NSView) -> Bool {
-        cmuxIsWebInspectorObject(view)
     }
 
     private static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {

@@ -74,8 +74,6 @@ struct BrowserPanelView: View {
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
-    @State private var focusFlashOpacity: Double = 0.0
-    @State private var focusFlashAnimationGeneration: Int = 0
     @State private var omnibarPillFrame: CGRect = .zero
     @State private var addressBarHeight: CGFloat = 0
     @State private var addressBarWidth: CGFloat = 0
@@ -750,14 +748,6 @@ struct BrowserPanelView: View {
         }
     }
 
-    private var focusFlashOverlayView: some View {
-        RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
-            .stroke(cmuxAccentColor().opacity(focusFlashOpacity), lineWidth: 3)
-            .shadow(color: cmuxAccentColor().opacity(focusFlashOpacity * 0.35), radius: 10)
-            .padding(FocusFlashPattern.ringInset)
-            .allowsHitTesting(false)
-    }
-
     @ViewBuilder
     private var omnibarSuggestionsOverlayView: some View {
         if shouldRenderOmnibarSuggestionsInSwiftUI {
@@ -799,7 +789,13 @@ struct BrowserPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .overlay(browserFindOverlayView)
-        .overlay(focusFlashOverlayView)
+        .focusFlash(token: panel.focusFlashToken) { opacity in
+            RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+                .stroke(cmuxAccentColor().opacity(opacity), lineWidth: 3)
+                .shadow(color: cmuxAccentColor().opacity(opacity * 0.35), radius: 10)
+                .padding(FocusFlashPattern.ringInset)
+                .allowsHitTesting(false)
+        }
         .overlay(omnibarSuggestionsOverlayView, alignment: .topLeading)
     }
 
@@ -826,9 +822,6 @@ struct BrowserPanelView: View {
         }
         .onDisappear {
             handleBrowserPanelDisappear()
-        }
-        .onChange(of: panel.focusFlashToken) { _ in
-            triggerFocusFlashAnimation()
         }
         .onChange(of: panel.currentURL) { _ in
             handleCurrentURLChange()
@@ -1601,30 +1594,6 @@ struct BrowserPanelView: View {
             .accessibilityIdentifier("BrowserWebContentRecoveryButton")
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func triggerFocusFlashAnimation() {
-        focusFlashAnimationGeneration &+= 1
-        let generation = focusFlashAnimationGeneration
-        focusFlashOpacity = FocusFlashPattern.standard.values.first ?? 0
-
-        for segment in FocusFlashPattern.standard.segments {
-            DispatchQueue.main.asyncAfter(deadline: .now() + segment.delay) {
-                guard focusFlashAnimationGeneration == generation else { return }
-                withAnimation(focusFlashAnimation(for: segment.curve, duration: segment.duration)) {
-                    focusFlashOpacity = segment.targetOpacity
-                }
-            }
-        }
-    }
-
-    private func focusFlashAnimation(for curve: FocusFlashCurve, duration: TimeInterval) -> Animation {
-        switch curve {
-        case .easeIn:
-            return .easeIn(duration: duration)
-        case .easeOut:
-            return .easeOut(duration: duration)
-        }
     }
 
     private func refreshBrowserChromeStyle() {
@@ -3820,8 +3789,8 @@ struct WebViewRepresentable: NSViewRepresentable {
                 return preferredHit
             }
 
-            let inspectorCandidates = Self.visibleDescendants(in: root)
-                .filter { Self.isVisibleHostedInspectorCandidate($0) && Self.isInspectorView($0) }
+            let inspectorCandidates = WebInspectorLayoutDetector().visibleDescendants(in: root)
+                .filter { Self.isVisibleHostedInspectorCandidate($0) && WebInspectorLayoutDetector().isInspectorView($0) }
                 .sorted { lhs, rhs in
                     let lhsFrame = root.convert(lhs.bounds, from: lhs)
                     let rhsFrame = root.convert(rhs.bounds, from: rhs)
@@ -3879,7 +3848,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 }
                 guard pageView !== inspectorView,
                       Self.isVisibleHostedInspectorSiblingCandidate(pageView),
-                      Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame) > 8,
+                      WebInspectorLayoutDetector().verticalOverlap(between: pageView.frame, and: inspectorView.frame) > 8,
                       let dockSide = HostedInspectorDockSide.resolve(
                           pageFrame: pageView.frame,
                           inspectorFrame: inspectorView.frame
@@ -3919,7 +3888,7 @@ struct WebViewRepresentable: NSViewRepresentable {
                 let pageCandidates = containerView.subviews.compactMap { candidate -> (view: NSView, dockSide: HostedInspectorDockSide)? in
                     guard Self.isVisibleHostedInspectorSiblingCandidate(candidate) else { return nil }
                     guard candidate !== inspectorView else { return nil }
-                    guard Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
+                    guard WebInspectorLayoutDetector().verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8 else {
                         return nil
                     }
                     guard let dockSide = HostedInspectorDockSide.resolve(
@@ -3952,13 +3921,13 @@ struct WebViewRepresentable: NSViewRepresentable {
         private func hostedInspectorDividerCandidateScore(_ hit: HostedInspectorDividerHit) -> CGFloat {
             let pageFrame = convert(hit.pageView.bounds, from: hit.pageView)
             let inspectorFrame = convert(hit.inspectorView.bounds, from: hit.inspectorView)
-            let overlap = Self.verticalOverlap(between: pageFrame, and: inspectorFrame)
+            let overlap = WebInspectorLayoutDetector().verticalOverlap(between: pageFrame, and: inspectorFrame)
             let coverageWidth = max(pageFrame.maxX, inspectorFrame.maxX) - min(pageFrame.minX, inspectorFrame.minX)
             return (overlap * 1_000) + coverageWidth + pageFrame.width
         }
 
         private func hostedInspectorPageCandidateScore(_ pageView: NSView, inspectorView: NSView) -> CGFloat {
-            let overlap = Self.verticalOverlap(between: pageView.frame, and: inspectorView.frame)
+            let overlap = WebInspectorLayoutDetector().verticalOverlap(between: pageView.frame, and: inspectorView.frame)
             let coverageWidth = max(pageView.frame.maxX, inspectorView.frame.maxX) - min(pageView.frame.minX, inspectorView.frame.minX)
             return (overlap * 1_000) + coverageWidth + pageView.frame.width
         }
@@ -4108,16 +4077,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             return (pageFrame, inspectorFrame)
         }
 
-        private static func visibleDescendants(in root: NSView) -> [NSView] {
-            var descendants: [NSView] = []
-            var stack = Array(root.subviews.reversed())
-            while let view = stack.popLast() {
-                descendants.append(view)
-                stack.append(contentsOf: view.subviews.reversed())
-            }
-            return descendants
-        }
-
         private static func directChild(of container: NSView, containing descendant: NSView) -> NSView? {
             var current: NSView? = descendant
             var directChild: NSView?
@@ -4127,10 +4086,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             }
             guard current === container else { return nil }
             return directChild
-        }
-
-        fileprivate static func isInspectorView(_ view: NSView) -> Bool {
-            cmuxIsWebInspectorObject(view)
         }
 
         fileprivate static func isVisibleHostedInspectorCandidate(_ view: NSView) -> Bool {
@@ -4144,10 +4099,6 @@ struct WebViewRepresentable: NSViewRepresentable {
             !view.isHidden &&
                 view.alphaValue > 0 &&
                 view.frame.height > 1
-        }
-
-        private static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
-            max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
         }
     }
 

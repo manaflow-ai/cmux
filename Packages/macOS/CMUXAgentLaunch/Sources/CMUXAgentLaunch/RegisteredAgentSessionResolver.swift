@@ -178,6 +178,111 @@ public struct RegisteredAgentSessionResolver: Sendable {
         return candidates
     }
 
+    /// The `chat_history.jsonl` candidates to scan under a set of Grok session
+    /// roots, ripgrep-prefiltered for `needle` when non-empty.
+    ///
+    /// For each root: when `needle` is non-empty, runs ripgrep over
+    /// `chat_history.jsonl` files and stats each match (skipping any without a
+    /// modification date), falling back to a full Foundation enumeration of the
+    /// root when ripgrep is unavailable; when `needle` is empty, enumerates every
+    /// `chat_history.jsonl` under the root. The app loader sorts the result by
+    /// modification date and applies the cancellation/scan caps and windowing.
+    ///
+    /// - Parameters:
+    ///   - roots: The Grok session roots to gather candidates under.
+    ///   - needle: The search text; empty gathers every candidate.
+    ///   - fileManager: The file manager used to stat ripgrep-matched files and
+    ///     enumerate roots.
+    public func gatherGrokHistoryCandidates(
+        roots: [GrokSessionRoot],
+        needle: String,
+        fileManager: FileManager
+    ) async -> [GrokSessionCandidate] {
+        let fm = fileManager
+        var candidates: [GrokSessionCandidate] = []
+        if !needle.isEmpty {
+            for root in roots {
+                guard let rgPaths = await ripgrepScanner.matchingPaths(
+                    needle: needle,
+                    root: root.sessionsRoot,
+                    fileGlob: "chat_history.jsonl"
+                ) else {
+                    candidates.append(
+                        contentsOf: enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
+                            GrokSessionCandidate(url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
+                        }
+                    )
+                    continue
+                }
+                for url in rgPaths where url.lastPathComponent == "chat_history.jsonl" {
+                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                          let modified = attrs[.modificationDate] as? Date else {
+                        continue
+                    }
+                    candidates.append(GrokSessionCandidate(url: url, modified: modified, prefilteredByRipgrep: true, root: root))
+                }
+            }
+        } else {
+            for root in roots {
+                candidates.append(
+                    contentsOf: enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
+                        GrokSessionCandidate(url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
+                    }
+                )
+            }
+        }
+        return candidates
+    }
+
+    /// The `.jsonl` candidates to scan under a set of registered-agent session
+    /// roots, ripgrep-prefiltered for `needle` when non-empty.
+    ///
+    /// For each root: when `needle` is non-empty, runs ripgrep over `*.jsonl`
+    /// files and stats each match (skipping any without a modification date),
+    /// falling back to a full Foundation enumeration of the root when ripgrep is
+    /// unavailable; when `needle` is empty, enumerates every `.jsonl` under the
+    /// root. The app loader sorts the result by modification date and applies the
+    /// cancellation/scan caps and windowing.
+    ///
+    /// - Parameters:
+    ///   - roots: The registered-agent session roots to gather candidates under.
+    ///   - needle: The search text; empty gathers every candidate.
+    public func gatherRegisteredJSONLCandidates(
+        roots: [String],
+        needle: String
+    ) async -> [RegisteredAgentSessionCandidate] {
+        let fm = FileManager.default
+        var candidates: [RegisteredAgentSessionCandidate] = []
+        if !needle.isEmpty {
+            for root in roots {
+                guard let rgPaths = await ripgrepScanner.matchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
+                    candidates.append(
+                        contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
+                            RegisteredAgentSessionCandidate(url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
+                        }
+                    )
+                    continue
+                }
+                for url in rgPaths {
+                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                          let modified = attrs[.modificationDate] as? Date else {
+                        continue
+                    }
+                    candidates.append(RegisteredAgentSessionCandidate(url: url, modified: modified, prefilteredByRipgrep: true))
+                }
+            }
+        } else {
+            for root in roots {
+                candidates.append(
+                    contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
+                        RegisteredAgentSessionCandidate(url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
+                    }
+                )
+            }
+        }
+        return candidates
+    }
+
     /// Extracts session metadata (title, cwd, branch, native session id) from one
     /// registered-agent `.jsonl` rollout, reading at most 512 KB from the head.
     ///

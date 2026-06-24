@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CMUXAgentLaunch
+import CmuxFeedUI
 import SwiftUI
 
 /// Debug-only window that renders every Feed item kind + state against
@@ -132,7 +133,9 @@ private struct FeedPreviewCardHost: View {
             stopDraft: $stopDraft,
             stopDraftValue: stopDraft,
             stopFocusRequest: $stopFocusRequest,
-            stopFocusRequestValue: stopFocusRequest
+            stopFocusRequestValue: stopFocusRequest,
+            moveFocusToFeedHost: FeedPanelView.moveFeedKeyboardFocusToHost(in:),
+            responderRetainsFeedFocus: FeedPanelView.responderRetainsFeedFocus(_:)
         )
     }
 }

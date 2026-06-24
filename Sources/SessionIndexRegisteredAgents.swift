@@ -39,41 +39,13 @@ extension SessionIndexStore {
             observedGrokHomes: observedGrokHomes
         )
         guard !roots.isEmpty else { return [] }
-        let fm = fileManager
         let historyParser = AgentHistoryRecordParser()
 
-        var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool, root: GrokSessionRoot)] = []
-        if !needle.isEmpty {
-            for root in roots {
-                guard let rgPaths = await ripgrepScanner.matchingPaths(
-                    needle: needle,
-                    root: root.sessionsRoot,
-                    fileGlob: "chat_history.jsonl"
-                ) else {
-                    candidates.append(
-                        contentsOf: registeredAgentResolver.enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
-                            (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
-                        }
-                    )
-                    continue
-                }
-                for url in rgPaths where url.lastPathComponent == "chat_history.jsonl" {
-                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
-                          let modified = attrs[.modificationDate] as? Date else {
-                        continue
-                    }
-                    candidates.append((url, modified, true, root))
-                }
-            }
-        } else {
-            for root in roots {
-                candidates.append(
-                    contentsOf: registeredAgentResolver.enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
-                        (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
-                    }
-                )
-            }
-        }
+        var candidates = await registeredAgentResolver.gatherGrokHistoryCandidates(
+            roots: roots,
+            needle: needle,
+            fileManager: fileManager
+        )
 
         candidates.sort { $0.modified > $1.modified }
         let target = offset + limit
@@ -168,37 +140,12 @@ extension SessionIndexStore {
             cwdFilter: cwdFilter
         )
         guard !roots.isEmpty else { return [] }
-        let fm = FileManager.default
         let historyParser = AgentHistoryRecordParser()
 
-        var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool)] = []
-        if !needle.isEmpty {
-            for root in roots {
-                guard let rgPaths = await ripgrepScanner.matchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
-                    candidates.append(
-                        contentsOf: registeredAgentResolver.enumerateRegisteredJSONLCandidates(root: root).map {
-                            (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
-                        }
-                    )
-                    continue
-                }
-                for url in rgPaths {
-                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
-                          let modified = attrs[.modificationDate] as? Date else {
-                        continue
-                    }
-                    candidates.append((url, modified, true))
-                }
-            }
-        } else {
-            for root in roots {
-                candidates.append(
-                    contentsOf: registeredAgentResolver.enumerateRegisteredJSONLCandidates(root: root).map {
-                        (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
-                    }
-                )
-            }
-        }
+        var candidates = await registeredAgentResolver.gatherRegisteredJSONLCandidates(
+            roots: roots,
+            needle: needle
+        )
 
         candidates.sort { $0.modified > $1.modified }
         let target = offset + limit

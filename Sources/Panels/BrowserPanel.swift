@@ -15,15 +15,6 @@ import CFNetwork
 import Darwin
 import CmuxTerminal
 
-enum BrowserAddressBarFocusSelectionIntent: Equatable {
-    case preserveFieldEditorSelection
-    case selectAll
-
-    var shouldSelectAll: Bool {
-        self == .selectAll
-    }
-}
-
 private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
     let type: NSEvent.EventType
     let timestamp: TimeInterval
@@ -3287,7 +3278,7 @@ final class BrowserPanel: Panel, ObservableObject {
 #endif
 
             // Use >= 2x the rendered point size so we don't upscale (blurry) on Retina.
-            guard let png = Self.makeFaviconPNGData(from: data, targetPx: 32) else {
+            guard let png = NSImage(data: data)?.faviconPNGData(targetPx: 32) else {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.favicon.decodeFailed " +
@@ -3341,62 +3332,6 @@ final class BrowserPanel: Panel, ObservableObject {
                 resume(nil)
             }
         }
-    }
-
-    @MainActor
-    private static func makeFaviconPNGData(from raw: Data, targetPx: Int) -> Data? {
-        guard let image = NSImage(data: raw) else { return nil }
-
-        let px = max(16, min(128, targetPx))
-        let size = NSSize(width: px, height: px)
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: px,
-            pixelsHigh: px,
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else {
-            return nil
-        }
-
-        NSGraphicsContext.saveGraphicsState()
-        defer { NSGraphicsContext.restoreGraphicsState() }
-        let ctx = NSGraphicsContext(bitmapImageRep: rep)
-        ctx?.imageInterpolation = .high
-        ctx?.shouldAntialias = true
-        NSGraphicsContext.current = ctx
-
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: size).fill()
-
-        // Aspect-fit into the target square.
-        let srcSize = image.size
-        let scale = min(size.width / max(1, srcSize.width), size.height / max(1, srcSize.height))
-        let drawSize = NSSize(width: srcSize.width * scale, height: srcSize.height * scale)
-        let drawOrigin = NSPoint(x: (size.width - drawSize.width) / 2.0, y: (size.height - drawSize.height) / 2.0)
-        // Align to integral pixels to avoid soft edges at small sizes.
-        let drawRect = NSRect(
-            x: round(drawOrigin.x),
-            y: round(drawOrigin.y),
-            width: round(drawSize.width),
-            height: round(drawSize.height)
-        )
-
-        image.draw(
-            in: drawRect,
-            from: NSRect(origin: .zero, size: srcSize),
-            operation: .sourceOver,
-            fraction: 1.0,
-            respectFlipped: true,
-            hints: [.interpolation: NSImageInterpolation.high]
-        )
-
-        return rep.representation(using: .png, properties: [:])
     }
 
     private func handleWebViewLoadingChanged(_ newValue: Bool) {
@@ -4137,36 +4072,22 @@ extension BrowserPanel {
         isMainFrameProvisionalNavigationActive = false
     }
 
-    private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        if root.cmuxIsWebInspectorObject {
-            return true
-        }
-        for subview in root.subviews where windowContainsInspectorViews(subview) {
-            return true
-        }
-        return false
-    }
-
-    static func isDetachedInspectorWindow(_ window: NSWindow) -> Bool {
-        guard window.title.hasPrefix("Web Inspector") else { return false }
-        guard let contentView = window.contentView else { return false }
-        return windowContainsInspectorViews(contentView)
-    }
-
     private func detachedDeveloperToolsWindows() -> [NSWindow] {
         let mainWindow = webView.window
+        let detector = WebInspectorLayoutDetector()
         return NSApp.windows.filter { candidate in
             if let mainWindow, candidate === mainWindow {
                 return false
             }
-            return Self.isDetachedInspectorWindow(candidate)
+            return detector.isDetachedInspectorWindow(candidate)
         }
     }
 
     private func hasAttachedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
-        return Self.visibleDescendants(in: container)
-            .contains { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
+        let detector = WebInspectorLayoutDetector()
+        return detector.visibleDescendants(in: container)
+            .contains { detector.isVisibleSideDockInspectorCandidate($0) && detector.isInspectorView($0) }
     }
 
     private func setPreferredDeveloperToolsPresentation(_ next: DeveloperToolsPresentation) {
@@ -4207,7 +4128,7 @@ extension BrowserPanel {
                   let window = notification.object as? NSWindow else { return }
             guard Thread.isMainThread else { return }
             let handledDetachedInspector = MainActor.assumeIsolated {
-                guard Self.isDetachedInspectorWindow(window) else { return false }
+                guard WebInspectorLayoutDetector().isDetachedInspectorWindow(window) else { return false }
                 return self.closeDeveloperToolsFromDetachedInspectorWindowWillClose(window)
             }
             guard handledDetachedInspector else { return }
@@ -4275,7 +4196,8 @@ extension BrowserPanel {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
         guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
               let mainWindow = webView.window else { return }
-        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
+        let detector = WebInspectorLayoutDetector()
+        for window in NSApp.windows where window !== mainWindow && detector.isDetachedInspectorWindow(window) {
 #if DEBUG
             cmuxDebugLog(
                 "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
@@ -5808,8 +5730,9 @@ private extension BrowserPanel {
 
     func hasSideDockedDeveloperToolsLayout() -> Bool {
         guard let container = webView.superview else { return false }
-        return Self.visibleDescendants(in: container)
-            .filter { Self.isVisibleSideDockInspectorCandidate($0) && Self.isInspectorView($0) }
+        let detector = WebInspectorLayoutDetector()
+        return detector.visibleDescendants(in: container)
+            .filter { detector.isVisibleSideDockInspectorCandidate($0) && detector.isInspectorView($0) }
             .contains { inspectorCandidate in
                 hasSideDockedInspectorSibling(startingAt: inspectorCandidate, root: container)
             }
@@ -5817,17 +5740,18 @@ private extension BrowserPanel {
 
     func hasSideDockedInspectorSibling(startingAt inspectorLeaf: NSView, root: NSView) -> Bool {
         var current: NSView? = inspectorLeaf
+        let detector = WebInspectorLayoutDetector()
 
         while let inspectorView = current, inspectorView !== root {
             guard let containerView = inspectorView.superview else { break }
             let hasSideDockedSibling = containerView.subviews.contains { candidate in
-                guard Self.isVisibleSideDockSiblingCandidate(candidate) else { return false }
+                guard detector.isVisibleSideDockSiblingCandidate(candidate) else { return false }
                 guard candidate !== inspectorView else { return false }
                 let horizontallyAdjacent =
                     candidate.frame.maxX <= inspectorView.frame.minX + 1 ||
                     candidate.frame.minX >= inspectorView.frame.maxX - 1
                 guard horizontallyAdjacent else { return false }
-                return Self.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+                return detector.verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
             }
             if hasSideDockedSibling {
                 return true
@@ -5837,38 +5761,6 @@ private extension BrowserPanel {
         }
 
         return false
-    }
-
-    static func visibleDescendants(in root: NSView) -> [NSView] {
-        var descendants: [NSView] = []
-        var stack = Array(root.subviews.reversed())
-        while let view = stack.popLast() {
-            descendants.append(view)
-            stack.append(contentsOf: view.subviews.reversed())
-        }
-        return descendants
-    }
-
-    static func isInspectorView(_ view: NSView) -> Bool {
-        view.cmuxIsWebInspectorObject
-    }
-
-    static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {
-        !view.isHidden &&
-            view.alphaValue > 0 &&
-            view.frame.width > 1 &&
-            view.frame.height > 1
-    }
-
-    static func isVisibleSideDockSiblingCandidate(_ view: NSView) -> Bool {
-        !view.isHidden &&
-            view.alphaValue > 0 &&
-            view.frame.width > 1 &&
-            view.frame.height > 1
-    }
-
-    static func verticalOverlap(between lhs: NSRect, and rhs: NSRect) -> CGFloat {
-        max(0, min(lhs.maxY, rhs.maxY) - max(lhs.minY, rhs.minY))
     }
 }
 
