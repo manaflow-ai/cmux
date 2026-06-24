@@ -111,10 +111,10 @@ private final class ChatKeyboardTrackingViewController<Content: View>: UIViewCon
         guard let window = view.window else { return 0 }
         let keyboardFrame = window.convert(screenFrame, from: nil)
         let viewFrame = view.convert(view.bounds, to: window)
-        return MobileKeyboardReservation.bottomDockedHeight(
+        return MobileKeyboardReservation(
             keyboardFrameInWindow: keyboardFrame,
             viewFrameInWindow: viewFrame
-        )
+        ).height
     }
 }
 #endif

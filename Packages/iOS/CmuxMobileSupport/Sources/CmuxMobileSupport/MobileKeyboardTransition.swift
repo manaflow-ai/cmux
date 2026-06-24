@@ -40,10 +40,10 @@ public struct MobileKeyboardTransition {
         guard let window = view.window else { return 0 }
         let keyboardFrameInWindow = window.convert(endFrame, from: nil)
         let viewFrameInWindow = view.convert(view.bounds, to: window)
-        return MobileKeyboardReservation.bottomDockedHeight(
+        return MobileKeyboardReservation(
             keyboardFrameInWindow: keyboardFrameInWindow,
             viewFrameInWindow: viewFrameInWindow
-        )
+        ).height
     }
 
     /// Runs animations using the keyboard's exact timing curve and duration.
