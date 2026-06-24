@@ -127,36 +127,33 @@ extension MobileShellComposite {
         let snapshot = workspaces[index]
         optimisticallyClosedWorkspaces[id] = snapshot
         let wasSelected = selectedWorkspaceID == id
-        workspaces.remove(at: index)
         if wasSelected {
             // Prefer the workspace that slid into the closed row's position, then
             // the previous neighbor, then any remaining workspace.
+            let remaining = workspaces.filter { $0.id != id }
             let next: MobileWorkspacePreview?
-            if index < workspaces.count {
-                next = workspaces[index]
-            } else if index - 1 >= 0, index - 1 < workspaces.count {
-                next = workspaces[index - 1]
+            if index < remaining.count {
+                next = remaining[index]
+            } else if index - 1 >= 0, index - 1 < remaining.count {
+                next = remaining[index - 1]
             } else {
-                next = workspaces.first
+                next = remaining.first
             }
             selectedWorkspaceID = next?.id
         }
+        recomputeDerivedWorkspaceState()
         return true
     }
 
     /// Restore an optimistically-closed workspace after a failed close, and drop
-    /// its pending entry so future snapshots stop filtering the id. Inserts the
-    /// snapshot back at its original position when known, so the row reappears in
-    /// place; the next authoritative refresh then reconciles exact ordering.
+    /// its pending entry so the source-derived workspace list can show the row
+    /// again.
     /// - Parameter id: The workspace whose close failed.
     func rollbackOptimisticWorkspaceClose(id: MobileWorkspacePreview.ID) {
-        guard let snapshot = optimisticallyClosedWorkspaces.removeValue(forKey: id) else {
+        guard optimisticallyClosedWorkspaces.removeValue(forKey: id) != nil else {
             return
         }
-        guard !workspaces.contains(where: { $0.id == id }) else { return }
         recomputeDerivedWorkspaceState()
-        guard !workspaces.contains(where: { $0.id == id }) else { return }
-        workspaces.append(snapshot)
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
