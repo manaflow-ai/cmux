@@ -992,7 +992,9 @@
 		C37800000000000000000001 /* VMSSHCommandTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C37800000000000000000002 /* VMSSHCommandTests.swift */; };
 		F65950120000000000000001 /* VSCodeCLILaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65950020000000000000001 /* VSCodeCLILaunchConfiguration.swift */; };
 		F65950140000000000000001 /* VSCodeCLILaunchConfigurationBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65950040000000000000001 /* VSCodeCLILaunchConfigurationBuilder.swift */; };
+		F65950170000000000000001 /* VSCodeProductMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65950070000000000000001 /* VSCodeProductMetadata.swift */; };
 		F65950150000000000000001 /* VSCodeServeWebController.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65950050000000000000001 /* VSCodeServeWebController.swift */; };
+		F65950180000000000000001 /* VSCodeServeWebLaunchAttemptResult.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65950080000000000000001 /* VSCodeServeWebLaunchAttemptResult.swift */; };
 		F65950130000000000000001 /* VSCodeServeWebLaunchOptions.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65950030000000000000001 /* VSCodeServeWebLaunchOptions.swift */; };
 		F65950110000000000000001 /* VSCodeServeWebURLBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65950010000000000000001 /* VSCodeServeWebURLBuilder.swift */; };
 		A500120C /* WindowAccessor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001222 /* WindowAccessor.swift */; };
@@ -2069,7 +2071,9 @@
 		C37800000000000000000002 /* VMSSHCommandTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VMSSHCommandTests.swift; sourceTree = "<group>"; };
 		F65950020000000000000001 /* VSCodeCLILaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeCLILaunchConfiguration.swift; sourceTree = "<group>"; };
 		F65950040000000000000001 /* VSCodeCLILaunchConfigurationBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeCLILaunchConfigurationBuilder.swift; sourceTree = "<group>"; };
+		F65950070000000000000001 /* VSCodeProductMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeProductMetadata.swift; sourceTree = "<group>"; };
 		F65950050000000000000001 /* VSCodeServeWebController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebController.swift; sourceTree = "<group>"; };
+		F65950080000000000000001 /* VSCodeServeWebLaunchAttemptResult.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebLaunchAttemptResult.swift; sourceTree = "<group>"; };
 		F65950030000000000000001 /* VSCodeServeWebLaunchOptions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebLaunchOptions.swift; sourceTree = "<group>"; };
 		F65950010000000000000001 /* VSCodeServeWebURLBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/VSCodeServeWebURLBuilder.swift; sourceTree = "<group>"; };
 		A5001222 /* WindowAccessor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowAccessor.swift; sourceTree = "<group>"; };
@@ -2515,7 +2519,9 @@
 					F65950020000000000000001 /* VSCodeCLILaunchConfiguration.swift */,
 					F65950030000000000000001 /* VSCodeServeWebLaunchOptions.swift */,
 					F65950040000000000000001 /* VSCodeCLILaunchConfigurationBuilder.swift */,
+					F65950070000000000000001 /* VSCodeProductMetadata.swift */,
 					F65950050000000000000001 /* VSCodeServeWebController.swift */,
+					F65950080000000000000001 /* VSCodeServeWebLaunchAttemptResult.swift */,
 					F65950060000000000000001 /* ServeWebOutputCollector.swift */,
 					8A4FE96C3F394FC6A6D4B018 /* CmuxCLIPathInstaller.swift */,
 					47D5AA7D29C94F5CA865B2BF /* ScreenIdentity.swift */,
@@ -4347,7 +4353,9 @@
 				ACE4FE2A8F1CC6C0B6A673AB /* VMClientSocketCommands.swift in Sources */,
 					F65950120000000000000001 /* VSCodeCLILaunchConfiguration.swift in Sources */,
 					F65950140000000000000001 /* VSCodeCLILaunchConfigurationBuilder.swift in Sources */,
+					F65950170000000000000001 /* VSCodeProductMetadata.swift in Sources */,
 					F65950150000000000000001 /* VSCodeServeWebController.swift in Sources */,
+					F65950180000000000000001 /* VSCodeServeWebLaunchAttemptResult.swift in Sources */,
 					F65950130000000000000001 /* VSCodeServeWebLaunchOptions.swift in Sources */,
 					F65950110000000000000001 /* VSCodeServeWebURLBuilder.swift in Sources */,
 				A500120C /* WindowAccessor.swift in Sources */,

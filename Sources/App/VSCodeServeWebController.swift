@@ -9,11 +9,6 @@ final class VSCodeServeWebController {
     private static let serveWebTerminationTimeoutSeconds: TimeInterval = 5
     private static let serveWebKillTimeoutSeconds: TimeInterval = 2
 
-    private enum LaunchAttemptResult {
-        case launched(process: Process, url: URL)
-        case failed(retryable: Bool)
-    }
-
     private let queue = DispatchQueue(label: "cmux.vscode.serveWeb")
     private let launchQueue = DispatchQueue(label: "cmux.vscode.serveWeb.launch")
     private let launchProcessOverride: ((URL, UInt64) -> (process: Process, url: URL)?)?
@@ -52,9 +47,9 @@ final class VSCodeServeWebController {
             self.activeLaunchGeneration = launchGeneration
 
             self.launchQueue.async {
-                let shouldLaunch = self.queue.sync {
+                let shouldLaunch = self.queue.sync(execute: {
                     self.lifecycleGeneration == launchGeneration
-                }
+                })
                 guard shouldLaunch else {
                     self.queue.async {
                         guard self.activeLaunchGeneration == launchGeneration else { return }
@@ -115,7 +110,7 @@ final class VSCodeServeWebController {
     }
 
     func stop() {
-        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync {
+        let (processes, completions): ([Process], [(URL?) -> Void]) = queue.sync(execute: {
             self.lifecycleGeneration &+= 1
             self.isLaunching = false
             self.activeLaunchGeneration = nil
@@ -133,7 +128,7 @@ final class VSCodeServeWebController {
             let completions = self.pendingCompletions.map(\.completion)
             self.pendingCompletions.removeAll()
             return (processes, completions)
-        }
+        })
 
         for process in processes where process.isRunning {
             process.terminate()
@@ -151,9 +146,9 @@ final class VSCodeServeWebController {
 
     func isServeWebURL(_ candidateURL: URL?) -> Bool {
         guard let candidateURL else { return false }
-        let serveWebURL = queue.sync {
+        let serveWebURL = queue.sync(execute: {
             self.serveWebURL
-        }
+        })
         return Self.urlsShareLoopbackOrigin(candidateURL, serveWebURL)
     }
 
@@ -198,7 +193,7 @@ final class VSCodeServeWebController {
         launchConfiguration: VSCodeCLILaunchConfiguration,
         launchOptions: VSCodeServeWebLaunchOptions,
         expectedGeneration: UInt64
-    ) -> LaunchAttemptResult {
+    ) -> VSCodeServeWebLaunchAttemptResult {
         let process = Process()
         process.executableURL = launchConfiguration.executableURL
         process.arguments = launchConfiguration.processArguments(for: launchOptions)
@@ -210,7 +205,8 @@ final class VSCodeServeWebController {
         process.standardError = stderrPipe
 
         let collector = ServeWebOutputCollector()
-        let terminationSemaphore = DispatchSemaphore(value: 0)
+        let terminationGroup = DispatchGroup()
+        terminationGroup.enter()
         let outputReader: (FileHandle) -> Void = { fileHandle in
             switch fileHandle.readAvailableDataOrEndOfFile() {
             case .data(let data):
@@ -225,7 +221,7 @@ final class VSCodeServeWebController {
         stderrPipe.fileHandleForReading.readabilityHandler = outputReader
 
         process.terminationHandler = { [weak self] terminatedProcess in
-            terminationSemaphore.signal()
+            terminationGroup.leave()
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
             Self.drainAvailableOutput(from: stdoutPipe.fileHandleForReading, collector: collector)
@@ -243,7 +239,7 @@ final class VSCodeServeWebController {
             }
         }
 
-        let didStart: Bool = queue.sync {
+        let didStart: Bool = queue.sync(execute: {
             guard self.lifecycleGeneration == expectedGeneration,
                   self.activeLaunchGeneration == expectedGeneration else {
                 return false
@@ -258,7 +254,7 @@ final class VSCodeServeWebController {
                 }
                 return false
             }
-        }
+        })
         guard didStart else {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
@@ -273,12 +269,12 @@ final class VSCodeServeWebController {
             if process.isRunning {
                 didTerminate = Self.terminateAndWaitForExit(
                     process,
-                    terminationSemaphore: terminationSemaphore
+                    terminationGroup: terminationGroup
                 )
             } else {
                 didTerminate = true
             }
-            queue.sync {
+            queue.sync(execute: {
                 if self.launchingProcess === process {
                     self.launchingProcess = nil
                 }
@@ -286,7 +282,7 @@ final class VSCodeServeWebController {
                     self.serveWebProcess = nil
                     self.serveWebURL = nil
                 }
-            }
+            })
             return .failed(retryable: didTerminate)
         }
 
@@ -295,30 +291,30 @@ final class VSCodeServeWebController {
 
     private static func terminateAndWaitForExit(
         _ process: Process,
-        terminationSemaphore: DispatchSemaphore
+        terminationGroup: DispatchGroup
     ) -> Bool {
         process.terminate()
-        if terminationSemaphore.wait(timeout: .now() + serveWebTerminationTimeoutSeconds) == .success {
+        if terminationGroup.wait(timeout: .now() + serveWebTerminationTimeoutSeconds) == .success {
             return true
         }
 
         if process.isRunning {
             _ = Darwin.kill(process.processIdentifier, SIGKILL)
         }
-        if terminationSemaphore.wait(timeout: .now() + serveWebKillTimeoutSeconds) == .success {
+        if terminationGroup.wait(timeout: .now() + serveWebKillTimeoutSeconds) == .success {
             return true
         }
         return !process.isRunning
     }
 
     private static func completeOnMain(_ completion: @escaping (URL?) -> Void, with url: URL?) {
-        DispatchQueue.main.async {
+        Task { @MainActor in
             completion(url)
         }
     }
 
     private static func completeOnMain(_ completions: [(URL?) -> Void], with url: URL?) {
-        DispatchQueue.main.async {
+        Task { @MainActor in
             completions.forEach { $0(url) }
         }
     }

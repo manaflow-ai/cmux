@@ -1,10 +1,6 @@
 import Foundation
 
 struct VSCodeCLILaunchConfigurationBuilder {
-    private struct VSCodeProductMetadata: Decodable {
-        let dataFolderName: String?
-    }
-
     func launchConfiguration(
         vscodeApplicationURL: URL,
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
