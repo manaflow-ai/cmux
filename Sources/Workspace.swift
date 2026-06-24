@@ -6770,6 +6770,51 @@ final class Workspace: Identifiable, ObservableObject {
         ].lazy.compactMap(Self.normalizedTerminalWorkingDirectory).first
     }
 
+    /// The directory a new tab (`new-window`) should inherit in a remote-tmux
+    /// mirror: strictly the source tab's last-reported `#{pane_current_path}`
+    /// (`panelDirectories[sourcePanelId]`), or nil when the remote has not
+    /// reported one yet.
+    ///
+    /// It must not use ``resolvedTerminalStartupWorkingDirectory(requestedWorkingDirectory:sourcePanelId:)``:
+    /// that resolver falls back to `currentDirectory`, which on a mirror
+    /// workspace is seeded from the local workspace and so can be a local
+    /// filesystem path. A local path is meaningless on the remote host — as
+    /// `new-window -c` it would open the tab somewhere other than the active
+    /// tab's directory. Only `panelDirectories[sourcePanelId]`, fed by the tab's
+    /// remote cwd reports, is a correct remote-side source.
+    func remoteTmuxNewWindowWorkingDirectory(forSourcePanelId sourcePanelId: UUID?) -> String? {
+        Self.normalizedTerminalWorkingDirectory(sourcePanelId.flatMap { panelDirectories[$0] })
+    }
+
+    /// Placement for a remote-tmux mirror `new-window` request.
+    ///
+    /// Targeted entrypoints such as "new terminal to right" pass an explicit
+    /// anchor panel and rely on local tab reordering after creation. A mirror
+    /// cannot locally reorder a tmux-created window, so the remote command must
+    /// target that anchor directly. Plain new-tab requests have no explicit
+    /// anchor and follow the workspace's tab-strip `newTabPosition`.
+    func remoteTmuxNewTabPlacement(
+        inPane paneId: PaneID,
+        anchorPanelId: UUID?
+    ) -> RemoteTmuxMirrorNewTabPlacement {
+        if let anchorPanelId {
+            return .afterPanel(anchorPanelId)
+        }
+        switch bonsplitController.configuration.newTabPosition {
+        case .end:
+            return .end
+        case .current:
+            if let selectedPanelId = selectedTerminalPanelId(inPane: paneId) {
+                return .afterPanel(selectedPanelId)
+            }
+            return .end
+        }
+    }
+
+    private func selectedTerminalPanelId(inPane paneId: PaneID) -> UUID? {
+        bonsplitController.selectedTab(inPane: paneId).map(\.id).flatMap(panelIdFromSurfaceId)
+    }
+
     /// Candidate terminal panels used as the source when creating inherited Ghostty config.
     /// Preference order:
     /// 1) explicitly preferred terminal panel (when the caller has one),
@@ -7212,8 +7257,29 @@ final class Workspace: Identifiable, ObservableObject {
         // create a local orphan the mirror can't reconcile. Dead mirrors are
         // torn down via handleSessionEndedRemotely.
         if isRemoteTmuxMirror {
+            let anchorPanelId = workingDirectoryFallbackSourcePanelId
+            let placement = remoteTmuxNewTabPlacement(inPane: paneId, anchorPanelId: anchorPanelId)
+            // Inherit the active tab's directory like a local new tab, sourcing it
+            // only from that tab's confirmed remote cwd (see
+            // remoteTmuxNewWindowWorkingDirectory). The socket/CLI layer rejects an
+            // explicit working_directory for mirror workspaces
+            // (mirrorRoutedUnsupportedOptions), so inheritance is the only source.
+            let inheritSourcePanelId = inheritWorkingDirectoryFallback
+                ? anchorPanelId ?? selectedTerminalPanelId(inPane: paneId)
+                : nil
+            let resolvedWorkingDirectory: String?
+            if let inheritSourcePanelId {
+                resolvedWorkingDirectory = remoteTmuxNewWindowWorkingDirectory(forSourcePanelId: inheritSourcePanelId)
+            } else {
+                resolvedWorkingDirectory = nil
+            }
             let routed = AppDelegate.shared?.remoteTmuxController
-                .handleMirrorNewTabRequested(workspaceId: id) ?? false
+                .handleMirrorNewTabRequested(
+                    workspaceId: id,
+                    placement: placement,
+                    workingDirectory: resolvedWorkingDirectory,
+                    workingDirectorySourcePanelId: inheritSourcePanelId
+                ) ?? false
             return routed ? .routedToRemote : .failed
         }
         guard let panel = newTerminalSurfaceLocal(
