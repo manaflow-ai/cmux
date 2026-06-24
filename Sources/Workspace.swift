@@ -12777,3 +12777,64 @@ extension Workspace: BonsplitDelegate {
 
     // No post-close polling refresh loop: we rely on view invariants and Ghostty's wakeups.
 }
+
+// MARK: - Crash recovery: resumable surface conformance
+
+/// Bridges the live workspace into the crash-recovery resume coordinator. Kept in
+/// this file so it can reach the private `sendInputWhenReady` delivery path. The
+/// "surface" is the workspace's focused terminal panel.
+extension Workspace: ResumableWorkspaceSurface {
+    private var crashRecoveryResumeBinding: SurfaceResumeBindingSnapshot? {
+        guard let panelId = focusedPanelId else { return nil }
+        return surfaceResumeBinding(panelId: panelId)
+    }
+
+    var resumeWorkspaceName: String { title }
+
+    var resumeAgentKind: RestorableAgentKind? {
+        guard let kind = crashRecoveryResumeBinding?.kind else { return nil }
+        return RestorableAgentKind(rawValue: kind)
+    }
+
+    var resumeSessionToken: String? {
+        let trimmed = crashRecoveryResumeBinding?.command.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (trimmed?.isEmpty == false) ? trimmed : nil
+    }
+
+    var isResumeBindingProven: Bool {
+        guard let binding = crashRecoveryResumeBinding else { return false }
+        return !binding.isProcessDetected
+    }
+
+    var isAgentLive: Bool {
+        focusedTerminalPanel?.surface.surface != nil
+    }
+
+    func runNativeResume() {
+        guard let panel = focusedTerminalPanel,
+              let startupInput = crashRecoveryResumeBinding?.inlineStartupInput(repairPortableAgentExecutable: false),
+              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        sendInputWhenReady(startupInput, to: panel)
+    }
+
+    func deliverResumeBreadcrumb(_ text: String) {
+        guard let panel = focusedTerminalPanel else { return }
+        sendInputWhenReady(text + "\n", to: panel)
+    }
+
+    /// Resume the focused agent and, when enabled, inject the breadcrumb. The
+    /// single shared entry used by the manual action (U6) and the crash offer (U5).
+    @discardableResult
+    func resumeWhereWeLeftOff(defaults: UserDefaults = .standard) -> ResumeOutcome {
+        WorkspaceResumeCoordinator(
+            injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
+        ).resume(self)
+    }
+
+    /// Whether the focused surface can be resumed (used to enable the menu/command).
+    func canResumeWhereWeLeftOff(defaults: UserDefaults = .standard) -> Bool {
+        WorkspaceResumeCoordinator(
+            injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
+        ).canResume(self)
+    }
+}
