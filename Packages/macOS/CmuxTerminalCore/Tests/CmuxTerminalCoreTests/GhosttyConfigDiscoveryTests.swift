@@ -35,8 +35,27 @@ private struct NoFontProbe: GhosttyFontProbing {
         #expect(ranges.isSuperset(of: GhosttyConfigDiscovery.japaneseRanges))
     }
 
-    @Test func koreanOnlyYieldsNoMappings() {
-        #expect(discovery.cjkFontMappings(preferredLanguages: ["ko-KR"]) == nil)
+    @Test func koreanMapsHangulAndSharedRanges() throws {
+        let mappings = try #require(discovery.cjkFontMappings(preferredLanguages: ["ko-KR", "en-US"]))
+        #expect(Set(mappings.map(\.1)) == ["Apple SD Gothic Neo"])
+        let ranges = Set(mappings.map(\.0))
+        #expect(ranges.isSuperset(of: GhosttyConfigDiscovery.sharedCJKRanges))
+        #expect(ranges.isSuperset(of: GhosttyConfigDiscovery.koreanRanges))
+    }
+
+    @Test func koreanFirstOwnsSharedRangesAlongsideJapanese() throws {
+        let mappings = try #require(discovery.cjkFontMappings(preferredLanguages: ["ko-KR", "ja-JP"]))
+        let shared = mappings.filter { GhosttyConfigDiscovery.sharedCJKRanges.contains($0.0) }
+        #expect(shared.allSatisfy { $0.1 == "Apple SD Gothic Neo" })
+        let kana = mappings.filter { GhosttyConfigDiscovery.japaneseRanges.contains($0.0) }
+        #expect(kana.allSatisfy { $0.1 == "Hiragino Sans" })
+    }
+
+    /// "kok" (Konkani) is a selectable macOS language that shares a prefix with
+    /// "ko", and its Devanagari script has nothing to do with the CJK ranges.
+    @Test func konkaniIsNotMistakenForKorean() {
+        #expect(discovery.cjkFontMappings(preferredLanguages: ["kok-IN"]) == nil)
+        #expect(discovery.cjkFontMappings(preferredLanguages: ["kok-Deva-IN"]) == nil)
     }
 
     @Test func traditionalChineseUsesPingFangTC() throws {

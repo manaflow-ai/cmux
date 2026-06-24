@@ -3858,10 +3858,17 @@ final class GhosttyMouseFocusTests: XCTestCase {
         XCTAssertFalse(ranges.contains("U+AC00-U+D7AF"), "Should NOT include Hangul")
     }
 
-    func testCJKFontMappingsReturnsNilForKoreanOnly() {
-        // Korean is not auto-mapped — Ghostty's native CTFontCreateForString
-        // fallback selects a better-matching font for Hangul.
-        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR"]))
+    func testCJKFontMappingsReturnsAppleSDGothicNeoWithHangulForKorean() throws {
+        let mappings = try XCTUnwrap(GhosttyApp.cjkFontMappings(preferredLanguages: ["ko-KR", "en-US"]))
+        let fonts = Set(mappings.map(\.1))
+        let ranges = mappings.map(\.0)
+
+        XCTAssertEqual(fonts, Set(["Apple SD Gothic Neo"]))
+        XCTAssertTrue(ranges.contains("U+1100-U+11FF"), "Should include Hangul Jamo")
+        XCTAssertTrue(ranges.contains("U+3130-U+318F"), "Should include Hangul Compatibility Jamo")
+        XCTAssertTrue(ranges.contains("U+AC00-U+D7AF"), "Should include Hangul Syllables")
+        XCTAssertTrue(ranges.contains("U+4E00-U+9FFF"), "Should include CJK Ideographs")
+        XCTAssertFalse(ranges.contains("U+3040-U+309F"), "Should NOT include Hiragana")
     }
 
     func testCJKFontMappingsReturnsPingFangForChinese() {
@@ -3878,19 +3885,26 @@ final class GhosttyMouseFocusTests: XCTestCase {
     func testCJKFontMappingsReturnsNilForNonCJKLanguages() {
         XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["en-US", "fr-FR"]))
         XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: []))
+        // "kok" (Konkani) is a selectable macOS language sharing a prefix with "ko".
+        XCTAssertNil(GhosttyApp.cjkFontMappings(preferredLanguages: ["kok-IN"]))
     }
 
-    func testCJKFontMappingsMultiLanguageSkipsKorean() {
-        // When both ja and ko are preferred, only Japanese mappings are generated.
-        // Korean is left to Ghostty's native CTFontCreateForString fallback.
+    func testCJKFontMappingsMultiLanguageGivesSharedRangesToFirstLanguage() {
+        // Japanese is preferred first, so it owns the shared CJK ranges. Korean
+        // still claims its own Hangul ranges, which Hiragino Sans cannot render.
         let mappings = GhosttyApp.cjkFontMappings(preferredLanguages: ["ja-JP", "ko-KR"])!
 
         let hiraginoRanges = mappings.filter { $0.1 == "Hiragino Sans" }.map(\.0)
+        let gothicRanges = mappings.filter { $0.1 == "Apple SD Gothic Neo" }.map(\.0)
 
         XCTAssertTrue(hiraginoRanges.contains("U+3040-U+309F"), "Hiragana → Hiragino")
         XCTAssertTrue(hiraginoRanges.contains("U+4E00-U+9FFF"), "Shared CJK → first lang font")
-        XCTAssertFalse(mappings.contains { $0.1 == "Apple SD Gothic Neo" }, "No Korean font mapping")
         XCTAssertFalse(hiraginoRanges.contains("U+AC00-U+D7AF"), "Hangul NOT in Hiragino")
+        XCTAssertEqual(
+            Set(gothicRanges),
+            Set(["U+1100-U+11FF", "U+3130-U+318F", "U+AC00-U+D7AF"]),
+            "Hangul ranges → Apple SD Gothic Neo"
+        )
     }
 
     func testResolvedInjectedCJKFontNamePinsRegularWeightForHiraginoSans() throws {
@@ -3970,6 +3984,35 @@ final class GhosttyMouseFocusTests: XCTestCase {
 
             XCTAssertEqual(Set(mappings.map(\.0)), Set(["U+3040-U+309F", "U+30A0-U+30FF"]))
             XCTAssertEqual(Set(mappings.map(\.1)), Set(["Hiragino Sans"]))
+        }
+    }
+
+    func testAutoInjectedCJKFontMappingsKeepsHangulRangesForKorean() throws {
+        let coveredRanges: Set<String> = [
+            "U+3000-U+303F",
+            "U+4E00-U+9FFF",
+            "U+F900-U+FAFF",
+            "U+FF00-U+FFEF",
+            "U+3400-U+4DBF",
+        ]
+
+        try withTempConfig("font-family = Example CJK Mono\n") { path in
+            guard let mappings = GhosttyApp.autoInjectedCJKFontMappings(
+                preferredLanguages: ["ko-KR"],
+                configPaths: [path],
+                rangeCoverageProbe: { _, range in
+                    coveredRanges.contains(range)
+                }
+            ) else {
+                XCTFail("Korean locale should keep its Hangul ranges after coverage filtering")
+                return
+            }
+
+            XCTAssertEqual(
+                Set(mappings.map(\.0)),
+                Set(["U+1100-U+11FF", "U+3130-U+318F", "U+AC00-U+D7AF"])
+            )
+            XCTAssertEqual(Set(mappings.map(\.1)), Set(["Apple SD Gothic Neo"]))
         }
     }
 

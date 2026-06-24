@@ -56,6 +56,11 @@ public struct GhosttyConfigDiscovery {
         "U+30A0-U+30FF",  // Katakana
     ]
 
+    /// Unicode ranges specific to Korean (Hangul jamo and syllables).
+    /// Empty until the following commit populates it — declared here only so the
+    /// red half of this regression pair compiles and fails on behavior.
+    public static let koreanRanges: [String] = []
+
     /// Representative scalars used to detect whether the configured primary font
     /// already covers the ranges cmux would otherwise auto-map.
     public static let cjkCoverageSampleCharactersByRange: [String: [UniChar]] = [
