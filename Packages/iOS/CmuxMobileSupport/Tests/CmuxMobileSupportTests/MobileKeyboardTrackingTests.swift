@@ -1,8 +1,9 @@
+import CoreGraphics
 import Testing
 @testable import CmuxMobileSupport
 
 @Suite struct MobileKeyboardTrackingTests {
-    private let tolerance = 0.001
+    private let tolerance: CGFloat = 0.001
 
     @Test func bottomPositionKeepsContentEndPinnedWhenKeyboardInsetGrows() {
         let snapshot = MobileScrollViewportSnapshot(
