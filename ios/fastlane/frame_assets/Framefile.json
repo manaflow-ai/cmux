@@ -9,9 +9,16 @@
       "color": "#9FB4FF"
     },
     "title": {
-      "color": "#FFFFFF"
+      "color": "#FFFFFF",
+      "font": "./title_font.ttf"
     }
   },
+  "fonts": [
+    {
+      "font": "./title_font.ttf",
+      "supported": ["en-US", "ja", "zh-Hans", "zh-Hant", "ko", "de-DE", "fr-FR", "es-ES", "pt-BR", "it", "ru", "nl-NL", "tr", "pl"]
+    }
+  ],
   "data": [
     {
       "filter": "Terminal",

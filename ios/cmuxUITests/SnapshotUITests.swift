@@ -3,9 +3,11 @@ import XCTest
 /// App Store screenshot capture, driven by `fastlane snapshot` (see
 /// ios/fastlane/Snapfile / Fastfile). Runs against a DEBUG build using the app's
 /// standalone preview hooks, which render real UI deterministically with no
-/// sign-in, Mac pairing, or network. Each shot is a separate launch with a fresh
-/// environment; `snapshot()` is called after the screen settles. fastlane
-/// `frameit` later adds the device frame, background, and localized title.
+/// sign-in, Mac pairing, or network. The terminal shots replay REAL recorded
+/// agent sessions (see TerminalPreviewTranscripts). Each shot is a separate
+/// launch with a fresh environment; `snapshot()` is called after the screen
+/// settles. fastlane `frameit` later adds the real device frame, background, and
+/// localized title.
 final class SnapshotUITests: XCTestCase {
     private let app = XCUIApplication()
     private lazy var springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
@@ -29,22 +31,14 @@ final class SnapshotUITests: XCTestCase {
             "CMUX_UITEST_NOTIFICATION_BANNER": "1",
         ])
 
-        // 3-6) Each agent, terminal with the on-screen keyboard up.
+        // 3-6) Each agent, full terminal showing its real recorded session.
         for (idx, agent) in ["claude", "codex", "opencode", "pi"].enumerated() {
             shoot(String(format: "%02d-%@", idx + 3, agent.capitalized), [
                 "CMUX_UITEST_TERMINAL_PREVIEW": "1",
                 "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
                 "CMUX_UITEST_TERMINAL_TRANSCRIPT": agent,
-                "CMUX_UITEST_SCREENSHOT_KEYBOARD": "1",
             ])
         }
-
-        // 7) Full-screen Ghostty terminal (keyboard down).
-        shoot("07-Terminal", [
-            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
-            "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
-            "CMUX_UITEST_TERMINAL_TRANSCRIPT": "claude",
-        ])
     }
 
     @MainActor

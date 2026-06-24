@@ -1,87 +1,31 @@
 #if canImport(UIKit) && DEBUG
 import Foundation
 
-/// Sample agent-session transcripts (ANSI) used to populate the standalone
-/// terminal preview for App Store screenshots. Selected via
-/// `CMUX_UITEST_TERMINAL_TRANSCRIPT` (claude | codex | opencode | pi). Each is
-/// a realistic, self-contained session that shows a different coding agent
-/// running through the cmux terminal.
+/// Real captured agent-session screens (ANSI), recorded from the actual CLIs
+/// (claude, codex, opencode, pi) via `tmux capture-pane -e -p` at the iOS
+/// terminal grid width, then base64-embedded so the App Store terminal
+/// screenshots show genuine TUIs (no hand-authored transcripts). Re-record with
+/// ios/fastlane/frame_assets/record_sessions.sh. Selected via
+/// `CMUX_UITEST_TERMINAL_TRANSCRIPT` (claude | codex | opencode | pi).
 enum TerminalPreviewTranscripts {
-    private static let esc = "\u{1B}"
-    private static let reset = "\u{1B}[0m"
-    private static let dim = "\u{1B}[2m"
-    private static let green = "\u{1B}[1;32m"
-    private static let cyan = "\u{1B}[36m"
-    private static let magenta = "\u{1B}[1;35m"
-    private static let yellow = "\u{1B}[33m"
-    private static let blue = "\u{1B}[1;34m"
-
-    private static func render(_ lines: [String]) -> Data {
-        Data(lines.joined(separator: "\r\n").utf8)
-    }
-
     static func transcript(named name: String) -> Data {
+        let b64: String
         switch name.lowercased() {
-        case "codex": return codex
-        case "opencode": return opencode
-        case "pi": return pi
-        default: return claude
+        case "codex": b64 = codexB64
+        case "opencode": b64 = opencodeB64
+        case "pi": b64 = piB64
+        default: b64 = claudeB64
         }
+        return Data(base64Encoded: b64) ?? Data()
     }
 
-    private static var prompt: String { "\(green)❯\(reset)" }
+    private static let claudeB64 = "G1szODs1OzE3NG3ila3ilIAgQ2xhdWRlIENvZGUg4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pWuDQrilIIbWzM5bSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsxNzRt4pSCDQrilIIbWzM5bSAgICAgICAgICAgICAgICAgICAgG1sxbVdlbGNvbWUgYmFjayEbWzBtICAgICAgICAgICAgICAgICAgICAgG1szODs1OzE3NG3ilIINCuKUghtbMzltICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzE3NG3ilIINCuKUghtbMzltICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MTc0bSDilpAbWzQ4OzU7MTZt4pab4paI4paI4paI4pacG1s0OW3ilowbWzM5bSAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzE3NG3ilIINCuKUghtbMzltICAgICAgICAgICAgICAgICAgICAgICAbWzM4OzU7MTc0beKWneKWnBtbNDg7NTsxNm3ilojilojilojilojilogbWzQ5beKWm+KWmBtbMzltICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsxNzRt4pSCDQrilIIbWzM5bSAgICAgICAgICAgICAgICAgICAgICAgG1szODs1OzE3NG0gIOKWmOKWmCDilp3ilp0gIBtbMzltICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsxNzRt4pSCDQrilIIbWzM5bSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsxNzRt4pSCDQrilIIbWzM5bSAgICAgICAgICAgICAgICAbWzM4OzU7MjQ2bU9wdXMgNC44ICgxTSBjb250ZXh0KRtbMzltICAgICAgICAgICAgICAgICAbWzM4OzU7MTc0beKUgg0K4pSCG1szOW0gICAgICAgICAgICAgICAgICAbWzM4OzU7MjQ2bUFQSSBVc2FnZSBCaWxsaW5nG1szOW0gICAgICAgICAgICAgICAgICAgG1szODs1OzE3NG3ilIINCuKUghtbMzltICAgICAgICAgICAgICAbWzM4OzU7MjQ2bS9wcml2YXRlL3RtcC9jbXV4LXJlYy9hcHAbWzM5bSAgICAgICAgICAgICAgIBtbMzg7NTsxNzRt4pSCDQrilIIbWzM5bSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbMzg7NTsxNzRt4pSCDQrilbDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDila8NCg0KG1szOW0NChtbMzg7NTsyMzltG1s0ODs1OzIzN23ina8gG1szODs1OzIzMW1pbiBvbmUgc2hvcnQgc2VudGVuY2UsIHdoYXQgZG9lcyBtYWluLnN3aWZ0IGRvPyBkbyAbWzM5bQ0KICAbWzM4OzU7MjMxbW5vdCBlZGl0IGFueXRoaW5nG1szOW0NCg0KG1s0OW0gIBtbMzg7NTsyNDZtUmVhZCAbWzFtMRtbMG0bWzM4OzU7MjQ2bSBmaWxlIChjdHJsK28gdG8gZXhwYW5kKRtbMzltDQoNChtbMzg7NTsyMzFt4o+6G1szOW0gSXQgZGVmaW5lcyBhIFN3aWZ0VUkgG1szODs1OzE1M21Db250ZW50VmlldxtbMzltIHRoYXQgZGlzcGxheXMgdGhlDQogIHRleHQgIkhlbGxvIi4NCg0KDQobWzM4OzU7MjQ0beKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA0KG1szOW3ina/CoBtbMm1tYWtlIGl0IHNob3cgbXkgbmFtZSBpbnN0ZWFkG1swbQ0KG1szODs1OzI0NG3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIANChtbMzltICAbWzM4OzU7MjQ2bT8gZm9yIHNob3J0Y3V0cyDCtyDihpAgZm9yIGFnZW50cxtbMzltICAgICAgG1szODs1OzI0Nm3il48gaGlnaCDCtyAvZWZmb3J0G1szOW0NCg=="
 
-    static let claude = render([
-        "\(dim)~/projects/app\(reset)  \(cyan)main\(reset)",
-        "\(prompt) claude \(dim)\"add a dark mode toggle\"\(reset)",
-        "",
-        "\(magenta)●\(reset) I'll add a dark mode toggle to Settings.",
-        "  \(dim)Reading\(reset) SettingsView.swift",
-        "  \(green)✓\(reset) Added \(cyan)@AppStorage(\"isDarkMode\")\(reset)",
-        "  \(green)✓\(reset) Wired \(cyan)Toggle\(reset) into the General section",
-        "  \(green)✓\(reset) Applied \(cyan).preferredColorScheme\(reset)",
-        "",
-        "  \(green)Build succeeded.\(reset) 2 files changed.",
-        "",
-        "\(prompt) ",
-    ])
+    private static let codexB64 = "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"
 
-    static let codex = render([
-        "\(dim)~/projects/api\(reset)  \(cyan)main\(reset)",
-        "\(prompt) codex \(dim)\"fix the failing auth test\"\(reset)",
-        "",
-        "\(blue)›\(reset) Reproducing \(cyan)test_login_expired\(reset)…",
-        "  \(yellow)•\(reset) token TTL compared in ms, not s",
-        "  \(dim)Patching\(reset) auth/session.ts",
-        "  \(green)✓\(reset) 1 file changed, 3 insertions",
-        "  \(green)✓\(reset) 42 passed, 0 failed",
-        "",
-        "\(prompt) ",
-    ])
+    private static let opencodeB64 = "ICAbWzM4OzI7OTI7MTU2OzI0NW3ilIMbWzM4OzI7MjU1OzI1NTsyNTVtG1s0ODsyOzIwOzIwOzIwbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNDg7MjsxMDsxMDsxMG0NCiAgG1szODsyOzkyOzE1NjsyNDVt4pSDG1szODsyOzI1NTsyNTU7MjU1bRtbNDg7MjsyMDsyMDsyMG0gIBtbMzg7MjsyMzg7MjM4OzIzOG13aGF0IGRvZXMgbWFpbi5zd2lmdCBkbz8gb25lIHNlbnRlbmNlLCBkbyBub3QgG1szODsyOzI1NTsyNTU7MjU1bSAgIBtbNDg7MjsxMDsxMDsxMG0NCiAgG1szODsyOzkyOzE1NjsyNDVt4pSDG1szODsyOzI1NTsyNTU7MjU1bRtbNDg7MjsyMDsyMDsyMG0gIBtbMzg7MjsyMzg7MjM4OzIzOG1lZGl0G1szODsyOzI1NTsyNTU7MjU1bSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNDg7MjsxMDsxMDsxMG0NCiAgG1szODsyOzkyOzE1NjsyNDVt4pSDG1szODsyOzI1NTsyNTU7MjU1bRtbNDg7MjsyMDsyMDsyMG0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ4OzI7MTA7MTA7MTBtDQoNCiAgICAgG1szODsyOzI0NTsxNjc7NjZtKyBUaG91Z2h0OiAybXMbWzM4OzI7MjU1OzI1NTsyNTVtDQoNCiAgICAgG1szODsyOzEyODsxMjg7MTI4beKcsRtbMzg7MjsyNTU7MjU1OzI1NW0gG1szODsyOzEyODsxMjg7MTI4bUdsb2IgIioqL21haW4uc3dpZnQiICgxIG1hdGNoKRtbMzg7MjsyNTU7MjU1OzI1NW0NCg0KICAgICAbWzM4OzI7MjQ1OzE2Nzs2Nm0rIFRob3VnaHQ6IDNtcxtbMzg7MjsyNTU7MjU1OzI1NW0NCg0KICAgICAbWzM4OzI7MTI4OzEyODsxMjht4oaSG1szODsyOzI1NTsyNTU7MjU1bSAbWzM4OzI7MTI4OzEyODsxMjhtUmVhZCBtYWluLnN3aWZ0IBtbMzg7MjsyNTU7MjU1OzI1NW0NCg0KICAgICAbWzM4OzI7MjM4OzIzODsyMzhtSXQgZGVmaW5lcyBhIG1pbmltYWwgU3dpZnRVSSAbWzM4OzI7MTI3OzIxNjsxNDNtQ29udGVudFZpZXcbWzM4OzI7MjM4OzIzODsyMzhtIHRoYXQgG1szODsyOzI1NTsyNTU7MjU1bQ0KICAgICAbWzM4OzI7MjM4OzIzODsyMzhtZGlzcGxheXMgIkhlbGxvIi4bWzM4OzI7MjU1OzI1NTsyNTVtDQoNCiAgICAgG1szODsyOzkyOzE1NjsyNDVt4pajIBtbMzg7MjsyNTU7MjU1OzI1NW0gG1szODsyOzIzODsyMzg7MjM4bUJ1aWxkG1szODsyOzEyODsxMjg7MTI4bSDCtyBHTE0tNS4yIMK3IDIwLjhzG1szODsyOzI1NTsyNTU7MjU1bQ0KDQoNCg0KDQoNCg0KDQoNCg0KDQoNCg0KDQoNCg0KICAbWzM4OzI7OTI7MTU2OzI0NW3ilIMbWzM4OzI7MjU1OzI1NTsyNTVtG1s0ODsyOzMwOzMwOzMwbSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIBtbNDg7MjsxMDsxMDsxMG0NCiAgG1szODsyOzkyOzE1NjsyNDVt4pSDG1szODsyOzI1NTsyNTU7MjU1bRtbNDg7MjszMDszMDszMG0gICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAbWzQ4OzI7MTA7MTA7MTBtDQogIBtbMzg7Mjs5MjsxNTY7MjQ1beKUgxtbMzg7MjsyNTU7MjU1OzI1NW0bWzQ4OzI7MzA7MzA7MzBtICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s0ODsyOzEwOzEwOzEwbQ0KICAbWzM4OzI7OTI7MTU2OzI0NW3ilIMbWzM4OzI7MjU1OzI1NTsyNTVtG1s0ODsyOzMwOzMwOzMwbSAgG1szODsyOzkyOzE1NjsyNDVtQnVpbGQbWzM4OzI7MjU1OzI1NTsyNTVtIBtbMzg7MjsxMjg7MTI4OzEyOG3CtxtbMzg7MjsyNTU7MjU1OzI1NW0gG1szODsyOzIzODsyMzg7MjM4bUdMTS01LjIbWzM4OzI7MjU1OzI1NTsyNTVtIBtbMzg7MjsxMjg7MTI4OzEyOG1aLkFJG1szODsyOzI1NTsyNTU7MjU1bSAgICAgICAgICAgICAgICAgICAgICAgICAgICAgG1s0ODsyOzEwOzEwOzEwbQ0KICAbWzM4OzI7OTI7MTU2OzI0NW3ilbkbWzM4OzI7MzA7MzA7MzBt4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paA4paAG1szODsyOzI1NTsyNTU7MjU1bQ0KICAgICAgICAgICAgICAgICAgICAbWzM4OzI7MTI4OzEyODsxMjhtOC4xSyAoMSUpIMK3ICQwLjAyG1szODsyOzI1NTsyNTU7MjU1bSAgG1szODsyOzIzODsyMzg7MjM4bWN0cmwrcCAbWzM4OzI7MTI4OzEyODsxMjhtY29tbWFuZHMbWzM4OzI7MjU1OzI1NTsyNTVtDQo="
 
-    static let opencode = render([
-        "\(dim)~/projects/web\(reset)  \(cyan)main\(reset)",
-        "\(prompt) opencode \(dim)\"use a reducer for the cart\"\(reset)",
-        "",
-        "\(magenta)▌\(reset) Planning the refactor…",
-        "  \(green)→\(reset) components/Cart.tsx",
-        "  \(green)→\(reset) state/cartReducer.ts",
-        "  \(green)✓\(reset) Extracted 6 actions, removed 80 lines",
-        "  \(green)✓\(reset) \(cyan)tsc --noEmit\(reset) clean",
-        "",
-        "\(prompt) ",
-    ])
+    private static let piB64 = "G1szODsyOzE5NjsxNzg7MTM4beKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA0KG1szODsyOzE5NjsxNzg7MTM4beKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgOKUgA0KDQobWzM5bRtbNDg7MjsyOTsyODsyNW0NCiAbWzM4OzI7MTk3OzIwMTsxOTdtd2hhdCBkb2VzIG1haW4uc3dpZnQgZG8/IG9uZSBzZW50ZW5jZSwgZG8gbm90IGVkaXQNChtbMzltIBtbMzg7MjsxOTc7MjAxOzE5N21hbnl0aGluZxtbMzltDQoNCg0KDQogG1sxbRtbMzg7MjsxOTc7MjAxOzE5N21yZWFkG1swbRtbNDg7MjsyOTsyODsyNW0gG1szODsyOzE0MjsxNjQ7MTYybW1haW4uc3dpZnQbWzM5bQ0KDQoNChtbNDltIBtbMzg7MjsxNDI7MTY0OzE2Mm1tYWluLnN3aWZ0G1szOW0gZGVmaW5lcyBhIG1pbmltYWwgU3dpZnRVSSAbWzM4OzI7MTQyOzE2NDsxNjJtQ29udGVudFZpZXcbWzM5bSB0aGF0DQogZGlzcGxheXMgdGhlIHRleHQg4oCcSGVsbG/igJ0uDQoNChtbMzg7MjsxNDI7MTY0OzE2Mm3ilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIDilIANChtbN20bWzM5bSAbWzBtDQobWzM4OzI7MTQyOzE2NDsxNjJt4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSA4pSADQobWzM4OzI7MTE1OzEyNDsxMTVtL3ByaXZhdGUvdG1wL2NtdXgtcmVjL2FwcCAobWFpbikbWzM5bQ0KG1szODsyOzExNTsxMjQ7MTE1beKGkTMuMGsg4oaTNTQgJDAuMDE3IChzdWIpIDAuNiUvMjcyayAoYXV0bykgIGdwdC01LjUg4oCiIG1lZGl1DQo="
 
-    static let pi = render([
-        "\(dim)~/infra\(reset)  \(cyan)main\(reset)",
-        "\(prompt) pi \(dim)\"scale the worker pool to 8\"\(reset)",
-        "",
-        "\(magenta)π\(reset) Deploying…",
-        "  \(green)✓\(reset) workers \(yellow)3 → 8\(reset)",
-        "  \(green)✓\(reset) health checks green",
-        "  \(green)✓\(reset) rollout complete in 12s",
-        "",
-        "\(prompt) ",
-    ])
 }
 #endif
