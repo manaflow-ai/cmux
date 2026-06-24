@@ -1,6 +1,8 @@
 import Foundation
 
 final class ServeWebOutputCollector {
+    private static let maximumBufferedOutputCharacters = 8192
+
     // FileHandle readability callbacks and the blocking launch wait both need synchronous access.
     private let lock = NSLock()
     private let semaphore = DispatchSemaphore(value: 0)
@@ -35,6 +37,7 @@ final class ServeWebOutputCollector {
             }
             return
         }
+        trimOutputBufferIfNeeded()
     }
 
     func markProcessExited() {
@@ -54,5 +57,12 @@ final class ServeWebOutputCollector {
         if webUIURL != nil { return true }
         _ = semaphore.wait(timeout: .now() + timeoutSeconds)
         return webUIURL != nil
+    }
+
+    private func trimOutputBufferIfNeeded() {
+        let overflow = outputBuffer.count - Self.maximumBufferedOutputCharacters
+        if overflow > 0 {
+            outputBuffer.removeFirst(overflow)
+        }
     }
 }

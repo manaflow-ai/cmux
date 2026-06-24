@@ -653,6 +653,18 @@ final class ServeWebOutputCollectorTests: XCTestCase {
         XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
         XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:9001?tkn=final-token")
     }
+
+    func testCollectorBoundsNoNewlineOutputBeforeURL() {
+        let collector = ServeWebOutputCollector()
+        let noisyPrefix = String(repeating: "x", count: 20_000)
+        let urlLine = "Web UI available at http://127.0.0.1:8123?tkn=bounded-token\n"
+
+        collector.append(Data(noisyPrefix.utf8))
+        collector.append(Data(urlLine.utf8))
+
+        XCTAssertTrue(collector.waitForURL(timeoutSeconds: 0.1))
+        XCTAssertEqual(collector.webUIURL?.absoluteString, "http://127.0.0.1:8123?tkn=bounded-token")
+    }
 }
 
 
