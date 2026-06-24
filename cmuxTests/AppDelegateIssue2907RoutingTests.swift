@@ -571,7 +571,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             panelId: panelId
         ))
 
-        for key in ["surface_id", "tab_id"] {
+        for key in ["surface_id", "terminal_id", "tab_id"] {
             for method in ["surface.resume.set", "surface.resume.get", "surface.resume.clear"] {
                 var params: [String: Any] = [
                     "window_id": windowId.uuidString,
@@ -660,6 +660,81 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "window_id": windowId.uuidString,
                 "tab_id": splitPanel.id.uuidString,
                 "checkpoint_id": "alias-target",
+            ]
+        )
+        XCTAssertEqual(clearResult["surface_id"] as? String, splitPanel.id.uuidString)
+        XCTAssertEqual(clearResult["cleared"] as? Bool, true)
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
+    }
+
+    func testSurfaceResumeUsesTerminalIdAliasForTargetSurface() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let focusedPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: focusedPanel.id,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        let setResult = try v2Result(
+            method: "surface.resume.set",
+            params: [
+                "window_id": windowId.uuidString,
+                "terminal_id": splitPanel.id.uuidString,
+                "command": "codex resume terminal-target",
+                "checkpoint_id": "terminal-target",
+            ]
+        )
+        XCTAssertEqual(setResult["surface_id"] as? String, splitPanel.id.uuidString)
+        XCTAssertNil(workspace.surfaceResumeBinding(panelId: focusedPanel.id))
+        XCTAssertEqual(
+            workspace.surfaceResumeBinding(panelId: splitPanel.id)?.command,
+            "codex resume terminal-target"
+        )
+
+        let getResult = try v2Result(
+            method: "surface.resume.get",
+            params: [
+                "window_id": windowId.uuidString,
+                "terminal_id": splitPanel.id.uuidString,
+            ]
+        )
+        XCTAssertEqual(getResult["surface_id"] as? String, splitPanel.id.uuidString)
+        let getBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
+        XCTAssertEqual(getBinding["checkpoint_id"] as? String, "terminal-target")
+
+        let clearResult = try v2Result(
+            method: "surface.resume.clear",
+            params: [
+                "window_id": windowId.uuidString,
+                "terminal_id": splitPanel.id.uuidString,
+                "checkpoint_id": "terminal-target",
             ]
         )
         XCTAssertEqual(clearResult["surface_id"] as? String, splitPanel.id.uuidString)

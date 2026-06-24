@@ -1255,6 +1255,9 @@ struct RestorableAgentSessionIndex: Sendable {
         fileManager: FileManager,
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
+        if kind == .codex {
+            return codexHookRecordHasDurableRestoreEvidence(record, fileManager: fileManager)
+        }
         guard kind == .claude else {
             return record.isRestorable != false
         }
@@ -1266,6 +1269,28 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+    }
+
+    private static func codexHookRecordHasDurableRestoreEvidence(
+        _ record: RestorableAgentHookSessionRecord,
+        fileManager: FileManager
+    ) -> Bool {
+        guard record.isRestorable != false else { return false }
+        if record.isRestorable == true { return true }
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
+           regularNonEmptyFileExists(
+               atPath: (transcriptPath as NSString).expandingTildeInPath,
+               fileManager: fileManager
+           ) {
+            return true
+        }
+        if record.launchCommand?.arguments.isEmpty == false {
+            return true
+        }
+        if normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
+            return true
+        }
+        return false
     }
 
     private static func resolvedClaudeWorkflowRecord(

@@ -23086,6 +23086,7 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd,
+                        transcriptPath: parsedInput.transcriptPath,
                         launchCommand: launchCommand
                     )
                 }
@@ -23211,6 +23212,7 @@ struct CMUXCLI {
                         displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                         sessionId: sessionId,
                         cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                        transcriptPath: parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
                         launchCommand: mappedSession?.launchCommand
                     )
                 }
@@ -23334,6 +23336,7 @@ struct CMUXCLI {
                     displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
                     sessionId: sessionId,
                     cwd: parsedInput.cwd ?? mappedSession?.cwd,
+                    transcriptPath: parsedInput.transcriptPath ?? mappedSession?.transcriptPath,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand
                 )
             }
@@ -26721,8 +26724,22 @@ struct CMUXCLI {
         displayName: String,
         sessionId: String,
         cwd: String?,
+        transcriptPath: String? = nil,
         launchCommand: AgentHookLaunchCommandRecord?
     ) {
+        guard agentHookSessionHasDurableResumeEvidence(
+            kind: kind,
+            transcriptPath: transcriptPath,
+            launchCommand: launchCommand
+        ) else {
+            clearAgentSurfaceResumeBinding(
+                client: client,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                sessionId: sessionId
+            )
+            return
+        }
         let resumeEnvironment = agentSurfaceResumeEnvironment(kind: kind, environment: launchCommand?.environment)
         // Pin the resume binding to the directory the agent was *launched* in, not the drift-prone
         // runtime cwd: cwd-namespaced agents (Claude, Grok, Gemini, …) file their session under the
@@ -26765,6 +26782,24 @@ struct CMUXCLI {
             params["environment"] = resumeEnvironment
         }
         _ = try? client.sendV2(method: "surface.resume.set", params: params)
+    }
+
+    private func agentHookSessionHasDurableResumeEvidence(
+        kind: String,
+        transcriptPath: String?,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) -> Bool {
+        guard kind == "codex" else { return true }
+        if normalizedHookValue(transcriptPath) != nil {
+            return true
+        }
+        if launchCommand?.arguments.isEmpty == false {
+            return true
+        }
+        if normalizedHookValue(launchCommand?.environment?["CODEX_HOME"]) != nil {
+            return true
+        }
+        return false
     }
 
     private func clearAgentSurfaceResumeBinding(
@@ -29913,6 +29948,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         displayName: def.displayName,
                         sessionId: sessionId,
                         cwd: hookCwd ?? mapped?.cwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         launchCommand: launchCommand
                     )
                 }
@@ -29980,6 +30016,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: latest.cwd,
+                    transcriptPath: latest.transcriptPath,
                     launchCommand: latest.launchCommand
                 )
                 if let lifecycle = latest.agentLifecycle {
@@ -30180,6 +30217,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
                 if codexPromptTurnWentTerminal() {
@@ -30454,6 +30492,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
             }
@@ -30635,6 +30674,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     displayName: def.displayName,
                     sessionId: sessionId,
                     cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
             }
