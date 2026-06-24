@@ -23,6 +23,24 @@ import Testing
         #expect(reservation.height == 0)
     }
 
+    @Test func floatingKeyboardStillCountsAsVisible() {
+        let visibility = MobileKeyboardVisibility(
+            keyboardFrameInWindow: CGRect(x: 220, y: 360, width: 360, height: 180),
+            viewFrameInWindow: CGRect(x: 0, y: 0, width: 800, height: 1_000)
+        )
+
+        #expect(visibility.isVisible)
+    }
+
+    @Test func hiddenKeyboardBelowViewIsNotVisible() {
+        let visibility = MobileKeyboardVisibility(
+            keyboardFrameInWindow: CGRect(x: 0, y: 1_000, width: 800, height: 300),
+            viewFrameInWindow: CGRect(x: 0, y: 0, width: 800, height: 1_000)
+        )
+
+        #expect(!visibility.isVisible)
+    }
+
     @Test func keyboardExtendingBelowViewUsesVisibleBottomOverlap() {
         let reservation = MobileKeyboardReservation(
             keyboardFrameInWindow: CGRect(x: 0, y: 650, width: 400, height: 350),

@@ -46,6 +46,18 @@ public struct MobileKeyboardTransition: Sendable {
         ).height
     }
 
+    /// Returns whether the keyboard is visible to `view`, including floating or
+    /// split iPad keyboards that do not reserve bottom layout space.
+    @MainActor public func isVisible(in view: UIView) -> Bool {
+        guard let window = view.window else { return false }
+        let keyboardFrameInWindow = window.convert(endFrame, from: nil)
+        let viewFrameInWindow = view.convert(view.bounds, to: window)
+        return MobileKeyboardVisibility(
+            keyboardFrameInWindow: keyboardFrameInWindow,
+            viewFrameInWindow: viewFrameInWindow
+        ).isVisible
+    }
+
     /// Runs animations using the keyboard's exact timing curve and duration.
     ///
     /// - Parameters:

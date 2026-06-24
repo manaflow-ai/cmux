@@ -742,7 +742,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             "chromeHidden=\(chromeHidden ? 1 : 0)",
             "composerActive=\(composerActive ? 1 : 0)",
             "fieldFocused=\(composerFieldIsFirstResponder ? 1 : 0)",
-            "keyboardUp=\(keyboardHeight > 0 ? 1 : 0)",
+            "keyboardUp=\(keyboardVisible ? 1 : 0)",
             "proxyFirstResponder=\(inputProxy.isFirstResponder ? 1 : 0)",
             "bandMounted=\(composerContainer.subviews.isEmpty ? 0 : 1)",
             "toolbarVisible=\(dockedToolbar?.isHidden == false ? 1 : 0)",
@@ -945,7 +945,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // terminal tap focuses the proxy without closing the band), and the proxy
             // is a sibling of `composerContainer`, so `endEditing` on the container
             // alone would resign nothing and the keyboard would stay up.
-            if self.keyboardHeight > 0 {
+            if self.keyboardVisible {
                 if self.inputProxy.isFirstResponder {
                     self.resignInput()
                 } else {
@@ -1107,6 +1107,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private var keyboardHeight: CGFloat = 0
+    private var keyboardVisible = false
     /// Height the persistent bottom toolbar reserves in the terminal grid. The
     /// toolbar is docked above the keyboard (when up) or the home indicator
     /// (when down) via `keyboardLayoutGuide`, so the grid must shrink by this
@@ -1176,19 +1177,21 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     @objc private func handleKeyboardWillChangeFrame(_ notification: Notification) {
         guard let transition = MobileKeyboardTransition(notification: notification) else { return }
         let overlap = transition.overlap(in: self)
-        guard abs(overlap - keyboardHeight) > 0.5 else { return }
-        let wasUp = keyboardHeight > 0
-        let willBeUp = overlap > 0
+        let willBeVisible = transition.isVisible(in: self)
+        guard abs(overlap - keyboardHeight) > 0.5 || willBeVisible != keyboardVisible else { return }
+        let wasDockedUp = keyboardHeight > 0
+        let willBeDockedUp = overlap > 0
+        let wasVisible = keyboardVisible
         #if DEBUG
         // The composer-up/keyboard-down desync can be reached WITHOUT the dismiss
         // button (code 24): a swipe-to-dismiss, an attached hardware keyboard, or
-        // backgrounding all collapse the keyboard straight through this overlap→0
+        // backgrounding all collapse the keyboard straight through this visible→false
         // transition. Codes 23/24 are silent on those paths, so the onset of the
-        // desync — `keyboardHeight→0 while the composer is still active` — is recorded
+        // desync — `keyboardVisible→false while the composer is still active` — is recorded
         // here too, with the resolved first-responder owner, so a Capture&Send trace
         // is complete no matter how the keyboard went down. Pure diagnostics; the hide
         // behavior below is unchanged.
-        if wasUp, !willBeUp, composerActive {
+        if wasVisible, !willBeVisible, composerActive {
             let frOwner = TerminalInputTextView.responderIdentity(of: CurrentResponderProbe().current())
             MobileDebugLog.anchormux(
                 "composer.keyboardHideWhilePresented prevKeyboardHeight=\(Int(keyboardHeight)) frOwner=\(frOwner.rawValue) proxyIsFR=\(inputProxy.isFirstResponder ? 1 : 0)"
@@ -1196,7 +1199,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         #endif
         keyboardHeight = overlap
-        inputProxy.setKeyboardShown(willBeUp)
+        keyboardVisible = willBeVisible
+        inputProxy.setKeyboardShown(willBeVisible)
         // Round 8 removes the `composerPresented ⇒ keyboardUp` enforcement: the
         // toolbar is ALWAYS visible and the composer band survives a keyboard-down, so
         // the keyboard collapsing no longer dismisses the composer. The composer's
@@ -1213,7 +1217,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         updateDockedToolbarVisibility()
         animateBottomDock(with: transition)
         setNeedsGeometrySync()
-        if wasUp, !willBeUp {
+        if wasDockedUp, !willBeDockedUp {
             // Bug fix (terminal not full height when keyboard closed): the inset this
             // first sync reads can be stale. At keyboard hide the view's own
             // `safeAreaInsets.bottom` (and sometimes the window's) has not yet settled
@@ -1257,7 +1261,8 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// keyboard. Used only by the terminal-layout preview harness.
     public func debugSetKeyboardHeightForLayoutPreview(_ height: CGFloat) {
         keyboardHeight = max(0, height)
-        inputProxy.setKeyboardShown(height > 0)
+        keyboardVisible = height > 0
+        inputProxy.setKeyboardShown(keyboardVisible)
         // Mirror the live keyboard-tied visibility so the preview shows the bar
         // only when the synthetic keyboard is "up".
         updateDockedToolbarVisibility()
@@ -1380,7 +1385,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func setChromeHidden(_ hidden: Bool) {
         guard chromeHidden != hidden else { return }
         chromeHidden = hidden
-        if hidden, keyboardHeight > 0 {
+        if hidden, keyboardVisible {
             // Drop the keyboard first; its hide notification re-seats the dock, then
             // the visibility update below removes the toolbar/composer. Resign
             // whichever responder actually owns the keyboard — the band can be
@@ -1425,18 +1430,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   keyboard is still up, so iOS hands the keyboard over in place. Resigning
     ///   first tore the keyboard down and the composer re-summoned it (a flicker).
     /// - Closing (`active == false`): two distinct intents share this path, told
-    ///   apart by ``keyboardHeight``:
-    ///   - Chevron-close while typing: `keyboardHeight > 0`. The user wants to keep the
+    ///   apart by ``keyboardVisible``:
+    ///   - Chevron-close while typing: `keyboardVisible == true`. The user wants to keep the
     ///     keyboard (a genuine return to the terminal). The composer's field resigns
     ///     first responder as it is torn out, with nothing to take it back, so re-take it
     ///     on the terminal input proxy in the same update — some responder is always
     ///     first responder at runloop end and the keyboard hands back in place instead of
     ///     dropping.
-    ///   - Chevron-close while the keyboard is already down: `keyboardHeight == 0` (a
+    ///   - Chevron-close while the keyboard is already down: `keyboardVisible == false` (a
     ///     legal Round 8 state — the composer survives a keyboard-down). Do NOT re-focus
     ///     the proxy; that would re-summon the keyboard the user already dismissed. The
     ///     toolbar stays visible regardless, so closing the composer just collapses its
-    ///     band. Gating the re-focus on `keyboardHeight > 0` makes both directions
+    ///     band. Gating the re-focus on `keyboardVisible` makes both directions
     ///     correct.
     ///   No sleep / `asyncAfter`: the `become` is issued synchronously here.
     public func setComposerActive(_ active: Bool) {
@@ -1452,14 +1457,14 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             // the host mounts and measures the field.
         } else {
             // Closing: re-take first responder on the terminal input proxy ONLY when the
-            // keyboard is still up (`keyboardHeight > 0`, a chevron-close while typing) so
+            // keyboard is still up (`keyboardVisible == true`, a chevron-close while typing) so
             // the keyboard hands back in place instead of dropping. When the keyboard is
             // already down (a legal Round 8 state — the composer survived a keyboard-down)
             // re-focusing would re-summon the keyboard the user dismissed, so skip it. The
             // host animates the band height back to 0 (with the field still mounted, item
             // 3), so the band shrink reads as one motion; do NOT snap it to 0 here or that
             // pre-empts the animation.
-            if keyboardHeight > 0, window != nil, !isDismantled, !inputProxy.isFirstResponder {
+            if keyboardVisible, window != nil, !isDismantled, !inputProxy.isFirstResponder {
                 Self.activeInputSurface = self
                 inputProxy.updateAccessoryLayoutInsets()
                 inputProxy.becomeFirstResponder()
@@ -1532,7 +1537,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             chromeHidden: chromeHidden,
             composerPresented: composerActive,
             fieldFocused: composerFieldIsFirstResponder,
-            keyboardUp: keyboardHeight > 0
+            keyboardUp: keyboardVisible
         )
         let intent = dockState.intentForComposeButtonTap()
         #if DEBUG
