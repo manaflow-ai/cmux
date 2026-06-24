@@ -7,18 +7,13 @@ import SwiftUI
 /// conversation, so the chat UI is verifiable on a simulator before a Mac
 /// host serves real transcripts.
 struct AgentChatDemoScreen: View {
-    enum Style {
-        case standalone
-        case inlineWorkspace
-    }
-
-    let style: Style
+    let style: AgentChatDemoScreenStyle
 
     @Environment(\.dismiss) private var dismiss
     @State private var stack: DemoStack?
     @State private var contentWidth: CGFloat = 0
 
-    init(style: Style = .standalone) {
+    init(style: AgentChatDemoScreenStyle = .standalone) {
         self.style = style
     }
 

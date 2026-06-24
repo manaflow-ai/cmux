@@ -318,16 +318,4 @@ final class ChatKeyboardTrackingViewController<Transcript: View, Composer: View>
         true
     }
 }
-
-private final class ChatKeyboardNotificationToken: @unchecked Sendable {
-    private let token: NSObjectProtocol
-
-    init(_ token: NSObjectProtocol) {
-        self.token = token
-    }
-
-    func remove() {
-        NotificationCenter.default.removeObserver(token)
-    }
-}
 #endif

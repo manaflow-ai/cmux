@@ -5,8 +5,14 @@ public import CoreGraphics
 /// Unlike ``MobileKeyboardReservation``, this intentionally treats floating and
 /// split iPad keyboards as visible even when they do not reserve bottom space.
 public struct MobileKeyboardVisibility: Equatable, Sendable {
+    /// True when the keyboard frame intersects the view frame.
     public let isVisible: Bool
 
+    /// Creates keyboard visibility from normalized window-space frames.
+    ///
+    /// - Parameters:
+    ///   - keyboardFrame: The keyboard frame converted into window coordinates.
+    ///   - viewFrame: The view frame converted into the same window coordinates.
     public init(
         keyboardFrameInWindow keyboardFrame: CGRect,
         viewFrameInWindow viewFrame: CGRect
