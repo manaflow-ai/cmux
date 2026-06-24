@@ -45,9 +45,10 @@ final class CanvasDocumentView: NSView {
 
         // Dots are aligned to canvas space so they stay put when the document
         // re-centers around content.
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
         let spacing = Self.gridSpacing
         let radius = Self.gridDotRadius
-        NSColor.tertiaryLabelColor.withAlphaComponent(0.18).setFill()
+        context.setFillColor(NSColor.tertiaryLabelColor.withAlphaComponent(0.18).cgColor)
         let phaseX = canvasToDocumentOffset.x.truncatingRemainder(dividingBy: spacing)
         let phaseY = canvasToDocumentOffset.y.truncatingRemainder(dividingBy: spacing)
         var x = (dirtyRect.minX - phaseX).rounded(.down) - (dirtyRect.minX - phaseX)
@@ -59,7 +60,7 @@ final class CanvasDocumentView: NSView {
             while y < dirtyRect.minY { y += spacing }
             while y <= dirtyRect.maxY {
                 let dot = CGRect(x: x - radius, y: y - radius, width: radius * 2, height: radius * 2)
-                NSBezierPath(ovalIn: dot).fill()
+                context.fillEllipse(in: dot)
                 y += spacing
             }
             x += spacing

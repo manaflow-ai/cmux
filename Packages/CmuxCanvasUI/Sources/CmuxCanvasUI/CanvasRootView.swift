@@ -46,6 +46,7 @@ public final class CanvasRootView: NSView {
     static var didShowCommandScrollHintThisSession = false
     var commandScrollHintTask: Task<Void, Never>?
     var commandScrollHintHost: NSHostingView<CanvasCommandScrollHint>?
+    private var viewportScrollUpdateScheduled = false
     /// A saved viewport waiting to be applied once the scroll view is laid
     /// out (contentSize settled). Cleared when successfully applied.
     private var pendingViewportRestore: (canvasCenter: CGPoint, magnification: CGFloat)?
@@ -377,6 +378,20 @@ public final class CanvasRootView: NSView {
     // MARK: Lifecycle
 
     private func viewportDidScroll() {
+        guard !viewportScrollUpdateScheduled else { return }
+        viewportScrollUpdateScheduled = true
+        // Stay in the active mode so live trackpad scrolls flush during event
+        // tracking without queueing duplicate work for other modes.
+        let mode = RunLoop.current.currentMode ?? .default
+        RunLoop.main.perform(inModes: [mode]) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.flushViewportDidScroll()
+            }
+        }
+    }
+
+    private func flushViewportDidScroll() {
+        viewportScrollUpdateScheduled = false
         updateLifecycle()
         saveViewportToModel()
         callbacks.onViewportGeometryChanged(window)
