@@ -57,9 +57,11 @@ public struct GhosttyConfigDiscovery {
     ]
 
     /// Unicode ranges specific to Korean (Hangul jamo and syllables).
-    /// Empty until the following commit populates it — declared here only so the
-    /// red half of this regression pair compiles and fails on behavior.
-    public static let koreanRanges: [String] = []
+    public static let koreanRanges = [
+        "U+1100-U+11FF",  // Hangul Jamo
+        "U+3130-U+318F",  // Hangul Compatibility Jamo
+        "U+AC00-U+D7AF",  // Hangul Syllables
+    ]
 
     /// Representative scalars used to detect whether the configured primary font
     /// already covers the ranges cmux would otherwise auto-map.
@@ -90,16 +92,23 @@ public struct GhosttyConfigDiscovery {
 
         for lang in preferredLanguages {
             let lower = lang.lowercased()
+            // Compare the BCP-47 primary subtag, not a raw prefix: "kok"
+            // (Konkani) is a selectable macOS language, and a `hasPrefix("ko")`
+            // test would inject a Hangul font for its Devanagari script.
+            let primary = lower.prefix { $0 != "-" && $0 != "_" }
             let font: String
             var langRanges: [String] = []
 
-            if lower.hasPrefix("ja") {
+            if primary == "ja" {
                 font = "Hiragino Sans"
                 langRanges = Self.japaneseRanges
             } else if lower.hasPrefix("zh-hant") || lower.hasPrefix("zh-tw") || lower.hasPrefix("zh-hk") {
                 font = "PingFang TC"
-            } else if lower.hasPrefix("zh") {
+            } else if primary == "zh" {
                 font = "PingFang SC"
+            } else if primary == "ko" {
+                font = "Apple SD Gothic Neo"
+                langRanges = Self.koreanRanges
             } else {
                 continue
             }
