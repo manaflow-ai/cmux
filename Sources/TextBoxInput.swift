@@ -4002,20 +4002,7 @@ final class TextBoxInputTextView: NSTextView {
         }
         attributed.append(NSAttributedString(string: afterText, attributes: textAttributes))
 
-        textStorage?.setAttributedString(attributed)
-        normalizeTextBaselineOffsets()
-        typingAttributes = currentTextAttributes()
-        setSelectedRange(NSRange(location: attributed.length, length: 0))
-        if let textContainer {
-            layoutManager?.ensureLayout(for: textContainer)
-        }
-        recenterSingleLineTextContainer()
-        scrollRangeToVisible(NSRange(location: attributed.length, length: 0))
-        needsDisplay = true
-        enclosingScrollView?.needsDisplay = true
-        window?.viewsNeedDisplay = true
-        window?.displayIfNeeded()
-        didChangeText()
+        setDebugAttributedText(attributed)
     }
 
     @discardableResult
@@ -4027,6 +4014,11 @@ final class TextBoxInputTextView: NSTextView {
             break
         case "submit":
             submitIfAllowed()
+        case let setTextAction where setTextAction.hasPrefix("set_text:"):
+            setDebugAttributedText(NSAttributedString(
+                string: String(setTextAction.dropFirst("set_text:".count)),
+                attributes: currentTextAttributes()
+            ))
         case "select_first_attachment":
             if let characterIndex = firstInlineAttachmentCharacterIndex() {
                 selectAttachment(at: characterIndex)
@@ -4068,6 +4060,23 @@ final class TextBoxInputTextView: NSTextView {
         window?.viewsNeedDisplay = true
         window?.displayIfNeeded()
         return debugInteractionState()
+    }
+
+    private func setDebugAttributedText(_ attributed: NSAttributedString) {
+        textStorage?.setAttributedString(attributed)
+        normalizeTextBaselineOffsets()
+        typingAttributes = currentTextAttributes()
+        setSelectedRange(NSRange(location: attributed.length, length: 0))
+        if let textContainer {
+            layoutManager?.ensureLayout(for: textContainer)
+        }
+        recenterSingleLineTextContainer()
+        scrollRangeToVisible(NSRange(location: attributed.length, length: 0))
+        needsDisplay = true
+        enclosingScrollView?.needsDisplay = true
+        window?.viewsNeedDisplay = true
+        window?.displayIfNeeded()
+        didChangeText()
     }
 
     func debugInteractionState() -> [String: Any] {
