@@ -192,7 +192,6 @@ private struct TextBoxInputGlassPillBackground: View {
 
 struct TextBoxSendButtonStyle: ButtonStyle {
     let canSend: Bool
-    let backgroundColor: Color
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -206,9 +205,9 @@ struct TextBoxSendButtonStyle: ButtonStyle {
 
     private func backgroundColor(isPressed: Bool) -> Color {
         guard canSend else {
-            return backgroundColor.opacity(0.30)
+            return Color.white.opacity(0.30)
         }
-        return isPressed ? backgroundColor.opacity(0.72) : backgroundColor
+        return Color.white.opacity(isPressed ? 0.72 : 1.0)
     }
 }
 

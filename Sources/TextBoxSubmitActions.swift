@@ -136,8 +136,7 @@ extension TextBoxInputContainer {
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         }
         .buttonStyle(TextBoxSendButtonStyle(
-            canSend: canSend,
-            backgroundColor: presentation.backgroundColor
+            canSend: canSend
         ))
         .foregroundStyle(canSend ? Color.black.opacity(0.86) : foreground.opacity(0.38))
         .help(presentation.helpText)
