@@ -65,7 +65,7 @@ public final class GhosttyRuntime {
         NotificationCenter.default.post(
             name: .cmuxMobileTerminalThemeDidChange,
             object: nil,
-            userInfo: [MobileTerminalThemeNotificationKey.theme: resolvedTheme]
+            userInfo: [cmuxMobileTerminalThemeNotificationThemeKey: resolvedTheme]
         )
     }
 
@@ -441,11 +441,6 @@ extension Optional where Wrapped == String {
 extension Notification.Name {
     static let ghosttySurfaceDidRequestClose = Notification.Name("ghosttySurfaceDidRequestClose")
     static let ghosttySurfaceDidRingBell = Notification.Name("ghosttySurfaceDidRingBell")
-    public static let cmuxMobileTerminalThemeDidChange = Notification.Name("cmuxMobileTerminalThemeDidChange")
-}
-
-public enum MobileTerminalThemeNotificationKey {
-    public static let theme = "theme"
 }
 
 #endif

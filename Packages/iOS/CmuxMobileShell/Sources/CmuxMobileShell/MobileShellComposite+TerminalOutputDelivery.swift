@@ -12,9 +12,11 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
-        if let theme = frame.terminalTheme?.validatedOrDefault(),
-           activeTerminalTheme != theme {
-            activeTerminalTheme = theme
+        if let theme = frame.terminalTheme?.validatedOrDefault() {
+            terminalThemesBySurfaceID[surfaceID] = theme
+            if selectedTerminalID?.rawValue == surfaceID, activeTerminalTheme != theme {
+                activeTerminalTheme = theme
+            }
         }
         deliverTerminalOutput(
             TerminalOutputDelivery(
@@ -23,6 +25,13 @@ extension MobileShellComposite {
             ),
             surfaceID: surfaceID
         )
+    }
+
+    func applySelectedTerminalTheme() {
+        let theme = selectedTerminalID.flatMap { terminalThemesBySurfaceID[$0.rawValue] } ?? .monokai
+        if activeTerminalTheme != theme {
+            activeTerminalTheme = theme
+        }
     }
 
     private func deliverTerminalOutput(_ delivery: TerminalOutputDelivery, surfaceID: String) {

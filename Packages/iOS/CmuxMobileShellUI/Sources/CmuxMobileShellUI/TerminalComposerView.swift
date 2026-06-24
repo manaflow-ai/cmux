@@ -46,6 +46,7 @@ struct TerminalComposerView: View {
     /// whenever the field's content changes (the only driver of this view's height);
     /// the host measures the ideal height via `sizeThatFits` and animates the band.
     let requestHeightRemeasure: () -> Void
+    @Environment(TerminalPalette.self) private var terminalPalette
     @FocusState private var isFieldFocused: Bool
     /// Photo-picker selection bound to the system `PhotosPicker`. Cleared after
     /// each batch is encoded and staged so re-picking the same image fires again.
@@ -780,6 +781,7 @@ final class AttachmentThumbnailCache {
 private struct AttachmentChip: View {
     let thumbnail: UIImage?
     let onRemove: () -> Void
+    @Environment(TerminalPalette.self) private var terminalPalette
 
     private let side: CGFloat = 56
 

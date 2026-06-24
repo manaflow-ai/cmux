@@ -11,6 +11,10 @@ struct CopyableTerminalTextSelectionTests {
         Candidate(hostSurfaceID: id, hasSurface: true, hasWindow: true, isHidden: false, alpha: 1)
     }
 
+    private func hidden(_ id: String?) -> Candidate {
+        Candidate(hostSurfaceID: id, hasSurface: true, hasWindow: true, isHidden: true, alpha: 1)
+    }
+
     @Test("id-scoped, on-screen surface is eligible")
     func eligibleMatch() {
         #expect(selection.isEligible(visible("surface:1"), for: "surface:1"))
@@ -46,12 +50,22 @@ struct CopyableTerminalTextSelectionTests {
         #expect(selection.isEligible(transparent, for: "surface:1"))
     }
 
-    @Test("chosenIndex returns the first (lowest-keyed) eligible match")
+    @Test("chosenIndex returns the first visible eligible match")
     func chosenIndexDeterministic() {
         let candidates = [
             visible("surface:2"),       // wrong id
+            hidden("surface:1"),        // eligible fallback, but not preferred
             visible("surface:1"),       // first eligible
             visible("surface:1"),       // also eligible, but later
+        ]
+        #expect(selection.chosenIndex(from: candidates, for: "surface:1") == 2)
+    }
+
+    @Test("chosenIndex falls back to transitioning eligible surface when none are visible")
+    func chosenIndexTransitionFallback() {
+        let candidates = [
+            visible("surface:2"),
+            hidden("surface:1"),
         ]
         #expect(selection.chosenIndex(from: candidates, for: "surface:1") == 1)
     }

@@ -26,6 +26,8 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     let surfaceID: String
     let store: CMUXMobileShellStore
     let fontSize: Float32
+    let terminalTheme: TerminalTheme
+    let terminalPalette: TerminalPalette
     /// Whether the mounted surface should grab the keyboard when it attaches to
     /// a window. Driven by the host's autofocus-suppression state so chrome
     /// actions (create workspace/terminal, switch terminal) do not pop the
@@ -38,7 +40,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
     var isComposerActive: Bool = false
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(surfaceID: surfaceID, store: store)
+        Coordinator(surfaceID: surfaceID, store: store, terminalPalette: terminalPalette)
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -59,6 +61,7 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             fontSize: fontSize
         )
         view.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        view.terminalTheme = terminalTheme
         #if DEBUG
         // Hand the surface the structured diagnostic log so the composer-dock
         // probes land in the blob the "Send to agent" feedback pane exports.
@@ -88,7 +91,9 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         // state write, so it is safe in `updateUIView`.
         guard let surfaceView = uiView as? GhosttySurfaceView else { return }
         surfaceView.autoFocusOnWindowAttach = autoFocusOnWindowAttach
+        surfaceView.terminalTheme = terminalTheme
         surfaceView.setComposerActive(isComposerActive)
+        context.coordinator.terminalPalette = terminalPalette
         context.coordinator.setComposerMounted(isComposerActive)
         // A width change (rotation) is not a text change, so the field-content trigger
         // misses it. Re-measure the open composer here so the band height tracks the new
@@ -108,10 +113,11 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         weak var surfaceView: GhosttySurfaceView?
         private var outputTask: Task<Void, Never>?
         private var liveFontTask: Task<Void, Never>?
+        var terminalPalette: TerminalPalette
         /// Hosts the SwiftUI ``TerminalComposerView`` so it can be installed into the
         /// surface's composer band. Built lazily on first open and torn down on
         /// dismantle; mounted/unmounted by ``setComposerMounted(_:)``.
-        private var composerController: UIHostingController<TerminalComposerView>?
+        private var composerController: UIHostingController<AnyView>?
         private var composerMounted = false
         /// Bumped on every mount/unmount transition so a deferred close completion
         /// can tell whether it is still the latest transition. Guards the
@@ -120,9 +126,10 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// the meantime.
         private var composerMountGeneration = 0
 
-        init(surfaceID: String, store: CMUXMobileShellStore) {
+        init(surfaceID: String, store: CMUXMobileShellStore, terminalPalette: TerminalPalette) {
             self.surfaceID = surfaceID
             self.store = store
+            self.terminalPalette = terminalPalette
             super.init()
         }
 
@@ -207,14 +214,14 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
         /// changes; the coordinator measures the ideal height with `sizeThatFits` and
         /// sizes the surface band.
         @MainActor
-        private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<TerminalComposerView> {
+        private func makeComposerController(store: CMUXMobileShellStore) -> UIHostingController<AnyView> {
             let view = TerminalComposerView(store: store, terminalID: surfaceID) { [weak self] in
                 // Content changed (a line added/removed, or cleared after send): live
                 // grows/shrinks animate. `setComposerBandHeight` is idempotent on
                 // unchanged heights, so a no-op change is harmless.
                 self?.reportComposerHeight(animated: true)
             }
-            let controller = UIHostingController(rootView: view)
+            let controller = UIHostingController(rootView: AnyView(view.environment(terminalPalette)))
             // The field is pinned edge-to-edge in the band, so the band frame (not an
             // intrinsic size) drives the hosting view's height; the measured ideal
             // height flows separately through `sizeThatFits`. Clear background so the

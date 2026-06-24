@@ -877,8 +877,19 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     public var diagnosticLog: DiagnosticLog?
     #endif
 
+    /// The theme scoped to this mounted terminal surface. The input accessory
+    /// uses it for its docked background so another scene or surface cannot
+    /// recolor this toolbar through process-global runtime state.
+    public var terminalTheme: TerminalTheme = .monokai {
+        didSet {
+            guard terminalTheme != oldValue else { return }
+            inputProxy.terminalTheme = terminalTheme
+        }
+    }
+
     private lazy var inputProxy: TerminalInputTextView = {
         let inputProxy = TerminalInputTextView()
+        inputProxy.terminalTheme = terminalTheme
         inputProxy.onText = { [weak self] text in
             guard let self else { return }
             self.resetCursorBlink()

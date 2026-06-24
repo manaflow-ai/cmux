@@ -12,6 +12,8 @@ import UIKit
 /// libghostty surface, so the toolbar position, grid reservation, and
 /// keyboard/safe-area geometry are exactly what production renders.
 struct TerminalLayoutPreviewView: View {
+    @State private var terminalPalette = TerminalPalette()
+
     var body: some View {
         TerminalLayoutPreviewSurface()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -24,6 +26,7 @@ struct TerminalLayoutPreviewView: View {
             // toolbar); opt out of SwiftUI keyboard avoidance so the view does
             // not also shrink and double-count.
             .ignoresSafeArea(.keyboard, edges: .bottom)
+            .environment(terminalPalette)
     }
 }
 

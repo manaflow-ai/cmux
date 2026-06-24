@@ -21,8 +21,7 @@ public struct CopyableTerminalTextSelection: Sendable {
     /// Creates a selection helper.
     public init() {}
 
-    /// Whether `candidate` is the live, on-screen surface for `surfaceID` and so
-    /// may back the "View as Text" capture.
+    /// Whether `candidate` may back the "View as Text" capture for `surfaceID`.
     ///
     /// The id scoping keeps a second surface (another iPad scene, an in-flight
     /// transition) from leaking a different workspace's terminal into the
@@ -35,10 +34,18 @@ public struct CopyableTerminalTextSelection: Sendable {
             && candidate.hasSurface
     }
 
-    /// The deterministic pick from the registered candidates: the lowest-keyed
-    /// eligible match. When the same terminal is mounted in several scenes the
-    /// contents are identical, so the lowest-keyed visible match keeps the pick
-    /// stable. `candidates` must be supplied lowest-key-first.
+    /// Whether `candidate` is visibly mounted. This is a preference, not an
+    /// eligibility requirement, because UIKit can transiently flip these bits
+    /// during menu presentation.
+    public func isVisible(_ candidate: CopyableTerminalTextCandidate) -> Bool {
+        candidate.hasWindow
+            && !candidate.isHidden
+            && candidate.alpha > 0.01
+    }
+
+    /// The deterministic pick from the registered candidates: a visible
+    /// eligible match when possible, otherwise the lowest-keyed eligible match.
+    /// `candidates` must be supplied lowest-key-first.
     ///
     /// - Returns: The index of the chosen candidate in `candidates`, or nil when
     ///   none is eligible.
@@ -46,7 +53,8 @@ public struct CopyableTerminalTextSelection: Sendable {
         from candidates: [CopyableTerminalTextCandidate],
         for surfaceID: String
     ) -> Int? {
-        candidates.firstIndex { isEligible($0, for: surfaceID) }
+        let eligibleIndices = candidates.indices.filter { isEligible(candidates[$0], for: surfaceID) }
+        return eligibleIndices.first { isVisible(candidates[$0]) } ?? eligibleIndices.first
     }
 
     /// The text the sheet should show given the SCREEN and VIEWPORT reads.

@@ -177,13 +177,8 @@ extension MobileShellComposite {
     }
 
     func workspaceCloseResponseConfirmsClosed(_ data: Data) -> Bool {
-        guard
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let closed = object["closed"] as? Bool
-        else {
-            return false
-        }
-        return closed
+        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        return object?["closed"] as? Bool ?? true
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {

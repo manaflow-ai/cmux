@@ -325,6 +325,38 @@ import Testing
     #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
 }
 
+@Test func renderGridFullSnapshotRestoresThemeColorsAndPalette() throws {
+    let palette = (0..<TerminalTheme.paletteCount).map { index in
+        String(format: "#%02x%02x%02x", index, index + 1, index + 2)
+    }
+    let theme = TerminalTheme(
+        background: "#102030",
+        foreground: "#AABBCC",
+        cursor: "#FFEEDD",
+        cursorText: "#000000",
+        selectionBackground: "#334455",
+        selectionForeground: "#DDEEFF",
+        palette: palette
+    )
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: "terminal-a",
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: theme
+    )
+
+    let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
+    #expect(vt.contains("\u{1B}]10;rgb:aa/bb/cc\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]11;rgb:10/20/30\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]12;rgb:ff/ee/dd\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]17;rgb:33/44/55\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]19;rgb:dd/ee/ff\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]4;0;rgb:00/01/02\u{1B}\\"))
+    #expect(vt.contains("\u{1B}]4;15;rgb:0f/10/11\u{1B}\\"))
+}
+
 @Test func renderGridEncodesFullStateFields() throws {
     let frame = try MobileTerminalRenderGridFrame(
         surfaceID: "terminal-a",

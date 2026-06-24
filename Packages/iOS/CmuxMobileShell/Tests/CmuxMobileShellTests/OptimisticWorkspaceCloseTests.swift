@@ -48,14 +48,16 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.isEmpty)
     }
 
-    /// The optimistic hide stays active only when the host explicitly confirms
-    /// that it actually closed the workspace.
-    @Test func closeResponseRequiresExplicitClosedTrue() throws {
+    /// Older Macs return a successful close response without a `closed` field;
+    /// explicit `closed: false` is the only successful response shape that asks
+    /// iOS to roll the optimistic close back.
+    @Test func closeResponseTreatsLegacyOKAsConfirmed() throws {
         let store = MobileShellComposite.preview()
 
         #expect(store.workspaceCloseResponseConfirmsClosed(try jsonData(["closed": true])))
         #expect(!store.workspaceCloseResponseConfirmsClosed(try jsonData(["closed": false])))
-        #expect(!store.workspaceCloseResponseConfirmsClosed(try jsonData(["workspace_id": "workspace-main"])))
+        #expect(store.workspaceCloseResponseConfirmsClosed(try jsonData(["workspace_id": "workspace-main"])))
+        #expect(store.workspaceCloseResponseConfirmsClosed(Data()))
     }
 
     /// A failed close restores the removed row and clears the pending entry, so

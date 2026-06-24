@@ -78,7 +78,7 @@ extension TerminalTheme {
             cursorText: app.defaultCursorTextColor.hexString(),
             selectionBackground: app.defaultSelectionBackground.hexString(),
             selectionForeground: app.defaultSelectionForeground.hexString(),
-            palette: TerminalTheme.monokai.palette
+            palette: app.defaultTerminalPalette
         ).validatedOrDefault()
     }
 }

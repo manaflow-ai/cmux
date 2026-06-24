@@ -226,8 +226,19 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     /// The input accessory bar fill, taken from the active terminal theme's
     /// background so the bar blends with the live terminal under any theme.
-    private static var themeBarColor: UIColor {
-        guard let rgb = TerminalTheme.rgbComponents(GhosttyRuntime.currentTheme.background) else {
+    var terminalTheme: TerminalTheme = .monokai {
+        didSet {
+            guard terminalTheme != oldValue else { return }
+            accessoryBackgroundView?.backgroundColor = themeBarColor
+        }
+    }
+
+    private var themeBarColor: UIColor {
+        themeBarColor(for: terminalTheme)
+    }
+
+    private func themeBarColor(for theme: TerminalTheme) -> UIColor {
+        guard let rgb = TerminalTheme.rgbComponents(theme.background) else {
             return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
         }
         return UIColor(
@@ -237,6 +248,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             alpha: 1
         )
     }
+
     private static let accessoryHorizontalInset: CGFloat = 16
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
@@ -311,7 +323,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = Self.themeBarColor
+        backgroundView.backgroundColor = themeBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         self.accessoryBackgroundView = backgroundView
 
@@ -663,12 +675,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             name: TerminalAccessoryConfiguration.didChangeNotification,
             object: nil
         )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleTerminalThemeDidChange),
-            name: .cmuxMobileTerminalThemeDidChange,
-            object: nil
-        )
     }
 
     required init?(coder: NSCoder) {
@@ -677,10 +683,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc private func handleTerminalThemeDidChange() {
-        accessoryBackgroundView?.backgroundColor = Self.themeBarColor
     }
 
     /// Receive a committed character (or block) from the keyboard.

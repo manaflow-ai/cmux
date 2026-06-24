@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAgentChat
 import CmuxMobileBrowser
 import CmuxMobileDiagnostics
@@ -37,6 +38,7 @@ struct WorkspaceDetailView: View {
     /// the top-bar menu. Owned here (not in the menu builder) so the dialog stays
     /// attached to the detail view across menu open/close cycles.
     @State private var isConfirmingClose = false
+    @State private var terminalPalette = TerminalPalette()
     #if canImport(UIKit)
     @State private var isFeedbackComposerPresented = false
     @State private var feedbackText = ""
@@ -312,6 +314,8 @@ struct WorkspaceDetailView: View {
                     surfaceID: terminalID,
                     store: store,
                     fontSize: MobileTerminalFontPreference.defaultSize,
+                    terminalTheme: store.activeTerminalTheme,
+                    terminalPalette: terminalPalette,
                     // While the composer is presented the terminal input proxy
                     // must not grab first responder on attach. This covers both
                     // composer states: mid-compose (the field owns the keyboard
@@ -424,6 +428,7 @@ struct WorkspaceDetailView: View {
         #endif
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome()
+        .environment(terminalPalette)
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
         .onAppear {

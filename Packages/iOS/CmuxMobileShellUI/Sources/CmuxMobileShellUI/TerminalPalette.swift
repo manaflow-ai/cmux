@@ -6,11 +6,9 @@ import SwiftUI
 /// Colors derived from the active terminal theme for the SwiftUI chrome around
 /// the mobile terminal surface (toolbars, letterbox fill).
 ///
-/// These follow ``GhosttyRuntime/currentTheme`` so the chrome blends with the
-/// live terminal under any theme instead of flashing a hardcoded color. They
-/// fall back to Monokai when no theme has been supplied.
-@MainActor
-let terminalPalette = TerminalPalette()
+/// These are owned by each shell scene so one selected terminal cannot repaint
+/// another scene's chrome. They fall back to Monokai when no theme has been
+/// supplied.
 
 @MainActor
 @Observable

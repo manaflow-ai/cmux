@@ -25,8 +25,11 @@ final class MobileTerminalRenderObserver {
     private var observers: [NSObjectProtocol] = []
     private var pendingSurfaceIDs = Set<UUID>()
     private var hasPendingGlobalUpdate = false
+    private var hasPendingThemeRefresh = false
     private var isEmitFlushScheduled = false
     private var renderGridStatesBySurfaceID: [UUID: RenderGridState] = [:]
+    private var cachedTerminalTheme: TerminalTheme?
+    private var cachedTerminalThemeSignature: String?
 
     private init() {}
 
@@ -74,9 +77,11 @@ final class MobileTerminalRenderObserver {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.enqueueTerminalUpdate(surfaceID: nil)
+                self?.refreshCachedTerminalTheme()
+                self?.enqueueTerminalThemeRefresh()
             }
         })
+        refreshCachedTerminalTheme()
         refreshNotificationDemand()
     }
 
@@ -91,8 +96,11 @@ final class MobileTerminalRenderObserver {
         releaseTickDemand = nil
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
+        hasPendingThemeRefresh = false
         isEmitFlushScheduled = false
         renderGridStatesBySurfaceID.removeAll()
+        cachedTerminalTheme = nil
+        cachedTerminalThemeSignature = nil
     }
 
     func noteTerminalBytes(surfaceID: UUID) {
@@ -134,6 +142,7 @@ final class MobileTerminalRenderObserver {
             releaseTickDemand = nil
             pendingSurfaceIDs.removeAll()
             hasPendingGlobalUpdate = false
+            hasPendingThemeRefresh = false
             isEmitFlushScheduled = false
             renderGridStatesBySurfaceID.removeAll()
         }
@@ -156,6 +165,19 @@ final class MobileTerminalRenderObserver {
         }
     }
 
+    private func enqueueTerminalThemeRefresh() {
+        guard hasAnyRenderEventSubscribers else {
+            refreshNotificationDemand()
+            return
+        }
+        hasPendingThemeRefresh = true
+        guard !isEmitFlushScheduled else { return }
+        isEmitFlushScheduled = true
+        Task { @MainActor [weak self] in
+            self?.flushTerminalUpdates()
+        }
+    }
+
     private func flushTerminalUpdates() {
         isEmitFlushScheduled = false
         guard hasAnyRenderEventSubscribers else {
@@ -166,8 +188,10 @@ final class MobileTerminalRenderObserver {
         let shouldEmitRenderGridEvents = MobileHostService.hasEventSubscribers(topic: "terminal.render_grid")
         let surfaceIDs = pendingSurfaceIDs
         let shouldEmitGlobal = hasPendingGlobalUpdate
+        let shouldEmitThemeRefresh = hasPendingThemeRefresh
         pendingSurfaceIDs.removeAll()
         hasPendingGlobalUpdate = false
+        hasPendingThemeRefresh = false
 
         if shouldEmitUpdatedEvents, shouldEmitGlobal {
             MobileHostService.emitEvent(topic: "terminal.updated", payload: [:])
@@ -181,11 +205,14 @@ final class MobileTerminalRenderObserver {
         }
 
         guard shouldEmitRenderGridEvents else { return }
-        let renderSurfaceIDs: Set<UUID>
+        var renderSurfaceIDs: Set<UUID>
         if surfaceIDs.isEmpty, shouldEmitGlobal {
             renderSurfaceIDs = Set(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
         } else {
             renderSurfaceIDs = surfaceIDs
+        }
+        if shouldEmitThemeRefresh {
+            renderSurfaceIDs.formUnion(GhosttyApp.terminalSurfaceRegistry.allSurfaces().map(\.id))
         }
         for surfaceID in renderSurfaceIDs {
             emitRenderGrid(surfaceID: surfaceID)
@@ -201,9 +228,8 @@ final class MobileTerminalRenderObserver {
         }
 
         var snapshotFrame = snapshot.frame
-        let theme = TerminalTheme.currentMacTerminalThemeSnapshot()
+        let (theme, themeSignature) = cachedThemeSnapshot()
         snapshotFrame.terminalTheme = theme
-        let themeSignature = theme.mobileRenderGridThemeSignature
         let previous = renderGridStatesBySurfaceID[surfaceID]
         let nextSignatures = snapshotFrame.rowSignatures()
         let frame: MobileTerminalRenderGridFrame
@@ -258,6 +284,23 @@ final class MobileTerminalRenderObserver {
                 "cleared=\(frame.clearedRows.count) spans=\(frame.rowSpans.count) seq=\(frame.stateSeq)"
         )
         #endif
+    }
+
+    @discardableResult
+    private func refreshCachedTerminalTheme() -> (theme: TerminalTheme, signature: String) {
+        let theme = TerminalTheme.currentMacTerminalThemeSnapshot()
+        let signature = theme.mobileRenderGridThemeSignature
+        cachedTerminalTheme = theme
+        cachedTerminalThemeSignature = signature
+        return (theme, signature)
+    }
+
+    private func cachedThemeSnapshot() -> (theme: TerminalTheme, signature: String) {
+        guard let theme = cachedTerminalTheme,
+              let signature = cachedTerminalThemeSignature else {
+            return refreshCachedTerminalTheme()
+        }
+        return (theme, signature)
     }
 
     #if DEBUG
