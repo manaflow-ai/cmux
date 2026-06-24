@@ -75,12 +75,17 @@ struct WorkspaceDetailView: View {
 
     /// Whether the store's global ``connectionError`` describes THIS workspace's
     /// Mac. The error is a single foreground/pairing surface, not keyed per Mac,
-    /// so it only applies when this workspace shows the global status (its own
-    /// `macConnectionStatus` is nil = it is the foreground/primary Mac) and that
-    /// status is offline. A secondary Mac with its own `.unavailable` status must
-    /// fall back to the generic copy rather than borrow an unrelated error.
+    /// so it only applies to the foreground Mac's workspace
+    /// (`workspace.macDeviceID == store.foregroundMacDeviceID`) while offline.
+    /// `foregroundMacDeviceID` persists across a foreground drop (it is only
+    /// reset on sign-out), so it stays valid in exactly the `.unavailable` state
+    /// we want to explain. A secondary Mac with its own `.unavailable` status
+    /// falls back to the generic copy rather than borrow an unrelated error.
     private var showsGlobalConnectionError: Bool {
-        connectionStatus == .unavailable && workspace.macConnectionStatus == nil
+        guard connectionStatus == .unavailable,
+              let foregroundMacID = store.foregroundMacDeviceID,
+              !foregroundMacID.isEmpty else { return false }
+        return workspace.macDeviceID == foregroundMacID
     }
 
     /// Extra blank top padding for the terminal/chat, on top of the safe area. The
