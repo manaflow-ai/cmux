@@ -85,6 +85,9 @@ final class BrowserSSLTrustBypassState {
     }
 
     func consumePendingBypassAction(_ actionURL: URL) -> URLRequest? {
+        let currentDate = now()
+        purgeExpiredPendingBypasses(now: currentDate)
+
         guard actionURL.scheme == "cmux-browser-action",
               actionURL.host == "bypass-ssl",
               let components = URLComponents(url: actionURL, resolvingAgainstBaseURL: false),
@@ -94,11 +97,16 @@ final class BrowserSSLTrustBypassState {
         }
 
         pendingTokenOrder.removeAll { $0 == token }
-        guard pending.expiresAt > now() else {
+        guard pending.expiresAt > currentDate else {
             return nil
         }
         bypassedTrusts.insert(pending.grant)
         return pending.request
+    }
+
+    func clearPendingBypasses() {
+        pendingBypasses.removeAll()
+        pendingTokenOrder.removeAll()
     }
 
     private func purgeExpiredPendingBypasses(now currentDate: Date) {

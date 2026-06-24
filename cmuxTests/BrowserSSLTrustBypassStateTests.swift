@@ -96,4 +96,19 @@ struct BrowserSSLTrustBypassStateTests {
         #expect(expiredState.consumePendingBypassAction(expiredActionURL) == nil)
         #expect(!expiredState.isBypassed(scope: scope, fingerprint: fingerprint))
     }
+
+    @Test
+    func clearingPendingBypassesRejectsPreviouslyIssuedToken() throws {
+        let state = BrowserSSLTrustBypassState()
+        let url = try #require(URL(string: "https://cleared.internal"))
+        let scope = try #require(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+
+        let actionURL = try #require(state.createPendingBypassAction(for: URLRequest(url: url)))
+        state.clearPendingBypasses()
+
+        #expect(state.consumePendingBypassAction(actionURL) == nil)
+        #expect(!state.isBypassed(scope: scope, fingerprint: fingerprint))
+    }
 }

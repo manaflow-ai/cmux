@@ -8605,11 +8605,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     }
 
     func recordAttemptedRequest(_ request: URLRequest, displayURL: URL? = nil) {
+        sslBypassState.clearPendingBypasses()
         lastAttemptedRequest = request
         lastAttemptedURL = displayURL ?? request.url
     }
 
     func clearAttemptedRequest() {
+        sslBypassState.clearPendingBypasses()
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
     }

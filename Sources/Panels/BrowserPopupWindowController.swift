@@ -608,11 +608,13 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     private var lastAttemptedRequest: URLRequest?
 
     private func recordAttemptedRequest(_ request: URLRequest) {
+        sslBypassState.clearPendingBypasses()
         lastAttemptedRequest = request
         lastAttemptedURL = request.url
     }
 
     private func clearAttemptedRequest() {
+        sslBypassState.clearPendingBypasses()
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
     }
@@ -696,6 +698,14 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        clearAttemptedRequest()
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        clearAttemptedRequest()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
