@@ -12789,32 +12789,64 @@ extension Workspace: ResumableWorkspaceSurface {
         return surfaceResumeBinding(panelId: panelId)
     }
 
+    /// A cold-restored agent (after a crash/relaunch) lives here, not in the
+    /// live-detected `surfaceResumeBinding`. This is the primary resumability
+    /// source for the crash-recovery flow; it is populated synchronously during
+    /// restore (no async reconciliation race).
+    private var crashRecoveryRestoredAgent: SessionRestorableAgentSnapshot? {
+        guard let panelId = focusedPanelId else { return nil }
+        return restoredAgentSnapshotsByPanelId[panelId]
+    }
+
+    private var crashRecoveryResumeState: RestoredAgentResumeState? {
+        guard let panelId = focusedPanelId else { return nil }
+        return restoredAgentResumeStatesByPanelId[panelId]
+    }
+
     var resumeWorkspaceName: String { title }
 
     var resumeAgentKind: RestorableAgentKind? {
+        if let agent = crashRecoveryRestoredAgent { return agent.kind }
         guard let kind = crashRecoveryResumeBinding?.kind else { return nil }
         return RestorableAgentKind(rawValue: kind)
     }
 
     var resumeSessionToken: String? {
+        if let agent = crashRecoveryRestoredAgent, !agent.sessionId.isEmpty {
+            return agent.sessionId
+        }
         let trimmed = crashRecoveryResumeBinding?.command.trimmingCharacters(in: .whitespacesAndNewlines)
         return (trimmed?.isEmpty == false) ? trimmed : nil
     }
 
     var isResumeBindingProven: Bool {
+        // A cold-restored agent snapshot came from the session index — proven.
+        if crashRecoveryRestoredAgent != nil { return true }
         guard let binding = crashRecoveryResumeBinding else { return false }
         return !binding.isProcessDetected
     }
 
     var isAgentLive: Bool {
-        focusedTerminalPanel?.surface.surface != nil
+        switch crashRecoveryResumeState {
+        case .observedAgentCommandRunning, .autoResumeCommandRunning:
+            return true
+        case .manualResumeAvailable, .awaitingAutoResumeCommand:
+            // Cold-restored agent: terminal is up but the agent needs resuming.
+            return false
+        case nil:
+            // No restored-agent state: a live-detected binding means the agent
+            // is already running (manual action on a live agent).
+            return crashRecoveryResumeBinding != nil && focusedTerminalPanel?.surface.surface != nil
+        }
     }
 
     func runNativeResume() {
-        guard let panel = focusedTerminalPanel,
-              let startupInput = crashRecoveryResumeBinding?.inlineStartupInput(repairPortableAgentExecutable: false),
-              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        sendInputWhenReady(startupInput, to: panel)
+        guard let panel = focusedTerminalPanel else { return }
+        let startupInput = crashRecoveryRestoredAgent?.resumeStartupInput(allowOversizedInlineInput: true)
+            ?? crashRecoveryResumeBinding?.inlineStartupInput(repairPortableAgentExecutable: false)
+        guard let input = startupInput,
+              !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        sendInputWhenReady(input, to: panel)
     }
 
     func deliverResumeBreadcrumb(_ text: String) {
