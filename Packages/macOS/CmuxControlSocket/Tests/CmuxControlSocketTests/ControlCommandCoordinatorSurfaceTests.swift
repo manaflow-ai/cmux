@@ -3,21 +3,6 @@ import Testing
 @testable import CmuxControlSocket
 
 @MainActor
-private final class FakeSurfaceControlCommandContext: ControlCommandContext {
-    var reportPWDResolution: ControlSurfaceReportPWDResolution = .recorded(surfaceID: UUID())
-    var reportedPWD: (workspaceID: UUID, requestedSurfaceID: UUID?, path: String)?
-
-    func controlSurfaceReportPWD(
-        workspaceID: UUID,
-        requestedSurfaceID: UUID?,
-        path: String
-    ) -> ControlSurfaceReportPWDResolution {
-        reportedPWD = (workspaceID, requestedSurfaceID, path)
-        return reportPWDResolution
-    }
-}
-
-@MainActor
 @Suite("ControlCommandCoordinator surface domain")
 struct ControlCommandCoordinatorSurfaceTests {
     private func makeCoordinator() -> (ControlCommandCoordinator, FakeSurfaceControlCommandContext) {

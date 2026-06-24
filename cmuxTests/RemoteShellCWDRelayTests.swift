@@ -49,7 +49,7 @@ struct RemoteShellCWDRelayTests {
         )
 
         let expected = #"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","path":"\#(remoteDirectory.path)","surface_id":"22222222-2222-2222-2222-222222222222"}"#
-        #expect(output.contains(expected), output)
+        #expect(output.contains(expected), Comment(rawValue: output))
     }
 
     @Test
@@ -98,7 +98,7 @@ struct RemoteShellCWDRelayTests {
         )
 
         let expected = #"rpc surface.report_pwd {"workspace_id":"11111111-1111-1111-1111-111111111111","path":"\#(remoteDirectory.path)","surface_id":"22222222-2222-2222-2222-222222222222"}"#
-        #expect(result.stdout.contains(expected), result.stdout)
+        #expect(result.stdout.contains(expected), Comment(rawValue: result.stdout))
     }
 
     private func runInteractiveZsh(
@@ -149,7 +149,7 @@ struct RemoteShellCWDRelayTests {
         }
 
         let output = try runProcess(process)
-        #expect(output.status == 0, output.stderr)
+        #expect(output.status == 0, Comment(rawValue: output.stderr))
         return output.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -184,7 +184,7 @@ struct RemoteShellCWDRelayTests {
         }
 
         let output = try runProcess(process)
-        #expect(output.status == 0, output.stderr)
+        #expect(output.status == 0, Comment(rawValue: output.stderr))
         return (
             stdout: output.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
             stderr: output.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
