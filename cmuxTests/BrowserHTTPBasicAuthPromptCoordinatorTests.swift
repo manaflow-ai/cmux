@@ -56,7 +56,7 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         var firstDisposition: URLSession.AuthChallengeDisposition?
         var secondDisposition: URLSession.AuthChallengeDisposition?
 
-        #expect(coordinator.handle(
+        let handledHTTPChallenge = coordinator.handle(
             challenge: httpChallenge,
             startPrompt: { finishPrompt, _ in
                 promptCompletions.append(finishPrompt)
@@ -64,9 +64,10 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
             }
         ) { disposition, _ in
             firstDisposition = disposition
-        })
+        }
+        #expect(handledHTTPChallenge)
 
-        #expect(coordinator.handle(
+        let handledHTTPSChallenge = coordinator.handle(
             challenge: httpsChallenge,
             startPrompt: { finishPrompt, _ in
                 promptCompletions.append(finishPrompt)
@@ -74,7 +75,8 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
             }
         ) { disposition, _ in
             secondDisposition = disposition
-        })
+        }
+        #expect(handledHTTPSChallenge)
 
         #expect(promptCompletions.count == 1)
         #expect(secondDisposition == nil)
@@ -116,19 +118,21 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
             return true
         }
 
-        #expect(coordinator.handle(
+        let handledFirstChallenge = coordinator.handle(
             challenge: firstChallenge,
             startPrompt: startPrompt
         ) { disposition, _ in
             firstDisposition = disposition
-        })
+        }
+        #expect(handledFirstChallenge)
 
-        #expect(coordinator.handle(
+        let handledSecondChallenge = coordinator.handle(
             challenge: secondChallenge,
             startPrompt: startPrompt
         ) { disposition, _ in
             secondDisposition = disposition
-        })
+        }
+        #expect(handledSecondChallenge)
 
         #expect(promptStartCount == 1)
 
@@ -137,12 +141,13 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         #expect(firstDisposition == .cancelAuthenticationChallenge)
         #expect(secondDisposition == .cancelAuthenticationChallenge)
 
-        #expect(coordinator.handle(
+        let handledThirdChallenge = coordinator.handle(
             challenge: thirdChallenge,
             startPrompt: startPrompt
         ) { disposition, _ in
             thirdDisposition = disposition
-        })
+        }
+        #expect(handledThirdChallenge)
 
         #expect(promptStartCount == 2)
         #expect(thirdDisposition == nil)
@@ -155,6 +160,7 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         var promptCompletions: [BrowserHTTPBasicAuthPromptCoordinator.Completion] = []
         var firstDisposition: URLSession.AuthChallengeDisposition?
         var retryDisposition: URLSession.AuthChallengeDisposition?
+        var handledRetry: Bool?
 
         func startPrompt(
             _ finishPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.Completion,
@@ -165,18 +171,19 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
             return true
         }
 
-        #expect(coordinator.handle(
+        let handledInitialChallenge = coordinator.handle(
             challenge: challenge,
             startPrompt: startPrompt
         ) { disposition, _ in
             firstDisposition = disposition
-            #expect(coordinator.handle(
+            handledRetry = coordinator.handle(
                 challenge: challenge,
                 startPrompt: startPrompt
             ) { retryReturnedDisposition, _ in
                 retryDisposition = retryReturnedDisposition
-            })
-        })
+            }
+        }
+        #expect(handledInitialChallenge)
 
         #expect(promptCompletions.count == 1)
 
@@ -187,6 +194,7 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         )
 
         #expect(firstDisposition == .useCredential)
+        #expect(handledRetry == true)
         #expect(retryDisposition == nil)
         #expect(promptCompletions.count == 2)
 
@@ -204,7 +212,7 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         var completionCount = 0
         var disposition: URLSession.AuthChallengeDisposition?
 
-        #expect(coordinator.handle(
+        let handledChallenge = coordinator.handle(
             challenge: challenge,
             startPrompt: { finishPrompt, registerCancelPrompt in
                 registerCancelPrompt {
@@ -216,7 +224,8 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         ) { challengeDisposition, _ in
             completionCount += 1
             disposition = challengeDisposition
-        })
+        }
+        #expect(handledChallenge)
 
         coordinator.cancelAll()
 
