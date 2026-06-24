@@ -249,10 +249,10 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
-    func testTextBoxPendingClaudeLaunchPreservesSubmitContextWhilePromptIdle() throws {
+    func testTextBoxPendingClaudeLaunchPreservesSubmitContextWithoutPromptIdleReport() throws {
         let claude = try #require(TextBoxSubmitAction.builtInActions.first { $0.id == "claude" })
         let context = TextBoxInputContainer.textEntryTerminalAgentContext(
-            allowsCommandTemplateSubmit: true,
+            allowsCommandTemplateSubmit: false,
             terminalAgentContext: "",
             pendingProviderLaunchAction: claude
         )

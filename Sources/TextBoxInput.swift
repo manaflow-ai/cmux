@@ -2489,7 +2489,7 @@ struct TextBoxInputContainer: View {
         let clampedHeight = max(minHeight, min(maxHeight, textViewHeight))
         let foreground = Color(nsColor: terminalForegroundColor)
         let background = Color(nsColor: terminalBackgroundColor)
-        let canSend = !isProviderLaunchAwaitingAgentOrCommand && TextBoxSubmitAvailability.shouldEnableSubmit(
+        let canSend = TextBoxSubmitAvailability.shouldEnableSubmit(
             text: text,
             attachmentCount: attachments.count + pendingCommentCount,
             hasPendingAttachmentUpload: hasPendingAttachmentUpload,
@@ -2719,11 +2719,6 @@ struct TextBoxInputContainer: View {
             NSSound.beep()
             return
         }
-        guard !isProviderLaunchAwaitingAgentOrCommand else {
-            NSSound.beep()
-            return
-        }
-
         let submittedParts = textView?.submissionParts()
             ?? [TextBoxSubmissionPart.text(text.trimmingCharacters(in: .newlines))]
         let poolWorkspaceId = surface.owningWorkspace()?.id
