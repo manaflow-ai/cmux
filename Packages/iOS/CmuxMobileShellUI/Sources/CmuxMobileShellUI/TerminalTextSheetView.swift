@@ -16,6 +16,13 @@ import UIKit
 /// capped to `TerminalTextSnapshot.defaultLineBudget` lines, with a banner
 /// when older lines were dropped.
 struct TerminalTextSheetView: View {
+    private enum CaptureOutcome {
+        case loaded(String?)
+        case timedOut
+    }
+
+    private static let captureTimeout: Duration = .seconds(3)
+
     /// The shell-level surface/terminal id whose text the sheet shows — the
     /// terminal selected in the workspace that opened it. Nil when the
     /// workspace has no terminal; the sheet then shows its empty state.
@@ -37,6 +44,7 @@ struct TerminalTextSheetView: View {
     /// read is in flight.
     @State private var snapshot: TerminalTextSnapshot?
     @State private var isLoading = true
+    @State private var errorMessage: String?
     /// Flips the Copy All label to a checkmark after a copy. Reset is the next
     /// presentation (fresh `@State`), so no timer is needed.
     @State private var didCopy = false
@@ -73,6 +81,13 @@ struct TerminalTextSheetView: View {
         } else if isLoading {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let errorMessage {
+            Text(errorMessage)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("MobileTerminalTextSheetError")
         } else {
             Text(L10n.string(
                 "mobile.textSheet.empty",
@@ -117,19 +132,35 @@ struct TerminalTextSheetView: View {
     }
 
     private func loadSnapshot() async {
+        errorMessage = nil
         // Prefer the capture armed at tap time (surface still fully on screen).
         // Only fall back to a fresh resolve when no capture was provided, which
         // re-resolves from the registry and can miss the live surface if the
         // sheet's presentation dropped the presenter's window/alpha.
-        let fullText: String?
-        if let capture {
-            fullText = await capture.value
+        let captureTask: Task<String?, Never>
+        if let existingCapture = capture {
+            captureTask = existingCapture
         } else {
             guard let surfaceID else {
                 isLoading = false
                 return
             }
-            fullText = await GhosttySurfaceView.copyableTerminalText(surfaceID: surfaceID)
+            captureTask = await GhosttySurfaceView.copyableTerminalTextCapture(surfaceID: surfaceID)
+        }
+
+        let outcome = await awaitCapture(captureTask)
+        guard !Task.isCancelled else { return }
+        let fullText: String?
+        switch outcome {
+        case .loaded(let text):
+            fullText = text
+        case .timedOut:
+            errorMessage = L10n.string(
+                "mobile.textSheet.timeout",
+                defaultValue: "Terminal text took too long to load. Close this sheet and try again."
+            )
+            isLoading = false
+            return
         }
         // Cap off the main actor: the capture is bounded by the iOS surface's
         // scrollback-limit (~2MB, see applyiOSDefaults), but splitting and
@@ -140,6 +171,30 @@ struct TerminalTextSheetView: View {
         }.value
         snapshot = capped
         isLoading = false
+    }
+
+    private func awaitCapture(_ capture: Task<String?, Never>) async -> CaptureOutcome {
+        await withTaskCancellationHandler(operation: {
+            await withTaskGroup(of: CaptureOutcome.self) { group in
+                group.addTask {
+                    .loaded(await capture.value)
+                }
+                group.addTask {
+                    do {
+                        try await ContinuousClock().sleep(for: Self.captureTimeout)
+                    } catch {
+                        return .timedOut
+                    }
+                    capture.cancel()
+                    return .timedOut
+                }
+                let outcome = await group.next() ?? .timedOut
+                group.cancelAll()
+                return outcome
+            }
+        }, onCancel: {
+            capture.cancel()
+        })
     }
 
     private func copyAll() {

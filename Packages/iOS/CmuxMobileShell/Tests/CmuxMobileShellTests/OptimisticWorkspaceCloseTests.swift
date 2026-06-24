@@ -29,10 +29,12 @@ import Testing
     @Test func optimisticCloseOfSelectedReselectsNeighbor() {
         let store = MobileShellComposite.preview()
         store.selectedWorkspaceID = "workspace-main"
+        store.selectedTerminalID = "terminal-build"
 
         store.applyOptimisticWorkspaceClose(id: "workspace-main")
 
         #expect(store.selectedWorkspaceID == "workspace-docs")
+        #expect(store.selectedTerminalID == "terminal-notes")
     }
 
     /// Closing a workspace that is not present is a no-op and records nothing.

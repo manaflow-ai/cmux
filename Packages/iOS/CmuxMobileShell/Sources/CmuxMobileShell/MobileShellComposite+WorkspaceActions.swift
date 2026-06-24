@@ -142,6 +142,9 @@ extension MobileShellComposite {
             selectedWorkspaceID = next?.id
         }
         recomputeDerivedWorkspaceState()
+        if wasSelected {
+            syncSelectedTerminalForWorkspace()
+        }
         return true
     }
 

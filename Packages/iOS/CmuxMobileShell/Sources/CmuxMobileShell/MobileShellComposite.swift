@@ -5119,7 +5119,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         markMacConnectionUnavailable()
     }
 
-    private func syncSelectedTerminalForWorkspace() {
+    func syncSelectedTerminalForWorkspace() {
         guard let selectedWorkspace else {
             selectedTerminalID = nil
             return
