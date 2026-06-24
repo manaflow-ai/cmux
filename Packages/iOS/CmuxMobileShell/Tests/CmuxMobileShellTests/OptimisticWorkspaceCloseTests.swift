@@ -48,6 +48,16 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.isEmpty)
     }
 
+    /// The optimistic hide stays active only when the host explicitly confirms
+    /// that it actually closed the workspace.
+    @Test func closeResponseRequiresExplicitClosedTrue() throws {
+        let store = MobileShellComposite.preview()
+
+        #expect(store.workspaceCloseResponseConfirmsClosed(try jsonData(["closed": true])))
+        #expect(!store.workspaceCloseResponseConfirmsClosed(try jsonData(["closed": false])))
+        #expect(!store.workspaceCloseResponseConfirmsClosed(try jsonData(["workspace_id": "workspace-main"])))
+    }
+
     /// A failed close restores the removed row and clears the pending entry, so
     /// the next authoritative refresh treats the workspace as live again.
     @Test func rollbackRestoresRemovedRow() {
@@ -265,5 +275,9 @@ import Testing
                 ),
             ]
         )
+    }
+
+    private func jsonData(_ object: [String: Any]) throws -> Data {
+        try JSONSerialization.data(withJSONObject: object)
     }
 }

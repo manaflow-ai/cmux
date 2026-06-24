@@ -101,7 +101,10 @@ extension MobileShellComposite {
                 method: "workspace.close",
                 params: params
             )
-            _ = try await client.sendRequest(request)
+            let response = try await client.sendRequest(request)
+            if removed, !workspaceCloseResponseConfirmsClosed(response) {
+                rollbackOptimisticWorkspaceClose(id: id)
+            }
         } catch {
             if removed { rollbackOptimisticWorkspaceClose(id: id) }
             guard !disconnectForAuthorizationFailureIfNeeded(error) else { return }
@@ -171,6 +174,16 @@ extension MobileShellComposite {
             selectedWorkspaceID = id
             syncSelectedTerminalForWorkspace()
         }
+    }
+
+    func workspaceCloseResponseConfirmsClosed(_ data: Data) -> Bool {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let closed = object["closed"] as? Bool
+        else {
+            return false
+        }
+        return closed
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {
