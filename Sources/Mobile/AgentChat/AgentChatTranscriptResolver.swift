@@ -8,12 +8,48 @@ import Foundation
 /// codex: rollout filename containing the session id).
 struct AgentChatTranscriptResolver: Sendable {
     private let homeDirectory: URL
+    /// Config-dir root for Claude (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
+    private let claudeConfigRoot: URL
+    /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
+    private let codexConfigRoot: URL
 
     /// Creates a resolver.
     ///
-    /// - Parameter homeDirectory: Injectable home directory for tests.
-    init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    /// The derived-path fallbacks honor the agents' own config-dir env
+    /// overrides so a user who relocates their config (e.g. `CLAUDE_CONFIG_DIR`
+    /// or `CODEX_HOME`, including via a launcher/subrouter) still has transcripts
+    /// resolved. The PRIMARY source remains the hook-recorded absolute
+    /// `transcriptPath`, which already encodes any custom dir; this only fixes
+    /// the fallback used when no path was recorded (e.g. a codex session resumed
+    /// out-of-band, resolved by scanning the sessions dir).
+    ///
+    /// - Parameters:
+    ///   - homeDirectory: Injectable home directory for tests.
+    ///   - environment: Injectable environment for tests; defaults to the
+    ///     process environment. Empty/whitespace override values are ignored.
+    init(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) {
         self.homeDirectory = homeDirectory
+        self.claudeConfigRoot = Self.configRoot(
+            override: environment["CLAUDE_CONFIG_DIR"],
+            default: homeDirectory.appendingPathComponent(".claude", isDirectory: true)
+        )
+        self.codexConfigRoot = Self.configRoot(
+            override: environment["CODEX_HOME"],
+            default: homeDirectory.appendingPathComponent(".codex", isDirectory: true)
+        )
+    }
+
+    /// Resolves a config-dir root from an env override, expanding a leading `~`,
+    /// falling back to `defaultRoot` when the override is absent or blank.
+    private static func configRoot(override: String?, default defaultRoot: URL) -> URL {
+        guard let trimmed = override?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return defaultRoot
+        }
+        return URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath, isDirectory: true)
     }
 
     /// Resolves the transcript path for a session.
@@ -43,8 +79,7 @@ struct AgentChatTranscriptResolver: Sendable {
         let fileManager = FileManager.default
         guard let cwd = record.workingDirectory else { return nil }
         let projectDir = RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
-        let path = homeDirectory
-            .appendingPathComponent(".claude", isDirectory: true)
+        let path = claudeConfigRoot
             .appendingPathComponent("projects", isDirectory: true)
             .appendingPathComponent(projectDir, isDirectory: true)
             .appendingPathComponent("\(record.sessionID).jsonl", isDirectory: false)
@@ -57,8 +92,7 @@ struct AgentChatTranscriptResolver: Sendable {
     /// the session id.
     private func codexFallbackPath(sessionID: String) -> String? {
         let fileManager = FileManager.default
-        let root = homeDirectory
-            .appendingPathComponent(".codex", isDirectory: true)
+        let root = codexConfigRoot
             .appendingPathComponent("sessions", isDirectory: true)
         guard let enumerator = fileManager.enumerator(
             at: root,
