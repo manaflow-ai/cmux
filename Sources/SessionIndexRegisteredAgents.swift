@@ -12,14 +12,6 @@ extension SessionIndexStore {
         searchMaxFiles: searchMaxFiles
     )
 
-    private struct AntigravityHistoryMetadata {
-        let sessionId: String
-        let title: String
-        let cwd: String?
-        let modified: Date
-        let fileURL: URL
-    }
-
     nonisolated static func loadGrokEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,
@@ -252,88 +244,26 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) -> [SessionEntry] {
-        let roots = registeredAgentResolver.registeredSessionRoots(
+        let entries = registeredAgentResolver.resolveAntigravityHistory(
             kind: registration.sessionIdSource.registeredAgentKind,
             sessionDirectory: registration.sessionDirectory,
+            needle: needle,
             cwdFilter: cwdFilter
         )
-        guard !roots.isEmpty else { return [] }
-
-        let fm = FileManager.default
-        let fieldParser = AgentSessionFieldParser()
-        let historyParser = AgentHistoryRecordParser(fieldParser: fieldParser)
-        var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
-
-        for root in roots {
-            if Task.isCancelled { break }
-            let historyURL = URL(fileURLWithPath: root, isDirectory: true)
-                .appendingPathComponent("history.jsonl", isDirectory: false)
-            var isDirectory: ObjCBool = false
-            guard fm.fileExists(atPath: historyURL.path, isDirectory: &isDirectory),
-                  !isDirectory.boolValue else {
-                continue
-            }
-            let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
-                ?? Date.distantPast
-
-            ripgrepScanner.forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
-                if Task.isCancelled { return true }
-                guard let sessionId = fieldParser.firstString(in: object, keys: historyParser.antigravitySessionIDKeys()) else {
-                    return false
-                }
-                let cwd = fieldParser.firstString(in: object, keys: historyParser.registeredJSONLCWDKeys())
-                if let cwdFilter, cwd != cwdFilter { return false }
-
-                let title = historyParser.antigravityHistoryTitle(in: object) ?? ""
-                guard historyParser.antigravityHistoryMatchesNeedle(
-                    needle: needle,
-                    sessionId: sessionId,
-                    title: title,
-                    cwd: cwd
-                ) else {
-                    return false
-                }
-
-                let modified = historyParser.antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
-                let metadata = AntigravityHistoryMetadata(
-                    sessionId: sessionId,
-                    title: title,
-                    cwd: cwd,
-                    modified: modified,
-                    fileURL: historyURL
-                )
-                if let existing = latestBySessionID[sessionId] {
-                    if metadata.modified >= existing.modified {
-                        latestBySessionID[sessionId] = metadata
-                    }
-                } else {
-                    latestBySessionID[sessionId] = metadata
-                }
-                return false
-            }
+        .map { entry in
+            SessionEntry(
+                id: "\(registration.id):\(entry.sessionId)",
+                agent: .registered(RegisteredSessionAgent(registration: registration)),
+                sessionId: entry.sessionId,
+                title: entry.title,
+                cwd: entry.cwd,
+                gitBranch: nil,
+                pullRequest: nil,
+                modified: entry.modified,
+                fileURL: entry.fileURL,
+                specifics: .registered(registration)
+            )
         }
-
-        let entries = latestBySessionID.values
-            .sorted {
-                if $0.modified == $1.modified {
-                    return $0.sessionId < $1.sessionId
-                }
-                return $0.modified > $1.modified
-            }
-            .map { metadata in
-                SessionEntry(
-                    id: "\(registration.id):\(metadata.sessionId)",
-                    agent: .registered(RegisteredSessionAgent(registration: registration)),
-                    sessionId: metadata.sessionId,
-                    title: metadata.title,
-                    cwd: metadata.cwd,
-                    gitBranch: nil,
-                    pullRequest: nil,
-                    modified: metadata.modified,
-                    fileURL: metadata.fileURL,
-                    specifics: .registered(registration)
-                )
-            }
         return Array(entries.dropFirst(offset).prefix(limit))
     }
 

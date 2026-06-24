@@ -1,7 +1,6 @@
 import CmuxFoundation
 import Foundation
 import CMUXAgentLaunch
-import SQLite3
 
 extension AgentLaunchCommandSnapshot {
     init(
@@ -430,7 +429,7 @@ extension RestorableAgentSessionIndex {
             } else if sessionMissesByWorkingDirectoryAndParent.contains(sessionCacheKey) {
                 latestSessionId = nil
             } else {
-                latestSessionId = latestOpenCodeSessionId(
+                latestSessionId = openCodeResolver.latestOpenCodeSessionId(
                     workingDirectory: process.workingDirectory,
                     parentSessionId: forkParentSessionId,
                     fileManager: fileManager
@@ -476,64 +475,6 @@ extension RestorableAgentSessionIndex {
         }
 
         return resolved
-    }
-
-    private static func latestOpenCodeSessionId(
-        workingDirectory: String?,
-        parentSessionId: String?,
-        fileManager: FileManager
-    ) -> String? {
-        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
-        do {
-            guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-process") else {
-                return nil
-            }
-            snapshot = madeSnapshot
-        } catch {
-            return nil
-        }
-        defer { snapshot.remove() }
-
-        var db: OpaquePointer?
-        guard sqlite3_open_v2(snapshot.databaseURL.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            sqlite3_close(db)
-            return nil
-        }
-        defer { sqlite3_close(db) }
-
-        guard let parentId = normalized(parentSessionId) else {
-            return nil
-        }
-        guard let cwd = normalized(workingDirectory).map({ ($0 as NSString).standardizingPath }) else {
-            return nil
-        }
-        let sql = """
-            SELECT id FROM session
-            WHERE directory = ?
-              AND parent_id = ?
-            ORDER BY time_updated DESC
-            LIMIT 1
-            """
-
-        var stmt: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            sqlite3_finalize(stmt)
-            return nil
-        }
-        defer { sqlite3_finalize(stmt) }
-
-        let SQLITE_TRANSIENT_FN = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
-        var bindIndex: Int32 = 1
-        sqlite3_bind_text(stmt, bindIndex, cwd, -1, SQLITE_TRANSIENT_FN)
-        bindIndex += 1
-        sqlite3_bind_text(stmt, bindIndex, parentId, -1, SQLITE_TRANSIENT_FN)
-
-        guard sqlite3_step(stmt) == SQLITE_ROW,
-              let sessionId = stmt.sqliteColumnText(0),
-              !sessionId.isEmpty else {
-            return nil
-        }
-        return sessionId
     }
 
     private static func normalized(_ rawValue: String?) -> String? {

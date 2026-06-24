@@ -59,7 +59,10 @@ public struct RegisteredAgentJSONLMetadata: Sendable, Hashable {
 /// constructor-injected `RipgrepFileScanner` and `searchMaxFiles` cap so tests can
 /// point resolution at a temporary tree and a fake scanner.
 public struct RegisteredAgentSessionResolver: Sendable {
-    private let ripgrepScanner: RipgrepFileScanner
+    /// The scanner used for line iteration over `.jsonl` rollouts. `internal` (not
+    /// `private`) so the same-module ``resolveAntigravityHistory(kind:sessionDirectory:needle:cwdFilter:fileManager:)``
+    /// extension can stream a `history.jsonl` through it.
+    let ripgrepScanner: RipgrepFileScanner
     private let searchMaxFiles: Int
 
     /// Creates a resolver.

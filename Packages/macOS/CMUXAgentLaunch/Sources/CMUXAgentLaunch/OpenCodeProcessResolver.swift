@@ -3,10 +3,11 @@ public import Foundation
 /// Resolves the executable path, launch argument vector, and working directory
 /// for an observed OpenCode process from its argv/environment alone.
 ///
-/// This is the pure argv/path-parsing half of OpenCode process detection. It
-/// owns no app state and performs no database work; the SQLite-backed
-/// fork-parent session lookup (`OpenCodeDatabaseSnapshot`) stays app-side and
-/// only consumes the working directory this resolver derives.
+/// This is the argv/path-parsing core of OpenCode process detection. It owns no
+/// app state. The SQLite-backed fork-parent session lookup lives in the
+/// `latestOpenCodeSessionId(workingDirectory:parentSessionId:fileManager:)`
+/// extension (`OpenCodeProcessResolver+ForkSQL`), which reads an
+/// `OpenCodeDatabaseSnapshot` keyed by the working directory this resolver derives.
 ///
 /// The injected `FileManager` backs the `PATH` executable-existence probe so the
 /// resolver is testable against a scoped filesystem.
@@ -221,7 +222,7 @@ public struct OpenCodeProcessResolver {
         return nil
     }
 
-    private static func normalized(_ rawValue: String?) -> String? {
+    static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
             return nil

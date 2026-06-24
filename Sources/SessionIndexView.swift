@@ -1349,7 +1349,7 @@ private enum SessionTranscriptLoader {
     }
 
     private static func loadOpenCodeSynchronously(sessionId: String) throws -> [SessionTranscriptTurn] {
-        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        let snapshot: OpenCodeDatabaseSnapshot
         do {
             guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-preview") else {
                 throw SessionTranscriptLoadError.missingFile

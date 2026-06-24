@@ -1199,7 +1199,7 @@ final class SessionIndexStore {
         needle: String, cwdFilter: String?, offset: Int, limit: Int,
         errorBag: ErrorBag
     ) -> [SessionEntry] {
-        let snapshot: OpenCodeDatabaseSnapshot.Snapshot
+        let snapshot: OpenCodeDatabaseSnapshot
         do {
             guard let madeSnapshot = try OpenCodeDatabaseSnapshot.make(prefix: "cmux-opencode-search") else {
                 return []

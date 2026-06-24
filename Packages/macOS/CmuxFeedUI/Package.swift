@@ -18,12 +18,16 @@ let package = Package(
         // WorkstreamSource, WorkstreamAllowedPrompt, WorkstreamPlanBlocks,
         // WorkstreamTaskTodo) these presentation views render.
         .package(path: "../CMUXAgentLaunch"),
+        // CmuxAppKitSupportUI owns shared AppKit-backed SwiftUI layout helpers
+        // (WrapHStack) that the question option-pill grid lays out with.
+        .package(path: "../CmuxAppKitSupportUI"),
     ],
     targets: [
         .target(
             name: "CmuxFeedUI",
             dependencies: [
                 .product(name: "CMUXAgentLaunch", package: "CMUXAgentLaunch"),
+                .product(name: "CmuxAppKitSupportUI", package: "CmuxAppKitSupportUI"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
