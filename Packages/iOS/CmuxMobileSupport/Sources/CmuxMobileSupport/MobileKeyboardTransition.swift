@@ -39,8 +39,11 @@ public struct MobileKeyboardTransition {
     @MainActor public func overlap(in view: UIView) -> CGFloat {
         guard let window = view.window else { return 0 }
         let keyboardFrameInWindow = window.convert(endFrame, from: nil)
-        let keyboardFrameInView = view.convert(keyboardFrameInWindow, from: window)
-        return view.bounds.intersection(keyboardFrameInView).height
+        let viewFrameInWindow = view.convert(view.bounds, to: window)
+        return MobileKeyboardReservation.bottomDockedHeight(
+            keyboardFrameInWindow: keyboardFrameInWindow,
+            viewFrameInWindow: viewFrameInWindow
+        )
     }
 
     /// Runs animations using the keyboard's exact timing curve and duration.

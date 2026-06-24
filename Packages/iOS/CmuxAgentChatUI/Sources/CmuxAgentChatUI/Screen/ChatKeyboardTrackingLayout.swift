@@ -111,9 +111,10 @@ private final class ChatKeyboardTrackingViewController<Content: View>: UIViewCon
         guard let window = view.window else { return 0 }
         let keyboardFrame = window.convert(screenFrame, from: nil)
         let viewFrame = view.convert(view.bounds, to: window)
-        let intersection = viewFrame.intersection(keyboardFrame)
-        guard !intersection.isNull else { return 0 }
-        return max(0, intersection.height)
+        return MobileKeyboardReservation.bottomDockedHeight(
+            keyboardFrameInWindow: keyboardFrame,
+            viewFrameInWindow: viewFrame
+        )
     }
 }
 #endif

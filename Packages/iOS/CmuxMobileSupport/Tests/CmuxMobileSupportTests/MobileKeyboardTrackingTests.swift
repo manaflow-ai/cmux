@@ -5,6 +5,33 @@ import Testing
 @Suite struct MobileKeyboardTrackingTests {
     private let tolerance: CGFloat = 0.001
 
+    @Test func dockedKeyboardProducesBottomReservation() {
+        let height = MobileKeyboardReservation.bottomDockedHeight(
+            keyboardFrameInWindow: CGRect(x: 0, y: 500, width: 400, height: 300),
+            viewFrameInWindow: CGRect(x: 0, y: 0, width: 400, height: 800)
+        )
+
+        #expect(height == 300)
+    }
+
+    @Test func floatingKeyboardDoesNotProduceBottomReservation() {
+        let height = MobileKeyboardReservation.bottomDockedHeight(
+            keyboardFrameInWindow: CGRect(x: 220, y: 360, width: 360, height: 180),
+            viewFrameInWindow: CGRect(x: 0, y: 0, width: 800, height: 1_000)
+        )
+
+        #expect(height == 0)
+    }
+
+    @Test func keyboardExtendingBelowViewUsesVisibleBottomOverlap() {
+        let height = MobileKeyboardReservation.bottomDockedHeight(
+            keyboardFrameInWindow: CGRect(x: 0, y: 650, width: 400, height: 350),
+            viewFrameInWindow: CGRect(x: 0, y: 100, width: 400, height: 700)
+        )
+
+        #expect(height == 150)
+    }
+
     @Test func bottomPositionKeepsContentEndPinnedWhenKeyboardInsetGrows() {
         let snapshot = MobileScrollViewportSnapshot(
             contentOffsetY: 1_400,
