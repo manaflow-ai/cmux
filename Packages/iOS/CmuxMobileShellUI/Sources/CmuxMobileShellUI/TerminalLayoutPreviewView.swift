@@ -8,10 +8,38 @@ import UIKit
 /// docked-toolbar layout on the simulator, with no sign-in or Mac pairing.
 ///
 /// Mounted by the root view when ``UITestConfig/terminalLayoutPreviewEnabled``
-/// is set (`CMUX_UITEST_TERMINAL_PREVIEW=1`). It renders a real, blank
-/// libghostty surface, so the toolbar position, grid reservation, and
-/// keyboard/safe-area geometry are exactly what production renders.
+/// is set (`CMUX_UITEST_TERMINAL_PREVIEW=1`). It renders a real libghostty
+/// surface, so the toolbar position, grid reservation, and keyboard/safe-area
+/// geometry are exactly what production renders.
+///
+/// Screenshot knobs (App Store capture):
+/// - `CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1` feeds a sample agent session.
+/// - `CMUX_UITEST_TERMINAL_TRANSCRIPT=claude|codex|opencode|pi` picks which one.
+/// - `CMUX_UITEST_FAKE_KEYBOARD_HEIGHT=<pt>` reserves the keyboard region.
+/// - `CMUX_UITEST_SCREENSHOT_KEYBOARD=1` draws a realistic iOS keyboard in that
+///   region (the simulator will not render the system keyboard in CI).
 struct TerminalLayoutPreviewView: View {
+    /// Single source of truth for the reserved keyboard height, shared by the
+    /// surface layout and the drawn-keyboard overlay. An explicit
+    /// CMUX_UITEST_FAKE_KEYBOARD_HEIGHT wins (geometry tests); otherwise, when
+    /// the screenshot keyboard is requested, use a device-appropriate height.
+    static func effectiveKeyboardHeight() -> CGFloat {
+        let env = ProcessInfo.processInfo.environment
+        if let raw = env["CMUX_UITEST_FAKE_KEYBOARD_HEIGHT"], let v = Double(raw), v > 0 {
+            return CGFloat(v)
+        }
+        if env["CMUX_UITEST_SCREENSHOT_KEYBOARD"] == "1" {
+            let w = UIScreen.main.bounds.width
+            return w >= 700 ? 384 : 322  // iPad vs iPhone portrait keyboard
+        }
+        return 0
+    }
+
+    private var showKeyboard: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_SCREENSHOT_KEYBOARD"] == "1"
+            && Self.effectiveKeyboardHeight() > 0
+    }
+
     var body: some View {
         TerminalLayoutPreviewSurface()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -19,10 +47,18 @@ struct TerminalLayoutPreviewView: View {
                 TerminalPalette.background
                     .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             }
-            .ignoresSafeArea(.container, edges: .bottom)
+            .overlay(alignment: .bottom) {
+                if showKeyboard {
+                    ScreenshotKeyboardView(height: Self.effectiveKeyboardHeight())
+                        .frame(height: Self.effectiveKeyboardHeight())
+                        .ignoresSafeArea(.container, edges: .bottom)
+                        .allowsHitTesting(false)
+                }
+            }
             // The surface handles the keyboard itself (keyboardHeight + docked
             // toolbar); opt out of SwiftUI keyboard avoidance so the view does
             // not also shrink and double-count.
+            .ignoresSafeArea(.container, edges: .bottom)
             .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 }
@@ -46,15 +82,12 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
             delegate: context.coordinator,
             fontSize: MobileTerminalFontPreference.defaultSize
         )
-        // Leave the keyboard down on first appearance; the screenshot harness
-        // taps to focus when it wants the keyboard-up layout.
         view.autoFocusOnWindowAttach = false
         // The simulator refuses to render the software keyboard, so inject a
         // synthetic keyboard height to screenshot the keyboard-up layout (and 0
-        // to drive the keyboard-down toggle glyph deterministically).
-        let fakeHeight = ProcessInfo.processInfo.environment["CMUX_UITEST_FAKE_KEYBOARD_HEIGHT"]
-            .flatMap(Double.init) ?? 0
-        view.debugSetKeyboardHeightForLayoutPreview(CGFloat(max(0, fakeHeight)))
+        // to drive the keyboard-down toggle glyph deterministically). When the
+        // height is set, TerminalLayoutPreviewView overlays a drawn keyboard.
+        view.debugSetKeyboardHeightForLayoutPreview(TerminalLayoutPreviewView.effectiveKeyboardHeight())
         if ProcessInfo.processInfo.environment["CMUX_UITEST_SHOW_ZOOM"] == "1" {
             view.debugShowZoomControlOverlayForPreview()
         }
@@ -63,33 +96,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {}
 
-    /// A short, realistic coding-agent session (ANSI-colored) for screenshots.
-    static let sampleTranscript: Data = {
-        let esc = "\u{1B}"
-        let reset = "\(esc)[0m"
-        let dim = "\(esc)[2m"
-        let green = "\(esc)[1;32m"
-        let magenta = "\(esc)[1;35m"
-        let cyan = "\(esc)[36m"
-        let prompt = "\(green)❯\(reset)"
-        let lines = [
-            "\(dim)~/projects/app\(reset)  \(cyan)main\(reset)",
-            "\(prompt) claude \(dim)\"add a dark mode toggle\"\(reset)",
-            "",
-            "\(magenta)●\(reset) I'll add a dark mode toggle to Settings.",
-            "  \(dim)Reading\(reset) SettingsView.swift",
-            "  \(green)✓\(reset) Added \(cyan)@AppStorage(\"isDarkMode\")\(reset)",
-            "  \(green)✓\(reset) Wired \(cyan)Toggle\(reset) into the General section",
-            "  \(green)✓\(reset) Applied \(cyan).preferredColorScheme\(reset)",
-            "",
-            "  \(green)Build succeeded.\(reset) 2 files changed.",
-            "",
-            "\(prompt) ",
-        ]
-        return Data(lines.joined(separator: "\r\n").utf8)
-    }()
-
-    /// Retained delegate (the surface holds it weakly). Feeds the sample
+    /// Retained delegate (the surface holds it weakly). Feeds the selected agent
     /// transcript once the grid has real dimensions (the first `didResize`),
     /// which is the reliable signal that the surface can render output. Gated on
     /// CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1 so the blank-layout preview used by
@@ -98,12 +105,14 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         private var didFeedContent = false
         private let feedContent =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1"
+        private let transcriptName =
+            ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TRANSCRIPT"] ?? "claude"
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
             guard feedContent, !didFeedContent, size.columns > 0, size.rows > 0 else { return }
             didFeedContent = true
-            surfaceView.processOutput(TerminalLayoutPreviewSurface.sampleTranscript)
+            surfaceView.processOutput(TerminalPreviewTranscripts.transcript(named: transcriptName))
         }
     }
 }

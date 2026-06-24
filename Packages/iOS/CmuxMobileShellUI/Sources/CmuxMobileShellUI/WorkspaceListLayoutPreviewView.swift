@@ -38,6 +38,10 @@ struct WorkspaceListLayoutPreviewView: View {
         ),
     ]
 
+    private var showNotificationBanner: Bool {
+        ProcessInfo.processInfo.environment["CMUX_UITEST_NOTIFICATION_BANNER"] == "1"
+    }
+
     var body: some View {
         NavigationStack {
             WorkspaceListView(
@@ -54,6 +58,15 @@ struct WorkspaceListLayoutPreviewView: View {
                 selectWorkspace: { selectedWorkspaceID = $0 },
                 createWorkspace: {}
             )
+        }
+        .overlay(alignment: .top) {
+            if showNotificationBanner {
+                ScreenshotNotificationBanner(
+                    title: "Agent needs your input",
+                    message: "Claude is asking: which database should I use, Postgres or SQLite?"
+                )
+                .padding(.top, 8)
+            }
         }
     }
 }

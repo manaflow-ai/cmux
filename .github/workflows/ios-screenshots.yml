@@ -136,7 +136,7 @@ jobs:
           # (which would trip `set -u`).
           grep '^SNAPSHOT_DEVICES=' "$GITHUB_ENV" || { echo "device resolution failed" >&2; exit 1; }
 
-      - name: Ensure fastlane
+      - name: Ensure fastlane + imagemagick
         run: |
           set -euo pipefail
           # Use the Homebrew fastlane (ships its own Ruby) instead of bundler:
@@ -144,6 +144,10 @@ jobs:
           # against system Ruby can't resolve. This matches the local dev setup.
           if ! command -v fastlane >/dev/null 2>&1; then
             brew install fastlane
+          fi
+          # frameit (device frames + background + titles) needs imagemagick.
+          if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+            brew install imagemagick
           fi
           fastlane --version
 

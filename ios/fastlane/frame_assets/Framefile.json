@@ -1,0 +1,21 @@
+{
+  "device_frame_version": "latest",
+  "default": {
+    "background": "./background.jpg",
+    "padding": 90,
+    "show_complete_frame": false,
+    "title_below_image": false,
+    "keyword": {
+      "color": "#9FB4FF"
+    },
+    "title": {
+      "color": "#FFFFFF"
+    }
+  },
+  "data": [
+    {
+      "filter": "Terminal",
+      "padding": 70
+    }
+  ]
+}

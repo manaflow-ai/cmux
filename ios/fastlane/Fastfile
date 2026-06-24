@@ -26,6 +26,17 @@ platform :ios do
       override_status_bar: true
     )
     UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
+    frame unless ENV["SNAPSHOT_SKIP_FRAME"] == "1"
+  end
+
+  desc "Frame captured screenshots with the device shell, tranquil background, and"
+  desc "localized titles (fastlane frameit). Requires imagemagick."
+  lane :frame do
+    ss = File.expand_path("screenshots", __dir__)
+    prep = File.expand_path("frame_assets/prepare_frames.py", __dir__)
+    sh("python3", prep, ss)
+    frame_screenshots(path: ss)
+    UI.message("Framed screenshots written alongside originals (*_framed.png)")
   end
 
   desc "Upload the captured screenshots to the com.cmux.app App Store listing"
