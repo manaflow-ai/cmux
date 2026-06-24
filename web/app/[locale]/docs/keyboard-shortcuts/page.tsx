@@ -1,10 +1,12 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
 import { Callout } from "../../components/callout";
 import { CodeBlock } from "../../components/code-block";
 import { KeyboardShortcuts } from "../../keyboard-shortcuts";
+import { DocsHeading } from "../../components/docs-heading";
 
 const shortcutChordExample = `{
   "shortcuts": {
@@ -12,6 +14,7 @@ const shortcutChordExample = `{
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
       "toggleSidebar": "cmd+b",
+      "toggleFileExplorer": "cmd+opt+b",
       "splitRight": "",
       "commandPalettePrevious": null
     }
@@ -33,10 +36,11 @@ export default function KeyboardShortcutsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsSchema namespace="docs.keyboardShortcuts" path="/docs/keyboard-shortcuts" />
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("description")}</p>
 
-      <h2 id="shortcut-chords" className="scroll-mt-24">{t("chordsTitle")}</h2>
+      <DocsHeading level={2} id="shortcut-chords" className="scroll-mt-24">{t("chordsTitle")}</DocsHeading>
       <p>
         {t.rich("chordsIntro", {
           settingsFile: (chunks) => <code>{chunks}</code>,

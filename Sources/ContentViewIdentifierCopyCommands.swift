@@ -1,3 +1,4 @@
+import CmuxCommandPalette
 import AppKit
 import Foundation
 
@@ -22,6 +23,11 @@ extension ContentView {
                 String(localized: "command.copyWorkspaceIDAndRef.title", defaultValue: "Copy Workspace ID and Ref"),
                 ["copy", "workspace", "id", "identifier", "ref", "reference"]
             ),
+            (
+                "palette.copyWorkspaceLink",
+                String(localized: "command.copyWorkspaceLink.title", defaultValue: "Copy Workspace Link"),
+                ["copy", "workspace", "link", "url", "deeplink", "deep link"]
+            ),
         ]
         contributions += workspaceCommands.map { command in
             CommandPaletteCommandContribution(
@@ -41,9 +47,21 @@ extension ContentView {
                 true
             ),
             (
+                "palette.copyPaneLink",
+                String(localized: "command.copyPaneLink.title", defaultValue: "Copy Pane Link"),
+                ["copy", "pane", "split", "link", "url", "deeplink", "deep link"],
+                true
+            ),
+            (
                 "palette.copySurfaceID",
                 String(localized: "command.copySurfaceID.title", defaultValue: "Copy Surface ID"),
                 ["copy", "surface", "tab", "id", "identifier"],
+                false
+            ),
+            (
+                "palette.copySurfaceLink",
+                String(localized: "command.copySurfaceLink.title", defaultValue: "Copy Surface Link"),
+                ["copy", "surface", "tab", "link", "url", "deeplink", "deep link"],
                 false
             ),
             (
@@ -71,8 +89,11 @@ extension ContentView {
     func registerIdentifierCopyCommandHandlers(_ registry: inout CommandPaletteHandlerRegistry) {
         registry.register(commandId: "palette.copyWorkspaceID") { copySelectedWorkspaceIdentifiers(includeRefs: false) }
         registry.register(commandId: "palette.copyWorkspaceIDAndRef") { copySelectedWorkspaceIdentifiers(includeRefs: true) }
+        registry.register(commandId: "palette.copyWorkspaceLink") { copySelectedWorkspaceLink() }
         registry.register(commandId: "palette.copyPaneID") { copyFocusedPaneIdentifier() }
+        registry.register(commandId: "palette.copyPaneLink") { copyFocusedPaneLink() }
         registry.register(commandId: "palette.copySurfaceID") { copyFocusedSurfaceIdentifier() }
+        registry.register(commandId: "palette.copySurfaceLink") { copyFocusedSurfaceLink() }
         registry.register(commandId: "palette.copyIdentifiers") { copyFocusedWorkspacePaneSurfaceIdentifiers() }
     }
 
@@ -82,6 +103,16 @@ extension ContentView {
             return
         }
         WorkspaceSurfaceIdentifierClipboardText.copyWorkspaceIds([workspaceId], includeRefs: includeRefs)
+    }
+
+    private func copySelectedWorkspaceLink() {
+        guard let workspaceId = tabManager.selectedWorkspace?.id else {
+            NSSound.beep()
+            return
+        }
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makeWorkspaceLink(workspaceId: workspaceId)
+        )
     }
 
     private func focusedPanelIdentifierContext() -> (workspaceId: UUID, paneId: UUID?, surfaceId: UUID)? {
@@ -101,12 +132,39 @@ extension ContentView {
         WorkspaceSurfaceIdentifierClipboardText.copy(WorkspaceSurfaceIdentifierClipboardText.makePane(paneId: paneId))
     }
 
+    private func copyFocusedPaneLink() {
+        guard let context = focusedPanelIdentifierContext(),
+              let paneId = context.paneId else {
+            NSSound.beep()
+            return
+        }
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makePaneLink(
+                workspaceId: context.workspaceId,
+                paneId: paneId
+            )
+        )
+    }
+
     private func copyFocusedSurfaceIdentifier() {
         guard let context = focusedPanelIdentifierContext() else {
             NSSound.beep()
             return
         }
         WorkspaceSurfaceIdentifierClipboardText.copy(WorkspaceSurfaceIdentifierClipboardText.makeSurface(surfaceId: context.surfaceId))
+    }
+
+    private func copyFocusedSurfaceLink() {
+        guard let context = focusedPanelIdentifierContext() else {
+            NSSound.beep()
+            return
+        }
+        WorkspaceSurfaceIdentifierClipboardText.copy(
+            WorkspaceSurfaceIdentifierClipboardText.makeSurfaceLink(
+                workspaceId: context.workspaceId,
+                surfaceId: context.surfaceId
+            )
+        )
     }
 
     private func copyFocusedWorkspacePaneSurfaceIdentifiers() {

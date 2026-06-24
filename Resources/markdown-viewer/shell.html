@@ -1,0 +1,1719 @@
+<!doctype html>
+<html lang="en" data-color-mode="auto" data-light-theme="light" data-dark-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+{{githubMarkdownCSS}}
+</style>
+<style id="hljs-light">
+{{highlightLightCSS}}
+</style>
+<style id="hljs-dark" disabled>
+{{highlightDarkCSS}}
+</style>
+<style>
+:root { color-scheme: light dark; }
+html, body {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  /* Allow the whole document to be selected as one continuous range. */
+  -webkit-user-select: text;
+  user-select: text;
+}
+body {
+  /* Match GitHub's reading column padding for a docs-y feel while
+     still letting the panel use full width on narrow splits. */
+  padding: 18px 28px 32px 28px;
+}
+.markdown-body {
+  background: transparent;
+  /* GitHub uses 16px on github.com for body text; keep that exact
+     metric so headings, line-height, and spacing match. */
+  font-size: 15px;
+  /* The package sets max-width via wrapper class on github.com; we
+     let it span the panel and just cap it to a comfortable reading
+     width on very wide splits. */
+  max-width: 980px;
+  margin: 0 auto;
+}
+/* Fenced code blocks: github-markdown-css already styles `pre`; we
+   add highlight.js's hljs class so the syntax theme applies. */
+.markdown-body pre code.hljs {
+  padding: 16px;
+  background: transparent;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.markdown-body pre {
+  padding: 0; /* hljs class already pads */
+  overflow: auto;
+}
+.cmux-code-block {
+  position: relative;
+  margin: 0 0 16px 0;
+}
+.cmux-code-block pre {
+  margin: 0;
+}
+.cmux-code-block .markdown-body pre,
+.markdown-body .cmux-code-block pre {
+  margin: 0;
+}
+.cmux-code-copy-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  padding: 3px 7px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-muted);
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  cursor: pointer;
+  box-shadow: none;
+  transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.cmux-code-block:hover .cmux-code-copy-button,
+.cmux-code-copy-button:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cmux-code-copy-button:hover,
+.cmux-code-copy-button:focus-visible {
+  color: var(--fgColor-default);
+  background: var(--bgColor-muted);
+}
+.cmux-remote-image-placeholder {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 0.4em 0;
+  padding: 7px 9px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-muted);
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.cmux-remote-image-placeholder strong {
+  color: var(--fgColor-default);
+  font-weight: 600;
+}
+.cmux-remote-image-url {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fgColor-muted);
+}
+.cmux-remote-image-placeholder button {
+  padding: 3px 7px;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-default);
+  color: var(--fgColor-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.cmux-remote-image-placeholder button:hover,
+.cmux-remote-image-placeholder button:focus-visible {
+  background: var(--bgColor-neutral-muted);
+}
+/* Mermaid + Vega-Lite blocks. Both libs render into these containers
+   lazily; the .cmux-source <pre> holds the raw block source for the
+   library to read, hidden from view. */
+.cmux-mermaid, .cmux-vega {
+  display: block;
+  margin: 0.6em 0 0.9em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+.cmux-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+.cmux-mermaid svg[data-cmux-mermaid-scaled="1"] {
+  display: block;
+  margin-inline: auto;
+  max-width: none;
+}
+.cmux-vega canvas, .cmux-vega svg {
+  max-width: 100%;
+  height: auto;
+}
+.cmux-mermaid .cmux-source, .cmux-vega .cmux-source { display: none; }
+.markdown-body code[data-cmux-file] {
+  cursor: default;
+  border-bottom: 1px dotted var(--fgColor-muted);
+}
+.markdown-body code[data-cmux-file][data-cmux-file-exists="1"] {
+  cursor: pointer;
+  color: var(--fgColor-accent);
+  border-bottom-color: var(--fgColor-accent);
+}
+.markdown-body a[data-cmux-file-exists="1"]::after,
+.markdown-body code[data-cmux-file][data-cmux-file-exists="1"]::after {
+  content: " ↗";
+  font-size: 0.82em;
+  opacity: 0.65;
+}
+.cmux-frontmatter {
+  margin: 0 0 16px 0;
+  border: 1px solid var(--borderColor-default);
+  border-radius: 6px;
+  background: var(--bgColor-muted);
+  color: var(--fgColor-muted);
+}
+.cmux-frontmatter summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+.cmux-frontmatter summary::-webkit-details-marker {
+  display: none;
+}
+.cmux-frontmatter summary::before {
+  content: "▸";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.82;
+  transform: translateY(0.5px);
+}
+.cmux-frontmatter[open] summary {
+  border-bottom: 1px solid var(--borderColor-default);
+}
+.cmux-frontmatter[open] summary::before {
+  content: "▾";
+}
+.cmux-frontmatter pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
+}
+.cmux-frontmatter pre code.hljs {
+  padding: 10px 12px;
+  background: transparent;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.cmux-render-error {
+  color: #f85149;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12.5px;
+  white-space: pre-wrap;
+  padding: 8px 12px;
+  border: 1px solid #f85149;
+  border-radius: 6px;
+  margin: 0.6em 0;
+  text-align: left;
+}
+/* Custom selection color that reads on both themes. */
+::selection { background: rgba(56, 139, 253, 0.4); }
+/* Smooth-anchor scroll for heading links. */
+html { scroll-behavior: smooth; }
+/* Loading shimmer while the first render is in flight. */
+#content:empty::before {
+  content: "";
+  display: block;
+  height: 1px;
+}
+</style>
+</head>
+<body>
+<article id="content" class="markdown-body"></article>
+<script>
+{{markedJS}}
+</script>
+<script>
+{{highlightJS}}
+</script>
+<script>
+(function() {
+  var contentEl = document.getElementById('content');
+  var lightSheet = document.getElementById('hljs-light');
+  var darkSheet  = document.getElementById('hljs-dark');
+  function showBootError(message) {
+    if (!contentEl) { return; }
+    contentEl.textContent = '';
+    var pre = document.createElement('pre');
+    pre.style.color = '#f85149';
+    pre.style.whiteSpace = 'pre-wrap';
+    pre.textContent = 'Markdown viewer error: ' + String(message);
+    contentEl.appendChild(pre);
+  }
+  window.onerror = function(message, source, lineno, colno, error) {
+    showBootError((error && error.stack) || message);
+  };
+  window.onunhandledrejection = function(ev) {
+    showBootError((ev.reason && ev.reason.stack) || ev.reason || 'unhandled rejection');
+  };
+  if (!window.marked || !window.hljs) {
+    showBootError('marked/highlight libraries did not load');
+  }
+  var cmuxStrings = {{localizedStringsJSON}};
+  function cmuxString(key, fallback, replacements) {
+    var value = String((cmuxStrings && cmuxStrings[key]) || fallback || key);
+    Object.keys(replacements || {}).forEach(function(name) {
+      value = value.split('{' + name + '}').join(String(replacements[name]));
+    });
+    return value;
+  }
+
+  function escapeHtml(s) {
+    // Let WebKit's HTML serializer do escaping rather than trying
+    // to keep a hand-written entity table correct.
+    var div = document.createElement('div');
+    div.textContent = String(s == null ? '' : s);
+    return div.innerHTML;
+  }
+
+  function escapeDataAttribute(s) {
+    // Store raw local paths in data attributes as percent-encoded
+    // strings. This avoids attribute-escaping footguns entirely.
+    return encodeURIComponent(String(s == null ? '' : s));
+  }
+
+  function unescapeDataAttribute(s) {
+    try { return decodeURIComponent(String(s || '')); }
+    catch (e) { return String(s || ''); }
+  }
+
+  function stripQueryFragment(path) {
+    var s = String(path || '');
+    var qi = s.indexOf('?');
+    var hi = s.indexOf('#');
+    var cut = -1;
+    if (qi >= 0 && hi >= 0) { cut = Math.min(qi, hi); }
+    else if (qi >= 0) { cut = qi; }
+    else if (hi >= 0) { cut = hi; }
+    return cut >= 0 ? s.slice(0, cut) : s;
+  }
+  function isMarkdownPathLike(path) {
+    var s = stripQueryFragment(path).trim();
+    if (!s) { return false; }
+    var colon = s.indexOf(':');
+    if (colon > 0) {
+      var scheme = s.slice(0, colon).toLowerCase();
+      if (scheme !== 'file') { return false; }
+    }
+    var slash = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+    var leaf = slash >= 0 ? s.slice(slash + 1) : s;
+    var dot = leaf.lastIndexOf('.');
+    if (dot < 0) { return false; }
+    var ext = leaf.slice(dot + 1).toLowerCase();
+    return ext === 'md' || ext === 'markdown' || ext === 'mkd' || ext === 'mdx';
+  }
+
+  function extractFrontmatter(markdown) {
+    var source = String(markdown == null ? '' : markdown).replace(/^\uFEFF/, '');
+    var match = source.match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/);
+    if (!match) {
+      return { frontmatter: '', body: source };
+    }
+    return {
+      frontmatter: match[1] || '',
+      body: source.slice(match[0].length)
+    };
+  }
+
+  function renderFrontmatter(frontmatter) {
+    var raw = String(frontmatter || '');
+    if (!raw.trim()) { return ''; }
+    var highlighted;
+    try {
+      if (hljs.getLanguage('yaml')) {
+        highlighted = hljs.highlight(raw, { language: 'yaml', ignoreIllegals: true }).value;
+      } else {
+        highlighted = escapeHtml(raw);
+      }
+    } catch (e) {
+      highlighted = escapeHtml(raw);
+    }
+    return '<details class="cmux-frontmatter">'
+      + '<summary><span>Show frontmatter</span></summary>'
+      + '<pre><code class="hljs language-yaml">' + highlighted + '</code></pre>'
+      + '</details>';
+  }
+
+  function copyTextToClipboard(text) {
+    var value = String(text == null ? '' : text);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(value).catch(function() {
+        return fallbackCopyText(value);
+      });
+    }
+    return fallbackCopyText(value);
+  }
+
+  function fallbackCopyText(text) {
+    return new Promise(function(resolve, reject) {
+      try {
+        var textarea = document.createElement('textarea');
+        textarea.value = String(text == null ? '' : text);
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        textarea.style.top = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        ok ? resolve() : reject(new Error('copy failed'));
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  function compactForProtocolCheck(value) {
+    var raw = String(value || '');
+    var out = '';
+    for (var i = 0; i < raw.length; i++) {
+      var code = raw.charCodeAt(i);
+      if (code <= 32 || code === 127) { continue; }
+      out += raw.charAt(i).toLowerCase();
+    }
+    return out;
+  }
+
+  function isSafeDataImageURL(value) {
+    var raw = String(value || '').trim();
+    return /^data:image\/(?:png|jpe?g|gif|webp|avif);base64,[A-Za-z0-9+/=]+$/i.test(raw);
+  }
+
+  function remoteImageInfo(value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return null; }
+    var compact = compactForProtocolCheck(raw);
+    if (compact.indexOf('http:') !== 0 && compact.indexOf('https:') !== 0) {
+      return null;
+    }
+    try {
+      var parsed = new URL(raw, document.baseURI || window.location.href);
+      var protocol = (parsed.protocol || '').toLowerCase();
+      if (protocol !== 'http:' && protocol !== 'https:') { return null; }
+      return {
+        href: parsed.href,
+        host: parsed.host || parsed.hostname || '',
+        hostname: parsed.hostname || '',
+        port: parsed.port || '',
+        username: parsed.username || '',
+        password: parsed.password || '',
+        https: protocol === 'https:'
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function normalizedRemoteHostname(info) {
+    return String((info && info.hostname) || '')
+      .replace(/^\[/, '')
+      .replace(/\]$/, '')
+      .replace(/\.+$/, '')
+      .toLowerCase();
+  }
+
+  function isBlockedRemoteIPv4(host) {
+    var match = String(host || '').match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (!match) { return false; }
+    var parts = match.slice(1).map(function(part) { return Number(part); });
+    if (parts.some(function(part) { return !Number.isFinite(part) || part < 0 || part > 255; })) {
+      return true;
+    }
+    var first = parts[0];
+    var second = parts[1];
+    return first === 0 ||
+      first === 10 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      first === 127 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && (second === 0 || second === 168)) ||
+      (first === 198 && (second === 18 || second === 19)) ||
+      first >= 224;
+  }
+
+  function isBlockedRemoteIPv6(host) {
+    var value = String(host || '').toLowerCase();
+    value = value.replace(/^\[/, '').replace(/\]$/, '');
+    if (value.indexOf(':') === -1) { return false; }
+    if (value === '::' || value === '::1') { return true; }
+    var embeddedIPv4 = embeddedIPv4FromIPv6(value);
+    if (embeddedIPv4) {
+      return isBlockedRemoteIPv4(embeddedIPv4);
+    }
+    var first = value.split(':')[0] || '0';
+    var firstValue = parseInt(first, 16);
+    if (Number.isFinite(firstValue)) {
+      if ((firstValue & 0xfe00) === 0xfc00) { return true; }
+      if ((firstValue & 0xffc0) === 0xfe80) { return true; }
+      if ((firstValue & 0xffc0) === 0xfec0) { return true; }
+      if ((firstValue & 0xff00) === 0xff00) { return true; }
+    }
+    return false;
+  }
+
+  function embeddedIPv4FromIPv6(value) {
+    var raw = String(value || '').toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+    var hextets = null;
+    if (raw.indexOf('::') === 0) {
+      hextets = raw.split(':').filter(Boolean);
+      if (hextets.length === 3 && hextets[0] === 'ffff') {
+        hextets = hextets.slice(1);
+      }
+    } else {
+      var expanded = raw.split(':');
+      var numbers = expanded.map(function(part) {
+        return /^[0-9a-f]{1,4}$/.test(part) ? parseInt(part, 16) : NaN;
+      });
+      var isIPv4Compatible = numbers.length === 8 &&
+        numbers.slice(0, 6).every(function(part) { return part === 0; });
+      var isIPv4Mapped = numbers.length === 8 &&
+        numbers.slice(0, 5).every(function(part) { return part === 0; }) &&
+        numbers[5] === 0xffff;
+      if (isIPv4Compatible || isIPv4Mapped) {
+        hextets = [expanded[6], expanded[7]];
+      }
+    }
+    if (!hextets || hextets.length !== 2) { return null; }
+    var high = parseInt(hextets[0], 16);
+    var low = parseInt(hextets[1], 16);
+    if (
+      !Number.isFinite(high) ||
+      !Number.isFinite(low) ||
+      high < 0 ||
+      high > 0xffff ||
+      low < 0 ||
+      low > 0xffff
+    ) {
+      return null;
+    }
+    return [
+      (high >> 8) & 0xff,
+      high & 0xff,
+      (low >> 8) & 0xff,
+      low & 0xff
+    ].join('.');
+  }
+
+  function remoteImageCanOfferLoad(info) {
+    if (!info || !info.https) { return false; }
+    if (info.username || info.password) { return false; }
+    if (info.port && info.port !== '443') { return false; }
+    var host = normalizedRemoteHostname(info);
+    if (!host) { return false; }
+    if (host === 'localhost' || host.slice(-10) === '.localhost') { return false; }
+    if (host === 'local' || host.slice(-6) === '.local') { return false; }
+    if (isBlockedRemoteIPv4(host) || isBlockedRemoteIPv6(host)) { return false; }
+    return true;
+  }
+
+  function isRelativeLocalImagePath(value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return false; }
+    var compact = compactForProtocolCheck(raw);
+    if (/^[a-z][a-z0-9+.-]*:/i.test(compact)) {
+      return false;
+    }
+    if (raw.charAt(0) === '/' || raw.charAt(0) === '\\') {
+      return false;
+    }
+    if (/^[A-Za-z]:[\\/]/.test(raw)) {
+      return false;
+    }
+    return true;
+  }
+
+  function cmuxLocalImageURL(value) {
+    var raw = String(value || '').trim();
+    if (!isRelativeLocalImagePath(raw)) {
+      return null;
+    }
+
+    try {
+      var parsed = new URL(raw, document.baseURI || window.location.href);
+      if ((parsed.protocol || '').toLowerCase() !== 'file:') { return null; }
+      return 'cmux-local-image://image?url=' + encodeURIComponent(parsed.href);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function rewriteLocalImageSources() {
+    contentEl.querySelectorAll('img[src]').forEach(function(img) {
+      var raw = img.getAttribute('src') || '';
+      var rewritten = cmuxLocalImageURL(raw);
+      if (!rewritten) { return; }
+      img.setAttribute('data-cmux-original-src', raw);
+      img.setAttribute('src', rewritten);
+    });
+  }
+
+  var remoteImageAllowedURLs = Object.create(null);
+
+  function cmuxRemoteImageURL(value) {
+    var info = remoteImageInfo(value);
+    if (!info || !info.https) { return null; }
+    return 'cmux-remote-image://image?url=' + encodeURIComponent(info.href);
+  }
+
+  function removeRemoteImagePlaceholder(img) {
+    var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+    if (!id) { return; }
+    var placeholder = contentEl.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+    if (placeholder) { placeholder.remove(); }
+  }
+
+  function remoteImagePlaceholderForImage(img) {
+    var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+    if (!id) { return null; }
+    return contentEl.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+  }
+
+  function setRemoteImageLoadingState(img, loading) {
+    var placeholder = remoteImagePlaceholderForImage(img);
+    if (!placeholder) { return; }
+    var buttons = placeholder.querySelectorAll('button[data-cmux-remote-action="load"]');
+    Array.prototype.slice.call(buttons).forEach(function(button) {
+      if (loading) {
+        button.textContent = cmuxString('remoteImageLoading', 'Loading');
+        button.disabled = true;
+        button.setAttribute('data-loading', '1');
+      } else {
+        button.textContent = cmuxString('remoteImageLoadImage', 'Load this image');
+        button.disabled = false;
+        button.removeAttribute('data-loading');
+      }
+    });
+  }
+
+  function loadRemoteImage(img) {
+    var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
+    var rewritten = cmuxRemoteImageURL(raw);
+    if (!rewritten) { return false; }
+    if (img.getAttribute('data-cmux-remote-loading') === '1') { return true; }
+    img.setAttribute('data-cmux-remote-loading', '1');
+    setRemoteImageLoadingState(img, true);
+    function cleanup() {
+      img.removeEventListener('load', onLoad);
+      img.removeEventListener('error', onError);
+      img.removeAttribute('data-cmux-remote-loading');
+    }
+    function onLoad() {
+      cleanup();
+      removeRemoteImagePlaceholder(img);
+      img.hidden = false;
+    }
+    function onError() {
+      cleanup();
+      setRemoteImageLoadingState(img, false);
+      img.hidden = true;
+      img.removeAttribute('src');
+    }
+    img.addEventListener('load', onLoad);
+    img.addEventListener('error', onError);
+    img.setAttribute('src', rewritten);
+    if (img.complete && img.naturalWidth > 0) {
+      onLoad();
+    }
+    return true;
+  }
+
+  function loadApprovedRemoteImage(href) {
+    remoteImageAllowedURLs[href] = true;
+    contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(function(img) {
+      var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
+      var info = remoteImageInfo(raw);
+      if (info && remoteImageCanOfferLoad(info) && info.href === href) {
+        loadRemoteImage(img);
+      }
+    });
+    return true;
+  }
+
+  function appendRemoteImageText(placeholder, key, fallback, replacements) {
+    var detail = document.createElement('span');
+    detail.textContent = cmuxString(key, fallback, replacements || {});
+    placeholder.appendChild(detail);
+    return detail;
+  }
+
+  function appendRemoteImageURL(placeholder, href) {
+    var url = document.createElement('span');
+    url.className = 'cmux-remote-image-url';
+    url.textContent = cmuxString(
+      'remoteImageURL',
+      'Image URL: {url}',
+      { url: href }
+    );
+    placeholder.appendChild(url);
+    return url;
+  }
+
+  function appendRemoteImageButton(placeholder, label, handler) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      handler(button);
+    });
+    placeholder.appendChild(button);
+    return button;
+  }
+
+  function openRemoteImageURL(href) {
+    window.open(href, '_blank', 'noopener');
+  }
+
+  function temporarilySetButtonLabel(button, label, restoreLabel) {
+    if (!button) { return; }
+    if (button._cmuxResetLabelTimer) {
+      window.clearTimeout(button._cmuxResetLabelTimer);
+    }
+    button.textContent = label;
+    button.setAttribute('data-copied', '1');
+    button._cmuxResetLabelTimer = window.setTimeout(function() {
+      button.textContent = restoreLabel;
+      button.removeAttribute('data-copied');
+      button._cmuxResetLabelTimer = null;
+    }, 1200);
+  }
+
+  function copyRemoteImageURL(href, button, restoreLabel) {
+    copyTextToClipboard(href).then(function() {
+      temporarilySetButtonLabel(
+        button,
+        cmuxString('remoteImageCopied', 'Copied'),
+        restoreLabel
+      );
+    }).catch(function() {});
+  }
+
+  function insertRemoteImagePlaceholder(img, placeholder) {
+    var anchor = img.closest ? img.closest('a') : null;
+    if (anchor && contentEl.contains(anchor) && anchor.parentNode) {
+      anchor.parentNode.insertBefore(placeholder, anchor.nextSibling);
+      return;
+    }
+    img.parentNode.insertBefore(placeholder, img.nextSibling);
+  }
+
+  function ensureRemoteImagePlaceholder(img) {
+    if (!img || img.getAttribute('data-cmux-remote-processed') === '1') { return; }
+    var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
+    var info = remoteImageInfo(raw);
+    if (!info) { return; }
+
+    img.setAttribute('data-cmux-remote-processed', '1');
+    img.hidden = true;
+    var canOfferLoad = remoteImageCanOfferLoad(info);
+
+    var placeholderId = 'remote-image-' + Math.floor(Math.random() * 1e9).toString(36) + '-' + Date.now().toString(36);
+    img.setAttribute('data-cmux-remote-placeholder-id', placeholderId);
+
+    var placeholder = document.createElement('span');
+    placeholder.className = 'cmux-remote-image-placeholder';
+    placeholder.setAttribute('data-cmux-remote-placeholder-for', placeholderId);
+    placeholder.setAttribute('role', 'group');
+
+    var title = document.createElement('strong');
+    title.textContent = cmuxString('remoteImageBlocked', 'Remote image blocked');
+    placeholder.appendChild(title);
+
+    if (canOfferLoad) {
+      appendRemoteImageText(
+        placeholder,
+        'remoteImageConsentMessage',
+        'cmux will not contact this image URL until you load this image.'
+      );
+      appendRemoteImageURL(placeholder, info.href);
+      var loadButton = appendRemoteImageButton(
+        placeholder,
+        cmuxString(
+          'remoteImageLoadImage',
+          'Load this image'
+        ),
+        function() {
+          loadApprovedRemoteImage(info.href);
+        }
+      );
+      loadButton.setAttribute('data-cmux-remote-action', 'load');
+    } else if (!info.https) {
+      appendRemoteImageText(
+        placeholder,
+        'remoteImageHTTPSOnly',
+        'Only HTTPS remote images can be loaded in the viewer.'
+      );
+      appendRemoteImageURL(placeholder, info.href);
+    } else {
+      appendRemoteImageText(
+        placeholder,
+        'remoteImageNotAllowed',
+        'This remote image URL cannot be loaded in the viewer.'
+      );
+      appendRemoteImageURL(placeholder, info.href);
+    }
+    var copyURLLabel = cmuxString('remoteImageCopyURL', 'Copy image URL');
+    appendRemoteImageButton(
+      placeholder,
+      copyURLLabel,
+      function(button) {
+        copyRemoteImageURL(info.href, button, copyURLLabel);
+      }
+    );
+    appendRemoteImageButton(
+      placeholder,
+      cmuxString('remoteImageOpenURL', 'Open image URL'),
+      function() {
+        openRemoteImageURL(info.href);
+      }
+    );
+
+    insertRemoteImagePlaceholder(img, placeholder);
+    if (canOfferLoad && remoteImageAllowedURLs[info.href]) {
+      loadRemoteImage(img);
+    }
+  }
+
+  function rewriteRemoteImageSources() {
+    contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(ensureRemoteImagePlaceholder);
+  }
+
+  function isSafeURLAttribute(name, value) {
+    var raw = String(value || '').trim();
+    if (!raw) { return true; }
+
+    // Reject before URL parsing so whitespace-obfuscated active
+    // protocols do not get normalized into something executable.
+    var compact = compactForProtocolCheck(raw);
+    if (
+      compact.indexOf('javascript:') === 0 ||
+      compact.indexOf('vbscript:') === 0
+    ) {
+      return false;
+    }
+    if (compact.indexOf('data:') === 0) {
+      return name === 'src' && isSafeDataImageURL(raw);
+    }
+
+    try {
+      var parsed = new URL(raw, document.baseURI || window.location.href);
+      var protocol = (parsed.protocol || '').toLowerCase();
+      if (name === 'href') {
+        return protocol === 'http:' ||
+          protocol === 'https:' ||
+          protocol === 'file:' ||
+          protocol === 'mailto:' ||
+          protocol === 'tel:';
+      }
+      return protocol === 'file:' && isRelativeLocalImagePath(raw);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function sanitizeRenderedHTML(html) {
+    var template = document.createElement('template');
+    template.innerHTML = String(html || '');
+
+    var blockedTags = {
+      script: true,
+      iframe: true,
+      object: true,
+      embed: true,
+      link: true,
+      style: true,
+      meta: true,
+      base: true,
+      audio: true,
+      form: true,
+      button: true,
+      picture: true,
+      source: true,
+      textarea: true,
+      track: true,
+      video: true,
+      select: true,
+      option: true,
+      svg: true,
+      math: true
+    };
+
+    var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
+    var elements = [];
+    while (walker.nextNode()) {
+      elements.push(walker.currentNode);
+    }
+
+    elements.forEach(function(el) {
+      var tag = String(el.tagName || '').toLowerCase();
+      if (blockedTags[tag]) {
+        el.remove();
+        return;
+      }
+
+      if (tag === 'input') {
+        var inputType = String(el.getAttribute('type') || '').toLowerCase();
+        if (inputType !== 'checkbox') {
+          el.remove();
+          return;
+        }
+        Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+          var name = String(attr.name || '').toLowerCase();
+          if (name !== 'type' && name !== 'checked' && name !== 'disabled') {
+            el.removeAttribute(attr.name);
+          }
+        });
+        el.setAttribute('disabled', '');
+        return;
+      }
+
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (name.indexOf('data-cmux-') === 0) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (
+          name.indexOf('on') === 0 ||
+          name === 'style' ||
+          name === 'background' ||
+          name === 'srcset' ||
+          name === 'srcdoc' ||
+          name === 'autofocus' ||
+          name === 'formaction' ||
+          name === 'xlink:href'
+        ) {
+          el.removeAttribute(attr.name);
+          return;
+        }
+        if (tag === 'img' && name === 'src') {
+          var remoteInfo = remoteImageInfo(attr.value);
+          if (remoteInfo) {
+            el.setAttribute('data-cmux-remote-src', escapeDataAttribute(remoteInfo.href));
+            el.setAttribute('data-cmux-remote-host', escapeDataAttribute(remoteInfo.host));
+            if (!remoteInfo.https) {
+              el.setAttribute('data-cmux-remote-blocked-reason', 'https-only');
+            }
+            el.removeAttribute(attr.name);
+            return;
+          }
+        }
+        if ((name === 'href' || name === 'src') && !isSafeURLAttribute(name, attr.value)) {
+          el.removeAttribute(attr.name);
+        }
+      });
+
+      if (tag === 'a') {
+        el.setAttribute('rel', 'noopener noreferrer');
+      }
+    });
+
+    return template.innerHTML;
+  }
+
+  // Configure marked: GitHub-flavored, with custom renderers for
+  // code (syntax-highlighted via highlight.js), headings (with
+  // GitHub-style slug ids for anchor links), and local markdown file
+  // detection in inline code spans.
+  // Note: when customizing via `marked.use({renderer})`, marked
+  // calls these methods with the *legacy* positional signature
+  // (text, level, raw / code, lang, escaped / href, title, text)
+  // — NOT a single token object. Inline children are already
+  // rendered to HTML and passed in as `text`.
+  var headingSlugCounts = Object.create(null);
+  function uniqueHeadingSlug(raw) {
+    var base = String(raw || '').toLowerCase()
+      .replace(/[^\w\- ]+/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    if (!base) { base = 'heading'; }
+    var count = headingSlugCounts[base] || 0;
+    headingSlugCounts[base] = count + 1;
+    return count === 0 ? base : base + '-' + count;
+  }
+
+  marked.use({
+    gfm: true,
+    breaks: false,
+    pedantic: false,
+    renderer: {
+      codespan(code) {
+        var raw = code || '';
+        return '<code>' + escapeHtml(raw) + '</code>';
+      },
+      code(code, infostring, escaped) {
+        var raw = code || '';
+        var langMatch = (infostring || '').match(/^[A-Za-z0-9_+\-.]+/);
+        var langName = langMatch ? langMatch[0].toLowerCase() : '';
+
+        // Mermaid: ```mermaid ... ``` -> div the lib will swap with SVG.
+        if (langName === 'mermaid') {
+          return '<div class="cmux-mermaid"><pre class="cmux-source">'
+            + escapeHtml(raw)
+            + '</pre></div>\n';
+        }
+        // Vega / Vega-Lite: ```vega-lite ... ``` (also vega, vegalite).
+        if (langName === 'vega' || langName === 'vega-lite' || langName === 'vegalite') {
+          var vegaMode = (langName === 'vega') ? 'vega' : 'vega-lite';
+          return '<div class="cmux-vega" data-vega-mode="' + vegaMode + '">'
+            + '<pre class="cmux-source">' + escapeHtml(raw) + '</pre></div>\n';
+        }
+
+        var highlighted;
+        try {
+          if (langName && hljs.getLanguage(langName)) {
+            highlighted = hljs.highlight(raw, { language: langName, ignoreIllegals: true }).value;
+          } else {
+            highlighted = hljs.highlightAuto(raw).value;
+          }
+        } catch (e) {
+          highlighted = escapeHtml(raw);
+        }
+        var langClass = langName ? ' language-' + langName : '';
+        return '<pre><code class="hljs' + langClass + '">' + highlighted + '</code></pre>\n';
+      },
+      heading(text, level, raw) {
+        var slug = uniqueHeadingSlug(raw);
+        return '<h' + level + ' id="' + slug + '">' + text + '</h' + level + '>\n';
+      }
+    }
+  });
+
+  // Lazy-loader: ask Swift to ship a library only when a document
+  // actually contains a block that needs it.
+  var libState = {};   // name -> 'pending' | 'ready'
+  var libQueue = {};   // name -> [callbacks]
+  function loadLib(name, cb) {
+    if (libState[name] === 'ready') { cb(); return; }
+    (libQueue[name] = libQueue[name] || []).push(cb);
+    if (libState[name] !== 'pending') {
+      libState[name] = 'pending';
+      try {
+        window.webkit.messageHandlers.cmuxLib.postMessage({ lib: name });
+      } catch (e) {
+        libState[name] = undefined;
+        renderLibError(name, 'bridge unavailable');
+      }
+    }
+  }
+  window.__cmuxLibLoaded = function(name) {
+    libState[name] = 'ready';
+    var q = libQueue[name] || [];
+    libQueue[name] = [];
+    q.forEach(function(cb) { try { cb(); } catch (e) { /* ignore */ } });
+  };
+
+  function renderLibError(libName, msg) {
+    var sel = libName === 'mermaid' ? '.cmux-mermaid' : '.cmux-vega';
+    contentEl.querySelectorAll(sel + ':not([data-rendered])').forEach(function(el) {
+      el.setAttribute('data-rendered', '1');
+      el.innerHTML = '<div class="cmux-render-error">' + libName + ': ' + escapeHtml(msg) + '</div>';
+    });
+  }
+
+  function markdownScroller() {
+    return document.scrollingElement || document.documentElement || document.body;
+  }
+
+  function markdownScrollY() {
+    var scroller = markdownScroller();
+    return Math.max(0, window.scrollY || scroller.scrollTop || 0);
+  }
+
+  function markdownMaxScrollY() {
+    var scroller = markdownScroller();
+    return Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  }
+
+  function clampScrollY(y) {
+    return Math.max(0, Math.min(markdownMaxScrollY(), y));
+  }
+
+  function setMarkdownScrollY(y) {
+    var targetY = clampScrollY(y);
+    var scroller = markdownScroller();
+    var root = document.documentElement;
+    var previousBehavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    try {
+      scroller.scrollTop = targetY;
+      if (Math.abs((scroller.scrollTop || 0) - targetY) > 1) {
+        window.scrollTo(0, targetY);
+      }
+    } finally {
+      root.style.scrollBehavior = previousBehavior;
+    }
+  }
+
+  function firstVisibleMarkdownAnchor() {
+    var x = Math.max(24, Math.min(window.innerWidth - 24, Math.floor(window.innerWidth * 0.45)));
+    var yValues = [16, 48, 96, Math.floor(window.innerHeight * 0.25)];
+    for (var i = 0; i < yValues.length; i++) {
+      var y = Math.max(0, Math.min(window.innerHeight - 1, yValues[i]));
+      var element = document.elementFromPoint(x, y);
+      if (!element || !contentEl.contains(element)) { continue; }
+      var anchor = element.closest('[id]');
+      if (anchor && anchor !== contentEl && contentEl.contains(anchor) && anchor.id) {
+        return {
+          id: anchor.id,
+          top: anchor.getBoundingClientRect().top
+        };
+      }
+    }
+    return null;
+  }
+
+  function captureMarkdownScrollState() {
+    var y = markdownScrollY();
+    var maxY = markdownMaxScrollY();
+    return {
+      anchor: firstVisibleMarkdownAnchor(),
+      nearTop: y <= 2,
+      nearBottom: maxY - y <= 2,
+      ratio: maxY > 0 ? y / maxY : 0
+    };
+  }
+
+  function restoreMarkdownScrollState(state) {
+    if (!state) { return; }
+    function apply() {
+      var targetY;
+      if (state.nearTop) {
+        targetY = 0;
+      } else if (state.nearBottom) {
+        targetY = markdownMaxScrollY();
+      } else if (state.anchor && state.anchor.id) {
+        var anchor = document.getElementById(state.anchor.id);
+        if (anchor) {
+          targetY = markdownScrollY() + anchor.getBoundingClientRect().top - state.anchor.top;
+        }
+      }
+      if (typeof targetY !== 'number' || !isFinite(targetY)) {
+        targetY = markdownMaxScrollY() * state.ratio;
+      }
+      setMarkdownScrollY(targetY);
+    }
+    apply();
+    window.requestAnimationFrame(function() {
+      apply();
+      window.requestAnimationFrame(apply);
+    });
+  }
+
+  var mermaidInitialized = false;
+  var cmuxMarkdownZoom = 1;
+  var mermaidResizeObserver = null;
+  var mermaidObservedWidth = 0;
+
+  function normalizedMarkdownZoom(value) {
+    var zoom = Number(value);
+    if (!Number.isFinite(zoom) || zoom <= 0) { return 1; }
+    return Math.max(0.1, Math.min(zoom, 10));
+  }
+
+  function mermaidNumericLength(value) {
+    var raw = String(value || '').trim();
+    if (!raw || raw.charAt(raw.length - 1) === '%') { return NaN; }
+    var match = raw.match(/^([0-9]+(?:\.[0-9]+)?)(?:px)?$/i);
+    return match ? Number(match[1]) : NaN;
+  }
+
+  function mermaidViewBoxSize(svg) {
+    var raw = String(svg.getAttribute('viewBox') || '').trim();
+    if (!raw) { return null; }
+    var parts = raw.split(/[\s,]+/).map(Number);
+    if (
+      parts.length !== 4 ||
+      !parts.every(Number.isFinite) ||
+      parts[2] <= 0 ||
+      parts[3] <= 0
+    ) {
+      return null;
+    }
+    return { width: parts[2], height: parts[3] };
+  }
+
+  function mermaidRememberOriginalSizing(svg) {
+    if (svg.hasAttribute('data-cmux-mermaid-original-max-width')) { return; }
+    svg.setAttribute('data-cmux-mermaid-original-max-width', svg.style.maxWidth || '');
+    svg.setAttribute('data-cmux-mermaid-original-width', svg.style.width || '');
+    svg.setAttribute('data-cmux-mermaid-original-height', svg.style.height || '');
+  }
+
+  function mermaidRestoreOriginalSizing(svg) {
+    mermaidRememberOriginalSizing(svg);
+    svg.removeAttribute('data-cmux-mermaid-scaled');
+    svg.style.maxWidth = svg.getAttribute('data-cmux-mermaid-original-max-width') || '';
+    svg.style.width = svg.getAttribute('data-cmux-mermaid-original-width') || '';
+    svg.style.height = svg.getAttribute('data-cmux-mermaid-original-height') || '';
+  }
+
+  function mermaidIntrinsicSize(svg) {
+    mermaidRememberOriginalSizing(svg);
+    var cachedWidth = Number(svg.getAttribute('data-cmux-mermaid-natural-width'));
+    var cachedHeight = Number(svg.getAttribute('data-cmux-mermaid-natural-height'));
+    if (
+      Number.isFinite(cachedWidth) &&
+      cachedWidth > 0 &&
+      Number.isFinite(cachedHeight) &&
+      cachedHeight > 0
+    ) {
+      return { width: cachedWidth, height: cachedHeight };
+    }
+
+    var viewBox = mermaidViewBoxSize(svg);
+    var width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-max-width'));
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-width'));
+    }
+    if (!Number.isFinite(width) || width <= 0) {
+      width = mermaidNumericLength(svg.getAttribute('width'));
+    }
+    if ((!Number.isFinite(width) || width <= 0) && viewBox) {
+      width = viewBox.width;
+    }
+
+    var height = mermaidNumericLength(svg.getAttribute('data-cmux-mermaid-original-height'));
+    if (!Number.isFinite(height) || height <= 0) {
+      height = mermaidNumericLength(svg.getAttribute('height'));
+    }
+    if ((!Number.isFinite(height) || height <= 0) && viewBox && Number.isFinite(width) && width > 0) {
+      height = width * (viewBox.height / viewBox.width);
+    }
+    if ((!Number.isFinite(height) || height <= 0) && viewBox) {
+      height = viewBox.height;
+    }
+
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
+      return null;
+    }
+
+    svg.setAttribute('data-cmux-mermaid-natural-width', String(width));
+    svg.setAttribute('data-cmux-mermaid-natural-height', String(height));
+    return { width: width, height: height };
+  }
+
+  function mermaidCurrentBaseSize(svg, natural) {
+    var container = svg.closest ? svg.closest('.cmux-mermaid') : svg.parentElement;
+    var rect = container && container.getBoundingClientRect ? container.getBoundingClientRect() : null;
+    var containerWidth = rect ? rect.width : NaN;
+    if (!Number.isFinite(containerWidth) || containerWidth <= 0) {
+      containerWidth = container ? container.clientWidth : NaN;
+    }
+    var width = natural.width;
+    if (Number.isFinite(containerWidth) && containerWidth > 0) {
+      width = Math.min(containerWidth, natural.width);
+    }
+    return { width: width, height: width * (natural.height / natural.width) };
+  }
+
+  function mermaidContentWidth(entry) {
+    return Math.round(
+      (entry && entry.contentRect && entry.contentRect.width) ||
+      contentEl.getBoundingClientRect().width ||
+      contentEl.clientWidth ||
+      0
+    );
+  }
+
+  function ensureMermaidResizeObserver() {
+    if (mermaidResizeObserver || typeof ResizeObserver === 'undefined' || !contentEl) { return; }
+    mermaidObservedWidth = mermaidContentWidth(null);
+    mermaidResizeObserver = new ResizeObserver(function(entries) {
+      var width = mermaidContentWidth(entries && entries[0]);
+      if (width <= 0) { return; }
+      if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+        mermaidObservedWidth = width;
+        return;
+      }
+      if (width === mermaidObservedWidth) { return; }
+      mermaidObservedWidth = width;
+      applyMermaidZoom(contentEl);
+    });
+    mermaidResizeObserver.observe(contentEl);
+  }
+
+  function applyMermaidZoomToSVG(svg) {
+    if (!svg) { return; }
+    var natural = mermaidIntrinsicSize(svg);
+    if (!natural) { return; }
+    if (Math.abs(cmuxMarkdownZoom - 1) <= 0.0001) {
+      mermaidRestoreOriginalSizing(svg);
+      svg.setAttribute('data-cmux-mermaid-zoom', '1');
+      return;
+    }
+    var base = mermaidCurrentBaseSize(svg, natural);
+    // WKWebView pageZoom scales markdown text metrics here, but Mermaid SVG bounds stay fixed.
+    var width = Math.max(1, base.width * cmuxMarkdownZoom);
+    var height = Math.max(1, base.height * cmuxMarkdownZoom);
+    svg.style.maxWidth = '';
+    svg.setAttribute('data-cmux-mermaid-scaled', '1');
+    svg.style.width = width + 'px';
+    svg.style.height = height + 'px';
+    svg.setAttribute('data-cmux-mermaid-zoom', String(cmuxMarkdownZoom));
+  }
+
+  function applyMermaidZoom(root) {
+    ensureMermaidResizeObserver();
+    var scope = root || contentEl;
+    if (!scope || !scope.querySelectorAll) { return; }
+    Array.prototype.forEach.call(scope.querySelectorAll('.cmux-mermaid svg'), applyMermaidZoomToSVG);
+  }
+
+  window.__cmuxSetMarkdownZoom = function(zoom) {
+    cmuxMarkdownZoom = normalizedMarkdownZoom(zoom);
+    mermaidObservedWidth = mermaidContentWidth(null);
+    applyMermaidZoom(contentEl);
+  };
+
+  function renderMermaidBlocks() {
+    if (typeof mermaid === 'undefined') { renderLibError('mermaid', 'library missing'); return; }
+    try {
+      if (!mermaidInitialized) {
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: darkMql.matches ? 'dark' : 'default',
+          securityLevel: 'strict',
+          fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif'
+        });
+        mermaidInitialized = true;
+      }
+    } catch (e) { /* ignore reinit failure */ }
+
+    var blocks = contentEl.querySelectorAll('.cmux-mermaid:not([data-rendered])');
+    Array.prototype.forEach.call(blocks, function(el, i) {
+      el.setAttribute('data-rendered', '1');
+      var srcEl = el.querySelector('.cmux-source');
+      var src = srcEl ? srcEl.textContent : el.textContent;
+      var id = 'cmux-mermaid-' + Date.now() + '-' + i + '-' + Math.floor(Math.random() * 1e6);
+      try {
+        mermaid.render(id, src).then(function(res) {
+          el.innerHTML = res.svg;
+          applyMermaidZoom(el);
+          if (res.bindFunctions) { try { res.bindFunctions(el); } catch (e) {} }
+        }).catch(function(err) {
+          el.innerHTML = '<div class="cmux-render-error">Mermaid: '
+            + escapeHtml(String((err && err.message) || err)) + '</div>';
+        });
+      } catch (err) {
+        el.innerHTML = '<div class="cmux-render-error">Mermaid: '
+          + escapeHtml(String((err && err.message) || err)) + '</div>';
+      }
+    });
+  }
+
+  function vegaPathSegments(path) {
+    return String(path || '')
+      .replace(/\[[^\]]+\]/g, '')
+      .split('.')
+      .filter(Boolean)
+      .map(function(segment) { return segment.toLowerCase(); });
+  }
+
+  function isVegaExternalReferencePath(path, key) {
+    var segments = vegaPathSegments(path);
+    var lowerKey = String(key || '').toLowerCase();
+    var parent = segments.length > 1 ? segments[segments.length - 2] : '';
+
+    // Vega/Vega-Lite loader positions. Inline rows under `values` and
+    // top-level `datasets` may legitimately have fields named url/href/src;
+    // those are handled by skipping those inline-data containers below.
+    if (lowerKey === 'url' && parent === 'data') { return true; }
+    if ((lowerKey === 'url' || lowerKey === 'href' || lowerKey === 'src') && segments.indexOf('marks') >= 0) {
+      return true;
+    }
+    return false;
+  }
+
+  function firstVegaExternalReference(value, path, seen) {
+    if (value == null || typeof value !== 'object') { return null; }
+    seen = seen || [];
+    if (seen.indexOf(value) >= 0) { return null; }
+    seen.push(value);
+
+    if (Array.isArray(value)) {
+      for (var i = 0; i < value.length; i++) {
+        var arrayHit = firstVegaExternalReference(value[i], path + '[' + i + ']', seen);
+        if (arrayHit) { return arrayHit; }
+      }
+      return null;
+    }
+
+    for (var key in value) {
+      if (!Object.prototype.hasOwnProperty.call(value, key)) { continue; }
+      var child = value[key];
+      var childPath = path ? path + '.' + key : key;
+      var lower = String(key || '').toLowerCase();
+
+      // Inline data containers can contain arbitrary user columns named
+      // "url", "href", or "src". They do not cause fetches by themselves.
+      if (lower === 'values') { continue; }
+      if (lower === 'datasets') {
+        if (child && typeof child === 'object' && !Array.isArray(child)) {
+          for (var datasetName in child) {
+            if (!Object.prototype.hasOwnProperty.call(child, datasetName)) { continue; }
+            var dataset = child[datasetName];
+            if (dataset && typeof dataset === 'object' && !Array.isArray(dataset)) {
+              if (typeof dataset.url === 'string' && dataset.url.trim()) {
+                return childPath + '.' + datasetName + '.url';
+              }
+            }
+          }
+        }
+        continue;
+      }
+
+      if ((lower === 'url' || lower === 'href' || lower === 'src') && isVegaExternalReferencePath(childPath, lower)) {
+        if (typeof child === 'string') {
+          if (child.trim()) { return childPath; }
+        } else if (child != null) {
+          return childPath;
+        }
+      }
+
+      var hit = firstVegaExternalReference(child, childPath, seen);
+      if (hit) { return hit; }
+    }
+    return null;
+  }
+
+  function renderVegaBlocks() {
+    if (typeof vegaEmbed === 'undefined') { renderLibError('vega-lite', 'library missing'); return; }
+    var isDark = darkMql.matches;
+    var blocks = contentEl.querySelectorAll('.cmux-vega:not([data-rendered])');
+    Array.prototype.forEach.call(blocks, function(el) {
+      el.setAttribute('data-rendered', '1');
+      var srcEl = el.querySelector('.cmux-source');
+      var raw = srcEl ? srcEl.textContent : el.textContent;
+      var mode = el.getAttribute('data-vega-mode') === 'vega' ? 'vega' : 'vega-lite';
+      try {
+        var spec = JSON.parse(raw);
+        var externalRef = firstVegaExternalReference(spec, 'spec', []);
+        if (externalRef) {
+          throw new Error('external resource references are not allowed at ' + externalRef);
+        }
+        el.innerHTML = '';
+        var opts = { mode: mode, actions: false, renderer: 'svg' };
+        if (isDark) { opts.theme = 'dark'; }
+        vegaEmbed(el, spec, opts).catch(function(err) {
+          el.innerHTML = '<div class="cmux-render-error">Vega: '
+            + escapeHtml(String((err && err.message) || err)) + '</div>';
+        });
+      } catch (e) {
+        el.innerHTML = '<div class="cmux-render-error">Vega spec: '
+          + escapeHtml(String((e && e.message) || e)) + '</div>';
+      }
+    });
+  }
+
+  function postProcessSpecialBlocks() {
+    if (contentEl.querySelector('.cmux-mermaid:not([data-rendered])')) {
+      loadLib('mermaid', renderMermaidBlocks);
+    }
+    if (contentEl.querySelector('.cmux-vega:not([data-rendered])')) {
+      loadLib('vega-lite', renderVegaBlocks);
+    }
+    addCodeCopyButtons();
+    markMarkdownFileLinks();
+  }
+
+  function addCodeCopyButtons() {
+    contentEl.querySelectorAll('pre > code.hljs').forEach(function(code) {
+      var pre = code.parentElement;
+      if (!pre || pre.closest('.cmux-source') || pre.closest('.cmux-frontmatter')) { return; }
+      if (pre.parentElement && pre.parentElement.classList.contains('cmux-code-block')) { return; }
+
+      var wrapper = document.createElement('div');
+      wrapper.className = 'cmux-code-block';
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cmux-code-copy-button';
+      button.textContent = 'Copy';
+      button.setAttribute('aria-label', 'Copy code');
+      button.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        copyTextToClipboard(code.textContent || '').then(function() {
+          button.textContent = 'Copied';
+          button.setAttribute('data-copied', '1');
+          window.setTimeout(function() {
+            button.textContent = 'Copy';
+            button.removeAttribute('data-copied');
+          }, 1200);
+        }).catch(function() {
+          button.textContent = 'Failed';
+          window.setTimeout(function() { button.textContent = 'Copy'; }, 1200);
+        });
+      });
+      wrapper.appendChild(button);
+    });
+  }
+
+  // Local markdown file links and inline-code spans.
+  // Resolution is lazy: hover/focus asks Swift whether the path exists
+  // relative to the current markdown file (and PWD fallback). Click
+  // opens a new cmux markdown tab when it resolves.
+  var mdFileResolveCache = {}; // raw path -> { exists, path }
+  var mdFileResolvePending = {}; // requestId -> { rawPath, elements }
+  var mdFileRequestSeq = 0;
+
+  function markdownCandidateForElement(el) {
+    if (!el) { return null; }
+    if (el.matches && el.matches('code[data-cmux-file]')) {
+      return unescapeDataAttribute(el.getAttribute('data-cmux-file'));
+    }
+    if (el.matches && el.matches('a[href]')) {
+      var href = el.getAttribute('href') || '';
+      if (isMarkdownPathLike(href)) { return href; }
+    }
+    return null;
+  }
+
+  function applyResolvedMarkdownFile(rawPath, result, elements) {
+    mdFileResolveCache[rawPath] = result;
+    (elements || []).forEach(function(el) {
+      if (!el) { return; }
+      el.setAttribute('data-cmux-file-checked', '1');
+      if (result && result.exists) {
+        el.setAttribute('data-cmux-file-exists', '1');
+      } else {
+        el.removeAttribute('data-cmux-file-exists');
+      }
+    });
+  }
+
+  function resolveMarkdownCandidate(el, openAfterResolve) {
+    var rawPath = markdownCandidateForElement(el);
+    if (!rawPath) { return false; }
+    var cached = mdFileResolveCache[rawPath];
+    if (cached) {
+      applyResolvedMarkdownFile(rawPath, cached, [el]);
+      if (openAfterResolve && cached.exists) { openMarkdownCandidate(rawPath); }
+      return cached.exists;
+    }
+    var requestId = 'mdfile-' + (++mdFileRequestSeq);
+    mdFileResolvePending[requestId] = { rawPath: rawPath, elements: [el], openAfterResolve: !!openAfterResolve };
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({
+        action: 'resolveMarkdownFile',
+        requestId: requestId,
+        path: rawPath
+      });
+    } catch (e) { /* no bridge */ }
+    return false;
+  }
+
+  window.__cmuxMarkdownFileResolved = function(result) {
+    var pending = result && mdFileResolvePending[result.requestId];
+    if (!pending) { return; }
+    delete mdFileResolvePending[result.requestId];
+    applyResolvedMarkdownFile(pending.rawPath, result, pending.elements);
+    if (pending.openAfterResolve && result.exists) {
+      openMarkdownCandidate(pending.rawPath);
+    }
+  };
+
+  function openMarkdownCandidate(rawPath) {
+    try {
+      window.webkit.messageHandlers.cmuxLib.postMessage({ action: 'openMarkdownFile', path: rawPath });
+    } catch (e) { /* no bridge */ }
+  }
+
+  function markMarkdownFileLinks() {
+    contentEl.querySelectorAll('code:not([data-cmux-file])').forEach(function(code) {
+      if (code.closest && code.closest('pre, .cmux-source')) { return; }
+      var raw = code.textContent || '';
+      if (isMarkdownPathLike(raw)) {
+        code.setAttribute('data-cmux-file', escapeDataAttribute(raw));
+      }
+    });
+    contentEl.querySelectorAll('a[href]').forEach(function(a) {
+      var href = a.getAttribute('href') || '';
+      if (isMarkdownPathLike(href)) {
+        a.setAttribute('data-cmux-file-candidate', href);
+        // Eagerly resolve visible markdown links so the user gets
+        // immediate affordance; inline code spans remain lazy-on-hover.
+        resolveMarkdownCandidate(a, false);
+      }
+    });
+  }
+
+  contentEl.addEventListener('mouseover', function(ev) {
+    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
+    if (el) { resolveMarkdownCandidate(el, false); }
+  });
+  contentEl.addEventListener('focusin', function(ev) {
+    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
+    if (el) { resolveMarkdownCandidate(el, false); }
+  });
+  contentEl.addEventListener('click', function(ev) {
+    if (ev.target && ev.target.closest && ev.target.closest('.cmux-remote-image-placeholder')) {
+      if (ev.target.closest('button')) { return; }
+      ev.preventDefault();
+      ev.stopPropagation();
+      return;
+    }
+    var el = ev.target && ev.target.closest && ev.target.closest('code[data-cmux-file], a[href]');
+    var rawPath = markdownCandidateForElement(el);
+    if (!rawPath) { return; }
+    // For markdown-looking paths, always stop WebKit navigation first.
+    // If resolution fails, the click is intentionally a no-op rather
+    // than loading raw file:// text into the viewer or opening a browser.
+    ev.preventDefault();
+    ev.stopPropagation();
+    // Do not require the hover/resolve cache to be warm. Swift's
+    // openMarkdownFile action resolves and no-ops for missing files,
+    // so click can be deterministic and immediate.
+    openMarkdownCandidate(rawPath);
+  }, true);
+
+  window.__cmuxRenderMarkdown = function(md) {
+    try {
+      headingSlugCounts = Object.create(null);
+      var documentParts = extractFrontmatter(md || '');
+      var html = renderFrontmatter(documentParts.frontmatter)
+        + sanitizeRenderedHTML(marked.parse(documentParts.body || ''));
+      var didReplaceContent = contentEl.innerHTML !== html;
+      var scrollState = didReplaceContent ? captureMarkdownScrollState() : null;
+      if (didReplaceContent) {
+        contentEl.innerHTML = html;
+      }
+      rewriteLocalImageSources();
+      rewriteRemoteImageSources();
+      postProcessSpecialBlocks();
+      if (didReplaceContent) {
+        restoreMarkdownScrollState(scrollState);
+      }
+    } catch (e) {
+      contentEl.innerHTML =
+        '<div style="color:#f85149;font-family:ui-monospace,monospace;white-space:pre-wrap;padding:8px 12px;border:1px solid #f85149;border-radius:6px;margin-bottom:12px">'
+        + 'markdown render error: ' + escapeHtml(String((e && e.message) || e))
+        + '</div><pre><code>' + escapeHtml(md || '') + '</code></pre>';
+    }
+  };
+
+  function cleanRenderedContentClone(options) {
+    if (!contentEl) { return null; }
+    options = options || {};
+    var restoreImageSources = options.restoreImageSources !== false;
+    var clone = contentEl.cloneNode(true);
+    clone.querySelectorAll('.cmux-code-copy-button').forEach(function(el) {
+      el.remove();
+    });
+    clone.querySelectorAll('.cmux-remote-image-placeholder').forEach(function(el) {
+      el.remove();
+    });
+    clone.querySelectorAll('img[data-cmux-original-src]').forEach(function(el) {
+      var originalSrc = el.getAttribute('data-cmux-original-src') || '';
+      if (restoreImageSources && originalSrc) {
+        el.setAttribute('src', originalSrc);
+      } else if (!restoreImageSources) {
+        el.removeAttribute('src');
+      }
+      el.removeAttribute('data-cmux-original-src');
+    });
+    clone.querySelectorAll('img[data-cmux-remote-src]').forEach(function(el) {
+      var remoteSrc = unescapeDataAttribute(el.getAttribute('data-cmux-remote-src'));
+      if (restoreImageSources && remoteSrc) {
+        el.setAttribute('src', remoteSrc);
+        el.hidden = false;
+      } else if (!restoreImageSources) {
+        el.removeAttribute('src');
+      }
+    });
+    if (!restoreImageSources) {
+      clone.querySelectorAll('img').forEach(function(el) {
+        el.removeAttribute('src');
+        el.removeAttribute('srcset');
+      });
+    }
+    clone.querySelectorAll('.cmux-mermaid svg[data-cmux-mermaid-original-max-width]').forEach(function(el) {
+      mermaidRestoreOriginalSizing(el);
+    });
+    clone.querySelectorAll('*').forEach(function(el) {
+      Array.prototype.slice.call(el.attributes || []).forEach(function(attr) {
+        var name = String(attr.name || '').toLowerCase();
+        if (name.indexOf('data-cmux-') === 0) {
+          el.removeAttribute(attr.name);
+        }
+      });
+      if (String(el.getAttribute('title') || '').indexOf('Open markdown file: ') === 0) {
+        el.removeAttribute('title');
+      }
+    });
+    return clone;
+  }
+
+  window.__cmuxRenderedHTML = function() {
+    var clone = cleanRenderedContentClone({ restoreImageSources: true });
+    if (!clone) { return ''; }
+    return clone.innerHTML;
+  };
+
+  window.__cmuxRenderedText = function() {
+    var clone = cleanRenderedContentClone({ restoreImageSources: false });
+    if (!clone) { return ''; }
+    var wrapper = document.createElement('div');
+    var width = Math.max(1, Math.ceil(contentEl.getBoundingClientRect().width || contentEl.clientWidth || 800));
+    wrapper.setAttribute('aria-hidden', 'true');
+    wrapper.style.position = 'fixed';
+    wrapper.style.left = '-100000px';
+    wrapper.style.top = '0';
+    wrapper.style.width = width + 'px';
+    wrapper.style.pointerEvents = 'none';
+    wrapper.style.contain = 'layout style';
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+    try {
+      return clone.innerText || clone.textContent || '';
+    } finally {
+      wrapper.remove();
+    }
+  };
+
+  var darkMql = window.matchMedia('(prefers-color-scheme: dark)');
+  window.__cmuxApplyTheme = function() {
+    var isDark = darkMql.matches;
+    if (lightSheet && darkSheet) {
+      lightSheet.disabled = !!isDark;
+      darkSheet.disabled  = !isDark;
+    }
+    // Mermaid caches its theme; force re-init on next render so
+    // freshly added diagrams pick up the new palette.
+    mermaidInitialized = false;
+  };
+  if (darkMql.addEventListener) {
+    darkMql.addEventListener('change', window.__cmuxApplyTheme);
+  } else if (darkMql.addListener) {
+    darkMql.addListener(window.__cmuxApplyTheme);
+  }
+  window.__cmuxApplyTheme();
+})();
+</script>
+</body>
+</html>

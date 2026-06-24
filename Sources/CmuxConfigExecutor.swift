@@ -161,6 +161,31 @@ struct CmuxConfigExecutor {
     }
 
     @discardableResult
+    static func authorizeProjectAutomationIfNeeded(
+        descriptor: CmuxActionTrustDescriptor,
+        confirm: Bool,
+        configSourcePath: String?,
+        globalConfigPath: String,
+        displayCommand: String,
+        displayTitle: String? = nil,
+        presentingWindow: NSWindow? = nil,
+        onAuthorized: @escaping () -> Void,
+        onDenied: (() -> Void)? = nil
+    ) -> Bool {
+        authorizeProjectActionIfNeeded(
+            descriptor: descriptor,
+            confirm: confirm,
+            configSourcePath: configSourcePath,
+            globalConfigPath: globalConfigPath,
+            displayCommand: displayCommand,
+            displayTitle: displayTitle,
+            presentingWindow: presentingWindow,
+            onAuthorized: onAuthorized,
+            onDenied: onDenied
+        )
+    }
+
+    @discardableResult
     private static func authorizeProjectActionIfNeeded(
         descriptor: CmuxActionTrustDescriptor,
         confirm: Bool,
@@ -169,7 +194,8 @@ struct CmuxConfigExecutor {
         displayCommand: String,
         displayTitle: String?,
         presentingWindow: NSWindow?,
-        onAuthorized: @escaping () -> Void
+        onAuthorized: @escaping () -> Void,
+        onDenied: (() -> Void)? = nil
     ) -> Bool {
         let sourcePath = configSourcePath.map(canonicalPath)
         let canonicalGlobalConfigPath = canonicalPath(globalConfigPath)
@@ -194,6 +220,8 @@ struct CmuxConfigExecutor {
             ) { allowed in
                 if allowed {
                     onAuthorized()
+                } else {
+                    onDenied?()
                 }
             }
             return true
@@ -206,6 +234,8 @@ struct CmuxConfigExecutor {
         )
         if allowed {
             onAuthorized()
+        } else {
+            onDenied?()
         }
         return allowed
     }
@@ -468,7 +498,10 @@ struct CmuxConfigExecutor {
         }
 
         let resolvedCwd = CmuxConfigStore.resolveCwd(wsDef.cwd, relativeTo: baseCwd)
-        let newWorkspace = tabManager.addWorkspace(workingDirectory: resolvedCwd)
+        let newWorkspace = tabManager.addWorkspace(
+            workingDirectory: resolvedCwd,
+            workspaceEnvironment: wsDef.env ?? [:]
+        )
         newWorkspace.setCustomTitle(workspaceName)
         if let color = wsDef.color {
             newWorkspace.setCustomColor(color)

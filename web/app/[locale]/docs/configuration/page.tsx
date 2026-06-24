@@ -1,15 +1,18 @@
 import { useLocale, useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { DocsSchema } from "../docs-schema";
 import { Link } from "../../../../i18n/navigation";
 import { CodeBlock } from "../../components/code-block";
 import { Callout } from "../../components/callout";
 import settingsSchema from "../../../../data/cmux.schema.json";
-import { shortcutCategories, type LocalizedText } from "../../../../data/cmux-shortcuts";
+import { localizedShortcutText, shortcutCategories } from "../../../../data/cmux-shortcuts";
+import { DocsHeading } from "../../components/docs-heading";
 
 type SchemaProperty = {
   title?: string;
   description?: string;
+  descriptionKey?: string;
   type?: string | string[];
   enum?: string[];
   default?: unknown;
@@ -38,6 +41,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "workspaceGroups",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -45,10 +49,16 @@ const sectionOrder = [
   "ui",
   "commands",
   "browser",
+  "markdown",
+  "fileEditor",
+  "fileExplorer",
   "shortcuts",
 ] as const;
 
-const settingsFileExample = `{
+type ConfigurationTranslation = ReturnType<typeof useTranslations>;
+
+function buildSettingsFileExample(t: ConfigurationTranslation) {
+  return `{
   "$schema": "${schemaUrl}",
   "schemaVersion": 1,
 
@@ -56,17 +66,58 @@ const settingsFileExample = `{
   //   "appearance": "dark",
   //   "menuBarOnly": false,
   //   "newWorkspacePlacement": "afterCurrent",
+  //   "windowTitleTemplate": "[cmux:{windowToken}] {activeWorkspace}",
+  //   "confirmQuit": "always",
+  //   "openSupportedFilesInCmux": true,
+  //   "workspaceInheritWorkingDirectory": true,
   //   "iMessageMode": true
   // },
 
   // "terminal": {
   //   "showScrollBar": false,
-  //   "autoResumeAgentSessions": true
+  //   "copyOnSelect": true,
+  //   "autoResumeAgentSessions": true,
+  //   "showTextBoxOnNewTerminals": false,
+  //   "focusTextBoxOnNewTerminals": false,
+  //   "agentHibernation": {
+  //     "enabled": false,
+  //     "idleSeconds": 5,
+  //     "maxLiveTerminals": 12
+  //   },
+  //   "textBoxMaxLines": 10
   // },
 
   // "browser": {
+  //   "defaultSearchEngine": "kagi",
+  //   // For an unlisted provider, set "defaultSearchEngine": "custom" and fill these:
+  //   "customSearchEngineName": "My Search",
+  //   "customSearchEngineURLTemplate": "https://search.example.com/?q={query}",
   //   "openTerminalLinksInCmuxBrowser": true,
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
+  // },
+
+  // "markdown": {
+  //   // ${t("exampleMarkdownFontSize")}
+  //   // ${t("exampleMarkdownFontSizeZoom")}
+  //   "fontSize": 15,
+  //   // ${t("exampleMarkdownFontFamily")}
+  //   "fontFamily": "",
+  //   // ${t("exampleMarkdownMaxWidth")}
+  //   "maxWidth": 980
+  // },
+
+  // "fileEditor": {
+  //   // ${t("exampleFileEditorWordWrap")}
+  //   "wordWrap": false
+  // },
+
+  // "fileExplorer": {
+  //   // ${t("exampleFileExplorerDoubleClickAction")}
+  //   "doubleClickAction": "preview"
+  // },
+
+  // "automation": {
+  //   "suppressSubagentNotifications": true
   // },
 
   // "workspaceColors": {
@@ -77,14 +128,20 @@ const settingsFileExample = `{
   //   }
   // },
 
+  // "workspaceGroups": {
+  //   "newWorkspacePlacement": "afterCurrent"
+  // },
+
   // "shortcuts": {
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
+  //     "toggleFileExplorer": "cmd+opt+b",
   //     "newTab": ["ctrl+b", "c"],
   //     "commandPalettePrevious": null
   //   }
   // },
 }`;
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -96,8 +153,9 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   };
 }
 
-function localizedText(text: LocalizedText, locale: string) {
-  return locale.startsWith("ja") ? text.ja : text.en;
+function shortcutToConfig(shortcut: { combos: string[][]; configValue?: string }) {
+  if (shortcut.configValue) return shortcut.configValue;
+  return shortcutComboToConfig(shortcut.combos[0] ?? []);
 }
 
 function shortcutComboToConfig(combo: string[]) {
@@ -156,12 +214,15 @@ function hasComplexDefaultValue(value: unknown): boolean {
 }
 
 function PropertyCard({ path, property }: { path: string; property: SchemaProperty }) {
+  const t = useTranslations("docs.configuration");
+  const description = property.descriptionKey ? t(property.descriptionKey) : property.description;
+
   return (
     <div className="rounded-xl border border-border/70 bg-background/40 p-4">
       <div className="mb-2 flex items-center gap-2">
         <code className="text-[12px] font-medium">{path}</code>
       </div>
-      {property.description && <p className="mb-3 text-sm text-muted">{property.description}</p>}
+      {description && <p className="mb-3 text-sm text-muted">{description}</p>}
       <dl className="space-y-2 text-sm">
         <div>
           <dt className="font-medium text-foreground">Type</dt>
@@ -229,10 +290,11 @@ export default function ConfigurationPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsSchema namespace="docs.configuration" path="/docs/configuration" />
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
       <p>{t("intro")}</p>
 
-      <h2>{t("configLocations")}</h2>
+      <DocsHeading level={2} id="config-locations">{t("configLocations")}</DocsHeading>
       <p>{t("configLocationsDesc")}</p>
       <ol>
         <li>
@@ -246,15 +308,17 @@ export default function ConfigurationPage() {
       <CodeBlock lang="bash">{`mkdir -p ~/.config/ghostty
 touch ~/.config/ghostty/config`}</CodeBlock>
 
-      <h2>{t("exampleConfig")}</h2>
+      <DocsHeading level={2} id="example-config">{t("exampleConfig")}</DocsHeading>
       <CodeBlock title="~/.config/ghostty/config" lang="ini">{`font-family = SF Mono
 font-size = 13
+sidebar-font-size = 14
+surface-tab-bar-font-size = 11
 theme = One Dark
 scrollback-limit = 50000000
 split-divider-color = #3e4451
 working-directory = ~/code`}</CodeBlock>
 
-      <h2 id="cmux-json" className="scroll-mt-24">cmux.json</h2>
+      <DocsHeading level={2} id="cmux-json" className="scroll-mt-24">cmux.json</DocsHeading>
       <p>
         cmux keeps app-owned settings, shortcuts, actions, custom commands, and workspace layouts in{" "}
         <code>~/.config/cmux/cmux.json</code>. Terminal rendering still lives in Ghostty config.
@@ -276,8 +340,8 @@ working-directory = ~/code`}</CodeBlock>
         <strong>Precedence:</strong> global <code>~/.config/cmux/cmux.json</code> settings override
         values saved in the Settings window. Legacy <code>~/.config/cmux/settings.json</code> and
         Application Support settings files are read only as fallback for missing settings keys.
-        Project-local <code>.cmux/cmux.json</code> can override actions, commands, and UI action
-        wiring, but not global app preferences.
+        Project-local <code>.cmux/cmux.json</code> can override actions, commands, UI action
+        wiring, and notification hooks, but not global app preferences.
       </Callout>
       <Callout type="info">
         <strong>Reload:</strong> edit the file, then use <code>Cmd+Shift+,</code> or{" "}
@@ -294,10 +358,10 @@ working-directory = ~/code`}</CodeBlock>
         <a href={schemaSourceUrl}>{schemaSourceUrl}</a>.
       </p>
       <CodeBlock title="~/.config/cmux/cmux.json" lang="json">
-        {settingsFileExample}
+        {buildSettingsFileExample(t)}
       </CodeBlock>
 
-      <h2>Schema reference</h2>
+      <DocsHeading level={2} id="schema-reference">Schema reference</DocsHeading>
       <p>
         This reference covers every supported global settings key in <code>cmux.json</code>. The embedded
         browser, terminal, sidebar, notifications, automation, and cmux-owned keyboard shortcuts
@@ -305,7 +369,7 @@ working-directory = ~/code`}</CodeBlock>
         <Link href="/docs/custom-commands">custom commands page</Link>.
       </p>
 
-      <h3>Metadata</h3>
+      <DocsHeading level={3} id="metadata">Metadata</DocsHeading>
       <PropertyGrid
         prefix=""
         properties={Object.fromEntries(
@@ -320,13 +384,14 @@ working-directory = ~/code`}</CodeBlock>
         }
 
         const skipBindings = sectionName === "shortcuts" ? ["bindings"] : [];
+        const description = property.descriptionKey ? t(property.descriptionKey) : property.description;
 
         return (
           <section key={sectionName}>
-            <h3>
+            <DocsHeading level={3} id={`schema-${sectionName}`}>
               <code>{sectionName}</code>
-            </h3>
-            {property.description && <p>{property.description}</p>}
+            </DocsHeading>
+            {description && <p>{description}</p>}
             <PropertyGrid prefix={sectionName} properties={property.properties} skip={skipBindings} />
             {sectionName === "workspaceColors" && (
               <>
@@ -352,9 +417,9 @@ working-directory = ~/code`}</CodeBlock>
         );
       })}
 
-      <h3>
+      <DocsHeading level={3} id="shortcuts-bindings">
         <code>shortcuts.bindings</code>
-      </h3>
+      </DocsHeading>
       <p>
         Use a string for a single shortcut, a two-item array for a chord, or <code>null</code> to
         unbind a shortcut in <code>shortcuts.bindings</code>. Unbind aliases also include
@@ -384,23 +449,57 @@ working-directory = ~/code`}</CodeBlock>
                     <code className="text-[12px] font-medium">{shortcut.id}</code>
                   </div>
                   <p className="text-sm text-foreground/90">
-                    {localizedText(shortcut.description, locale)}
+                    {localizedShortcutText(shortcut.description, locale)}
                     {shortcut.note && (
                       <span className="ml-2 text-xs text-muted">
-                        {localizedText(shortcut.note, locale)}
+                        {localizedShortcutText(shortcut.note, locale)}
                       </span>
                     )}
                   </p>
                 </div>
                 <div className="text-sm text-muted">
                   <div className="font-medium text-foreground">Default file value</div>
-                  <code>{shortcutComboToConfig(shortcut.combos[0] ?? [])}</code>
+                  <code>{shortcutToConfig(shortcut)}</code>
                 </div>
               </div>
             ))}
           </div>
         </section>
       ))}
+
+      <DocsHeading level={3} id="shortcuts-when">
+        <code>shortcuts.when</code>
+      </DocsHeading>
+      <p>{t("shortcutsWhenIntro")}</p>
+      <ul>
+        <li>
+          <code>sidebarFocus</code>, <code>browserFocus</code>, <code>markdownFocus</code>,{" "}
+          <code>terminalFocus</code>, <code>commandPaletteVisible</code>,{" "}
+          <code>terminalFindVisible</code>, <code>workspaceCanvasLayout</code> &mdash;{" "}
+          {t("shortcutsWhenBooleanKeys")}
+        </li>
+        <li>
+          <code>sidebarMode</code> (<code>files</code>, <code>find</code>, <code>sessions</code>,{" "}
+          <code>feed</code>, <code>dock</code>), <code>paneCount</code>,{" "}
+          <code>workspaceCount</code> &mdash; {t("shortcutsWhenTypedKeys")}
+        </li>
+        <li>
+          <code>!</code>, <code>&amp;&amp;</code>, <code>||</code>, <code>(&hellip;)</code>,{" "}
+          <code>==</code>, <code>!=</code>, <code>=~</code>, <code>&lt;</code>, <code>&lt;=</code>,{" "}
+          <code>&gt;</code>, <code>&gt;=</code>, <code>in [a, b]</code> &mdash;{" "}
+          {t("shortcutsWhenOperators")}
+        </li>
+      </ul>
+      <p>{t("shortcutsWhenExample")}</p>
+      <pre className="not-prose overflow-x-auto rounded-xl border border-border/70 bg-background/40 p-4 text-sm">
+        <code>{`"shortcuts": {
+  "bindings": { "selectWorkspaceByNumber": "ctrl+1" },
+  "when": {
+    "selectWorkspaceByNumber": "!sidebarFocus",
+    "selectSurfaceByNumber": "sidebarMode == 'find' && paneCount > 1"
+  }
+}`}</code>
+      </pre>
     </>
   );
 }

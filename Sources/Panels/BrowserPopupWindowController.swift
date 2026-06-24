@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxFoundation
 import ObjectiveC
 import WebKit
 
@@ -34,6 +35,32 @@ func browserPopupContentRect(
     return NSRect(x: x, y: y, width: clampedWidth, height: clampedHeight)
 }
 
+private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEvent) -> Bool {
+    let closeTabShortcut = KeyboardShortcutSettings.shortcut(for: .closeTab)
+    guard closeTabShortcut.isUnbound || closeTabShortcut != KeyboardShortcutSettings.Action.closeTab.defaultShortcut else {
+        return false
+    }
+    return KeyboardShortcutSettings.Action.closeTab.defaultShortcut.matches(event: event)
+}
+
+/// NSPanel subclass that intercepts the configured Close Tab shortcut before the swizzled
+/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
+/// "Close Tab" action (which would close the parent browser tab).
+final class BrowserPopupPanel: NSPanel {
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
+            return true
+        }
+        if browserPopupPanelShouldSuppressStaleCloseTabShortcut(event) {
+            #if DEBUG
+            cmuxDebugLog("popup.panel.closeShortcut suppressStaleDefault")
+            #endif
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 /// Hosts a popup `CmuxWebView` in a standalone `NSPanel`, created when a page
 /// calls `window.open()` (scripted new-window requests).
 ///
@@ -42,25 +69,6 @@ func browserPopupContentRect(
 /// - Released in `windowWillClose(_:)` when the panel closes.
 /// - The opener `BrowserPanel` also keeps a strong reference for deterministic
 ///   cleanup when the opener tab or workspace is closed.
-/// NSPanel subclass that intercepts Cmd+W before the swizzled
-/// `cmux_performKeyEquivalent` can dispatch it to the main menu's
-/// "Close Tab" action (which would close the parent browser tab).
-private class BrowserPopupPanel: NSPanel {
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        // Cmd+W: close this popup panel only
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == .command,
-           KeyboardLayout.normalizedCharacters(for: event) == "w" {
-            #if DEBUG
-            cmuxDebugLog("popup.panel.cmdW close")
-            #endif
-            performClose(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 @MainActor
 final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
@@ -69,7 +77,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
     private let panel: NSPanel
-    private let urlLabel: NSTextField
+    private let urlLabel: NSTextField, urlLabelHeightConstraint: NSLayoutConstraint
     private weak var openerPanel: BrowserPanel?
     private weak var parentPopupController: BrowserPopupWindowController?
     private let nestingDepth: Int
@@ -80,6 +88,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     private let popupNavigationDelegate: PopupNavigationDelegate
     private let downloadDelegate: BrowserDownloadDelegate
     private let webAuthnCoordinator: BrowserWebAuthnCoordinator
+    private var globalFontObserver: GlobalFontMagnificationChangeObserver?
 
     private static var associatedObjectKey: UInt8 = 0
 
@@ -98,8 +107,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         BrowserPanel.configureWebViewConfiguration(
             configuration,
-            websiteDataStore: browserContext.websiteDataStore,
-            processPool: browserContext.processPool
+            websiteDataStore: browserContext.websiteDataStore
         )
 
         // Create popup web view with WebKit's supplied configuration after
@@ -164,6 +172,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         let urlLabel = NSTextField(labelWithString: "")
         self.urlLabel = urlLabel
+        self.urlLabelHeightConstraint = urlLabel.heightAnchor.constraint(equalToConstant: 16)
 
         // Build delegate objects before super.init so they can be assigned
         let uiDel = PopupUIDelegate()
@@ -177,10 +186,13 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         // --- URL label for phishing protection ---
         urlLabel.translatesAutoresizingMaskIntoConstraints = false
-        urlLabel.font = .systemFont(ofSize: 11)
         urlLabel.textColor = .secondaryLabelColor
         urlLabel.lineBreakMode = .byTruncatingMiddle
         urlLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        applyGlobalFont()
+        globalFontObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+            self?.applyGlobalFont()
+        }
 
         let containerView = NSView()
         containerView.translatesAutoresizingMaskIntoConstraints = false
@@ -193,7 +205,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
             urlLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 4),
             urlLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8),
             urlLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8),
-            urlLabel.heightAnchor.constraint(equalToConstant: 16),
+            urlLabelHeightConstraint,
 
             webView.topAnchor.constraint(equalTo: urlLabel.bottomAnchor, constant: 2),
             webView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
@@ -245,6 +257,11 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(self)
     }
 
+    private func applyGlobalFont() {
+        let font = GlobalFontMagnification.systemFont(ofSize: 11)
+        urlLabel.font = font; urlLabelHeightConstraint.constant = max(16, ceil(font.ascender - font.descender + font.leading) + 2)
+    }
+
     // MARK: - Child popup tracking
 
     func addChildPopup(_ child: BrowserPopupWindowController) {
@@ -265,6 +282,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
     // MARK: - Popup lifecycle
 
     func closePopup() {
+        WebViewInspectorTeardown.closeAllInspectors(in: panel)
         panel.close() // triggers windowWillClose
     }
 
@@ -279,11 +297,17 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     // MARK: - NSWindowDelegate
 
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        WebViewInspectorTeardown.closeAllInspectors(in: sender)
+        return true
+    }
+
     func windowWillClose(_ notification: Notification) {
         #if DEBUG
         cmuxDebugLog("popup.close depth=\(nestingDepth)")
         #endif
 
+        WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
 
         // Invalidate observations
@@ -337,6 +361,28 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         } else if let url = request.url {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    fileprivate func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
+        guard terminatedWebView === webView else { return }
+#if DEBUG
+        cmuxDebugLog("popup.webcontent.terminated depth=\(nestingDepth)")
+#endif
+        closePopup()
+    }
+
+    fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
+        guard let url = request.url else { return }
+
+        if browserShouldBlockInsecureHTTPURL(url) {
+            presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
+                guard policy == .allow, let webView else { return }
+                browserLoadRequest(request, in: webView)
+            }
+            return
+        }
+
+        browserLoadRequest(request, in: webView)
     }
 
     // MARK: - Insecure HTTP prompt (parity with main browser)
@@ -410,8 +456,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
+           browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "popupUIDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             return nil
         }
 
@@ -503,6 +556,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
 
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+        field.font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize)
         field.stringValue = defaultText ?? ""
         alert.accessoryView = field
 
@@ -582,29 +636,34 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        // Only guard main-frame navigations
-        guard navigationAction.targetFrame?.isMainFrame != false else {
-            decisionHandler(.allow)
-            return
-        }
-
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
         }
 
-        if let scheme = url.scheme?.lowercased(),
+        if navigationAction.targetFrame?.isMainFrame != false,
+           let scheme = url.scheme?.lowercased(),
            scheme == "http" || scheme == "https" {
             recordAttemptedRequest(navigationAction.request)
         }
 
         // External URL schemes → hand off to macOS
-        if browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
-            #if DEBUG
-            cmuxDebugLog("popup.nav.external url=\(url.absoluteString)")
-            #endif
+        if browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "popupNavDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             decisionHandler(.cancel)
+            return
+        }
+
+        // Only guard main-frame navigations
+        guard navigationAction.targetFrame?.isMainFrame != false else {
+            decisionHandler(.allow)
             return
         }
 
@@ -617,11 +676,16 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
+        if navigationAction.shouldPerformDownload {
+            decisionHandler(.download)
+            return
+        }
+
         decisionHandler(.allow)
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        lastAttemptedURL = webView.url ?? lastAttemptedRequest?.url
+        lastAttemptedURL = lastAttemptedURL ?? webView.url ?? lastAttemptedRequest?.url
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
@@ -661,15 +725,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        if let response = navigationResponse.response as? HTTPURLResponse {
-            let contentDisposition = response.value(forHTTPHeaderField: "Content-Disposition") ?? ""
-            if contentDisposition.lowercased().hasPrefix("attachment") {
-                decisionHandler(.download)
-                return
-            }
-        }
-
-        if !navigationResponse.canShowMIMEType {
+        let contentDisposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")
+        if BrowserDownloadFilenameResolver().navigationResponseDownloadReason(
+            mimeType: navigationResponse.response.mimeType, canShowMIMEType: navigationResponse.canShowMIMEType, contentDisposition: contentDisposition
+        ) != nil {
             decisionHandler(.download)
             return
         }
@@ -692,6 +751,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         // Parity with main browser: performDefaultHandling enables system keychain
         // lookups, MDM client certs, and SSO extensions (e.g. Microsoft Entra ID).
         completionHandler(.performDefaultHandling, nil)
+    }
+
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        controller?.handleWebContentProcessTermination(for: webView)
     }
 
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {

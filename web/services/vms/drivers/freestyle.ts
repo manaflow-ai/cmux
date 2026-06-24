@@ -137,6 +137,28 @@ export class FreestyleProvider implements VMProvider {
     );
   }
 
+  async getStatus(vmId: string): Promise<VMStatus> {
+    return withVmSpan(
+      "cmux.vm.provider.get_status",
+      {
+        "cmux.vm.provider": "freestyle",
+        "cmux.vm.operation": "get_status",
+        "cmux.vm.id": vmId,
+        "cmux.timeout_ms": DEFAULT_TIMEOUT_MS,
+      },
+      async (span) => {
+        try {
+          const info = await client().vms.ref({ vmId }).getInfo();
+          const status = mapStatus(info.state);
+          setSpanAttributes(span, { "cmux.vm.provider_state": info.state, "cmux.vm.status": status });
+          return status;
+        } catch (err) {
+          throw new ProviderError("freestyle", `getStatus(${vmId})`, err);
+        }
+      },
+    );
+  }
+
   async pause(vmId: string): Promise<void> {
     return withVmSpan(
       "cmux.vm.provider.pause",
@@ -300,7 +322,7 @@ export class FreestyleProvider implements VMProvider {
       }
       return endpoint;
     } catch (err) {
-      if (options?.requireDaemon) {
+      if (!shouldFallbackAttachToSSH(err)) {
         throw err;
       }
       return await withVmSpan(
@@ -309,6 +331,7 @@ export class FreestyleProvider implements VMProvider {
           "cmux.vm.provider": "freestyle",
           "cmux.vm.operation": "open_attach_ssh_fallback",
           "cmux.vm.id": vmId,
+          "cmux.vm.attach.require_daemon": options?.requireDaemon === true,
         },
         async (span) => {
           recordSpanError(span, err);
@@ -472,9 +495,27 @@ export class FreestyleProvider implements VMProvider {
   }
 }
 
+function shouldFallbackAttachToSSH(err: unknown): boolean {
+  const messages = [errorMessage(err)];
+  if (err instanceof ProviderError && err.cause) {
+    messages.push(errorMessage(err.cause));
+  }
+  return messages.some((message) =>
+    message.includes("requires a cmuxd RPC endpoint")
+    || message.includes("Freestyle cmuxd websocket health check returned")
+    || message.includes("Freestyle cmuxd websocket health check failed")
+  );
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {
   const response = await fetch(`https://${domain}/healthz`, {
     signal: AbortSignal.timeout(10_000),
+  }).catch((err: unknown) => {
+    throw new Error(`Freestyle cmuxd websocket health check failed: ${errorMessage(err)}`);
   });
   if (response.status !== 200) {
     throw new Error(`Freestyle cmuxd websocket health check returned ${response.status}`);

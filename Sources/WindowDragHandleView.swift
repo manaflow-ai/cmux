@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxTestSupport
 import SwiftUI
 
 enum WindowMouseMovedEventsCoordinator {
@@ -230,8 +231,22 @@ func handleTitlebarDoubleClick(
 
 private enum WindowDragHandleAssociatedObjectKeys {
     private static let suppressionDepthToken = NSObject()
+    private static let moveSuppressionSequenceToken = NSObject()
 
     static let suppressionDepth = UnsafeRawPointer(Unmanaged.passUnretained(suppressionDepthToken).toOpaque())
+    static let moveSuppressionSequence = UnsafeRawPointer(Unmanaged.passUnretained(moveSuppressionSequenceToken).toOpaque())
+}
+
+// Stored as an NSWindow associated object and touched only from AppKit's
+// main-thread mouse-event dispatch path.
+private final class WindowMoveSuppressionSequenceState: @unchecked Sendable {
+    let reason: WindowMoveSuppressionReason
+    let previousMovableState: Bool
+
+    init(reason: WindowMoveSuppressionReason, previousMovableState: Bool) {
+        self.reason = reason
+        self.previousMovableState = previousMovableState
+    }
 }
 
 func beginWindowDragSuppression(window: NSWindow?) -> Int? {
@@ -282,9 +297,90 @@ func isWindowDragSuppressed(window: NSWindow?) -> Bool {
     windowDragSuppressionDepth(window: window) > 0
 }
 
+func activeWindowMoveSuppressionSequenceReason(window: NSWindow?) -> WindowMoveSuppressionReason? {
+    guard let window,
+          let state = objc_getAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence
+          ) as? WindowMoveSuppressionSequenceState else {
+        return nil
+    }
+    return state.reason
+}
+
+@discardableResult
+func beginWindowMoveSuppressionSequence(
+    window: NSWindow?,
+    reason: WindowMoveSuppressionReason
+) -> WindowMoveSuppressionReason? {
+    guard let window else { return nil }
+    if let activeReason = activeWindowMoveSuppressionSequenceReason(window: window) {
+        ensureWindowMoveSuppressionSequenceIsImmovable(window: window)
+        return activeReason
+    }
+
+    let previousMovableState = window.isMovable
+    _ = beginWindowDragSuppression(window: window)
+    if window.isMovable {
+        window.isMovable = false
+    }
+    let state = WindowMoveSuppressionSequenceState(
+        reason: reason,
+        previousMovableState: previousMovableState
+    )
+    objc_setAssociatedObject(
+        window,
+        WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence,
+        state,
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+    return reason
+}
+
+func ensureWindowMoveSuppressionSequenceIsImmovable(window: NSWindow?) {
+    guard let window,
+          activeWindowMoveSuppressionSequenceReason(window: window) != nil,
+          window.isMovable else {
+        return
+    }
+    window.isMovable = false
+}
+
+@discardableResult
+func finishWindowMoveSuppressionSequence(window: NSWindow?) -> WindowMoveSuppressionReason? {
+    guard let window,
+          let state = objc_getAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence
+          ) as? WindowMoveSuppressionSequenceState else {
+        return nil
+    }
+
+    objc_setAssociatedObject(
+        window,
+        WindowDragHandleAssociatedObjectKeys.moveSuppressionSequence,
+        nil,
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+    _ = endWindowDragSuppression(window: window)
+    restoreWindowDragging(window: window, previousMovableState: state.previousMovableState)
+    return state.reason
+}
+
+func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
+    guard let window,
+          let previousMovableState else { return }
+    if window.isMovable != previousMovableState {
+        window.isMovable = previousMovableState
+    }
+}
+
 @discardableResult
 func clearWindowDragSuppression(window: NSWindow?) -> Int {
     guard let window else { return 0 }
+    if activeWindowMoveSuppressionSequenceReason(window: window) != nil {
+        _ = finishWindowMoveSuppressionSequence(window: window)
+    }
     var depth = windowDragSuppressionDepth(window: window)
     while depth > 0 {
         depth = endWindowDragSuppression(window: window)
@@ -317,6 +413,12 @@ func withTemporaryWindowMovableEnabled(window: NSWindow?, _ body: () -> Void) ->
 
 /// SwiftUI/AppKit hosting wrappers can appear as the top hit even for empty
 /// titlebar space. Treat those as pass-through so explicit sibling checks decide.
+///
+/// Interactive titlebar controls are *not* identified here by their hit view.
+/// They register their region with ``MinimalModeTitlebarControlHitRegionRegistry``
+/// instead, which ``windowDragHandleShouldCaptureHit(_:in:eventType:eventWindow:)``
+/// consults (via `isMinimalModeTitlebarControlHit`) before this sibling walk runs,
+/// so a registered control already makes the drag handle yield.
 func windowDragHandleShouldTreatTopHitAsPassiveHost(_ view: NSView) -> Bool {
     let className = String(describing: type(of: view))
     if className.contains("HostContainerView")
@@ -420,7 +522,22 @@ enum MinimalModeTitlebarControlHitRegionRegistry {
     }
 }
 
-struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
+/// Marks the region occupied by an interactive titlebar control so window-drag,
+/// resize-drag, and double-click-zoom routing yields to the control's own clicks.
+///
+/// This is the backing of `titlebarInteractiveControl()`. It is applied as a
+/// `.background(...)` of the control, so it matches the control's frame but never
+/// reparents the control out of its SwiftUI host. The view is transparent to
+/// hit-testing (`hitTest` returns `nil`) — it exists only to register its bounds
+/// with ``MinimalModeTitlebarControlHitRegionRegistry``. Every titlebar
+/// drag/double-click surface consults that registry (via
+/// `isMinimalModeTitlebarControlHit`) and skips any registered region, so the
+/// control keeps receiving mouse-downs in place.
+///
+/// Reparenting interactive controls into a nested `NSHostingView` instead (the
+/// previous approach) silently dropped their clicks when the control lived in the
+/// full-size-content titlebar band, e.g. the right-sidebar mode bar (issue #5099).
+struct TitlebarInteractiveControlRegion: NSViewRepresentable {
     final class RegisteredView: NSView {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -432,6 +549,8 @@ struct MinimalModeTitlebarControlHitRegionView: NSViewRepresentable {
         }
 
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+        override var mouseDownCanMoveWindow: Bool { false }
 
         deinit {
             MinimalModeTitlebarControlHitRegionRegistry.unregister(self)
@@ -454,16 +573,243 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
     return MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
 }
 
-enum MinimalModeSidebarTitlebarControlsMetrics {
-    static let leadingInset: CGFloat = 72
-    static let hostWidth: CGFloat = 124
-    static let hostHeight: CGFloat = 28
+enum MinimalModeTitlebarDebugSettings {
+    static let leftControlsLeadingInsetKey = "titlebarDebug.leftControlsLeadingInset"
+    static let leftControlsTopInsetKey = "titlebarDebug.leftControlsTopInset"
+    static let trafficLightTabBarInsetKey = "titlebarDebug.trafficLightTabBarInset"
+    static let trafficLightTitlebarLeadingInsetKey = "titlebarDebug.trafficLightTitlebarLeadingInset"
+
+    static let defaultLeftControlsLeadingInset = 72.0
+    static let defaultLeftControlsTopInset = 2.0
+    static let defaultTrafficLightTabBarInset = 80.0
+    static let defaultTrafficLightTitlebarLeadingInset = 78.0
+
+    static let horizontalInsetRange: ClosedRange<Double> = 0...180
+    static let topInsetRange: ClosedRange<Double> = -8...32
+    static let leftControlsXOffsetRange: ClosedRange<Double> = (
+        horizontalInsetRange.lowerBound - defaultLeftControlsLeadingInset
+    )...(
+        horizontalInsetRange.upperBound - defaultLeftControlsLeadingInset
+    )
+
+    static func clamped(_ value: Double, range: ClosedRange<Double>) -> Double {
+        min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    static func trafficLightTabBarLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            storedDouble(
+                defaults: defaults,
+                key: trafficLightTabBarInsetKey,
+                fallback: defaultTrafficLightTabBarInset,
+                range: horizontalInsetRange
+            )
+        )
+    }
+
+    static func trafficLightTitlebarLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            storedDouble(
+                defaults: defaults,
+                key: trafficLightTitlebarLeadingInsetKey,
+                fallback: defaultTrafficLightTitlebarLeadingInset,
+                range: horizontalInsetRange
+            )
+        )
+    }
+
+    static func leftControlsLeadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            storedDouble(
+                defaults: defaults,
+                key: leftControlsLeadingInsetKey,
+                fallback: defaultLeftControlsLeadingInset,
+                range: horizontalInsetRange
+            )
+        )
+    }
+
+    static func leftControlsTopInset(defaults: UserDefaults = .standard) -> CGFloat {
+        CGFloat(
+            storedDouble(
+                defaults: defaults,
+                key: leftControlsTopInsetKey,
+                fallback: defaultLeftControlsTopInset,
+                range: topInsetRange
+            )
+        )
+    }
+
+    static func leftControlsXOffset(leadingInset: Double) -> CGFloat {
+        CGFloat(
+            clamped(
+                leadingInset - defaultLeftControlsLeadingInset,
+                range: leftControlsXOffsetRange
+            )
+        )
+    }
+
+    static func snapshot(defaults: UserDefaults = .standard) -> MinimalModeTitlebarDebugSnapshot {
+        MinimalModeTitlebarDebugSnapshot(
+            leftControlsLeadingInset: Double(leftControlsLeadingInset(defaults: defaults)),
+            leftControlsTopInset: Double(leftControlsTopInset(defaults: defaults)),
+            trafficLightTabBarLeadingInset: Double(trafficLightTabBarLeadingInset(defaults: defaults)),
+            trafficLightTitlebarLeadingInset: Double(trafficLightTitlebarLeadingInset(defaults: defaults))
+        )
+    }
+
+    private static func storedDouble(
+        defaults: UserDefaults,
+        key: String,
+        fallback: Double,
+        range: ClosedRange<Double>
+    ) -> Double {
+        let rawValue: Double?
+        if let value = defaults.object(forKey: key) as? NSNumber {
+            rawValue = value.doubleValue
+        } else if let value = defaults.string(forKey: key) {
+            rawValue = Double(value)
+        } else {
+            rawValue = nil
+        }
+        guard let rawValue, rawValue.isFinite else {
+            return fallback
+        }
+        return clamped(rawValue, range: range)
+    }
 }
 
-enum MinimalModeSidebarControlActionSlot: Int {
+struct MinimalModeTitlebarDebugSnapshot: Equatable {
+    let leftControlsLeadingInset: Double
+    let leftControlsTopInset: Double
+    let trafficLightTabBarLeadingInset: Double
+    let trafficLightTitlebarLeadingInset: Double
+}
+
+enum MinimalModeSidebarTitlebarControlsMetrics {
+    static var leadingInset: CGFloat {
+        leadingInset()
+    }
+
+    static var topInset: CGFloat {
+        topInset()
+    }
+
+    static func leadingInset(defaults: UserDefaults = .standard) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.leftControlsLeadingInset(defaults: defaults)
+    }
+
+    static func topInset(defaults: UserDefaults = .standard) -> CGFloat {
+        MinimalModeTitlebarDebugSettings.leftControlsTopInset(defaults: defaults)
+    }
+
+    static let hostWidth: CGFloat = 164
+    static let hostHeight: CGFloat = 28
+    static let singleButtonHostWidth: CGFloat = hostHeight
+
+    static func titlebarControlsOpticalYOffset(backingScaleFactor _: CGFloat?) -> CGFloat {
+        0
+    }
+
+    @MainActor
+    static func titlebarControlsOpticalYOffset(in window: NSWindow?) -> CGFloat {
+        titlebarControlsOpticalYOffset(
+            backingScaleFactor: window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor
+        )
+    }
+}
+
+@MainActor
+func minimalModeSidebarTitlebarControlsFrame(
+    in window: NSWindow,
+    defaults: UserDefaults = .standard
+) -> NSRect {
+    let contentView = window.contentView
+    let contentBounds = contentView?.bounds ?? NSRect(
+        x: 0,
+        y: 0,
+        width: window.frame.width,
+        height: window.frame.height
+    )
+    let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(for: window)
+    return minimalModeSidebarTitlebarControlsFrame(
+        contentBounds: contentBounds,
+        contentViewIsFlipped: contentView?.isFlipped ?? false,
+        trafficLightFrameInContent: trafficLightFrameInContent,
+        visualDownwardAdjustment: trafficLightFrameInContent == nil
+            ? 0
+            : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(in: window),
+        defaults: defaults
+    )
+}
+
+@MainActor
+func minimalModeSidebarTitlebarControlsTopInset(
+    in window: NSWindow,
+    defaults: UserDefaults = .standard
+) -> CGFloat {
+    guard let contentView = window.contentView else {
+        return MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
+    }
+    let controlsFrame = minimalModeSidebarTitlebarControlsFrame(in: window, defaults: defaults)
+    if contentView.isFlipped {
+        return controlsFrame.minY - contentView.bounds.minY
+    }
+    return contentView.bounds.maxY - controlsFrame.maxY
+}
+
+func minimalModeSidebarTitlebarControlsFrame(
+    contentBounds: NSRect,
+    contentViewIsFlipped: Bool,
+    trafficLightFrameInContent: NSRect?,
+    visualDownwardAdjustment: CGFloat = 0,
+    defaults: UserDefaults = .standard
+) -> NSRect {
+    let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
+    let targetY: CGFloat
+    if let trafficLightFrameInContent {
+        let centeredY = trafficLightFrameInContent.midY - hostHeight / 2.0
+        targetY = contentViewIsFlipped
+            ? centeredY + visualDownwardAdjustment
+            : centeredY - visualDownwardAdjustment
+    } else {
+        let topInset = MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
+        targetY = contentViewIsFlipped
+            ? contentBounds.minY + topInset
+            : max(0, contentBounds.maxY - hostHeight - topInset)
+    }
+    return NSRect(
+        x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults),
+        y: targetY,
+        width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
+        height: hostHeight
+    )
+}
+
+func minimalModeTrafficLightFrameInContentCoordinates(
+    window: NSWindow,
+    contentView: NSView
+) -> NSRect? {
+    dispatchPrecondition(condition: .onQueue(.main))
+    guard let closeButton = window.standardWindowButton(.closeButton),
+          let closeButtonSuperview = closeButton.superview else {
+        return nil
+    }
+    return closeButtonSuperview.convert(closeButton.frame, to: contentView)
+}
+
+@MainActor
+private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWindow) -> NSRect? {
+    guard let contentView = window.contentView else { return nil }
+    return minimalModeTrafficLightFrameInContentCoordinates(window: window, contentView: contentView)
+}
+
+enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
+    case focusHistoryBack
+    case focusHistoryForward
 
     var accessibilityIdentifier: String {
         switch self {
@@ -473,6 +819,10 @@ enum MinimalModeSidebarControlActionSlot: Int {
             return "titlebarControl.showNotifications"
         case .newTab:
             return "titlebarControl.newTab"
+        case .focusHistoryBack:
+            return "titlebarControl.focusHistoryBack"
+        case .focusHistoryForward:
+            return "titlebarControl.focusHistoryForward"
         }
     }
 
@@ -484,6 +834,10 @@ enum MinimalModeSidebarControlActionSlot: Int {
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
             return String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace")
+        case .focusHistoryBack:
+            return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
+        case .focusHistoryForward:
+            return String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")
         }
     }
 
@@ -495,6 +849,19 @@ enum MinimalModeSidebarControlActionSlot: Int {
             return "showNotifications"
         case .newTab:
             return "newTab"
+        case .focusHistoryBack:
+            return "focusHistoryBack"
+        case .focusHistoryForward:
+            return "focusHistoryForward"
+        }
+    }
+
+    var acceptsContextMenu: Bool {
+        switch self {
+        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
+            return true
+        case .showNotifications:
+            return false
         }
     }
 }
@@ -582,7 +949,7 @@ func isMinimalModeSidebarChromeHoverCandidate(
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
     ) else { return false }
 
-    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset
+    let minX = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let maxX = minX + MinimalModeSidebarTitlebarControlsMetrics.hostWidth
     return locationInWindow.x >= minX && locationInWindow.x <= maxX
 }
@@ -627,8 +994,9 @@ func minimalModeSidebarControlActionSlot(
         topStripHeight: MinimalModeChromeMetrics.titlebarHeight
     ) else { return nil }
 
+    let leadingInset = MinimalModeSidebarTitlebarControlsMetrics.leadingInset(defaults: defaults)
     let localPoint = NSPoint(
-        x: locationInWindow.x - MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
+        x: locationInWindow.x - leadingInset,
         y: MinimalModeSidebarTitlebarControlsMetrics.hostHeight / 2
     )
     return TitlebarControlsHitRegions.sidebarActionSlot(
@@ -679,7 +1047,7 @@ func recordMinimalModeSidebarChromeHoverForUITest(
             locationInWindow,
             in: window
         )
-    _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+    _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
         let count = (payload["minimalSidebarHoverEventCount"] as? String).flatMap(Int.init) ?? 0
         payload["minimalSidebarHoverEventCount"] = String(count + 1)
         payload["minimalSidebarHoverEventType"] = String(describing: eventType)
@@ -725,6 +1093,19 @@ func windowDragHandleShouldCaptureHit(
     eventWindow: NSWindow? = NSApp.currentEvent?.window
 ) -> Bool {
     let dragHandleWindow = dragHandleView.window
+
+    if let dragHandleWindow,
+       eventType == .leftMouseDown {
+        let windowPoint = dragHandleView.convert(point, to: nil)
+        if BonsplitTabItemHitRegionRegistry.containsWindowPoint(windowPoint, in: dragHandleWindow) {
+            #if DEBUG
+            cmuxDebugLog(
+                "titlebar.dragHandle.hitTest capture=false reason=bonsplitPaneTab point=\(windowDragHandleFormatPoint(point))"
+            )
+            #endif
+            return false
+        }
+    }
 
     // Suppression recovery runs first so stale depth is cleared even for
     // passive events — the associated-object reads/writes here are pure ObjC
@@ -783,6 +1164,16 @@ func windowDragHandleShouldCaptureHit(
         cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=outside point=\(windowDragHandleFormatPoint(point))")
         #endif
         return false
+    }
+
+    if let dragHandleWindow {
+        let locationInWindow = dragHandleView.convert(point, to: nil)
+        if isMinimalModeTitlebarControlHit(window: dragHandleWindow, locationInWindow: locationInWindow) {
+            #if DEBUG
+            cmuxDebugLog("titlebar.dragHandle.hitTest capture=false reason=minimalTitlebarControl point=\(windowDragHandleFormatPoint(point))")
+            #endif
+            return false
+        }
     }
 
     guard let superview = dragHandleView.superview else {
@@ -863,6 +1254,8 @@ func windowDragHandleShouldCaptureHit(
 /// This lets us keep `window.isMovableByWindowBackground = false` so drags in the app content
 /// (e.g. sidebar tab reordering) don't move the whole window.
 struct WindowDragHandleView: NSViewRepresentable {
+    static let viewIdentifier = NSUserInterfaceItemIdentifier("cmux.titlebarDragHandle")
+
     var doubleClickBehavior: TitlebarDoubleClickBehavior = .standardAction
 
     func makeNSView(context: Context) -> NSView {
@@ -879,11 +1272,13 @@ struct WindowDragHandleView: NSViewRepresentable {
         init(doubleClickBehavior: TitlebarDoubleClickBehavior) {
             self.doubleClickBehavior = doubleClickBehavior
             super.init(frame: .zero)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         required init?(coder: NSCoder) {
             self.doubleClickBehavior = .standardAction
             super.init(coder: coder)
+            identifier = WindowDragHandleView.viewIdentifier
         }
 
         override var mouseDownCanMoveWindow: Bool { false }
@@ -994,7 +1389,10 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 coordinator.lastClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: event.locationInWindow) else {
+            guard !minimalModeTitlebarDoubleClickShouldDefer(
+                window: window,
+                locationInWindow: event.locationInWindow
+            ) else {
                 coordinator.lastClick = nil
                 return event
             }
@@ -1021,6 +1419,9 @@ struct TitlebarDoubleClickMonitorView: NSViewRepresentable {
                 window: window,
                 behavior: coordinator.doubleClickBehavior
             )
+            #if DEBUG
+            cmuxDebugLog("titlebar.monitor.doubleClick result=\(String(describing: result))")
+            #endif
             return result.consumesEvent ? nil : event
         }
 
@@ -1279,14 +1680,17 @@ struct MinimalModeTitlebarEventSurfaceView: NSViewRepresentable {
                 lastTitlebarClick = nil
                 return event
             }
-            guard !isMinimalModeTitlebarControlHit(window: window, locationInWindow: locationInWindow) else {
+            guard !minimalModeTitlebarDoubleClickShouldDefer(
+                window: window,
+                locationInWindow: locationInWindow
+            ) else {
                 lastTitlebarClick = nil
                 return event
             }
 
             #if DEBUG
             if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
-                _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
+                _ = UITestCaptureSink().mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     let count = (payload["minimalTitlebarEventSurfaceMouseDownCount"] as? String).flatMap(Int.init) ?? 0
                     payload["minimalTitlebarEventSurfaceMouseDownCount"] = String(count + 1)
                     payload["minimalTitlebarEventSurfaceLastPoint"] = windowDragHandleFormatPoint(locationInWindow)

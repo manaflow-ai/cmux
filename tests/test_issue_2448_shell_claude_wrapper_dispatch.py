@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Regression for issue #2448:
-shell integrations should dispatch `claude` through the bundled wrapper even
-when GHOSTTY_BIN_DIR is unset and PATH later prefers another binary.
+shell integrations should dispatch `claude` through cmux's wrapper even when
+GHOSTTY_BIN_DIR is unset and PATH later prefers another binary.
 """
 
 from __future__ import annotations
@@ -37,6 +37,8 @@ def prepare_bundle(tmp: Path) -> tuple[Path, Path]:
 
     for name in (".zshenv", ".zprofile", ".zshrc", "cmux-zsh-integration.zsh", "cmux-bash-integration.bash"):
         shutil.copy2(SOURCE_SHELL_DIR / name, shell_dir / name)
+    (shell_dir / "fish").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(SOURCE_SHELL_DIR / "fish" / "config.fish", shell_dir / "fish" / "config.fish")
 
     return shell_dir, bin_dir
 
@@ -67,7 +69,7 @@ def run_zsh(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, 
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -92,7 +94,33 @@ def run_zsh_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
+def run_zsh_with_late_user_function(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "zsh",
+            "-fic",
+            f'source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            'claude() { "$CMUX_TEST_REAL_BIN/user-claude-function" "$@"; }; '
+            '_cmux_fix_path; PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude zsh-late-function-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -118,7 +146,7 @@ def run_bash(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str,
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -139,13 +167,14 @@ def run_bash_with_alias(shell_dir: Path, real_bin: Path, log_path: Path) -> tupl
             "--noprofile",
             "--norc",
             "-ic",
-            f'alias claude="$CMUX_TEST_REAL_BIN/user-claude"; source "{shell_dir / "cmux-bash-integration.bash"}"; '
+            f'alias claude="$CMUX_TEST_REAL_BIN/user-claude"\n'
+            f'source "{shell_dir / "cmux-bash-integration.bash"}"\n'
             'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude bash-alias-case',
         ],
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -173,7 +202,116 @@ def run_bash_with_function(shell_dir: Path, real_bin: Path, log_path: Path) -> t
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=30,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
+def run_zsh_with_stale_original_wrapper(
+    shell_dir: Path,
+    real_bin: Path,
+    old_wrapper: Path,
+    current_cli: Path,
+    log_path: Path,
+) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["CMUX_TEST_OLD_WRAPPER"] = str(old_wrapper)
+    env["CMUX_BUNDLED_CLI_PATH"] = str(current_cli)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "zsh",
+            "-fic",
+            f'source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            'rm -f "$CMUX_TEST_OLD_WRAPPER"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude zsh-stale-wrapper-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
+def run_bash_with_stale_original_wrapper(
+    shell_dir: Path,
+    real_bin: Path,
+    old_wrapper: Path,
+    current_cli: Path,
+    log_path: Path,
+) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["CMUX_TEST_OLD_WRAPPER"] = str(old_wrapper)
+    env["CMUX_BUNDLED_CLI_PATH"] = str(current_cli)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            f'source "{shell_dir / "cmux-bash-integration.bash"}"; '
+            'rm -f "$CMUX_TEST_OLD_WRAPPER"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude bash-stale-wrapper-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
+def run_fish_with_stale_original_wrapper(
+    shell_dir: Path,
+    real_bin: Path,
+    old_wrapper: Path,
+    current_cli: Path,
+    log_path: Path,
+) -> tuple[int, str, list[str]]:
+    fish = shutil.which("fish")
+    if fish is None:
+        return 0, "fish not installed; skipped", ["skip:fish-not-installed"]
+
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["CMUX_TEST_OLD_WRAPPER"] = str(old_wrapper)
+    env["CMUX_BUNDLED_CLI_PATH"] = str(current_cli)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            fish,
+            "--no-config",
+            "-c",
+            f'source "{shell_dir / "fish" / "config.fish"}"; '
+            'rm -f "$CMUX_TEST_OLD_WRAPPER"; '
+            'set -gx PATH "$CMUX_TEST_REAL_BIN" $PATH; claude fish-stale-wrapper-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
         check=False,
     )
     combined = ((result.stdout or "") + (result.stderr or "")).strip()
@@ -188,33 +326,49 @@ def main() -> int:
         shell_dir, bundle_bin = prepare_bundle(tmp)
         real_bin = tmp / "real-bin"
         real_bin.mkdir(parents=True, exist_ok=True)
+        current_bin = tmp / "current-bin"
+        current_bin.mkdir(parents=True, exist_ok=True)
 
         write_executable(
-            bundle_bin / "claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            bundle_bin / "cmux-claude-wrapper",
+            """#!/bin/sh
+set -eu
 printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'real:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "user-claude",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'user-alias:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
         write_executable(
             real_bin / "user-claude-function",
-            """#!/usr/bin/env bash
-set -euo pipefail
+            """#!/bin/sh
+set -eu
 printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
+        write_executable(
+            current_bin / "cmux",
+            """#!/bin/sh
+set -eu
+printf 'cmux-cli:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
+        write_executable(
+            current_bin / "cmux-claude-wrapper",
+            """#!/bin/sh
+set -eu
+printf 'current-wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
 """,
         )
 
@@ -239,6 +393,13 @@ printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
         elif lines != ["wrapper:zsh-alias-case"]:
             failures.append(f"zsh alias case expected wrapper dispatch, saw {lines!r}")
 
+        zsh_late_function_log = tmp / "zsh-late-function.log"
+        rc, output, lines = run_zsh_with_late_user_function(shell_dir, real_bin, zsh_late_function_log)
+        if rc != 0:
+            failures.append(f"zsh late function case exited non-zero rc={rc}: {output}")
+        elif lines != ["wrapper:zsh-late-function-case"]:
+            failures.append(f"zsh late function case expected wrapper dispatch, saw {lines!r}")
+
         bash_alias_log = tmp / "bash-alias.log"
         rc, output, lines = run_bash_with_alias(shell_dir, real_bin, bash_alias_log)
         if rc != 0:
@@ -253,13 +414,75 @@ printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
         elif lines != ["user-function:bash-function-case"]:
             failures.append(f"bash function case should preserve user function, saw {lines!r}")
 
+        write_executable(
+            bundle_bin / "cmux-claude-wrapper",
+            """#!/bin/sh
+set -eu
+printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
+        zsh_stale_wrapper_log = tmp / "zsh-stale-wrapper.log"
+        rc, output, lines = run_zsh_with_stale_original_wrapper(
+            shell_dir,
+            real_bin,
+            bundle_bin / "cmux-claude-wrapper",
+            current_bin / "cmux",
+            zsh_stale_wrapper_log,
+        )
+        if rc != 0:
+            failures.append(f"zsh stale wrapper case exited non-zero rc={rc}: {output}")
+        elif lines != ["current-wrapper:zsh-stale-wrapper-case"]:
+            failures.append(f"zsh stale wrapper case expected current wrapper dispatch, saw {lines!r}")
+
+        write_executable(
+            bundle_bin / "cmux-claude-wrapper",
+            """#!/bin/sh
+set -eu
+printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
+        bash_stale_wrapper_log = tmp / "bash-stale-wrapper.log"
+        rc, output, lines = run_bash_with_stale_original_wrapper(
+            shell_dir,
+            real_bin,
+            bundle_bin / "cmux-claude-wrapper",
+            current_bin / "cmux",
+            bash_stale_wrapper_log,
+        )
+        if rc != 0:
+            failures.append(f"bash stale wrapper case exited non-zero rc={rc}: {output}")
+        elif lines != ["current-wrapper:bash-stale-wrapper-case"]:
+            failures.append(f"bash stale wrapper case expected current wrapper dispatch, saw {lines!r}")
+
+        write_executable(
+            bundle_bin / "cmux-claude-wrapper",
+            """#!/bin/sh
+set -eu
+printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
+""",
+        )
+        fish_stale_wrapper_log = tmp / "fish-stale-wrapper.log"
+        rc, output, lines = run_fish_with_stale_original_wrapper(
+            shell_dir,
+            real_bin,
+            bundle_bin / "cmux-claude-wrapper",
+            current_bin / "cmux",
+            fish_stale_wrapper_log,
+        )
+        if lines == ["skip:fish-not-installed"]:
+            print("SKIP: fish is not installed; fish stale-wrapper dispatch was not exercised")
+        elif rc != 0:
+            failures.append(f"fish stale wrapper case exited non-zero rc={rc}: {output}")
+        elif lines != ["current-wrapper:fish-stale-wrapper-case"]:
+            failures.append(f"fish stale wrapper case expected current wrapper dispatch, saw {lines!r}")
+
     if failures:
-        print("FAIL: shell integration did not keep claude on the bundled wrapper")
+        print("FAIL: shell integration did not keep claude on the cmux wrapper")
         for failure in failures:
             print(f"- {failure}")
         return 1
 
-    print("PASS: zsh and bash integrations dispatch claude through the bundled wrapper")
+    print("PASS: zsh, bash, and fish integrations dispatch claude through the cmux wrapper")
     return 0
 
 

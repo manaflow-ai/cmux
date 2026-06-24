@@ -1,4 +1,5 @@
 import AppKit
+import CmuxTerminal
 
 final class GhosttyPassthroughVisualEffectView: NSVisualEffectView {
     override var acceptsFirstResponder: Bool { false }
@@ -42,5 +43,9 @@ extension TerminalSurface {
     func debugInitialInputMetadata() -> (hasInitialInput: Bool, byteCount: Int) {
         let byteCount = initialInput?.utf8.count ?? 0
         return (byteCount > 0, byteCount)
+    }
+
+    func debugInitialInputForTesting() -> String? {
+        initialInput
     }
 }

@@ -14,6 +14,7 @@ IGNORED_PATH_PARTS = (
     "/vendor/",
     "/ghostty/",
     "/homebrew-cmux/",
+    "/.build/",
     "/SourcePackages/",
     "/.ci-source-packages/",
 )

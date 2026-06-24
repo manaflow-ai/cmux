@@ -1,6 +1,9 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../../components/code-block";
+import { DocsHeading } from "../../../components/docs-heading";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -8,6 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/docs/agent-integrations/oh-my-claudecode"),
   };
 }
 
@@ -16,17 +20,18 @@ export default function OhMyClaudeCodePage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsSchema namespace="docs.ohMyClaudeCode" path="/docs/agent-integrations/oh-my-claudecode" />
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
 
       <p>{t("intro")}</p>
 
-      <h2>{t("usage")}</h2>
+      <DocsHeading level={2} id="usage">{t("usage")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux omc
 cmux omc team 3:claude "implement feature"
 cmux omc --watch`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
-      <h2>{t("whatYouGet")}</h2>
+      <DocsHeading level={2} id="what-you-get">{t("whatYouGet")}</DocsHeading>
       <p>{t("whatYouGetDesc")}</p>
       <ul>
         <li>{t("whatYouGet1")}</li>
@@ -35,11 +40,11 @@ cmux omc --watch`}</CodeBlock>
         <li>{t("whatYouGet4")}</li>
       </ul>
 
-      <h2>{t("prerequisites")}</h2>
+      <DocsHeading level={2} id="prerequisites">{t("prerequisites")}</DocsHeading>
       <CodeBlock lang="bash">{`npm install -g oh-my-claude-sisyphus`}</CodeBlock>
       <p>{t("prerequisitesDesc")}</p>
 
-      <h2>{t("howItWorks")}</h2>
+      <DocsHeading level={2} id="how-it-works">{t("howItWorks")}</DocsHeading>
       <p>{t("howItWorksDesc")}</p>
       <ul>
         <li>{t("shimStep1")}</li>
@@ -49,7 +54,7 @@ cmux omc --watch`}</CodeBlock>
         <li>{t("shimStep5")}</li>
       </ul>
 
-      <h2>{t("directories")}</h2>
+      <DocsHeading level={2} id="directories">{t("directories")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -63,7 +68,7 @@ cmux omc --watch`}</CodeBlock>
         </tbody>
       </table>
 
-      <h2>{t("envVars")}</h2>
+      <DocsHeading level={2} id="env-vars">{t("envVars")}</DocsHeading>
       <table>
         <thead>
           <tr>
