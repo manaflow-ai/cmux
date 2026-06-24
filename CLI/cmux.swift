@@ -10524,13 +10524,18 @@ struct CMUXCLI {
         var printedRetryNotice = false
         let isReconnectAttach = ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
         let retryLimit = Self.defaultFreestyleAttachRetryLimit()
+        let retryDelaySeconds = Self.defaultFreestyleAttachRetryDelaySeconds()
         while true {
             do {
-                return try client.sendV2(
+                let response = try client.sendV2(
                     method: "vm.ssh_info",
                     params: ["id": vmID],
                     responseTimeout: Self.vmAttachResponseTimeoutSeconds
                 )
+                if !isReconnectAttach, printedRetryNotice {
+                    Self.writeStderr(Self.clearTerminalLinePrefix)
+                }
+                return response
             } catch {
                 if usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) {
                     throw CLIError(message: """
@@ -10546,17 +10551,30 @@ struct CMUXCLI {
                 guard usesDefaultFreestyleSSHD,
                       Self.isRetryableCloudVMServiceError(error),
                       attempt < retryLimit else {
+                    if !isReconnectAttach, printedRetryNotice {
+                        Self.writeStderrLine("")
+                    }
                     throw error
                 }
-                if !isReconnectAttach, !printedRetryNotice {
-                    Self.writeStderrLine("[cmux] Cloud VM service is temporarily unavailable; retrying...")
+                let retryAttempt = attempt + 1
+                if !isReconnectAttach {
+                    Self.writeStderr(
+                        Self.clearTerminalLinePrefix + Self.defaultFreestyleAttachRetryNotice(
+                            error: error,
+                            attempt: retryAttempt,
+                            retryLimit: retryLimit,
+                            retryDelaySeconds: retryDelaySeconds
+                        )
+                    )
                     printedRetryNotice = true
                 }
                 cliDebugLog(
-                    "cli.vm.ssh_info.retry vm=\(String(vmID.prefix(8))) attempt=\(attempt + 1) error=\(String(describing: error))"
+                    "cli.vm.ssh_info.retry vm=\(String(vmID.prefix(8))) attempt=\(retryAttempt) retry_in_seconds=\(retryDelaySeconds) error=\(String(describing: error))"
                 )
                 attempt += 1
-                usleep(2_000_000)
+                if retryDelaySeconds > 0 {
+                    usleep(useconds_t(retryDelaySeconds * 1_000_000))
+                }
             }
         }
     }
@@ -10569,6 +10587,76 @@ struct CMUXCLI {
         return parsed
     }
 
+    private static func defaultFreestyleAttachRetryDelaySeconds() -> Double {
+        let raw = ProcessInfo.processInfo.environment["CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS"] ?? ""
+        guard let parsed = Double(raw), parsed >= 0 else {
+            return 2
+        }
+        return parsed
+    }
+
+    private static let clearTerminalLinePrefix = "\r\u{001B}[2K"
+
+    private static func defaultFreestyleAttachRetryNotice(
+        error: Error,
+        attempt: Int,
+        retryLimit: Int,
+        retryDelaySeconds: Double
+    ) -> String {
+        let retryText = String(
+            localized: "cli.vm.sshInfo.retry.status",
+            defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (attempt \(attempt)/\(retryLimit))."
+        )
+        let errorText = String(describing: error)
+        if Self.isLocalCloudVMServiceUnreachable(errorText),
+           let url = Self.firstHTTPURL(in: errorText) {
+            let reason = String(
+                localized: "cli.vm.sshInfo.retry.localServerOffline",
+                defaultValue: "Local cmux web server is offline"
+            )
+            return "[cmux] \(reason) at \(url). \(retryText)"
+        }
+        let reason = String(
+            localized: "cli.vm.sshInfo.retry.cloudServiceUnavailable",
+            defaultValue: "Cloud VM service is unavailable"
+        )
+        return "[cmux] \(reason). \(retryText)"
+    }
+
+    private static func retryDelayLabel(_ seconds: Double) -> String {
+        if seconds <= 0 {
+            return String(localized: "cli.vm.sshInfo.retry.now", defaultValue: "now")
+        }
+        if seconds.rounded(.towardZero) == seconds {
+            return "\(Int(seconds))s"
+        }
+        return String(format: "%.1fs", seconds)
+    }
+
+    private static func isLocalCloudVMServiceUnreachable(_ message: String) -> Bool {
+        let lowercased = message.lowercased()
+        let mentionsLocalURL = lowercased.contains("http://localhost:") ||
+            lowercased.contains("http://127.0.0.1:") ||
+            lowercased.contains("http://[::1]:")
+        let mentionsConnectionFailure = lowercased.contains("cannot reach") ||
+            lowercased.contains("could not connect") ||
+            lowercased.contains("connection refused") ||
+            lowercased.contains("failed to connect")
+        return mentionsLocalURL && mentionsConnectionFailure
+    }
+
+    private static func firstHTTPURL(in text: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: #"https?://[^\s)\]]+"#) else {
+            return nil
+        }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: range),
+              let matchRange = Range(match.range, in: text) else {
+            return nil
+        }
+        return String(text[matchRange]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:"))
+    }
+
     private static func isRetryableCloudVMServiceError(_ error: Error) -> Bool {
         let message = String(describing: error).lowercased()
         return message.contains("http 502") ||
@@ -10576,7 +10664,14 @@ struct CMUXCLI {
             message.contains("service unavailable") ||
             message.contains("temporarily unavailable") ||
             message.contains("vm_cloud_state_unavailable") ||
+            message.contains("cannot reach the cmux cloud vm service") ||
+            message.contains("connection refused") ||
+            message.contains("failed to connect") ||
             message.contains("could not connect to the server")
+    }
+
+    private static func writeStderr(_ text: String) {
+        FileHandle.standardError.write(Data(text.utf8))
     }
 
     private static func writeStderrLine(_ text: String) {
