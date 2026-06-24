@@ -156,13 +156,22 @@ enum SessionRestorePolicy {
 
     static func shouldAttemptRestore(
         arguments: [String] = CommandLine.arguments,
-        environment: [String: String] = ProcessInfo.processInfo.environment
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        restoreIntended: Bool = false
     ) -> Bool {
         if environment["CMUX_DISABLE_SESSION_RESTORE"] == "1" {
             return false
         }
         if isRunningUnderAutomatedTests(environment: environment) {
             return false
+        }
+
+        // An intentional relaunch (Sparkle update / Rosetta native relaunch) must
+        // restore the prior session even if the relaunch carries explicit launch
+        // arguments — that is the "Update & reload all windows" guarantee. The
+        // disable flag and automated-test guards above still win.
+        if restoreIntended {
+            return true
         }
 
         let extraArgs = arguments

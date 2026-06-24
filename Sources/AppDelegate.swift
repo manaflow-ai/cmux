@@ -3195,7 +3195,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Self.removeLegacyPersistedWindowGeometry()
         syncManualRestoreSnapshotCachePruningCrashDiagnostics()
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics()
-        guard SessionRestorePolicy.shouldAttemptRestore() else { return }
+        // An intentional relaunch (Sparkle update) forces restore so windows are
+        // never lost even if the relaunch passed launch arguments.
+        guard SessionRestorePolicy.shouldAttemptRestore(
+            restoreIntended: CrashRecoveryLaunchState.shared.restoreWasIntended
+        ) else { return }
         startupSessionSnapshot = sanitizedStartupSnapshot
     }
 

@@ -369,6 +369,7 @@
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
 		54D4198D349A949AF50E793B /* CrashRecoveryLaunchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A948C14DA51FAAF0E6596A /* CrashRecoveryLaunchState.swift */; };
 		DDF34D69196B3BC3753035E6 /* CrashRecoveryLaunchStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */; };
+		1922550CDCDD51785B293C38 /* CrashRecoveryRestoreGateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF766168629F255820CA09D6 /* CrashRecoveryRestoreGateTests.swift */; };
 		401CA4D5371A9ACA3079CDBE /* CrashRecoverySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1872ACD1B808CE02613B82 /* CrashRecoverySettings.swift */; };
 		8AEF933F4B391A4A21B130F6 /* CrashRecoverySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
@@ -1464,6 +1465,7 @@
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
 		96A948C14DA51FAAF0E6596A /* CrashRecoveryLaunchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryLaunchState.swift; path = "Sources/CrashRecovery/CrashRecoveryLaunchState.swift"; sourceTree = SOURCE_ROOT; };
 		C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryLaunchStateTests.swift; path = "cmuxTests/CrashRecoveryLaunchStateTests.swift"; sourceTree = SOURCE_ROOT; };
+		EF766168629F255820CA09D6 /* CrashRecoveryRestoreGateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryRestoreGateTests.swift; path = "cmuxTests/CrashRecoveryRestoreGateTests.swift"; sourceTree = SOURCE_ROOT; };
 		5D1872ACD1B808CE02613B82 /* CrashRecoverySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoverySettings.swift; path = "Sources/CrashRecovery/CrashRecoverySettings.swift"; sourceTree = SOURCE_ROOT; };
 		2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoverySettingsTests.swift; path = "cmuxTests/CrashRecoverySettingsTests.swift"; sourceTree = SOURCE_ROOT; };
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
@@ -3073,6 +3075,7 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				EF766168629F255820CA09D6 /* CrashRecoveryRestoreGateTests.swift */,
 				C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */,
 				02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */,
 				F7E2BA4F69E754EDCCF3D69F /* WorkspaceResumePlannerTests.swift */,
@@ -4614,6 +4617,7 @@
 				C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
 				DDF34D69196B3BC3753035E6 /* CrashRecoveryLaunchStateTests.swift in Sources */,
+				1922550CDCDD51785B293C38 /* CrashRecoveryRestoreGateTests.swift in Sources */,
 				8AEF933F4B391A4A21B130F6 /* CrashRecoverySettingsTests.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
