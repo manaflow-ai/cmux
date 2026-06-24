@@ -46,8 +46,10 @@ import Testing
     @Test func allowsStackAuthOnlyForEncryptedOrLoopbackRoutes() throws {
         let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
-        let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
-        let localDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
+        let mislabeledLANIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+        let mislabeledLocalDNS = try hostPortRoute(kind: .tailscale, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
+        let trustedVPNIP = try hostPortRoute(kind: .trustedNetwork, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
+        let trustedVPNDNS = try hostPortRoute(kind: .trustedNetwork, host: "devbox.local", port: CmxMobileDefaults.defaultHostPort)
         let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
         let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
         let irohPeer = try CmxAttachRoute(
@@ -58,7 +60,9 @@ import Testing
         )
 
         #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.0.0.1") == .debugLoopback)
-        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "100.71.210.41") == .tailscale)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .trustedNetwork)
+        #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "192.168.1.77") == .trustedNetwork)
 
         // Encrypted / loopback channels may carry the Stack bearer token.
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
@@ -66,11 +70,18 @@ import Testing
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
         #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(irohPeer))
 
-        // Plaintext-TCP routes must NOT carry the Stack bearer token: a `.tailscale`
-        // route to a private-LAN IP or a `.local`/Bonjour host is dialed over
-        // unencrypted TCP, so it is excluded from the Stack-auth-allowed set.
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
-        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(localDNS))
+        // User-entered VPN/LAN routes never carry the Stack bearer token over
+        // plaintext TCP. They require a Mac-minted attach token instead.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNIP, trustedNetworkConfirmed: true))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(trustedVPNDNS, trustedNetworkConfirmed: true))
+
+        // Auto-discovered Tailscale routes must still prove they are actually
+        // Tailscale. Plain LAN/VPN addresses are not trusted just because a
+        // payload labels them as `.tailscale`.
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(mislabeledLANIP))
+        #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(mislabeledLocalDNS))
         #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
 
         #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))

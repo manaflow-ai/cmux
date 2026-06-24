@@ -6,10 +6,9 @@ import SwiftUI
 
 /// The macOS onboarding window for pairing an iPhone with this Mac.
 ///
-/// Walks the user through the two requirements (signed in to cmux, Tailscale
-/// reachable) and then shows a scannable QR code with step-by-step
-/// instructions. Pairing is gated on sign-in because authorization is a Stack
-/// same-account check; Tailscale is what gives the iPhone a route to this Mac.
+/// Walks the user through sign-in and network reachability, then shows either a
+/// scannable QR code or manual host/port instructions. The user can bring
+/// Tailscale, another VPN, or a trusted LAN route.
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     /// The manual-entry value that was just copied (the host or the port
@@ -24,7 +23,6 @@ struct MobilePairingView: View {
     private let coordinator: AuthCoordinator? = AppDelegate.shared?.auth?.coordinator
     private let browserSignIn: HostBrowserSignInFlow? = AppDelegate.shared?.auth?.browserSignIn
 
-    private static let tailscaleDownloadURL = URL(string: "https://tailscale.com/download")!
     /// Where a Mac user goes to get cmux for iPhone while the beta is invite-only.
     private static let iphoneAppURL = URL(string: "https://github.com/manaflow-ai/cmux#founders-edition")!
 
@@ -55,7 +53,7 @@ struct MobilePairingView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(String(localized: "mobile.pairing.window.heading", defaultValue: "Pair your iPhone"))
                 .cmuxFont(.title2, weight: .semibold)
-            Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code with the cmux app on your iPhone to sync your terminal workspaces."))
+            Text(String(localized: "mobile.pairing.window.subheading", defaultValue: "Scan this code, or enter your Mac's VPN/LAN host and port in the cmux app on your iPhone."))
                 .cmuxFont(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -67,7 +65,7 @@ struct MobilePairingView: View {
     private var requirements: some View {
         VStack(alignment: .leading, spacing: 12) {
             signInRow
-            tailscaleRow
+            networkRow
         }
     }
 
@@ -81,40 +79,32 @@ struct MobilePairingView: View {
         }
     }
 
-    private var tailscaleRow: some View {
-        let reachable = tailscaleReachable
+    private var networkRow: some View {
+        let status = networkStatus
         return requirementRow(
-            title: String(localized: "mobile.pairing.req.tailscale.title", defaultValue: "Tailscale"),
-            subtitle: tailscaleSubtitle(reachable: reachable)
+            title: String(localized: "mobile.pairing.req.network.title", defaultValue: "Network route"),
+            subtitle: networkSubtitle(status: status)
         ) {
-            if reachable != true {
-                Link(
-                    String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
-                    destination: Self.tailscaleDownloadURL
-                )
-                .cmuxFont(.callout)
-            }
+            EmptyView()
         }
     }
 
-    /// `true` reachable, `false` not detected, `nil` not yet known.
-    private var tailscaleReachable: Bool? {
+    private var networkStatus: MobilePairingNetworkStatus? {
         switch model.state {
-        case let .ready(ready): return ready.reachableViaTailscale
-        case let .connected(ready): return ready.reachableViaTailscale
-        case .needsTailscale: return false
+        case .ready, .connected: return .automatic
+        case .manualOnly, .connectedManual: return .manual
         default: return nil
         }
     }
 
-    private func tailscaleSubtitle(reachable: Bool?) -> String {
-        switch reachable {
-        case .some(true):
-            return String(localized: "mobile.pairing.req.tailscale.reachable", defaultValue: "Reachable over Tailscale.")
-        case .some(false):
-            return String(localized: "mobile.pairing.req.tailscale.missing", defaultValue: "Not detected. Install Tailscale on this Mac and your iPhone, signed in to the same account.")
+    private func networkSubtitle(status: MobilePairingNetworkStatus?) -> String {
+        switch status {
+        case .some(.automatic):
+            return String(localized: "mobile.pairing.req.network.automatic", defaultValue: "QR ready over Tailscale. Manual VPN/LAN host entry also works.")
+        case .some(.manual):
+            return String(localized: "mobile.pairing.req.network.manual", defaultValue: "No QR route detected. Enter your own VPN/LAN host and the port below.")
         case .none:
-            return String(localized: "mobile.pairing.req.tailscale.hint", defaultValue: "Your Mac and iPhone both need Tailscale to connect over the internet.")
+            return String(localized: "mobile.pairing.req.network.hint", defaultValue: "Use Tailscale, your own VPN, or a trusted LAN so the iPhone can reach this Mac.")
         }
     }
 
@@ -151,31 +141,52 @@ struct MobilePairingView: View {
                 Text(String(localized: "mobile.pairing.preparing", defaultValue: "Preparing a pairing code…"))
                     .foregroundStyle(.secondary)
             }
-        case .needsTailscale:
-            needsTailscaleContent
+        case let .manualOnly(manual):
+            manualOnlyContent(manual)
         case let .failed(message):
             failure(message: message)
         case let .ready(ready):
             readyContent(ready)
         case let .connected(ready):
             connectedContent(ready)
+        case let .connectedManual(manual):
+            connectedManualContent(manual)
         }
     }
 
-    private var needsTailscaleContent: some View {
+    private func manualOnlyContent(_ manual: MobilePairingManualOnly) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "network.slash")
                 .cmuxFont(size: 28)
                 .foregroundStyle(.orange)
-            Text(String(localized: "mobile.pairing.needsTailscale.body", defaultValue: "This Mac has no Tailscale address, so your iPhone can't reach it. Install Tailscale on this Mac and your iPhone (same account), then refresh."))
+            Text(String(localized: "mobile.pairing.manualOnly.body", defaultValue: "No QR route was detected. You can still pair over your own VPN or LAN: on your iPhone, tap Add device and enter this Mac's VPN/LAN hostname or IP address with the port and pairing key below."))
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Link(
-                String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
-                destination: Self.tailscaleDownloadURL
+            Text(
+                String(
+                    format: String(localized: "mobile.pairing.manualOnly.portFormat", defaultValue: "Port: %d"),
+                    manual.port
+                )
             )
-            .buttonStyle(.borderedProminent)
+            .font(.system(.body, design: .monospaced))
+            .textSelection(.enabled)
+            copyButton(
+                label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"),
+                value: String(manual.port)
+            )
+            Text(
+                String(
+                    format: String(localized: "mobile.pairing.manualOnly.keyFormat", defaultValue: "Pairing key: %@"),
+                    manual.trustedNetworkPairingSecret
+                )
+            )
+            .font(.system(.body, design: .monospaced))
+            .textSelection(.enabled)
+            copyButton(
+                label: String(localized: "mobile.pairing.manual.copyKey", defaultValue: "Copy Pairing Key"),
+                value: manual.trustedNetworkPairingSecret
+            )
             Button(String(localized: "mobile.pairing.refresh", defaultValue: "Refresh Code")) {
                 Task { await model.refresh() }
             }
@@ -274,7 +285,7 @@ struct MobilePairingView: View {
     }
 
     @ViewBuilder
-    private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+    private func readyContent(_ ready: MobilePairingReady) -> some View {
         // Manual entry sits above the QR so Copy IP / Copy Port are reachable
         // without scrolling (they used to sit below the steps, below the fold).
         if ready.reachableViaTailscale {
@@ -317,7 +328,15 @@ struct MobilePairingView: View {
     }
 
     @ViewBuilder
-    private func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
+    private func connectedContent(_: MobilePairingReady) -> some View {
+        connectedContent()
+    }
+
+    private func connectedManualContent(_: MobilePairingManualOnly) -> some View {
+        connectedContent()
+    }
+
+    private func connectedContent() -> some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .cmuxFont(size: 36)
@@ -368,7 +387,7 @@ struct MobilePairingView: View {
     }
 
     @ViewBuilder
-    private func manualFallback(_ ready: MobilePairingModel.Ready) -> some View {
+    private func manualFallback(_ ready: MobilePairingReady) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
                 .cmuxFont(.caption, weight: .semibold)
@@ -392,6 +411,20 @@ struct MobilePairingView: View {
                 }
                 .padding(.top, 2)
             }
+            Text(
+                String(
+                    format: String(localized: "mobile.pairing.manualOnly.keyFormat", defaultValue: "Pairing key: %@"),
+                    ready.trustedNetworkPairingSecret
+                )
+            )
+            .cmuxFont(.caption, design: .monospaced)
+            .textSelection(.enabled)
+            .foregroundStyle(.secondary)
+            copyButton(
+                label: String(localized: "mobile.pairing.manual.copyKey", defaultValue: "Copy Pairing Key"),
+                value: ready.trustedNetworkPairingSecret
+            )
+            .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)

@@ -14,6 +14,42 @@ import Testing
 /// doubles.
 @MainActor
 @Suite struct MobileShellCompositePreviewTests {
+    @Test func syntheticManualTicketsNeedHostIdentityAdoption() throws {
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let anonymousTicket = try CmxAttachTicket(
+            workspaceID: "manual-workspace",
+            terminalID: nil,
+            macDeviceID: "",
+            macDisplayName: "Manual Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        let syntheticManualTicket = try CmxAttachTicket(
+            workspaceID: "manual-workspace",
+            terminalID: nil,
+            macDeviceID: "manual-10.0.0.5:58465",
+            macDisplayName: "Manual Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+        let realTicket = try CmxAttachTicket(
+            workspaceID: "manual-workspace",
+            terminalID: nil,
+            macDeviceID: "mac-real-id",
+            macDisplayName: "Manual Mac",
+            routes: [route],
+            expiresAt: Date().addingTimeInterval(3600)
+        )
+
+        #expect(MobileShellComposite.ticketNeedsHostIdentityAdoption(anonymousTicket))
+        #expect(MobileShellComposite.ticketNeedsHostIdentityAdoption(syntheticManualTicket))
+        #expect(!MobileShellComposite.ticketNeedsHostIdentityAdoption(realTicket))
+    }
+
     @Test func startsAtSignInWithoutConnection() {
         let store = MobileShellComposite.preview()
 

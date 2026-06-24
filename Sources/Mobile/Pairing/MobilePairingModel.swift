@@ -5,10 +5,10 @@ import Foundation
 import Observation
 
 /// Drives the in-app iOS pairing window. Gates pairing on the Mac being signed
-/// in (authorization is a Stack same-account check), then turns on the
-/// pairing host, mints an attach ticket, and exposes the QR payload plus
-/// Tailscale reachability for the view. The displayed code never expires and
-/// is never regenerated on a timer; Refresh Code re-mints on demand.
+/// in, then turns on the pairing host, opens a short manual ticket-mint window,
+/// mints an attach ticket when an automatic route exists, and exposes either a
+/// QR payload or manual host/port guidance. The displayed manual key is rotated
+/// before expiry while the window is waiting; Refresh Code re-mints on demand.
 ///
 /// Reads auth state from the app's shared ``CmuxAuthRuntime/AuthCoordinator``
 /// (via `AppDelegate`); the browser sign-in is fire-and-forget and completion
@@ -25,36 +25,23 @@ final class MobilePairingModel {
         /// Signed in; bringing the listener up and minting the first ticket.
         case preparing
         /// A ticket is ready to display.
-        case ready(Ready)
+        case ready(MobilePairingReady)
         /// A phone has attached to the listener; show a paired/success state
         /// instead of the QR + spinner.
-        case connected(Ready)
-        /// The listener is up but there is no route a phone can reach (no
-        /// Tailscale address on this Mac), so no ticket can be minted yet.
-        case needsTailscale
+        case connected(MobilePairingReady)
+        /// The listener is up but there is no automatic route for a QR code, so
+        /// the user can enter their own VPN/LAN host with the displayed port.
+        case manualOnly(MobilePairingManualOnly)
+        /// A phone has attached through the manual host/port path.
+        case connectedManual(MobilePairingManualOnly)
         /// The listener could not be started or no ticket could be minted.
         case failed(String)
     }
 
-    /// A minted ticket ready for display.
-    struct Ready: Equatable {
-        /// The `cmux-ios://attach?...` URL encoded into the QR code.
-        let attachURL: String
-        /// The Mac's display name, shown above the code.
-        let macName: String
-        /// Reachable Tailscale `host:port` routes. Empty when Tailscale is not
-        /// detected, in which case a real iPhone cannot reach this Mac.
-        let tailscaleLines: [String]
-        /// The best route for manual phone entry, behind the "Copy IP" and
-        /// "Copy Port" buttons. `nil` when no phone-dialable route exists.
-        let manualEntry: CmxManualPairingEntry?
-
-        /// Whether at least one Tailscale route resolved.
-        var reachableViaTailscale: Bool { !tailscaleLines.isEmpty }
-    }
-
     /// The current render state, observed by ``MobilePairingView``.
-    private(set) var state: State = .loading
+    private(set) var state: State = .loading {
+        didSet { scheduleManualPairingSecretRefreshIfNeeded() }
+    }
     /// The signed-in account email, shown in the checklist. `nil` when signed out.
     private(set) var signedInEmail: String?
 
@@ -63,6 +50,9 @@ final class MobilePairingModel {
     /// Observes the host's connection status while a code is shown, flipping the
     /// render state between `.ready` and `.connected`. Cancelled on each refresh.
     private var connectionObservationTask: Task<Void, Never>?
+    /// Rotates the displayed manual pairing key before its host-side mint grant
+    /// expires, so the UI never shows a stale key while waiting for a phone.
+    private var manualPairingSecretRefreshTimer: Timer?
     /// Bumped on each ``refresh()`` so a slower in-flight run (the UI fires
     /// refresh from several places) can't overwrite a newer result with a stale
     /// ticket. Each run captures its value and bails after an `await` if superseded.
@@ -76,9 +66,8 @@ final class MobilePairingModel {
     ///     default argument, since default args are evaluated nonisolated and
     ///     `MobileHostService.shared` is main-actor isolated.)
     ///   - ticketTTL: Lifetime of the minted attach token in seconds. Defaults
-    ///     to 600. Covers only the RPC/v1 fallback token the mint produces as a
-    ///     side effect; the displayed v2 pairing QR carries no token and never
-    ///     expires.
+    ///     to 600. Also controls how often the displayed manual pairing key is
+    ///     rotated while waiting.
     init(host: MobileHostService? = nil, ticketTTL: TimeInterval = 600) {
         self.host = host ?? .shared
         self.ticketTTL = ticketTTL
@@ -92,6 +81,7 @@ final class MobilePairingModel {
     func refresh() async {
         refreshGeneration &+= 1
         let generation = refreshGeneration
+        host.revokeManualPairingTicketMint()
         state = .loading
         guard let coordinator else {
             state = .failed(
@@ -106,6 +96,7 @@ final class MobilePairingModel {
         guard generation == refreshGeneration else { return }
         guard coordinator.isAuthenticated else {
             signedInEmail = nil
+            host.revokeManualPairingTicketMint()
             state = .signedOut
             return
         }
@@ -124,13 +115,27 @@ final class MobilePairingModel {
             )
             return
         }
-        // No route a phone can reach: a real iPhone needs a Tailscale address
-        // on this Mac. A DEBUG build's dev loopback route does not count — a
-        // QR pointing at 127.0.0.1 would make the phone dial itself, so the
-        // window shows the set-up-Tailscale guidance instead of a weak code.
-        // (Simulator/dev pairing uses the injected attach URL path, not the QR.)
+        let trustedNetworkPairingSecret = host.enableManualPairingTicketMint(ttl: ticketTTL)
+        let manualOnly = Self.manualOnlyDetails(
+            from: status,
+            trustedNetworkPairingSecret: trustedNetworkPairingSecret
+        )
+        // A DEBUG build's dev loopback route does not count as QR reachability:
+        // a QR pointing at 127.0.0.1 would make a physical phone dial itself.
+        // Without an automatic route, keep the listener up and show manual
+        // VPN/LAN host guidance instead of blocking on Tailscale.
         guard status.routes.contains(where: Self.isPhoneReachableRoute) else {
-            state = .needsTailscale
+            if let manualOnly {
+                state = .manualOnly(manualOnly)
+                observeConnections()
+            } else {
+                state = .failed(
+                    String(
+                        localized: "mobile.pairing.error.listenerOffline",
+                        defaultValue: "Could not start the pairing listener on this Mac."
+                    )
+                )
+            }
             return
         }
         do {
@@ -149,25 +154,46 @@ final class MobilePairingModel {
                 )
                 return
             }
-            // Only the minimal v2 grammar (Tailscale routes only, no loopback,
+            // Only the minimal v2 grammar (automatic routes only, no loopback,
             // no token) may ever be displayed as a scannable code. If the mint
-            // raced a Tailscale route loss and fell back to the v1 payload,
-            // show the Tailscale guidance rather than a weak QR.
+            // raced an automatic route loss and fell back to the v1 payload,
+            // show manual host/port guidance rather than a weak QR.
             guard CmxPairingQRCode().isPairingCodeURLString(attachURL) else {
-                state = .needsTailscale
+                if let manualOnly {
+                    state = .manualOnly(manualOnly)
+                    observeConnections()
+                } else {
+                    state = .failed(
+                        String(
+                            localized: "mobile.pairing.error.noTicket",
+                            defaultValue: "Could not generate a pairing code. Try again."
+                        )
+                    )
+                }
                 return
             }
             state = .ready(
-                Ready(
+                MobilePairingReady(
                     attachURL: attachURL,
                     macName: Self.macDisplayName,
                     tailscaleLines: Self.tailscaleLines(status.routes),
-                    manualEntry: CmxManualPairingEntry.best(in: status.routes)
+                    manualEntry: CmxManualPairingEntry.best(in: status.routes),
+                    trustedNetworkPairingSecret: trustedNetworkPairingSecret
                 )
             )
             observeConnections()
         } catch MobileAttachTicketStoreError.noRoutes, MobileAttachTicketStoreError.routeUnavailable {
-            state = .needsTailscale
+            if let manualOnly {
+                state = .manualOnly(manualOnly)
+                observeConnections()
+            } else {
+                state = .failed(
+                    String(
+                        localized: "mobile.pairing.error.noTicket",
+                        defaultValue: "Could not generate a pairing code. Try again."
+                    )
+                )
+            }
         } catch {
             state = .failed(
                 String(
@@ -187,13 +213,12 @@ final class MobilePairingModel {
 
     /// Cancels the connection observation. Call when the window closes.
     ///
-    /// There is deliberately no timer to cancel: the displayed code never
-    /// expires and is never regenerated behind the user's back. If a
-    /// Tailscale address changes while the window sits open (rare), the
-    /// Refresh Code button re-mints on demand.
     func stopObserving() {
         connectionObservationTask?.cancel()
         connectionObservationTask = nil
+        manualPairingSecretRefreshTimer?.invalidate()
+        manualPairingSecretRefreshTimer = nil
+        host.revokeManualPairingTicketMint()
     }
 
     /// Watches the mobile host's connection status while a code is displayed and
@@ -216,11 +241,16 @@ final class MobilePairingModel {
             for await status in self.host.statusUpdates() {
                 if Task.isCancelled { return }
                 guard generation == self.refreshGeneration else { return }
-                self.state = Self.connectionTransition(
-                    from: self.state,
+                let current = self.state
+                let next = Self.connectionTransition(
+                    from: current,
                     activeConnectionCount: status.activeConnectionCount,
-                    baselineConnectionCount: baseline
+                    baselineConnectionCount: baseline,
+                    revokeManualGrant: { self.host.revokeManualPairingTicketMint() },
+                    refreshReady: { self.refreshTrustedNetworkPairingSecret(for: $0) },
+                    refreshManualOnly: { self.refreshTrustedNetworkPairingSecret(for: $0) }
                 )
+                self.state = next
             }
         }
     }
@@ -235,16 +265,74 @@ final class MobilePairingModel {
     static func connectionTransition(
         from current: State,
         activeConnectionCount: Int,
-        baselineConnectionCount: Int
+        baselineConnectionCount: Int,
+        revokeManualGrant: () -> Void = {},
+        refreshReady: (MobilePairingReady) -> MobilePairingReady,
+        refreshManualOnly: (MobilePairingManualOnly) -> MobilePairingManualOnly
     ) -> State {
         let connected = activeConnectionCount > baselineConnectionCount
         switch current {
         case let .ready(ready) where connected:
+            revokeManualGrant()
             return .connected(ready)
         case let .connected(ready) where !connected:
-            return .ready(ready)
+            return .ready(refreshReady(ready))
+        case let .manualOnly(manual) where connected:
+            revokeManualGrant()
+            return .connectedManual(manual)
+        case let .connectedManual(manual) where !connected:
+            return .manualOnly(refreshManualOnly(manual))
         default:
             return current
+        }
+    }
+
+    private func refreshTrustedNetworkPairingSecret(for ready: MobilePairingReady) -> MobilePairingReady {
+        MobilePairingReady(
+            attachURL: ready.attachURL,
+            macName: ready.macName,
+            tailscaleLines: ready.tailscaleLines,
+            manualEntry: ready.manualEntry,
+            trustedNetworkPairingSecret: host.enableManualPairingTicketMint(ttl: ticketTTL)
+        )
+    }
+
+    private func refreshTrustedNetworkPairingSecret(for manual: MobilePairingManualOnly) -> MobilePairingManualOnly {
+        MobilePairingManualOnly(
+            macName: manual.macName,
+            port: manual.port,
+            trustedNetworkPairingSecret: host.enableManualPairingTicketMint(ttl: ticketTTL)
+        )
+    }
+
+    private func scheduleManualPairingSecretRefreshIfNeeded() {
+        manualPairingSecretRefreshTimer?.invalidate()
+        let shouldRefresh: Bool
+        switch state {
+        case .ready, .manualOnly:
+            shouldRefresh = true
+        default:
+            shouldRefresh = false
+        }
+        guard shouldRefresh else {
+            manualPairingSecretRefreshTimer = nil
+            return
+        }
+
+        let generation = refreshGeneration
+        let delaySeconds = max(5, max(30, ticketTTL) - 15)
+        manualPairingSecretRefreshTimer = Timer.scheduledTimer(withTimeInterval: delaySeconds, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, generation == self.refreshGeneration else { return }
+                switch self.state {
+                case let .ready(ready):
+                    self.state = .ready(self.refreshTrustedNetworkPairingSecret(for: ready))
+                case let .manualOnly(manual):
+                    self.state = .manualOnly(self.refreshTrustedNetworkPairingSecret(for: manual))
+                default:
+                    break
+                }
+            }
         }
     }
 
@@ -256,10 +344,22 @@ final class MobilePairingModel {
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     }
 
-    /// Whether `route` is one a physical iPhone can actually dial: a
-    /// Tailscale route that does not point back at this Mac. The dev loopback
-    /// route a DEBUG build always carries must not count as reachability, or
-    /// the pairing window would happily display a QR no phone can use.
+    private static func manualOnlyDetails(
+        from status: MobileHostServiceStatus,
+        trustedNetworkPairingSecret: String
+    ) -> MobilePairingManualOnly? {
+        guard let port = status.port else { return nil }
+        return MobilePairingManualOnly(
+            macName: macDisplayName,
+            port: port,
+            trustedNetworkPairingSecret: trustedNetworkPairingSecret
+        )
+    }
+
+    /// Whether `route` is one a physical iPhone can dial automatically from a QR:
+    /// a Tailscale route that does not point back at this Mac. The dev loopback
+    /// route a DEBUG build always carries must not count as reachability, or the
+    /// pairing window would happily display a QR no phone can use.
     private static func isPhoneReachableRoute(_ route: CmxAttachRoute) -> Bool {
         route.kind == .tailscale && !CmxLoopbackHost().matches(route)
     }

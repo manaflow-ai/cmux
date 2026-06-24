@@ -9,8 +9,10 @@ extension AuthCoordinator {
 
     func primeSessionState() {
         if launch.clearAuthRequested {
-            clearAuthState()
-            Task { await clearPersistedAuthForUITest() }
+            bootstrapTask = Task { @MainActor in
+                await clearAuthState()
+                await clearPersistedAuthForUITest()
+            }
             return
         }
 
@@ -139,7 +141,7 @@ extension AuthCoordinator {
             return
         }
 
-        clearAuthState(preservePendingCode: true)
+        await clearAuthState(preservePendingCode: true)
     }
 
     /// Run the launch/dev auto-login, capturing the same staleness context as
@@ -309,6 +311,6 @@ extension AuthCoordinator {
         }
         guard generation == sessionGeneration,
               tokenStoreWriteHighWater == storeWriteHighWater else { return }
-        clearAuthState(preservePendingCode: true)
+        await clearAuthState(preservePendingCode: true)
     }
 }

@@ -17,7 +17,7 @@ public import Foundation
 /// - `removeAll` (the sign-out wipe) is NOT mirrored (signing out must not delete
 ///   the account's server backup) and resets the restore memo so a same-launch
 ///   re-sign-in restores again.
-public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing {
+public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRefreshing, MobilePairedMacCredentialStoring {
     private let inner: any MobilePairedMacStoring
     private let backup: any PairedMacBackingUp
     /// The current team id, read live so the restore is scoped per (account,
@@ -542,6 +542,28 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         guard await backup.upload(ops: ops, teamID: teamID, expectedUserID: account) else { return ids }
         await savePendingDeleteIDs([], scope: scope)
         return []
+    }
+
+    /// Store or remove a local reconnect credential in the wrapped local store.
+    public func storeCredential(
+        _ credential: MobilePairedMacCredential?,
+        macDeviceID: String,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        guard let credentialStore = inner as? any MobilePairedMacCredentialStoring else { return }
+        try await credentialStore.storeCredential(
+            credential,
+            macDeviceID: macDeviceID,
+            stackUserID: stackUserID,
+            teamID: await resolvedTeam(teamID)
+        )
+    }
+
+    /// Remove local reconnect credentials while preserving paired-Mac metadata.
+    public func removeAllCredentials() async throws {
+        guard let credentialStore = inner as? any MobilePairedMacCredentialStoring else { return }
+        try await credentialStore.removeAllCredentials()
     }
 
 }

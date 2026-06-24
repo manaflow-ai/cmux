@@ -152,7 +152,7 @@ struct SetupHelpView: View {
 
                 Text(L10n.string(
                     "mobile.setupHelp.lanBody",
-                    defaultValue: "No Tailscale? On the same Wi-Fi you can still connect by typing the Mac's local address and port by hand in Add device. That link is unencrypted, so only use it on a network you trust."
+                    defaultValue: "No Tailscale? Use your own VPN or a trusted LAN by typing the Mac's host or IP address and port by hand in Add device."
                 ))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -169,7 +169,7 @@ struct SetupHelpView: View {
         } footer: {
             Text(L10n.string(
                 "mobile.setupHelp.sameAccountFooter",
-                defaultValue: "The Mac and this phone must be signed in to the same cmux account, and on the same tailnet (or the same Wi-Fi for a manual local connection)."
+                defaultValue: "The Mac and this phone must be signed in to the same cmux account and reachable over Tailscale, your VPN, or a trusted LAN."
             ))
         }
         .accessibilityIdentifier("MobileSetupHelpNetworkSection")

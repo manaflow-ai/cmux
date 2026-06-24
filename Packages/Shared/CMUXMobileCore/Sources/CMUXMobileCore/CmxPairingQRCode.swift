@@ -9,9 +9,9 @@ import Foundation
 /// account/build context to check before dialing. The account value is the
 /// opaque Stack user id, never the email itself. Everything else the earlier
 /// grammars carried has a better channel or no reason to exist:
-/// - **No auth token.** The owner's Stack access token is the host's sole
-///   authorization gate; a token in the QR authorized nothing and made the
-///   code look like a leaked credential.
+/// - **No auth token.** The minimal QR is intentionally non-secret. Plain
+///   trusted-network routes use Mac-minted attach tokens only when the full
+///   ticket is delivered through a token-bearing channel.
 /// - **No expiry.** Ticket age authorizes nothing, so a code that sat on
 ///   screen for an hour still pairs.
 /// - **No display name, no device id.** Both arrive post-handshake from

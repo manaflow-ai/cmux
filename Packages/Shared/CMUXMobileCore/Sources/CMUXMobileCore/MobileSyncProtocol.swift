@@ -11,10 +11,17 @@ public struct CmxMobileDefaults {
     public static let pairingCompatibilityVersion = 1
 }
 
+/// Transport families a cmux mobile attach route can use.
 public enum CmxAttachTransportKind: String, Codable, Sendable {
+    /// A host/port route carried over Tailscale's encrypted tailnet.
     case tailscale
+    /// A user-confirmed VPN/LAN host/port route supplied manually by the user.
+    case trustedNetwork = "trusted_network"
+    /// An encrypted Iroh peer route.
     case iroh
+    /// A websocket route.
     case websocket
+    /// A loopback-only debug route used by local development and tests.
     case debugLoopback = "debug_loopback"
 }
 

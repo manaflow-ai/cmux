@@ -18,7 +18,7 @@ struct TestMobileSyncRuntime: MobileSyncRuntime {
 
     init(
         transportFactory: any CmxByteTransportFactory,
-        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .iroh, .websocket, .debugLoopback],
+        supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .trustedNetwork, .iroh, .websocket, .debugLoopback],
         stackAccessToken: String? = "test-stack-token",
         stackAccessTokenForStatus: String? = nil,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
@@ -70,6 +70,9 @@ struct RecordedRPCRequest: Sendable {
     var workspaceID: String?
     var terminalID: String?
     var text: String?
+    var trustedNetworkPairingSecret: String?
+    var trustedNetworkHost: String?
+    var trustedNetworkPort: Int?
     var hasAuth: Bool
     var attachToken: String?
     var stackAccessToken: String?
@@ -85,6 +88,9 @@ func recordedRPCRequest(from payload: Data) throws -> RecordedRPCRequest {
         workspaceID: params["workspace_id"] as? String,
         terminalID: params["terminal_id"] as? String ?? params["surface_id"] as? String,
         text: params["text"] as? String,
+        trustedNetworkPairingSecret: params["trusted_network_pairing_secret"] as? String,
+        trustedNetworkHost: params["trusted_network_host"] as? String,
+        trustedNetworkPort: params["trusted_network_port"] as? Int,
         hasAuth: auth != nil,
         attachToken: auth?["attach_token"] as? String,
         stackAccessToken: auth?["stack_access_token"] as? String

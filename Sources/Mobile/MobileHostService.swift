@@ -113,9 +113,9 @@ private final class MobileHostConnectionRegistry: @unchecked Sendable {
         }
         connections[id] = connection
         lock.unlock()
-        // Notify after the authoritative count actually changes (this registry
-        // backs `MobileHostServiceStatus.activeConnectionCount`), so the Mobile
-        // settings diagnostics reflect the real count rather than a stale one.
+        // Notify after raw socket membership changes so diagnostics refresh.
+        // `MobileHostServiceStatus.activeConnectionCount` is intentionally
+        // derived from authorized sessions, not from accepted sockets.
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
         return true
     }
@@ -358,6 +358,11 @@ final class MobileHostService {
     /// queue unbounded Stack lookups behind this verb.
     nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedAttachToken = request.auth?.attachToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedAttachToken?.isEmpty == false,
+           await MobileHostService.shared.verifiedAttachTicketCaller(for: request) {
+            return MobileHostPublicStatusCache.result(includeIdentity: true)
+        }
         guard trimmedToken?.isEmpty == false else {
             return MobileHostPublicStatusCache.result(includeIdentity: false)
         }
@@ -380,6 +385,7 @@ final class MobileHostService {
     /// restart. `nil` while stopped.
     private var appliedPreferredPort: Int?
     private var activeConnections: [UUID: MobileHostConnection] = [:]
+    private var authorizedConnectionIDs: Set<UUID> = []
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var lastErrorDescription: String?
     /// Watches for network path changes while the listener is bound, so the
@@ -393,8 +399,13 @@ final class MobileHostService {
     private var auth: AuthCoordinator?
     private var readinessWaiters: [CheckedContinuation<MobileHostServiceStatus, Never>] = []
     private var readinessTimeoutTask: Task<Void, Never>?
+    private var manualPairingTicketMintSecret: String?
+    private var manualPairingTicketMintExpiresAt: Date?
+    private var manualPairingTicketMintReserved = false
+    private var manualPairingTicketMintRevocationAuthToken: String?
     #if DEBUG
     private var debugAcceptedStackAuthToken: String?
+    private var debugAuthenticatedLocalUserID: String?
     #endif
 
     private init() {}
@@ -404,10 +415,24 @@ final class MobileHostService {
         self.auth = auth
     }
 
+    /// Drop every Mac-minted attach token when the local Stack session is reset.
+    /// A new sign-in must not resurrect phones paired under the previous auth
+    /// epoch, even when the user signs back into the same account.
+    @MainActor
+    func clearAttachTicketsForAuthReset() {
+        ticketStore.removeAllRecords()
+        clearManualPairingTicketMint()
+    }
+
     /// The signed-in local user's id, awaiting launch session restore first so
     /// pairing checks can't race it. `nil` when signed out (or before the auth
     /// graph is configured), which the authorization policy rejects.
     func currentAuthenticatedLocalUserID() async -> String? {
+        #if DEBUG
+        if let debugAuthenticatedLocalUserID {
+            return debugAuthenticatedLocalUserID
+        }
+        #endif
         guard let auth else { return nil }
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
@@ -427,6 +452,30 @@ final class MobileHostService {
         await auth.awaitBootstrapped()
         guard auth.isAuthenticated else { return nil }
         return auth.currentUser?.primaryEmail
+    }
+
+    @MainActor
+    func enableManualPairingTicketMint(ttl: TimeInterval) -> String {
+        let secret = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        manualPairingTicketMintExpiresAt = Date().addingTimeInterval(max(30, ttl))
+        manualPairingTicketMintSecret = secret
+        manualPairingTicketMintReserved = false
+        manualPairingTicketMintRevocationAuthToken = nil
+        return secret
+    }
+
+    @MainActor
+    func revokeManualPairingTicketMint() {
+        clearManualPairingTicketMint()
+    }
+
+    private func revokeManualPairingTicketMintAfterAttachTokenUse(_ authToken: String?) async {
+        let normalizedAuthToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalizedAuthToken?.isEmpty == false else { return }
+        await MainActor.run {
+            guard normalizedAuthToken == manualPairingTicketMintRevocationAuthToken else { return }
+            clearManualPairingTicketMint()
+        }
     }
 
     /// Fan out a server-pushed event to every connection subscribed to `topic`.
@@ -694,6 +743,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "pairing port changed") }
         }
         activeConnections.removeAll()
+        authorizedConnectionIDs.removeAll()
         clientIDsByConnectionID.removeAll()
 
         listener = candidate
@@ -827,6 +877,7 @@ final class MobileHostService {
             Task { await connection.close(reason: "service stopped") }
         }
         activeConnections.removeAll()
+        authorizedConnectionIDs.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostEventSubscriptionTracker.reset()
         MobileHostPublicStatusCache.update(routes: [])
@@ -931,7 +982,7 @@ final class MobileHostService {
             // editing the preferred port before a restart must not flip this.
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
-            activeConnectionCount: MobileHostConnectionRegistry.shared.count,
+            activeConnectionCount: authorizedConnectionIDs.count,
             lastErrorDescription: lastErrorDescription
         )
     }
@@ -1015,10 +1066,11 @@ final class MobileHostService {
                     return await MobileHostService.shared.authorizationError(for: request)
                 },
                 onAuthorizedRequest: { request in
-                    guard let clientID = Self.clientID(from: request.params) else {
-                        return
-                    }
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                    guard Self.countsAsAuthorizedConnection(method: request.method) else { return }
+                    await MobileHostService.shared.recordAuthorizedConnection(
+                        id: id,
+                        clientID: Self.clientID(from: request.params)
+                    )
                 },
                 handleRequest: { request in
                     if request.method == "mobile.host.status" {
@@ -1059,13 +1111,23 @@ final class MobileHostService {
         terminalID: String?,
         ttl: TimeInterval,
         routeID: String? = nil,
-        routeKind: String? = nil
+        routeKind: String? = nil,
+        overrideRoutes: [CmxAttachRoute]? = nil
     ) async throws -> [String: Any] {
         let routes: [CmxAttachRoute]
-        if let listenerPort {
+        if let overrideRoutes {
+            routes = overrideRoutes
+        } else if let listenerPort {
             routes = routeResolver.routes(port: listenerPort).routes
         } else {
             routes = []
+        }
+        let macUserID = await currentAuthenticatedLocalUserID()?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let macUserID, !macUserID.isEmpty else {
+            throw MobileHostRPCError(
+                code: "unauthorized",
+                message: "Sign in on this Mac before creating a mobile attach ticket."
+            )
         }
         let selectedRoutes = try Self.filteredRoutes(
             routes,
@@ -1078,11 +1140,21 @@ final class MobileHostService {
             routes: selectedRoutes,
             ttl: ttl,
             macUserEmail: await currentAuthenticatedLocalUserEmail(),
-            macUserID: await currentAuthenticatedLocalUserID(),
+            macUserID: macUserID,
             macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
             macAppVersion: MobileHostBuildIdentity.current().appVersion,
             macAppBuild: MobileHostBuildIdentity.current().appBuild
         )
+        let normalizedTerminalID = terminalID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           (normalizedTerminalID == nil || normalizedTerminalID?.isEmpty == true) {
+            let authToken = ticket.authToken
+            await MainActor.run {
+                if manualPairingTicketMintSecret != nil {
+                    manualPairingTicketMintRevocationAuthToken = authToken
+                }
+            }
+        }
         return try ticketStore.payload(for: ticket)
     }
 
@@ -1135,9 +1207,11 @@ final class MobileHostService {
                 await MobileHostService.shared.authorizationError(for: request)
             },
             onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
-                }
+                guard Self.countsAsAuthorizedConnection(method: request.method) else { return }
+                await MobileHostService.shared.recordAuthorizedConnection(
+                    id: id,
+                    clientID: Self.clientID(from: request.params)
+                )
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1192,6 +1266,7 @@ final class MobileHostService {
     private func removeConnection(id: UUID) {
         MobileHostConnectionRegistry.shared.remove(id: id)
         activeConnections.removeValue(forKey: id)
+        let removedAuthorizedConnection = authorizedConnectionIDs.remove(id) != nil
         // Drop this connection's sticky viewport reports so a disconnected
         // device stops pinning the shared grid (and its macOS viewport border
         // clears) even though it never sent an explicit clear.
@@ -1203,7 +1278,18 @@ final class MobileHostService {
                 reason: "mobile.connection.closed"
             )
         }
+        if removedAuthorizedConnection {
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
         MobileHostRequestActivity.endConnection()
+    }
+
+    private func recordAuthorizedConnection(id: UUID, clientID: String?) {
+        if let clientID {
+            recordClientID(clientID, for: id)
+        }
+        guard authorizedConnectionIDs.insert(id).inserted else { return }
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 
     private func recordClientID(_ clientID: String, for connectionID: UUID) {
@@ -1275,17 +1361,49 @@ final class MobileHostService {
         return verified
     }
 
+    func verifiedAttachTicketCaller(for request: MobileHostRPCRequest) async -> Bool {
+        guard let authorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) else {
+            return false
+        }
+        if await attachTicketAccountAuthorizationError(authorization: authorization) != nil {
+            return false
+        }
+        guard Self.ticketAuthorizationError(authorization: authorization, request: request) == nil else {
+            return false
+        }
+        await revokeManualPairingTicketMintAfterAttachTokenUse(request.auth?.attachToken)
+        return true
+    }
+
     private func authorizationError(for request: MobileHostRPCRequest) async -> MobileHostRPCResult? {
         guard Self.requiresAuthorization(method: request.method) else {
             return nil
         }
-        // Stack auth is the SOLE authorization gate for the mobile data plane.
-        // The attach ticket is route-discovery and workspace-selection only; it
-        // never authorizes on its own. Every operation must present the Mac
-        // owner's same-account Stack access token. Consequences: a leaked or
-        // photographed QR is useless without the owner's signed-in account, and
-        // pairing is bound to "who is signed in on this Mac" rather than a stored
-        // ticket, so it survives Mac restarts and ticket expiry.
+        // Encrypted/loopback routes authorize with the Mac owner's Stack token.
+        // Plain trusted-network routes must not receive that account bearer over
+        // TCP; they can only present a short-lived attach token minted by this Mac
+        // and scoped by `ticketAuthorizationError`.
+        if let authorization = ticketStore.validAuthorization(authToken: request.auth?.attachToken) {
+            if let accountError = await attachTicketAccountAuthorizationError(authorization: authorization) {
+                if request.auth?.stackAccessToken == nil {
+                    return .failure(accountError)
+                }
+            } else if let ticketError = Self.ticketAuthorizationError(authorization: authorization, request: request) {
+                if request.auth?.stackAccessToken == nil {
+                    return .failure(ticketError)
+                }
+            } else {
+                await revokeManualPairingTicketMintAfterAttachTokenUse(request.auth?.attachToken)
+                return nil
+            }
+        }
+        if request.method == "mobile.attach_ticket.create",
+           request.auth?.stackAccessToken == nil,
+           request.auth?.attachToken == nil,
+           await manualPairingTicketMintAllowed(params: request.params),
+           await currentAuthenticatedLocalUserID() != nil {
+            return nil
+        }
         if devStackTokenAuthorized(request) {
             return nil
         }
@@ -1315,6 +1433,97 @@ final class MobileHostService {
         try await Task.detached(priority: .utility) {
             try await MobileHostStackAuthVerifier.shared.verify(auth: auth)
         }.value
+    }
+
+    private func attachTicketAccountAuthorizationError(
+        authorization: MobileAttachTicketAuthorization
+    ) async -> MobileHostRPCError? {
+        guard let ticketUserID = authorization.ticket.macUserID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !ticketUserID.isEmpty else {
+            return MobileHostRPCError(
+                code: "unauthorized",
+                message: "Mobile attach ticket is not bound to a Mac account."
+            )
+        }
+        guard let localUserID = await currentAuthenticatedLocalUserID()?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !localUserID.isEmpty,
+              localUserID == ticketUserID else {
+            return MobileHostRPCError(
+                code: "account_mismatch",
+                message: "Sign in with the account that owns this Mac to continue."
+            )
+        }
+        return nil
+    }
+
+    @MainActor
+    func consumeManualPairingTicketMint(params: [String: Any], now: Date = Date()) -> Bool {
+        guard manualPairingTicketMintAllowedLocked(params: params, now: now) else { return false }
+        clearManualPairingTicketMint()
+        return true
+    }
+
+    @MainActor
+    func manualPairingTicketMintAllowed(params: [String: Any], now: Date = Date()) -> Bool {
+        return manualPairingTicketMintAllowedLocked(params: params, now: now)
+    }
+
+    @MainActor
+    func reserveManualPairingTicketMint(params: [String: Any], now: Date = Date()) -> Bool {
+        guard manualPairingTicketMintAllowedLocked(params: params, now: now) else { return false }
+        manualPairingTicketMintReserved = true
+        return true
+    }
+
+    @MainActor
+    func releaseManualPairingTicketMintReservation(params: [String: Any]) {
+        guard manualPairingTicketMintReserved,
+              manualPairingTicketMintMatchesLocked(params: params) else {
+            return
+        }
+        manualPairingTicketMintReserved = false
+    }
+
+    @MainActor
+    func consumeReservedManualPairingTicketMint(params: [String: Any]) {
+        guard manualPairingTicketMintReserved,
+              manualPairingTicketMintMatchesLocked(params: params) else {
+            return
+        }
+        clearManualPairingTicketMint()
+    }
+
+    @MainActor
+    private func manualPairingTicketMintAllowedLocked(params: [String: Any], now: Date) -> Bool {
+        guard !manualPairingTicketMintReserved else { return false }
+        guard let expiresAt = manualPairingTicketMintExpiresAt,
+              let secret = manualPairingTicketMintSecret else { return false }
+        guard expiresAt > now else {
+            clearManualPairingTicketMint()
+            return false
+        }
+        guard let suppliedSecret = params["trusted_network_pairing_secret"] as? String,
+              suppliedSecret.trimmingCharacters(in: .whitespacesAndNewlines) == secret else {
+            return false
+        }
+        return true
+    }
+
+    @MainActor
+    private func manualPairingTicketMintMatchesLocked(params: [String: Any]) -> Bool {
+        guard let secret = manualPairingTicketMintSecret,
+              let suppliedSecret = params["trusted_network_pairing_secret"] as? String else {
+            return false
+        }
+        return suppliedSecret.trimmingCharacters(in: .whitespacesAndNewlines) == secret
+    }
+
+    @MainActor
+    private func clearManualPairingTicketMint() {
+        manualPairingTicketMintExpiresAt = nil
+        manualPairingTicketMintSecret = nil
+        manualPairingTicketMintReserved = false
+        manualPairingTicketMintRevocationAuthToken = nil
     }
 
     private func recordCreatedResourcesIfNeeded(
@@ -1378,15 +1587,16 @@ final class MobileHostService {
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
-            return nil
+            return ticketMacAuthorizationError(authorization: authorization)
         case "workspace.create":
             return nil
+        case "workspace.action", "workspace.close":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
         case "workspace.group.collapse", "workspace.group.expand":
-            // Display-only group state. Keyed by `group_id` (not a workspace or
-            // terminal selection), so it is Mac-scoped like the workspace list and
-            // not constrained by the ticket's workspace/terminal pin. The Stack
-            // same-account gate in `authorizationError` remains authoritative.
-            return nil
+            return ticketMacAuthorizationError(authorization: authorization)
         case "mobile.terminal.create", "terminal.create":
             return nil
         case "mobile.terminal.input", "terminal.input",
@@ -1394,19 +1604,57 @@ final class MobileHostService {
              "mobile.terminal.paste_image", "terminal.paste_image",
              "mobile.terminal.replay", "terminal.replay",
              "mobile.terminal.viewport", "terminal.viewport",
-             "mobile.terminal.scroll", "terminal.scroll":
+             "mobile.terminal.scroll", "terminal.scroll",
+             "mobile.terminal.mouse", "terminal.mouse":
             return ticketTerminalAuthorizationError(
                 authorization: authorization,
                 workspaceSelection: workspaceSelection.value,
                 terminalSelection: terminalSelection.value
             )
         case "mobile.events.subscribe", "mobile.events.unsubscribe":
-            return nil
+            return ticketMacAuthorizationError(authorization: authorization)
         case "mobile.host.status":
             return nil
+        case "notification.dismiss", "notification.reconcile":
+            return ticketMacAuthorizationError(authorization: authorization)
+        case "mobile.chat.sessions":
+            return ticketWorkspaceAuthorizationError(
+                authorization: authorization,
+                workspaceSelection: workspaceSelection.value
+            )
+        case let method where method.hasPrefix("mobile.chat."):
+            return ticketMacAuthorizationError(authorization: authorization)
         default:
             return scopedTicketError
         }
+    }
+
+    private static func ticketMacAuthorizationError(
+        authorization: MobileAttachTicketAuthorization
+    ) -> MobileHostRPCError? {
+        let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ticketWorkspaceID.isEmpty else {
+            return scopedTicketError
+        }
+        return nil
+    }
+
+    private static func ticketWorkspaceAuthorizationError(
+        authorization: MobileAttachTicketAuthorization,
+        workspaceSelection: String?
+    ) -> MobileHostRPCError? {
+        if let workspaceSelection,
+           authorization.createdWorkspaceIDs.contains(workspaceSelection) {
+            return nil
+        }
+        let ticketWorkspaceID = authorization.ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ticketWorkspaceID.isEmpty {
+            return nil
+        }
+        guard workspaceSelection == ticketWorkspaceID else {
+            return scopedTicketError
+        }
+        return nil
     }
 
     private static func ticketTerminalAuthorizationError(
@@ -1502,18 +1750,23 @@ final class MobileHostService {
     nonisolated private static func requiresAuthorization(method: String) -> Bool {
         switch method {
         // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
-        // mints a bearer credential, so it MUST be authorized: a network caller has no
-        // attach token yet, so it is routed through the same-account Stack Auth token
-        // (the iOS client always sends it for this method). Leaving it exempt would let
-        // any process that can speak the wire protocol self-issue a working ticket and
-        // take over the terminal. The on-Mac QR pairing mints tickets through the local
-        // automation socket (`TerminalController`), not this network path, so it is
-        // unaffected.
+        // mints a bearer credential, so it MUST be authorized: either by the
+        // same-account Stack token on protected routes, or by the short-lived manual
+        // pairing key on trusted-network routes. Leaving it exempt would let any
+        // process that can speak the wire protocol self-issue a working ticket.
         case "mobile.host.status":
             return false
         default:
             return true
         }
+    }
+
+    nonisolated private static func countsAsAuthorizedConnection(method: String) -> Bool {
+        guard requiresAuthorization(method: method) else { return false }
+        // Manual trusted-network pairing authorizes this mint request with the
+        // displayed key, then consumes that key only after the ticket is created.
+        // The paired session becomes active when the minted attach token is used.
+        return method != "mobile.attach_ticket.create"
     }
 
     private func handleListenerState(_ state: NWListener.State, generation: UUID) {
@@ -1662,6 +1915,7 @@ extension MobileHostService {
         listenerUsesEphemeralFallback = false
         listenerPort = nil
         activeConnections.removeAll()
+        authorizedConnectionIDs.removeAll()
         clientIDsByConnectionID.removeAll()
         MobileHostRequestActivity.resetForTesting()
         MobileHostEventSubscriptionTracker.resetForTesting()
@@ -1669,6 +1923,13 @@ extension MobileHostService {
 
     func debugRecordClientIDForTesting(_ clientID: String, connectionID: UUID) {
         recordClientID(clientID, for: connectionID)
+    }
+
+    func debugRecordAuthorizedConnectionForTesting(
+        connectionID: UUID,
+        clientID: String? = nil
+    ) {
+        recordAuthorizedConnection(id: connectionID, clientID: clientID)
     }
 
     func debugRemoveConnectionForTesting(id: UUID) {
@@ -1703,6 +1964,31 @@ extension MobileHostService {
 
     func debugListenerUsesEphemeralFallbackForTesting() -> Bool {
         listenerUsesEphemeralFallback
+    }
+
+    func debugCreateAttachTicketForTesting(
+        workspaceID: String,
+        terminalID: String?,
+        routes: [CmxAttachRoute],
+        ttl: TimeInterval = 3600,
+        macUserID: String? = nil
+    ) throws -> CmxAttachTicket {
+        try ticketStore.createTicket(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            routes: routes,
+            ttl: ttl,
+            macUserID: macUserID
+        )
+    }
+
+    @MainActor
+    func debugClearManualPairingTicketMintForTesting() {
+        clearManualPairingTicketMint()
+    }
+
+    func debugConfigureAuthenticatedLocalUserIDForTesting(_ userID: String?) {
+        debugAuthenticatedLocalUserID = userID
     }
 
     func debugConfigureAcceptedStackAuthTokenForTesting(_ token: String?) {

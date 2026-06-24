@@ -13016,7 +13016,41 @@ class TerminalController {
 
     @MainActor
     func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
-        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
+        let trustedNetworkPairingSecretSupplied =
+            v2OptionalTrimmedRawString(params, "trusted_network_pairing_secret") != nil
+        let trustedNetworkPairingMintAllowed = MobileHostService.shared.manualPairingTicketMintAllowed(
+            params: params
+        )
+        if trustedNetworkPairingSecretSupplied && !trustedNetworkPairingMintAllowed {
+            return .err(
+                code: "unauthorized",
+                message: "Mobile pairing key is no longer valid",
+                data: nil
+            )
+        }
+        let ttlMax = trustedNetworkPairingMintAllowed ? 60 * 60 * 24 * 30 : 3600
+        let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, ttlMax)))
+        let trustedNetworkOverrideRoute: CmxAttachRoute?
+        if trustedNetworkPairingMintAllowed {
+            guard let host = v2OptionalTrimmedRawString(params, "trusted_network_host"),
+                  let port = v2Int(params, "trusted_network_port"),
+                  (1...65535).contains(port),
+                  let route = try? CmxAttachRoute(
+                      id: "trusted-network-manual",
+                      kind: .trustedNetwork,
+                      endpoint: .hostPort(host: host, port: port),
+                      priority: 0
+                  ) else {
+                return .err(
+                    code: "invalid_params",
+                    message: "trusted_network_host and trusted_network_port are required for trusted network pairing",
+                    data: nil
+                )
+            }
+            trustedNetworkOverrideRoute = route
+        } else {
+            trustedNetworkOverrideRoute = nil
+        }
         let routeID = v2OptionalTrimmedRawString(params, "route_id")
             ?? v2OptionalTrimmedRawString(params, "routeID")
         let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
@@ -13062,22 +13096,51 @@ class TerminalController {
             resolvedTerminalID = terminalPanel?.id.uuidString
         }
 
+        let trustedNetworkOverrideRoutes: [CmxAttachRoute]?
+        var reservedTrustedNetworkPairingMint = false
+        if let trustedNetworkOverrideRoute {
+            guard MobileHostService.shared.reserveManualPairingTicketMint(params: params) else {
+                return .err(
+                    code: "unauthorized",
+                    message: "Mobile pairing key is no longer valid",
+                    data: nil
+                )
+            }
+            reservedTrustedNetworkPairingMint = true
+            trustedNetworkOverrideRoutes = [trustedNetworkOverrideRoute]
+        } else {
+            trustedNetworkOverrideRoutes = nil
+        }
+
         do {
             let payload = try await MobileHostService.shared.createAttachTicket(
                 workspaceID: resolvedWorkspaceID,
                 terminalID: resolvedTerminalID,
                 ttl: ttl,
                 routeID: routeID,
-                routeKind: routeKind
+                routeKind: routeKind,
+                overrideRoutes: trustedNetworkOverrideRoutes
             )
+            if reservedTrustedNetworkPairingMint {
+                MobileHostService.shared.consumeReservedManualPairingTicketMint(params: params)
+                reservedTrustedNetworkPairingMint = false
+            } else {
+                MobileHostService.shared.revokeManualPairingTicketMint()
+            }
             return .ok(payload)
         } catch MobileAttachTicketStoreError.noRoutes {
+            if reservedTrustedNetworkPairingMint {
+                MobileHostService.shared.releaseManualPairingTicketMintReservation(params: params)
+            }
             return .err(
                 code: "unavailable",
                 message: "Mobile host routes are not available yet",
                 data: nil
             )
         } catch MobileAttachTicketStoreError.routeUnavailable {
+            if reservedTrustedNetworkPairingMint {
+                MobileHostService.shared.releaseManualPairingTicketMintReservation(params: params)
+            }
             var data: [String: Any] = [:]
             if let routeID {
                 data["route_id"] = routeID
@@ -13091,6 +13154,9 @@ class TerminalController {
                 data: data.isEmpty ? nil : data
             )
         } catch {
+            if reservedTrustedNetworkPairingMint {
+                MobileHostService.shared.releaseManualPairingTicketMintReservation(params: params)
+            }
             return .err(
                 code: "internal_error",
                 message: "Failed to create mobile attach ticket",

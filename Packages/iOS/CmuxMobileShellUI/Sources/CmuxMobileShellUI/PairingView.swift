@@ -21,7 +21,7 @@ struct PairingView: View {
     let versionWarning: String?
     let connectPairingCode: () async -> Void
     let acceptVersionWarning: () async -> Void
-    let connectManualHost: (String, String, Int) async -> Void
+    let connectManualHost: (String, String, Int, Bool, String?) async -> Void
     let cancelPairing: () -> Void
     let cancel: () -> Void
 
@@ -30,26 +30,19 @@ struct PairingView: View {
         ?? L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac")
     @State private var host = UITestConfig.addDeviceHost ?? ""
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
+    @State private var trustedNetworkPairingKey = UITestConfig.addDevicePairingKey ?? ""
     @Environment(AuthCoordinator.self) private var authManager
     @Environment(\.analytics) private var analytics
-    @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
     @State private var validationError: String?
     @State private var isPairing = false
     @State private var pairingTaskID: UUID?
     @State private var pairingTask: Task<Void, Never>?
+    @State private var trustsManualRoute = false
     @FocusState private var focusedField: AddDeviceField?
 
     var body: some View {
         NavigationStack {
             Form {
-                // Warn before the user burns a pair attempt: without an active
-                // tailnet, the Mac's QR/tailnet route is normally unreachable.
-                if tailscaleStatusMonitor?.status == .inactiveOrNotInstalled {
-                    Section {
-                        TailscaleInactiveCallout(context: .pairing)
-                    }
-                }
-
                 Section {
                     TextField(
                         L10n.string("mobile.addDevice.namePlaceholder", defaultValue: "Work Mac"),
@@ -61,7 +54,7 @@ struct PairingView: View {
                     .accessibilityIdentifier("MobileAddDeviceNameField")
 
                     TextField(
-                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "your-mac.tailnet.ts.net"),
+                        L10n.string("mobile.addDevice.hostPlaceholder", defaultValue: "VPN hostname or IP address"),
                         text: $host
                     )
                     .focused($focusedField, equals: .host)
@@ -77,10 +70,22 @@ struct PairingView: View {
                     .submitLabel(.done)
                     .addDeviceInputBehavior(.number)
                     .accessibilityIdentifier("MobileAddDevicePortField")
+
+                    if manualRouteNeedsTrustConfirmation {
+                        TextField(
+                            L10n.string("mobile.addDevice.pairingKeyPlaceholder", defaultValue: "Pairing key from Mac"),
+                            text: $trustedNetworkPairingKey
+                        )
+                        .submitLabel(.done)
+                        .addDeviceInputBehavior(.text)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .accessibilityIdentifier("MobileAddDevicePairingKeyField")
+                    }
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."))
+                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a host or IP address reachable through Tailscale, your own VPN, or a trusted LAN."))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG
@@ -134,10 +139,15 @@ struct PairingView: View {
 
                 if let manualRouteWarningText {
                     Section {
-                        Label {
-                            Text(manualRouteWarningText)
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label {
+                                Text(manualRouteWarningText)
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle")
+                            }
+                            Toggle(isOn: $trustsManualRoute) {
+                                Text(L10n.string("mobile.addDevice.manualRouteTrustToggle", defaultValue: "I trust this VPN/LAN route and device"))
+                            }
                         }
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("MobileManualRouteWarning")
@@ -235,6 +245,14 @@ struct PairingView: View {
                 #endif
             }
         }
+        .onChange(of: host) { _, _ in
+            trustsManualRoute = false
+            trustedNetworkPairingKey = ""
+        }
+        .onChange(of: port) { _, _ in
+            trustsManualRoute = false
+            trustedNetworkPairingKey = ""
+        }
         #if os(iOS)
         .sheet(isPresented: $isShowingScanner) {
             MobilePairingScannerSheet { scannedCode in
@@ -277,16 +295,22 @@ struct PairingView: View {
     }
 
     private var manualRouteWarningText: String? {
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedHost.isEmpty,
-              !CmxPairingURLScheme.hasPairingScheme(trimmedHost),
-              MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
+        guard manualRouteNeedsTrustConfirmation else {
             return nil
         }
         return L10n.string(
             "mobile.addDevice.manualRouteWarning",
-            defaultValue: "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control."
+            defaultValue: "This will connect directly to that address and use the pairing key to mint a local attach credential. Use it only with a trusted VPN, LAN, or device you control."
         )
+    }
+
+    private var manualRouteNeedsTrustConfirmation: Bool {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty,
+              !CmxPairingURLScheme.hasPairingScheme(trimmedHost) else {
+            return false
+        }
+        return MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost)
     }
 
     private var signedInAccountText: String {
@@ -333,9 +357,25 @@ struct PairingView: View {
             validationError = L10n.string("mobile.addDevice.invalidPort", defaultValue: "Enter a port from 1 to 65535.")
             return
         }
+        let trustedNetworkAuthConfirmed = manualRouteNeedsTrustConfirmation ? trustsManualRoute : false
+        guard !manualRouteNeedsTrustConfirmation || trustedNetworkAuthConfirmed else {
+            validationError = L10n.string("mobile.addDevice.manualRouteTrustRequired", defaultValue: "Confirm that you trust this VPN/LAN route before pairing.")
+            return
+        }
+        let trustedNetworkSecret = trustedNetworkPairingKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !manualRouteNeedsTrustConfirmation || !trustedNetworkSecret.isEmpty else {
+            validationError = L10n.string("mobile.addDevice.pairingKeyRequired", defaultValue: "Enter the pairing key shown on your Mac.")
+            return
+        }
 
         startPairingTask {
-            await connectManualHost(deviceName, trimmedHost, parsedPort)
+            await connectManualHost(
+                deviceName,
+                trimmedHost,
+                parsedPort,
+                trustedNetworkAuthConfirmed,
+                trustedNetworkSecret.isEmpty ? nil : trustedNetworkSecret
+            )
         }
     }
 

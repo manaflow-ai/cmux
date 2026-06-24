@@ -112,7 +112,10 @@ struct MacAuthComposition {
             ),
             anchor: anchor,
             config: config,
-            launch: launch
+            launch: launch,
+            onLocalAuthCleared: {
+                MobileHostService.shared.clearAttachTicketsForAuthReset()
+            }
         )
         self.coordinator = coordinator
         let callbackRouter = AuthCallbackRouter(

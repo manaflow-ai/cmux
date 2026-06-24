@@ -116,8 +116,8 @@ import Testing
     }
 
     @Test func staleQRCodesStillDecodeInBothGrammars() throws {
-        // A QR keeps pairing however long it sat on the Mac's screen: the
-        // host authorizes by Stack account, not ticket age. Both a
+        // A QR keeps pairing however long it sat on the Mac's screen because
+        // the minimal code is not a token-bearing credential. Both a
         // first-revision compact payload (explicit `e` expiry long past) and
         // a legacy full-key payload with a past `expiresAt` must decode.
         let firstRevisionCompact = """

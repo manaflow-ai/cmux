@@ -8,13 +8,10 @@ import Foundation
 /// vs Tailscale vs LAN vs arbitrary host) can be exhaustively tested without a live
 /// connection.
 ///
-/// The Stack-bearer-token gate (``routeAllowsStackAuth(_:)``) is intentionally
-/// restricted to **encrypted or loopback channels only**: the Tailscale tunnel
-/// (WireGuard-encrypted), iroh peer connections (encrypted), and loopback (never
-/// leaves the machine). Plain private-LAN and `.local`/Bonjour hosts are dialed
-/// over unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
-/// so they are excluded from the Stack-auth-allowed set even though they may still
-/// be reachable as attach routes.
+/// Automatically discovered routes must be encrypted or loopback before they may
+/// carry Stack auth. A host typed by the user uses the `.trustedNetwork`
+/// transport kind and must never carry the Stack bearer token over plaintext TCP;
+/// it can only use a route-scoped attach token minted by the Mac.
 public struct MobileShellRouteAuthPolicy {
     private init() {}
 
@@ -52,33 +49,34 @@ public struct MobileShellRouteAuthPolicy {
 
     /// Maps a manually typed host to the transport kind that should be used.
     /// - Parameter host: The host to classify.
-    /// - Returns: `.debugLoopback` for loopback hosts, otherwise `.tailscale`.
+    /// - Returns: `.debugLoopback` for loopback hosts, `.tailscale` for Tailscale
+    ///   hosts, otherwise `.trustedNetwork`.
     public static func manualRouteKind(for host: String) -> CmxAttachTransportKind {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if isLoopbackHost(normalizedHost) {
             return .debugLoopback
         }
-        return .tailscale
+        if isTailscaleHost(normalizedHost) {
+            return .tailscale
+        }
+        return .trustedNetwork
     }
 
     /// Whether the given route is trusted enough to carry the Stack bearer token.
     ///
     /// The Stack `stack_access_token` is the owner's account credential, so it must
-    /// only ever traverse an encrypted or loopback channel. This predicate gates
-    /// every Stack-token-send site and returns `true` only for:
+    /// only ever traverse an encrypted, loopback, or explicit user-trusted channel.
+    /// This predicate gates every Stack-token-send site and returns `true` only for:
     ///
     /// - `.tailscale` to a Tailscale host (a `100.64.0.0/10` CGNAT address or a
     ///   `*.ts.net` MagicDNS host), which rides the WireGuard-encrypted tunnel.
     /// - `.iroh` to a peer, which is an encrypted QUIC connection.
     /// - `.debugLoopback` to a loopback host, which never leaves the machine.
     ///
-    /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local) and
-    /// `.local`/Bonjour hosts are deliberately **excluded**: they are dialed over
-    /// unencrypted TCP (``CmxNetworkByteTransport`` uses `NWParameters(tls: nil)`),
-    /// so sending the bearer token to such a host would disclose it in plaintext on
-    /// the local network before the Mac proves it is the same-account host.
+    /// Plain private-LAN (`192.168/16`, `10/8`, `172.16/12`, link-local),
+    /// `.local`/Bonjour hosts, and manual `.trustedNetwork` routes are excluded.
     /// - Parameter route: The candidate attach route.
-    /// - Returns: `true` only for Tailscale-tunnel, iroh peer, and loopback routes.
+    /// - Returns: `true` for encrypted or loopback routes that may carry Stack auth.
     public static func routeAllowsStackAuth(_ route: CmxAttachRoute) -> Bool {
         switch (route.kind, route.endpoint) {
         case (.debugLoopback, let .hostPort(host, _)):
@@ -90,6 +88,16 @@ public struct MobileShellRouteAuthPolicy {
         default:
             return false
         }
+    }
+
+    /// Compatibility overload for callers that also track user confirmation.
+    /// Confirmation affects UX and local route persistence, never whether the
+    /// Stack bearer token may cross a plaintext trusted-network route.
+    public static func routeAllowsStackAuth(
+        _ route: CmxAttachRoute,
+        trustedNetworkConfirmed _: Bool
+    ) -> Bool {
+        return routeAllowsStackAuth(route)
     }
 
     /// Whether a decoded pairing/attach ticket must be rejected because its

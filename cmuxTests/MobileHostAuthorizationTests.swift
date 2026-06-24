@@ -339,6 +339,9 @@ struct MobileHostAuthorizationTests {
         }
     }
     @Test func testMobileAttachTicketCreateRequiresAuthorization() async {
+        #if DEBUG
+        MobileHostService.shared.debugClearManualPairingTicketMintForTesting()
+        #endif
         let request = MobileHostRPCRequest(
             id: "attach-ticket-create",
             method: "mobile.attach_ticket.create",
@@ -353,6 +356,242 @@ struct MobileHostAuthorizationTests {
         }
         #expect(error.code == "unauthorized")
     }
+
+    #if DEBUG
+    @Test func testPairingWindowGrantAuthorizesAttachTicketCreateWithoutStackToken() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("mac-user")
+        let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+            service.debugClearManualPairingTicketMintForTesting()
+        }
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-create",
+            method: "mobile.attach_ticket.create",
+            params: ["trusted_network_pairing_secret": pairingSecret],
+            auth: nil
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+    }
+
+    @Test func testPairingWindowGrantCheckDoesNotConsumeSecret() {
+        let service = MobileHostService.shared
+        let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
+        defer {
+            service.debugClearManualPairingTicketMintForTesting()
+        }
+        let params = ["trusted_network_pairing_secret": pairingSecret]
+
+        #expect(service.manualPairingTicketMintAllowed(params: params))
+        #expect(service.manualPairingTicketMintAllowed(params: params))
+        #expect(service.reserveManualPairingTicketMint(params: params))
+        #expect(!service.manualPairingTicketMintAllowed(params: params))
+        service.releaseManualPairingTicketMintReservation(params: params)
+        #expect(service.manualPairingTicketMintAllowed(params: params))
+        #expect(service.reserveManualPairingTicketMint(params: params))
+        service.consumeReservedManualPairingTicketMint(params: params)
+        #expect(!service.manualPairingTicketMintAllowed(params: params))
+    }
+
+    @Test func testStackAuthorizedTrafficDoesNotRevokeDisplayedPairingWindowGrant() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("mac-user")
+        service.debugConfigureAcceptedStackAuthTokenForTesting("cmux-dev-token")
+        let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+            service.debugConfigureAcceptedStackAuthTokenForTesting(nil)
+            service.debugClearManualPairingTicketMintForTesting()
+        }
+        let request = MobileHostRPCRequest(
+            id: "existing-phone",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: nil,
+                stackAccessToken: "cmux-dev-token"
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+        #expect(service.manualPairingTicketMintAllowed(params: [
+            "trusted_network_pairing_secret": pairingSecret
+        ]))
+    }
+
+    @Test func testRevokedPairingWindowGrantRejectsAttachTicketCreateWithoutStackToken() async {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("mac-user")
+        let pairingSecret = service.enableManualPairingTicketMint(ttl: 60)
+        service.revokeManualPairingTicketMint()
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+            service.debugClearManualPairingTicketMintForTesting()
+        }
+        let request = MobileHostRPCRequest(
+            id: "attach-ticket-create",
+            method: "mobile.attach_ticket.create",
+            params: ["trusted_network_pairing_secret": pairingSecret],
+            auth: nil
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result != nil)
+    }
+
+    @Test func testStoredAttachTicketForPreviousMacUserIsRejectedWithoutStackToken() async throws {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("current-user")
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+        }
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let ticket = try service.debugCreateAttachTicketForTesting(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route],
+            macUserID: "previous-user"
+        )
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        guard case let .failure(error) = result else {
+            Issue.record("expected previous-user attach token to be rejected")
+            return
+        }
+        #expect(error.code == "account_mismatch")
+        #expect(await service.verifiedAttachTicketCaller(for: request) == false)
+    }
+
+    @Test func testStoredAttachTicketWithoutMacUserIsRejectedWithoutStackToken() async throws {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("current-user")
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+        }
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let ticket = try service.debugCreateAttachTicketForTesting(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route],
+            macUserID: nil
+        )
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        guard case let .failure(error) = result else {
+            Issue.record("expected unbound attach token to be rejected")
+            return
+        }
+        #expect(error.code == "unauthorized")
+        #expect(await service.verifiedAttachTicketCaller(for: request) == false)
+    }
+
+    @Test func testStoredAttachTicketAuthorizesCoveredRequestWithoutStackToken() async throws {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("current-user")
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+        }
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let ticket = try service.debugCreateAttachTicketForTesting(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route],
+            macUserID: "current-user"
+        )
+        let request = MobileHostRPCRequest(
+            id: "workspace-action",
+            method: "workspace.action",
+            params: [
+                "workspace_id": "workspace-main",
+                "action": "mark_read",
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await service.debugAuthorizationError(for: request)
+
+        #expect(result == nil)
+    }
+
+    @Test func testStoredAttachTicketCanSeeHostIdentityWithoutStackToken() async throws {
+        let service = MobileHostService.shared
+        service.debugConfigureAuthenticatedLocalUserIDForTesting("current-user")
+        defer {
+            service.debugConfigureAuthenticatedLocalUserIDForTesting(nil)
+        }
+        let route = try CmxAttachRoute(
+            id: "trusted-network",
+            kind: .trustedNetwork,
+            endpoint: .hostPort(host: "10.0.0.5", port: 58_465)
+        )
+        let ticket = try service.debugCreateAttachTicketForTesting(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [route],
+            macUserID: "current-user"
+        )
+        let request = MobileHostRPCRequest(
+            id: "host-status",
+            method: "mobile.host.status",
+            params: [:],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let result = await MobileHostService.networkStatusResult(for: request)
+
+        guard case let .ok(payload) = result,
+              let object = payload as? [String: Any] else {
+            return #expect(Bool(false), "Expected identity status payload")
+        }
+        #expect((object["mac_device_id"] as? String)?.isEmpty == false)
+    }
+    #endif
+
     @Test func testScopedAttachTicketRejectsWorkspaceAliasIgnoredByHandlers() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
         let request = MobileHostRPCRequest(
@@ -388,7 +627,7 @@ struct MobileHostAuthorizationTests {
 
         #expect(error?.code == "forbidden")
     }
-    @Test func testAttachTicketAcceptsUnscopedWorkspaceListForPairedDevice() throws {
+    @Test func testScopedAttachTicketRejectsUnfilteredWorkspaceList() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -402,9 +641,9 @@ struct MobileHostAuthorizationTests {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        #expect(error == nil)
+        #expect(error?.code == "forbidden")
     }
-    @Test func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
+    @Test func testScopedAttachTicketRejectsWorkspaceListEvenWithScopedParams() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-list",
@@ -413,6 +652,22 @@ struct MobileHostAuthorizationTests {
                 "workspace_id": "workspace",
                 "terminal_id": "terminal",
             ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
+    @Test func testMacScopedAttachTicketAcceptsWorkspaceList() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "workspace-list",
+            method: "workspace.list",
+            params: [:],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
                 stackAccessToken: nil
@@ -670,6 +925,71 @@ struct MobileHostAuthorizationTests {
 
         #expect(error == nil)
     }
+    @Test func testAttachTicketAcceptsMouseWithinTerminalScope() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
+        let request = MobileHostRPCRequest(
+            id: "terminal-mouse",
+            method: "mobile.terminal.mouse",
+            params: [
+                "workspace_id": "workspace",
+                "surface_id": "terminal",
+                "col": 3,
+                "row": 4,
+            ],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error == nil)
+    }
+    @Test func testMacScopedAttachTicketAcceptsExistingMacScopedMobileRPCs() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "", terminalID: nil)
+        let requests = [
+            MobileHostRPCRequest(
+                id: "notification-dismiss",
+                method: "notification.dismiss",
+                params: ["notification_ids": ["11111111-1111-1111-1111-111111111111"]],
+                auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+            ),
+            MobileHostRPCRequest(
+                id: "notification-reconcile",
+                method: "notification.reconcile",
+                params: ["delivered_ids": ["11111111-1111-1111-1111-111111111111"]],
+                auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+            ),
+            MobileHostRPCRequest(
+                id: "chat-history",
+                method: "mobile.chat.history",
+                params: ["session_id": "session-main"],
+                auth: MobileHostRPCAuth(attachToken: ticket.authToken, stackAccessToken: nil)
+            ),
+        ]
+
+        for request in requests {
+            let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+            #expect(error == nil, "for \(request.method)")
+        }
+    }
+    @Test func testWorkspaceScopedAttachTicketRejectsMacScopedMobileRPCs() throws {
+        let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: nil)
+        let request = MobileHostRPCRequest(
+            id: "notification-dismiss",
+            method: "notification.dismiss",
+            params: ["notification_ids": ["11111111-1111-1111-1111-111111111111"]],
+            auth: MobileHostRPCAuth(
+                attachToken: ticket.authToken,
+                stackAccessToken: nil
+            )
+        )
+
+        let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
+
+        #expect(error?.code == "forbidden")
+    }
     @Test func testStackUserIDAuthorizationRequiresSignedInMacUser() throws {
         #expect(throws: (any Error).self) {
             try MobileHostAuthorizationPolicy.authorizeStackUserID(
@@ -704,6 +1024,32 @@ struct MobileHostAuthorizationTests {
 
         #expect(service.debugTrackedClientIDsForTesting(connectionID: connectionID) == nil)
     }
+
+    @Test func testActiveConnectionCountTracksAuthorizedSessionsOnly() {
+        let service = MobileHostService.shared
+        let connectionID = UUID()
+
+        service.debugResetMobileLifecycleStateForTesting()
+
+        service.debugRecordClientIDForTesting("ios-client", connectionID: connectionID)
+        #expect(service.statusSnapshot().activeConnectionCount == 0)
+
+        service.debugRecordAuthorizedConnectionForTesting(
+            connectionID: connectionID,
+            clientID: "ios-client"
+        )
+        #expect(service.statusSnapshot().activeConnectionCount == 1)
+
+        service.debugRecordAuthorizedConnectionForTesting(
+            connectionID: connectionID,
+            clientID: "ios-client"
+        )
+        #expect(service.statusSnapshot().activeConnectionCount == 1)
+
+        service.debugRemoveConnectionForTesting(id: connectionID)
+        #expect(service.statusSnapshot().activeConnectionCount == 0)
+    }
+
     @Test func testIdleMobileConnectionDoesNotKeepRequestActivityBusy() {
         MobileHostRequestActivity.resetForTesting()
         MobileHostRequestActivity.beginConnection()

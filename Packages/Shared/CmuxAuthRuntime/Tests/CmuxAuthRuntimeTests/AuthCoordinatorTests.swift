@@ -9,7 +9,8 @@ import Testing
         client: FakeAuthClient,
         launch: AuthLaunchOptions = .plain(),
         clock: any Clock<Duration> = ContinuousClock(),
-        isOnline: @escaping @Sendable () async -> Bool = { true }
+        isOnline: @escaping @Sendable () async -> Bool = { true },
+        onLocalAuthCleared: @escaping @MainActor @Sendable () async -> Void = {}
     ) -> (AuthCoordinator, FakeKeyValueStore) {
         let store = FakeKeyValueStore()
         let coordinator = AuthCoordinator(
@@ -21,7 +22,8 @@ import Testing
             config: .test,
             launch: launch,
             clock: clock,
-            isOnline: isOnline
+            isOnline: isOnline,
+            onLocalAuthCleared: onLocalAuthCleared
         )
         return (coordinator, store)
     }
@@ -174,6 +176,83 @@ import Testing
         #expect(await client.revokeCount == 1)
         #expect(await client.lastRevokedAccessToken == "access")
         #expect(coordinator.isAuthenticated == false)
+    }
+
+    @Test func signOutRunsLocalAuthClearedHook() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let clearCount = HookCounter()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onLocalAuthCleared: { clearCount.increment() }
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+
+        await coordinator.signOut()
+
+        #expect(clearCount.count == 1)
+    }
+
+    @Test func accessTokenAuthClearAwaitsLocalAuthClearedHookBeforePublishingCleared() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let hookStarted = TestPhaseSignal()
+        let hookBlocker = TestContinuationBlocker()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onLocalAuthCleared: {
+                await hookStarted.markStarted()
+                await hookBlocker.wait()
+            }
+        )
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        await client.setTokens(access: nil, refresh: nil)
+
+        let tokenRead = Task {
+            try await coordinator.accessToken()
+        }
+        await hookStarted.waitUntilStarted()
+
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == user)
+
+        await hookBlocker.release()
+        await #expect(throws: AuthError.unauthorized) {
+            try await tokenRead.value
+        }
+        #expect(coordinator.isAuthenticated == false)
+        #expect(coordinator.currentUser == nil)
+    }
+
+    @Test func staleAuthClearDoesNotPublishOverNewerSignIn() async throws {
+        let oldUser = CMUXAuthUser(id: "u1", primaryEmail: "old@b.com", displayName: "Old")
+        let newUser = CMUXAuthUser(id: "u2", primaryEmail: "new@b.com", displayName: "New")
+        let client = FakeAuthClient(user: oldUser)
+        let hookStarted = TestPhaseSignal()
+        let hookBlocker = TestContinuationBlocker()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onLocalAuthCleared: {
+                await hookStarted.markStarted()
+                await hookBlocker.wait()
+            }
+        )
+        try await coordinator.signInWithPassword(email: "old@b.com", password: "pw")
+        await client.setTokens(access: nil, refresh: nil)
+
+        let staleTokenRead = Task {
+            try await coordinator.accessToken()
+        }
+        await hookStarted.waitUntilStarted()
+        await client.setUser(newUser)
+        try await coordinator.signInWithPassword(email: "new@b.com", password: "pw")
+
+        await hookBlocker.release()
+        await #expect(throws: AuthError.unauthorized) {
+            try await staleTokenRead.value
+        }
+        #expect(coordinator.isAuthenticated)
+        #expect(coordinator.currentUser == newUser)
     }
 
     @Test func refreshOnlySignOutMintsAccessTokenForTeardown() async throws {

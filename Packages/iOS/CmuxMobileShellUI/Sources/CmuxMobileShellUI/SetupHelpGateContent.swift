@@ -54,7 +54,7 @@ struct SetupHelpGateContent {
                 title: L10n.string("mobile.setupHelp.unreachableTitle", defaultValue: "Wake the Mac"),
                 body: L10n.string(
                     "mobile.setupHelp.unreachableBody",
-                    defaultValue: "You have paired this Mac before but it is not reachable now. Wake it, make sure cmux is running, and confirm both devices are on the same tailnet or Wi-Fi. Then reconnect."
+                    defaultValue: "You have paired this Mac before but it is not reachable now. Wake it, make sure cmux is running, and confirm this device can reach it over Tailscale, your VPN, or LAN. Then reconnect."
                 ),
                 link: nil,
                 identifierSuffix: "macUnreachable",

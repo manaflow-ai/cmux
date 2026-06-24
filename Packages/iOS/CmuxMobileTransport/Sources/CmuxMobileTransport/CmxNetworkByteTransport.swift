@@ -9,7 +9,7 @@ public enum CmxConnectFailureKind: Sendable, Equatable {
     /// The host is reachable but nothing is listening on the port: the Mac app
     /// is not running, or mobile pairing is turned off.
     case connectionRefused
-    /// No route to the host: the Mac is off Tailscale, asleep, or offline.
+    /// No route to the host: the Mac is off the chosen network, asleep, or offline.
     case hostUnreachable
     /// The connect attempt timed out (commonly the same as unreachable/asleep).
     case timedOut
@@ -66,10 +66,10 @@ public struct CmxNetworkByteTransportFactory: CmxRouteAwareByteTransportFactory 
     /// Creates a factory bound to the given supported route kinds.
     /// - Parameters:
     ///   - supportedKinds: Route kinds this factory accepts. Defaults to
-    ///     `tailscale` and `debugLoopback`.
+    ///     `tailscale`, user-trusted host/port routes, and `debugLoopback`.
     ///   - maximumReceiveLength: Per-receive byte cap for built transports.
     public init(
-        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
+        supportedKinds: [CmxAttachTransportKind] = [.tailscale, .trustedNetwork, .debugLoopback],
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength
     ) {
         self.supportedKinds = supportedKinds

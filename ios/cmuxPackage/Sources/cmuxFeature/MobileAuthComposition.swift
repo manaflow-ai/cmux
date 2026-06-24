@@ -1,9 +1,13 @@
 import CMUXAuthCore
 import CmuxAuthRuntime
+import CmuxMobilePairedMac
 import CmuxMobileSupport
 import CmuxMobileTransport
 import Foundation
+import OSLog
 import StackAuth
+
+private let mobileAuthCompositionLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-auth-composition")
 
 /// The auth composition root for the iOS app.
 ///
@@ -24,6 +28,9 @@ public struct MobileAuthComposition {
     public let pushRegistration: PushRegistrationService
     /// The resolved configuration (used for diagnostics + push API base URL).
     public let config: AuthConfig
+    /// Process-wide paired-Mac store shared with the shell UI so auth-clear hooks
+    /// wipe the same credential records the runtime reads for reconnect.
+    public let pairedMacStore: (any MobilePairedMacStoring)?
 
     /// A reachability monitor used to fail sign-in flows fast when offline.
     private let reachability: any ReachabilityProviding
@@ -46,6 +53,8 @@ public struct MobileAuthComposition {
         policy: MobileAuthBuildPolicy = .current
     ) {
         self.reachability = reachability
+        let pairedMacStore = Self.openPairedMacStore()
+        self.pairedMacStore = pairedMacStore
 
         let isDevelopment = Self.isDevelopmentBuild
         let overrides = Self.localConfigStringOverrides(in: bundle)
@@ -92,7 +101,17 @@ public struct MobileAuthComposition {
             config: resolvedConfig,
             launch: launch,
             isOnline: { await monitor.isOnline },
-            onSignedIn: { await deferredSignIn.run() }
+            onSignedIn: { await deferredSignIn.run() },
+            onLocalAuthCleared: {
+                guard let credentialStore = pairedMacStore as? any MobilePairedMacCredentialStoring else { return }
+                do {
+                    try await credentialStore.removeAllCredentials()
+                } catch {
+                    mobileAuthCompositionLog.error(
+                        "failed to clear paired-mac credentials after auth reset: \(String(describing: error), privacy: .public)"
+                    )
+                }
+            }
         )
         let push = PushRegistrationService(
             tokenProvider: coordinator,
@@ -109,6 +128,17 @@ public struct MobileAuthComposition {
     /// Begin asynchronous session restore (call once after construction).
     public func start() {
         coordinator.start()
+    }
+
+    private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
+        do {
+            return try MobilePairedMacStore()
+        } catch {
+            mobileAuthCompositionLog.error(
+                "failed to open paired mac store: \(String(describing: error), privacy: .public)"
+            )
+            return nil
+        }
     }
 
     private static var isDevelopmentBuild: Bool {

@@ -16,6 +16,18 @@ import Testing
     #expect(transport is CmxNetworkByteTransport)
 }
 
+@Test func networkTransportFactoryBuildsHostPortTransportForTrustedNetworkRoute() throws {
+    let route = try CmxAttachRoute(
+        id: "trusted-network",
+        kind: .trustedNetwork,
+        endpoint: .hostPort(host: "192.168.1.20", port: 49831)
+    )
+
+    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+
+    #expect(transport is CmxNetworkByteTransport)
+}
+
 @Test func networkTransportFactoryRejectsNonNetworkRouteKind() throws {
     let route = try CmxAttachRoute(
         id: "iroh",

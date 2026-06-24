@@ -29,6 +29,11 @@ public struct UITestConfig {
         value(for: "CMUX_UITEST_ADD_DEVICE_PORT")
     }
 
+    /// The trusted-network pairing key to prefill on the Add Device form.
+    public static var addDevicePairingKey: String? {
+        value(for: "CMUX_UITEST_ADD_DEVICE_PAIRING_KEY")
+    }
+
     /// The attach URL to auto-open, if injected.
     public static var attachURL: String? {
         value(for: "CMUX_UITEST_ATTACH_URL")

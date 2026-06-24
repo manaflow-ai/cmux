@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobilePairedMac
 import CmuxMobileRPC
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -44,16 +45,38 @@ extension MobileShellComposite {
         name: String,
         host: String,
         port: Int,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        trustedNetworkAuthConfirmed: Bool,
+        trustedNetworkPairingSecret: String?,
+        storedCredential: MobilePairedMacCredential?,
+        pairedMacDeviceID: String?
     ) async throws -> CmxAttachTicket {
         let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
-        if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
+        if let storedCredential,
+           storedCredential.isUsable(),
+           trustedNetworkAuthConfirmed,
+           directRoute.kind == .trustedNetwork {
+            return try CmxAttachTicket(
+                workspaceID: "",
+                terminalID: nil,
+                macDeviceID: pairedMacDeviceID ?? "manual-\(host):\(port)",
+                macDisplayName: displayName,
+                routes: [directRoute],
+                expiresAt: storedCredential.expiresAt,
+                authToken: storedCredential.authToken
+            )
+        }
+        let canRequestAttachTicket = MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute)
+            || (trustedNetworkAuthConfirmed && directRoute.kind == .trustedNetwork)
+        if canRequestAttachTicket {
             do {
                 let ticket = try await requestManualAttachTicket(
                     route: directRoute,
                     displayName: displayName,
-                    attemptStartedAt: attemptStartedAt
+                    attemptStartedAt: attemptStartedAt,
+                    trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
+                    trustedNetworkPairingSecret: trustedNetworkPairingSecret
                 )
                 return ticket
             } catch {
@@ -94,7 +117,9 @@ extension MobileShellComposite {
     func requestManualAttachTicket(
         route: CmxAttachRoute,
         displayName: String,
-        attemptStartedAt: Date?
+        attemptStartedAt: Date?,
+        trustedNetworkAuthConfirmed: Bool,
+        trustedNetworkPairingSecret: String?
     ) async throws -> CmxAttachTicket {
         guard let runtime else {
             throw MobileShellConnectionError.insecureManualRoute
@@ -109,6 +134,7 @@ extension MobileShellComposite {
             route: route,
             ticket: probeTicket,
             allowsStackAuthFallback: true,
+            trustedNetworkAuthConfirmed: trustedNetworkAuthConfirmed,
             connectAttemptRegistry: connectAttemptRegistry,
             stackTokenGate: stackTokenGate,
             stackTokenForceRefreshGate: stackTokenForceRefreshGate
@@ -125,12 +151,22 @@ extension MobileShellComposite {
         } else {
             timeoutNanoseconds = runtime.pairingRequestTimeoutNanoseconds
         }
+        var params: [String: Any] = [
+            "ttl_seconds": trustedNetworkAuthConfirmed ? 60 * 60 * 24 * 30 : 3600,
+            "scope": "mac",
+        ]
+        if trustedNetworkAuthConfirmed,
+           let secret = trustedNetworkPairingSecret?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !secret.isEmpty {
+            params["trusted_network_pairing_secret"] = secret
+            if case let .hostPort(host, port) = route.endpoint {
+                params["trusted_network_host"] = host
+                params["trusted_network_port"] = port
+            }
+        }
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.attach_ticket.create",
-            params: [
-                "ttl_seconds": 3600,
-                "scope": "mac",
-            ]
+            params: params
         )
         let resultData: Data
         do {

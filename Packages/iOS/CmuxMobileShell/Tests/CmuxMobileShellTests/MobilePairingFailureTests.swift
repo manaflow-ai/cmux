@@ -159,6 +159,66 @@ import Testing
         #expect(category == .accountMismatch)
     }
 
+    @MainActor
+    @Test func macUserBoundTicketRejectsMissingPhoneUser() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Mac",
+            macUserID: "mac-user",
+            routes: [route()]
+        )
+
+        let category = MobileShellComposite.emailFailure(
+            for: ticket,
+            actualUserID: nil,
+            actualEmail: "phone@example.com"
+        )
+
+        #expect(category == .authFailed)
+    }
+
+    @MainActor
+    @Test func macUserBoundTicketRejectsDifferentPhoneUser() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Mac",
+            macUserID: "mac-user",
+            routes: [route()]
+        )
+
+        let category = MobileShellComposite.emailFailure(
+            for: ticket,
+            actualUserID: "phone-user",
+            actualEmail: "phone@example.com"
+        )
+
+        #expect(category == .authFailed)
+    }
+
+    @MainActor
+    @Test func macUserBoundTicketAllowsMatchingPhoneUser() throws {
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: "mac-1",
+            macDisplayName: "Mac",
+            macUserID: "mac-user",
+            routes: [route()]
+        )
+
+        let category = MobileShellComposite.emailFailure(
+            for: ticket,
+            actualUserID: "mac-user",
+            actualEmail: "phone@example.com"
+        )
+
+        #expect(category == nil)
+    }
+
     @Test func unrecognizedRPCErrorIsActionableUnknownNotEmpty() throws {
         let category = MobilePairingFailureCategory.classify(
             error: MobileShellConnectionError.rpcError("weird_code", "something odd"),
@@ -217,9 +277,8 @@ import Testing
     }
 
     @Test func invalidCodeNoLongerMentionsAPairingCode() {
-        // There is no pairing-code secret anymore (the v2 QR carries bare routes
-        // and the host authorizes by Stack account). The copy must not imply a
-        // wrong "code" was entered.
+        // The minimal QR carries bare routes and no pairing-code secret. The copy
+        // must not imply a wrong "code" was entered.
         let message = MobilePairingFailureCategory.invalidCode.message
         #expect(!message.lowercased().contains("pairing code"))
         #expect(!message.isEmpty)
