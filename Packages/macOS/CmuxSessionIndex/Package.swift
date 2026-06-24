@@ -28,6 +28,12 @@ let package = Package(
                 .swiftLanguageMode(.v6),
                 .enableUpcomingFeature("ExistentialAny"),
                 .enableUpcomingFeature("InternalImportsByDefault"),
+            ],
+            linkerSettings: [
+                // The OpenCode transcript path opens its SQLite snapshot with raw
+                // `sqlite3_*` C calls (via `import SQLite3`), so the target links the
+                // system SQLite library. Mirrors CMUXAgentLaunch's SQLite usage.
+                .linkedLibrary("sqlite3"),
             ]
         ),
         .testTarget(
