@@ -428,6 +428,10 @@ public final class RemoteSessionCoordinator: @unchecked Sendable {
             reconnectSuspended = false
             reachabilityProbeGeneration &+= 1
             guard proxyEndpoint != endpoint else {
+                publishState(
+                    .connected,
+                    detail: "Connected to \(configuration.displayTarget) via shared local proxy \(endpoint.host):\(endpoint.port)"
+                )
                 recordHeartbeatActivityLocked()
                 fulfillPendingPTYBridgeStartsLocked()
                 return
