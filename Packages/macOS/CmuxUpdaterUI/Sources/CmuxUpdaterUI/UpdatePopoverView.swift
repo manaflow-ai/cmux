@@ -142,6 +142,13 @@ private struct DetectedBackgroundUpdateView: View {
                         .cmuxFont(size: 13, weight: .semibold)
 
                     UpdateMetadataView(item: item, labelWidth: labelWidth)
+
+                    Text(String(
+                        localized: "update.popover.windowsReopenReassurance",
+                        defaultValue: "Your windows reopen after updating."
+                    ))
+                    .cmuxFont(size: 11)
+                    .foregroundStyle(.secondary)
                 }
 
                 HStack(spacing: 8) {
