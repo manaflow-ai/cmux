@@ -52,7 +52,7 @@ public struct ChatSessionListReducer: Sendable {
             var updated = sessions
             updated[index] = updated[index].withState(state)
             return updated
-        case .appended, .updated, .terminalBlocks, .reset, .unknown:
+        case .appended, .updated, .terminalBlocks, .streamingProse, .reset, .unknown:
             // Transcript-content frames don't affect the session list.
             return sessions
         }
