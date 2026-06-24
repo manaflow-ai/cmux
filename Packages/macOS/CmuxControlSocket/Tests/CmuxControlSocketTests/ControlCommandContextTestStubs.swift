@@ -468,6 +468,12 @@ extension ControlSurfaceContext {
         ttyName: String
     ) -> ControlSurfaceReportTTYResolution { .workspaceNotFound }
 
+    func controlSurfaceReportPWD(
+        workspaceID: UUID,
+        requestedSurfaceID: UUID?,
+        path: String
+    ) -> ControlSurfaceReportPWDResolution { .workspaceNotFound }
+
     func controlSurfaceReportShellState(
         workspaceID: UUID,
         requestedSurfaceID: UUID?,

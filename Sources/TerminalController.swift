@@ -1839,8 +1839,8 @@ class TerminalController {
         // still-shared v2SurfaceSplitOff) handled by ControlCommandCoordinator too.
         // surface.refresh/health/resume.set/get/clear, debug.terminals (forwards to the
         // still-shared v2DebugTerminals), surface.send_text/send_key/report_tty/
-        // report_shell_state/ports_kick/clear_history/trigger_flash, and surface.read_text
-        // handled by ControlCommandCoordinator.
+        // report_pwd/report_shell_state/ports_kick/clear_history/trigger_flash, and
+        // surface.read_text handled by ControlCommandCoordinator.
 
         // Panes
         // pane.* handled by ControlCommandCoordinator.
@@ -2059,6 +2059,7 @@ class TerminalController {
             "surface.send_text",
             "surface.send_key",
             "surface.report_tty",
+            "surface.report_pwd",
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
