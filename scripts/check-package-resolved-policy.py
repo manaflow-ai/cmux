@@ -77,6 +77,29 @@ def tracked_package_manifests(*, include_allowed_vendor: bool) -> dict[str, Path
     return manifests
 
 
+def tracked_package_manifests_at_ref(
+    ref: str,
+    *,
+    include_allowed_vendor: bool,
+) -> dict[str, Path]:
+    manifests: dict[str, Path] = {}
+    for manifest in git_stdout(
+        "ls-tree",
+        "-r",
+        "--name-only",
+        ref,
+        "--",
+        "*Package.swift",
+    ).splitlines():
+        if has_skipped_part(manifest):
+            continue
+        if not include_allowed_vendor and is_allowed_vendor_path(manifest):
+            continue
+        path = Path(manifest)
+        manifests[path.parent.as_posix()] = path
+    return manifests
+
+
 def package_graph(
     manifests: dict[str, Path],
     *,
@@ -277,7 +300,11 @@ def main() -> int:
 
     if merge_base is not None:
         current_remote_memo: dict[str, bool] = {}
-        previous_graph = package_graph(all_manifests, ref=merge_base)
+        previous_manifests = tracked_package_manifests_at_ref(
+            merge_base,
+            include_allowed_vendor=True,
+        )
+        previous_graph = package_graph(previous_manifests, ref=merge_base)
         previous_remote_memo: dict[str, bool] = {}
         for root, manifest in all_manifests.items():
             if manifest.as_posix() not in changed_files:
