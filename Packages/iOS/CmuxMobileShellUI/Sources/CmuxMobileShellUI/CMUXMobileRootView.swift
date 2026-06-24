@@ -342,6 +342,7 @@ struct CMUXMobileRootView: View {
             return
         }
         guard shouldWaitForAuthenticatedUserScopeBase else { return }
+        store.finishStoredMacReconnectScopeUnavailable()
         didTimeoutAuthenticatedUserScopeWait = true
     }
 
