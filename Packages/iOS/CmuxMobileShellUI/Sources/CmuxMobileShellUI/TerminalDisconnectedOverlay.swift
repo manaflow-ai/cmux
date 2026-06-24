@@ -11,21 +11,7 @@ import SwiftUI
 struct TerminalDisconnectedOverlay: View {
     let status: MobileMacConnectionStatus
     let host: String
-    /// The specific, classified reason the connection is down (for example
-    /// "Your Mac is reachable, but cmux isn't running there"), when the store has
-    /// one. Preferred over the generic ``status`` description so the user reads
-    /// the real cause instead of a blanket "Disconnected".
-    var detail: String?
-    /// A shorter, actionable next-step line shown beneath ``detail``.
-    var guidance: String?
     let reconnect: () -> Void
-
-    /// The body line: the specific classified reason if we have one, otherwise
-    /// the generic per-status description.
-    private var bodyText: String {
-        if let detail, !detail.isEmpty { return detail }
-        return status.description
-    }
 
     var body: some View {
         ZStack {
@@ -43,18 +29,17 @@ struct TerminalDisconnectedOverlay: View {
                 Text(status.label)
                     .font(.headline)
                     .foregroundStyle(.white)
-                Text(bodyText)
+                // The generic, always-accurate per-status description. We don't
+                // surface the store's classified `connectionError` here because
+                // it is a single global foreground/pairing error not keyed per
+                // Mac, so on a multi-Mac session it could describe a different
+                // Mac. The precise reachability reason is available via the
+                // Computers screen's per-route Ping instead.
+                Text(status.description)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.85))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                if let guidance, !guidance.isEmpty {
-                    Text(guidance)
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
                 if !host.isEmpty {
                     Text(host)
                         .font(.caption)
