@@ -3384,9 +3384,17 @@ struct CMUXCLI {
         if command == "setup-hooks" || command == "uninstall-hooks" { try runSetupHooks(uninstall: command == "uninstall-hooks"); return } // Backwards compatibility for old hook setup docs/scripts.
         if (command == "codex-hook" || command == "feed-hook"), processEnv["CMUX_SURFACE_ID"]?.isEmpty != false, processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
            !commandArgs.contains(where: { $0 == "--workspace" || $0 == "--surface" || $0.hasPrefix("--workspace=") || $0.hasPrefix("--surface=") }) { print("{}"); return } // Backwards compatibility for old installed hooks outside cmux terminals.
+        var preloadedHooksRawInput: String?
         if command == "hooks" {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
+            }
+            if let preflight = codexForkParentLifecycleHookPreflight(commandArgs: commandArgs, env: processEnv) {
+                if preflight.handled {
+                    print("{}")
+                    return
+                }
+                preloadedHooksRawInput = preflight.rawInput
             }
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
@@ -4902,7 +4910,13 @@ struct CMUXCLI {
         case "feed-hook": // Backwards compatibility for older installed Feed hooks. Hidden from help.
             try runFeedHook(commandArgs: commandArgs, client: client, telemetry: cliTelemetry)
         case "hooks":
-            try runHooksSocketCommand(commandArgs: commandArgs, client: client, telemetry: cliTelemetry, socketPassword: socketPasswordArg)
+            try runHooksSocketCommand(
+                commandArgs: commandArgs,
+                client: client,
+                telemetry: cliTelemetry,
+                socketPassword: socketPasswordArg,
+                rawInputOverride: preloadedHooksRawInput
+            )
 
         case "set-app-focus":
             guard let value = commandArgs.first else { throw CLIError(message: "set-app-focus requires a value") }
@@ -26618,6 +26632,287 @@ struct CMUXCLI {
             ?? fallbackPID.flatMap { self.processArguments(for: pid_t($0)) }
     }
 
+    private func codexForkSessionParentId(env: [String: String], fallbackPID: Int?) -> String? {
+        guard let arguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
+            return nil
+        }
+        return codexForkSessionParentId(in: arguments)
+    }
+
+    private func codexLaunchIsForkSession(env: [String: String], fallbackPID: Int?) -> Bool {
+        guard let arguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID) else {
+            return false
+        }
+        return codexForkCommandIndex(in: arguments) != nil
+    }
+
+    private func codexForkSessionParentId(in arguments: [String]) -> String? {
+        guard let forkIndex = codexForkCommandIndex(in: arguments) else {
+            return nil
+        }
+        return codexForkSessionIdentifier(in: arguments, after: forkIndex)
+    }
+
+    private func codexForkCommandIndex(in arguments: [String]) -> Int? {
+        if let wrapperIndex = codexTeamsWrapperCommandIndex(in: arguments) {
+            return codexForkSubcommandIndex(in: arguments, startIndex: wrapperIndex + 1)
+        }
+        return codexForkSubcommandIndex(in: arguments, startIndex: codexLaunchArgumentsStartIndex(arguments))
+    }
+
+    private func codexForkSubcommandIndex(in arguments: [String], startIndex: Int) -> Int? {
+        var index = startIndex
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return argument == "fork" ? index : nil
+            }
+            let width = codexForkOptionWidth(arguments, index: index)
+            if codexForkOptionIsVariadicImage(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end where arguments[candidateIndex] == "fork" {
+                        return candidateIndex
+                    }
+                }
+            }
+            index += width
+        }
+        return nil
+    }
+
+    private func codexTeamsWrapperCommandIndex(in arguments: [String]) -> Int? {
+        var index = cmuxLaunchArgumentsStartIndex(arguments)
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return argument == "codex-teams" ? index : nil
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private func cmuxLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
+        guard let first = arguments.first else { return 0 }
+        let executableName = first.split(separator: "/").last.map(String.init) ?? first
+        return executableName == "cmux" || executableName.hasPrefix("cmux ") ? 1 : 0
+    }
+
+    private func codexLaunchArgumentsStartIndex(_ arguments: [String]) -> Int {
+        guard let first = arguments.first else { return 0 }
+        let executableName = first.split(separator: "/").last.map(String.init) ?? first
+        if executableName == "codex" {
+            return 1
+        }
+        if executableName == "node" || executableName == "bun" {
+            for index in arguments.indices.dropFirst() where codexScriptArgumentDescribesCodex(arguments[index]) {
+                return index + 1
+            }
+        }
+        return 0
+    }
+
+    private func codexScriptArgumentDescribesCodex(_ argument: String) -> Bool {
+        let lowered = argument.lowercased()
+        let basename = argument.split(separator: "/").last.map(String.init)?.lowercased() ?? lowered
+        return basename == "codex"
+            || basename == "codex.js"
+            || lowered.contains("/@openai/codex/")
+            || lowered.contains("/node_modules/@openai/codex/")
+    }
+
+    private func codexRawLaunchArguments(env: [String: String], fallbackPID: Int?) -> [String]? {
+        if let fallbackPID {
+            let pid = pid_t(fallbackPID)
+            if let arguments = self.processArguments(for: pid),
+               !AgentLaunchCaptureTrust.argvLooksLikeShellWrapper(arguments),
+               AgentLaunchCaptureTrust.nativeProcessDescribesKind(processName: processName(for: pid), arguments: arguments, kind: "codex") {
+                return arguments
+            }
+        }
+        return AgentLaunchCaptureTrust.launcherDescribesKind(normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"]), kind: "codex") ? decodeNULSeparatedBase64(env["CMUX_AGENT_LAUNCH_ARGV_B64"]) : nil
+    }
+
+    private func codexForkSessionIdentifier(in arguments: [String], after forkIndex: Int) -> String? {
+        var index = forkIndex + 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if argument == "--last" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                return normalizedHookValue(argument)
+            }
+            let width = codexForkOptionWidth(arguments, index: index)
+            if codexForkOptionIsVariadicImage(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 1 < end {
+                    for candidateIndex in (index + 1)..<end
+                    where codexLooksLikeSessionIdentifier(arguments[candidateIndex]) {
+                        return normalizedHookValue(arguments[candidateIndex])
+                    }
+                }
+            }
+            index += width
+        }
+        return nil
+    }
+
+    private func codexForkOptionWidth(_ arguments: [String], index: Int) -> Int {
+        guard index < arguments.count else {
+            return 1
+        }
+        let argument = arguments[index]
+        if argument.contains("=") {
+            return 1
+        }
+        if codexForkOptionIsVariadicImage(argument) {
+            var end = index + 1
+            while end < arguments.count, !arguments[end].hasPrefix("-") {
+                end += 1
+            }
+            return max(1, end - index)
+        }
+        switch argument {
+        case "-c", "--config",
+            "--enable", "--disable",
+            "--remote", "--remote-auth-token-env",
+            "-m", "--model",
+            "--local-provider",
+            "-p", "--profile",
+            "-s", "--sandbox",
+            "-C", "--cd",
+            "--add-dir",
+            "-a", "--ask-for-approval":
+            return index + 1 < arguments.count ? 2 : 1
+        default:
+            return 1
+        }
+    }
+
+    private func codexForkOptionIsVariadicImage(_ argument: String) -> Bool {
+        argument == "-i" || argument == "--image"
+    }
+
+    private func codexLooksLikeSessionIdentifier(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 20 else { return false }
+        if trimmed.hasPrefix("019") {
+            return true
+        }
+        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
+    }
+
+    private func shouldSkipCodexForkParentLifecycle(
+        def: AgentHookDef,
+        subcommand: String,
+        input: ClaudeHookParsedInput,
+        sessionId: String,
+        store: ClaudeHookSessionStore,
+        env: [String: String],
+        fallbackPID: Int?,
+        authoritativeForkSurfaceId: String? = nil,
+        failClosedForStoredSelectorSessions: Bool = true
+    ) -> Bool {
+        guard def.name == "codex",
+              subcommand == "session-start" || subcommand == "active" || subcommand == "session-end" else {
+            return false
+        }
+
+        let payloadSessionId = normalizedHookValue(input.sessionId)
+        let resolvedSessionId = normalizedHookValue(sessionId)
+        if let parentSessionId = codexForkSessionParentId(env: env, fallbackPID: fallbackPID),
+           parentSessionId == payloadSessionId || parentSessionId == resolvedSessionId {
+            return true
+        }
+
+        guard codexLaunchIsForkSession(env: env, fallbackPID: fallbackPID) else {
+            return false
+        }
+        let launchArguments = codexRawLaunchArguments(env: env, fallbackPID: fallbackPID)
+        let sanitizedLaunchArguments = codexSanitizedForkLaunchArguments(
+            launchArguments,
+            env: env,
+            fallbackKind: def.name
+        )
+        let forkSurfaceId = normalizedHookValue(authoritativeForkSurfaceId)
+        let hasExplicitParentSessionId = codexForkSessionParentId(env: env, fallbackPID: fallbackPID) != nil
+        for candidate in [payloadSessionId, resolvedSessionId] {
+            guard let candidate else { continue }
+            guard let record = try? store.lookup(sessionId: candidate) else { continue }
+            if codexStoredSessionMatchesCurrentRawFork(record, launchArguments: launchArguments) {
+                continue
+            }
+            if let forkSurfaceId {
+                if record.surfaceId != forkSurfaceId {
+                    return true
+                }
+                continue
+            }
+            if codexStoredSessionMatchesCurrentFork(record, sanitizedLaunchArguments: sanitizedLaunchArguments) {
+                continue
+            }
+            if failClosedForStoredSelectorSessions && !hasExplicitParentSessionId {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func codexStoredSessionMatchesCurrentFork(
+        _ record: ClaudeHookSessionRecord,
+        sanitizedLaunchArguments: [String]?
+    ) -> Bool {
+        guard let sanitizedLaunchArguments,
+              let storedArguments = record.launchCommand?.arguments else {
+            return false
+        }
+        return storedArguments == sanitizedLaunchArguments
+    }
+
+    private func codexStoredSessionMatchesCurrentRawFork(
+        _ record: ClaudeHookSessionRecord,
+        launchArguments: [String]?
+    ) -> Bool {
+        guard let launchArguments,
+              codexForkCommandIndex(in: launchArguments) != nil,
+              let storedArguments = record.launchCommand?.arguments else {
+            return false
+        }
+        return storedArguments == launchArguments
+    }
+
+    private func codexSanitizedForkLaunchArguments(
+        _ launchArguments: [String]?,
+        env: [String: String],
+        fallbackKind: String
+    ) -> [String]? {
+        guard let launchArguments,
+              codexForkCommandIndex(in: launchArguments) != nil else {
+            return nil
+        }
+        let envLauncher = normalizedHookValue(env["CMUX_AGENT_LAUNCH_KIND"])
+        let launcher = AgentLaunchCaptureTrust.launcherDescribesKind(envLauncher, kind: fallbackKind)
+            ? (envLauncher ?? fallbackKind)
+            : fallbackKind
+        return sanitizedAgentLaunchArguments(
+            launchArguments,
+            launcher: launcher,
+            fallbackKind: fallbackKind
+        )
+    }
+
     private func agentLaunchCommandFromEnvironment(
         _ env: [String: String],
         fallbackPID: Int?,
@@ -29428,7 +29723,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         commandArgs: [String],
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        rawInputOverride: String? = nil
     ) throws {
         let env = ProcessInfo.processInfo.environment
         let subcommand = commandArgs.first?.lowercased() ?? ""
@@ -29497,6 +29793,38 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         func resolveDefaultSurfaceId(workspaceId: String) -> String? {
             try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
         }
+
+        let rawInput = rawInputOverride ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let input = parseClaudeHookInput(rawInput: rawInput)
+
+        let store = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+
+        let hookCwd = input.cwd
+            ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+            ?? normalizedHookValue(env["PWD"])
+        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
+        let action = Self.subcommandActions[subcommand] ?? .noop
+        let isCodexForkParentLifecycle = shouldSkipCodexForkParentLifecycle(
+            def: def,
+            subcommand: subcommand,
+            input: input,
+            sessionId: sessionId,
+            store: store,
+            env: env,
+            fallbackPID: inferredPID,
+            failClosedForStoredSelectorSessions: false
+        )
+        if isCodexForkParentLifecycle {
+            telemetry.breadcrumb("codex-hook.\(subcommand).fork-parent-skipped")
+            print("{}")
+            return
+        }
+
         let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
         // Only an EXPLICIT --workspace flag that fails to resolve is a hard, hook-dropping error. A
         // stale/invalid AMBIENT CMUX_WORKSPACE_ID must not abort routing — treated as absent, it falls
@@ -29530,6 +29858,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
         }()
+        if def.name == "codex",
+           (subcommand == "session-start" || subcommand == "active" || subcommand == "session-end"),
+           codexLaunchIsForkSession(env: env, fallbackPID: inferredPID) {
+            let authoritativeForkSurfaceId = processBinding()?.surfaceId
+                ?? (explicitSurfaceFlag == nil ? nil : resolvedDirectSurfaceArg)
+            let isCodexForkParentLifecycle = shouldSkipCodexForkParentLifecycle(
+                def: def,
+                subcommand: subcommand,
+                input: input,
+                sessionId: sessionId,
+                store: store,
+                env: env,
+                fallbackPID: inferredPID,
+                authoritativeForkSurfaceId: authoritativeForkSurfaceId
+            )
+            if isCodexForkParentLifecycle {
+                telemetry.breadcrumb("codex-hook.\(subcommand).fork-parent-skipped")
+                print("{}")
+                return
+            }
+        }
         // Same asymmetry for the surface: an explicit --surface flag that fails to resolve is a hard
         // error, but a stale/invalid ambient CMUX_SURFACE_ID (a surface that was closed, or belongs to
         // another workspace) must fall through to the PID/TTY binding instead of dropping the hook —
@@ -29540,21 +29889,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
-        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        let input = parseClaudeHookInput(rawInput: rawInput)
-
-        let store = ClaudeHookSessionStore(
-            processEnv: env.merging(
-                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
-                uniquingKeysWith: { _, new in new }
-            )
-        )
-
-        let hookCwd = input.cwd
-            ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
-            ?? normalizedHookValue(env["PWD"])
-        let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
-        let action = Self.subcommandActions[subcommand] ?? .noop
 #if DEBUG
         agentHookDebugLog(
             "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
@@ -33828,11 +34162,61 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         try uninstallAgentHooks(def)
     }
 
+    private func codexForkParentLifecycleHookPreflight(
+        commandArgs: [String],
+        env: [String: String]
+    ) -> (handled: Bool, rawInput: String?)? {
+        guard commandArgs.count >= 2,
+              commandArgs[0].lowercased() == "codex" else {
+            return nil
+        }
+        let subcommand = commandArgs[1].lowercased()
+        guard subcommand == "session-start" || subcommand == "active" || subcommand == "session-end" else {
+            return nil
+        }
+        let inferredPID = agentPIDFromHookEnvironment(agentName: "codex", env: env) ?? inferredAgentPID()
+        guard codexLaunchIsForkSession(env: env, fallbackPID: inferredPID) else {
+            return nil
+        }
+        guard let codexDef = Self.agentDef(named: "codex") else {
+            return nil
+        }
+        let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        let input = parseClaudeHookInput(rawInput: rawInput)
+        let hookCwd = input.cwd
+            ?? normalizedHookValue(env["CMUX_AGENT_LAUNCH_CWD"])
+            ?? normalizedHookValue(env["PWD"])
+        let sessionId = resolvedAgentHookSessionId(
+            def: codexDef,
+            input: input,
+            env: env,
+            cwd: hookCwd
+        )
+        let store = ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: codexDef.sessionStoreSuffix, env: env)],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+        let isParentLifecycle = shouldSkipCodexForkParentLifecycle(
+            def: codexDef,
+            subcommand: subcommand,
+            input: input,
+            sessionId: sessionId,
+            store: store,
+            env: env,
+            fallbackPID: inferredPID,
+            failClosedForStoredSelectorSessions: false
+        )
+        return (handled: isParentLifecycle, rawInput: isParentLifecycle ? nil : rawInput)
+    }
+
     private func runHooksSocketCommand(
         commandArgs: [String],
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry,
-        socketPassword: String? = nil
+        socketPassword: String? = nil,
+        rawInputOverride: String? = nil
     ) throws {
         guard let first = commandArgs.first?.lowercased() else {
             throw CLIError(message: "Usage: cmux hooks <setup|uninstall|feed|claude|agent>")
@@ -33871,7 +34255,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             telemetry.breadcrumb("hooks.\(def.name).dispatch")
             do {
-                try runGenericAgentHook(def: def, commandArgs: rest, client: client, telemetry: telemetry, socketPassword: socketPassword)
+                try runGenericAgentHook(
+                    def: def,
+                    commandArgs: rest,
+                    client: client,
+                    telemetry: telemetry,
+                    socketPassword: socketPassword,
+                    rawInputOverride: rawInputOverride
+                )
                 telemetry.breadcrumb("hooks.\(def.name).completed")
             } catch {
                 telemetry.breadcrumb("hooks.\(def.name).failure")
