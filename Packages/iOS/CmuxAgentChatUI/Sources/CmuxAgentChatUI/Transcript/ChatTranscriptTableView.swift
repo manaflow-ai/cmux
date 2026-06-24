@@ -358,8 +358,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             shouldPreserveKeyboardViewport = true
             transition.animate {
                 self.applyKeyboardViewport(snapshot: snapshot, in: tableView)
-            } completion: { finished in
-                guard finished else { return }
+            } completion: { _ in
                 self.finishKeyboardViewportTransition(id: transitionID, in: tableView)
             }
         }
