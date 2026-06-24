@@ -32,8 +32,8 @@
 #   verify          Post-relaunch checks against the acceptance bar (R18).
 #   guard-selftest  Prove the main-app guard refuses to target the main app.
 #
-# The full live acceptance procedure (run interactively, observing the UI) is in
-# plans/feat-crash-session-resume/U14-acceptance.md.
+# The `verify` command prints the full acceptance checklist to run interactively
+# while observing the restored UI.
 
 set -euo pipefail
 
