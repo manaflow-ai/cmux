@@ -50,8 +50,15 @@ struct BrowserWebContentProcessTests {
                 $0.source == BrowserWebAuthnBridgeContract.scriptSource
             }
         )
+        let webAuthnRelayScript = try #require(
+            configuration.userContentController.userScripts.first {
+                $0.source == BrowserWebAuthnBridgeContract.relayScriptSource
+            }
+        )
         #expect(webAuthnScript.injectionTime == .atDocumentStart)
         #expect(webAuthnScript.isForMainFrameOnly)
+        #expect(webAuthnRelayScript.injectionTime == .atDocumentStart)
+        #expect(webAuthnRelayScript.isForMainFrameOnly)
         let webView = WKWebView(
             frame: NSRect(x: 0, y: 0, width: 320, height: 240),
             configuration: configuration
@@ -76,7 +83,7 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
-    func browserPanelInstallsWebAuthnBridgeAndNativeHandler() async throws {
+    func browserPanelInstallsWebAuthnBridgeWithoutExposingNativeHandler() async throws {
         let panel = BrowserPanel(workspaceId: UUID())
         defer { panel.close() }
         let webView = panel.webView
@@ -107,7 +114,7 @@ struct BrowserWebContentProcessTests {
             """
         ) as? [String: Bool]
         #expect(result?["bridge"] == true)
-        #expect(result?["handler"] == true)
+        #expect(result?["handler"] == false)
     }
 
     @Test

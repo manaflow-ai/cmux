@@ -14,9 +14,154 @@ import WebKit
 /// marshalled back into JS objects that match the browser credential shape.
 enum BrowserWebAuthnBridgeContract {
     static let handlerName = "cmuxWebAuthn"
+    static let contentWorld = WKContentWorld.world(name: "cmux.webauthn")
+
+    private static let requestEventName = "__cmuxWebAuthnRequest"
+    private static let acknowledgeEventName = "__cmuxWebAuthnRequestAcknowledged"
+    private static let responseEventName = "__cmuxWebAuthnResponse"
+
+    static let relayScriptSource: String = {
+        let handlerName = BrowserWebAuthnBridgeContract.handlerName
+        let requestEventName = BrowserWebAuthnBridgeContract.requestEventName
+        let acknowledgeEventName = BrowserWebAuthnBridgeContract.acknowledgeEventName
+        let responseEventName = BrowserWebAuthnBridgeContract.responseEventName
+        return #"""
+        (() => {
+          if (window.__cmuxWebAuthnNativeRelayInstalled) {
+            return true;
+          }
+          window.__cmuxWebAuthnNativeRelayInstalled = true;
+
+          const handlerName = "\#(handlerName)";
+          const requestEventName = "\#(requestEventName)";
+          const acknowledgeEventName = "\#(acknowledgeEventName)";
+          const responseEventName = "\#(responseEventName)";
+          const maximumIDLength = 128;
+          const maximumKindLength = 64;
+          const maximumPayloadBytes = 512 * 1024;
+          const textEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+
+          const nativeHandler = () => {
+            try {
+              const handlers = window.webkit && window.webkit.messageHandlers;
+              const handler = handlers && handlers[handlerName];
+              return handler && typeof handler.postMessage === "function" ? handler : null;
+            } catch (_) {
+              return null;
+            }
+          };
+
+          const utf8ByteLength = (value) =>
+            textEncoder ? textEncoder.encode(value).byteLength : value.length;
+
+          const errorReply = (name, message) => ({
+            ok: false,
+            error: {
+              name: name || "UnknownError",
+              message: message || "The passkey request failed.",
+            },
+          });
+
+          const send = (eventName, detail) => {
+            window.dispatchEvent(new CustomEvent(eventName, { detail }));
+          };
+
+          const validateMessage = (detail) => {
+            if (!detail || typeof detail !== "object") {
+              return { error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            const id = detail.id;
+            const kind = detail.kind;
+            if (
+              typeof id !== "string" ||
+              id.length === 0 ||
+              id.length > maximumIDLength
+            ) {
+              return { error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            if (
+              typeof kind !== "string" ||
+              kind.length === 0 ||
+              kind.length > maximumKindLength
+            ) {
+              return { id, error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            const hasPayload = Object.prototype.hasOwnProperty.call(detail, "payload");
+            if (!hasPayload) {
+              return { id, message: { kind } };
+            }
+
+            const payload = detail.payload;
+            if (
+              typeof payload !== "string" ||
+              payload.length > maximumPayloadBytes ||
+              utf8ByteLength(payload) > maximumPayloadBytes
+            ) {
+              return { id, error: errorReply("TypeError", "Malformed browser passkey request.") };
+            }
+
+            return { id, message: { kind, payload } };
+          };
+
+          window.addEventListener(requestEventName, (event) => {
+            let validated;
+            try {
+              validated = validateMessage(event.detail);
+            } catch (_) {
+              return;
+            }
+
+            const id = validated.id;
+            if (!id) {
+              return;
+            }
+            send(acknowledgeEventName, { id });
+
+            if (validated.error) {
+              send(responseEventName, { id, reply: validated.error });
+              return;
+            }
+
+            const handler = nativeHandler();
+            if (!handler) {
+              send(
+                responseEventName,
+                {
+                  id,
+                  reply: errorReply(
+                    "NotSupportedError",
+                    "Native passkey support is unavailable."
+                  ),
+                }
+              );
+              return;
+            }
+
+            handler
+              .postMessage(validated.message)
+              .then((reply) => {
+                send(responseEventName, { id, reply });
+              })
+              .catch(() => {
+                send(
+                  responseEventName,
+                  { id, reply: errorReply("UnknownError", "The passkey request failed.") }
+                );
+              });
+          });
+
+          return true;
+        })();
+        """#
+    }()
 
     static let scriptSource: String = {
-        let handlerName = BrowserWebAuthnBridgeContract.handlerName
+        let requestEventName = BrowserWebAuthnBridgeContract.requestEventName
+        let acknowledgeEventName = BrowserWebAuthnBridgeContract.acknowledgeEventName
+        let responseEventName = BrowserWebAuthnBridgeContract.responseEventName
         return #"""
         (() => {
           const currentFrameMayUseWebAuthn = () => {
@@ -35,17 +180,12 @@ enum BrowserWebAuthnBridgeContract {
           }
           window.__cmuxWebAuthnBridgeInstalled = true;
 
-          const handlerName = "\#(handlerName)";
-
-          const nativeHandler = () => {
-            try {
-              const handlers = window.webkit && window.webkit.messageHandlers;
-              const handler = handlers && handlers[handlerName];
-              return handler && typeof handler.postMessage === "function" ? handler : null;
-            } catch (_) {
-              return null;
-            }
-          };
+          const requestEventName = "\#(requestEventName)";
+          const acknowledgeEventName = "\#(acknowledgeEventName)";
+          const responseEventName = "\#(responseEventName)";
+          const maximumPayloadBytes = 512 * 1024;
+          const textEncoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
+          let nextRequestID = 0;
 
           const normalizedString = (value) =>
             typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -115,15 +255,79 @@ enum BrowserWebAuthnBridgeContract {
             throw makeError(error.name, error.message);
           };
 
+          const utf8ByteLength = (value) =>
+            textEncoder ? textEncoder.encode(value).byteLength : value.length;
+
+          const nextNativeRequestID = () => {
+            nextRequestID += 1;
+            return `cmux-webauthn-${Date.now()}-${nextRequestID}`;
+          };
+
           const callNative = (kind, payload) => {
-            const handler = nativeHandler();
-            if (!handler) {
+            if (
+              typeof kind !== "string" ||
+              kind.length === 0 ||
+              kind.length > 64 ||
+              (payload !== undefined &&
+                (typeof payload !== "string" ||
+                  payload.length > maximumPayloadBytes ||
+                  utf8ByteLength(payload) > maximumPayloadBytes))
+            ) {
               return Promise.reject(
-                makeError("NotSupportedError", "Native passkey support is unavailable.")
+                makeError("TypeError", "Malformed browser passkey request.")
               );
             }
-            const message = payload === undefined ? { kind } : { kind, payload };
-            return handler.postMessage(message).then(ensureReplySuccess);
+
+            return new Promise((resolve, reject) => {
+              const id = nextNativeRequestID();
+              let acknowledged = false;
+              let acknowledgeTimer = null;
+
+              const cleanup = () => {
+                if (acknowledgeTimer !== null) {
+                  clearTimeout(acknowledgeTimer);
+                }
+                window.removeEventListener(acknowledgeEventName, handleAcknowledge);
+                window.removeEventListener(responseEventName, handleResponse);
+              };
+
+              const handleAcknowledge = (event) => {
+                if (!event.detail || event.detail.id !== id) {
+                  return;
+                }
+                acknowledged = true;
+                if (acknowledgeTimer !== null) {
+                  clearTimeout(acknowledgeTimer);
+                  acknowledgeTimer = null;
+                }
+              };
+
+              const handleResponse = (event) => {
+                if (!event.detail || event.detail.id !== id) {
+                  return;
+                }
+                cleanup();
+                try {
+                  resolve(ensureReplySuccess(event.detail.reply));
+                } catch (error) {
+                  reject(error);
+                }
+              };
+
+              window.addEventListener(acknowledgeEventName, handleAcknowledge);
+              window.addEventListener(responseEventName, handleResponse);
+              acknowledgeTimer = setTimeout(() => {
+                if (!acknowledged) {
+                  cleanup();
+                  reject(
+                    makeError("NotSupportedError", "Native passkey support is unavailable.")
+                  );
+                }
+              }, 1000);
+
+              const detail = payload === undefined ? { id, kind } : { id, kind, payload };
+              window.dispatchEvent(new CustomEvent(requestEventName, { detail }));
+            });
           };
 
           const serializeCredentialDescriptor = (descriptor) => {
@@ -801,14 +1005,21 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
 
     func install(on webView: WKWebView) {
         let controller = webView.configuration.userContentController
-        controller.removeScriptMessageHandler(forName: BrowserWebAuthnBridgeContract.handlerName, contentWorld: .page)
-        controller.addScriptMessageHandler(self, contentWorld: .page, name: BrowserWebAuthnBridgeContract.handlerName)
+        controller.removeScriptMessageHandler(
+            forName: BrowserWebAuthnBridgeContract.handlerName,
+            contentWorld: BrowserWebAuthnBridgeContract.contentWorld
+        )
+        controller.addScriptMessageHandler(
+            self,
+            contentWorld: BrowserWebAuthnBridgeContract.contentWorld,
+            name: BrowserWebAuthnBridgeContract.handlerName
+        )
     }
 
     func uninstall(from webView: WKWebView) {
         webView.configuration.userContentController.removeScriptMessageHandler(
             forName: BrowserWebAuthnBridgeContract.handlerName,
-            contentWorld: .page
+            contentWorld: BrowserWebAuthnBridgeContract.contentWorld
         )
     }
 

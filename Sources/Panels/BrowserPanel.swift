@@ -3686,7 +3686,7 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: false
             )
         )
-        configuration.userContentController.addUserScript(
+        configuration.userContentController.addUserScript(WKUserScript(source: BrowserWebAuthnBridgeContract.relayScriptSource, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: BrowserWebAuthnBridgeContract.contentWorld)); configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserWebAuthnBridgeContract.scriptSource,
                 injectionTime: .atDocumentStart,
