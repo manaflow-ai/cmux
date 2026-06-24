@@ -231,7 +231,11 @@ final class MinimalModeSidebarControlActionView: NSView {
         case .newTab:
             _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: self, event: event)
         case .cloudVM:
-            TitlebarCloudVMButton.showCloudVMMenu(anchorView: self, event: event)
+            _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                anchorView: self,
+                event: event,
+                debugSource: "titlebar.minimalSidebar.cloudMenu.rightClick"
+            )
         case .focusHistoryBack:
             _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: self, event: event, direction: .back)
         case .focusHistoryForward:

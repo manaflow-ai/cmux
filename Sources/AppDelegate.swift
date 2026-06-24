@@ -586,6 +586,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
     }
 
+    private enum NewWorkspaceContextMenuSection {
+        case custom
+        case cloudVM
+    }
+
     private final class MainWindowController: NSWindowController, NSWindowDelegate {
         var onClose: (() -> Void)?
         var shouldClose: (() -> Bool)?
@@ -7667,15 +7672,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let configuredItems = cmuxConfigStore.newWorkspaceContextMenuItems
-        guard !configuredItems.isEmpty else { return false }
+        guard let menu = makeNewWorkspaceContextMenu(
+            context: context,
+            cmuxConfigStore: cmuxConfigStore
+        ) else {
+            return false
+        }
 
+        NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
+        return true
+    }
+
+    @discardableResult
+    func showNewWorkspaceContextMenu(
+        anchorView: NSView,
+        debugSource: String = "titlebar.newWorkspace.contextMenu"
+    ) -> Bool {
+        let context = contextForMainWindow(anchorView.window)
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource)
+        guard let context,
+              let cmuxConfigStore = context.cmuxConfigStore else {
+            return false
+        }
+
+        guard let menu = makeNewWorkspaceContextMenu(
+            context: context,
+            cmuxConfigStore: cmuxConfigStore
+        ) else {
+            return false
+        }
+
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
+            in: anchorView
+        )
+        return true
+    }
+
+    private func makeNewWorkspaceContextMenu(
+        context: MainWindowContext,
+        cmuxConfigStore: CmuxConfigStore
+    ) -> NSMenu? {
         let menu = NSMenu()
+        let sections: [NewWorkspaceContextMenuSection]
+        switch cmuxConfigStore.newWorkspaceMenuSectionOrder {
+        case .customFirst:
+            sections = [.custom, .cloudVM]
+        case .cloudFirst:
+            sections = [.cloudVM, .custom]
+        }
+        for section in sections {
+            switch section {
+            case .custom:
+                let customItems = makeConfiguredNewWorkspaceMenuItems(
+                    context: context,
+                    cmuxConfigStore: cmuxConfigStore
+                )
+                appendNewWorkspaceMenuSection(customItems, to: menu)
+            case .cloudVM:
+                let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
+                appendNewWorkspaceMenuSection(cloudMenu.items, to: menu)
+            }
+        }
+        trimTrailingNewWorkspaceMenuSeparators(menu)
+        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return nil }
+        return menu
+    }
+
+    private func makeConfiguredNewWorkspaceMenuItems(
+        context: MainWindowContext,
+        cmuxConfigStore: CmuxConfigStore
+    ) -> [NSMenuItem] {
+        let configuredItems = cmuxConfigStore.newWorkspaceContextMenuItems
+        var menuItems: [NSMenuItem] = []
         for configuredItem in configuredItems {
             switch configuredItem {
             case .separator:
-                if !menu.items.isEmpty, menu.items.last?.isSeparatorItem == false {
-                    menu.addItem(.separator())
+                if !menuItems.isEmpty, menuItems.last?.isSeparatorItem == false {
+                    menuItems.append(.separator())
                 }
             case .action(let menuAction):
                 let item = NSMenuItem(
@@ -7693,17 +7768,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     configSourcePath: menuAction.iconSourcePath,
                     globalConfigPath: cmuxConfigStore.globalConfigPath
                 )
-                menu.addItem(item)
+                menuItems.append(item)
             }
         }
+        while menuItems.last?.isSeparatorItem == true {
+            menuItems.removeLast()
+        }
+        guard menuItems.contains(where: { !$0.isSeparatorItem }) else { return [] }
+        return menuItems
+    }
 
+    private func appendNewWorkspaceMenuSection(_ items: [NSMenuItem], to menu: NSMenu) {
+        guard items.contains(where: { !$0.isSeparatorItem }) else { return }
+        if menu.items.contains(where: { !$0.isSeparatorItem }),
+           menu.items.last?.isSeparatorItem == false {
+            menu.addItem(.separator())
+        }
+        for item in items {
+            if item.menu != nil {
+                item.menu?.removeItem(item)
+            }
+            menu.addItem(item)
+        }
+        trimTrailingNewWorkspaceMenuSeparators(menu)
+    }
+
+    private func trimTrailingNewWorkspaceMenuSeparators(_ menu: NSMenu) {
         while menu.items.last?.isSeparatorItem == true {
             menu.removeItem(at: menu.items.count - 1)
         }
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return false }
-
-        NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
-        return true
     }
 
     @objc private func performNewWorkspaceContextMenuItem(_ sender: NSMenuItem) {

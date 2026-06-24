@@ -1477,7 +1477,10 @@ struct HiddenTitlebarSidebarControlsView: View {
                 case .newTab:
                     onNewTab()
                 case .cloudVM:
-                    TitlebarCloudVMButton.showCloudVMMenu(anchorView: anchorView)
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        debugSource: "titlebar.minimalSidebar.cloudMenu"
+                    )
                 case .focusHistoryBack:
                     let availability = focusHistoryNavigationAvailability(
                         preferredWindow: hostWindowForFocusHistoryNavigation

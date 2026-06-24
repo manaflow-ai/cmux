@@ -74,9 +74,12 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
             Button(
                 action: {
                     if let cloudMenuAnchorView {
-                        TitlebarCloudVMButton.showCloudVMMenu(anchorView: cloudMenuAnchorView)
+                        _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                            anchorView: cloudMenuAnchorView,
+                            debugSource: "titlebar.newWorkspace.cloudMenu"
+                        )
                     } else {
-                        _ = AppDelegate.shared?.performCloudVMAction(debugSource: "titlebar.cloudVM.menu.fallback")
+                        _ = AppDelegate.shared?.performCloudVMAction(debugSource: "titlebar.newWorkspace.cloudMenu.fallback")
                     }
                 }
             ) {
@@ -101,7 +104,11 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
             .background(TitlebarControlAnchorView { cloudMenuAnchorView = $0 })
             .overlay {
                 TitlebarSplitButtonRightClickView { anchorView, event in
-                    TitlebarCloudVMButton.showCloudVMMenu(anchorView: anchorView, event: event)
+                    _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
+                        anchorView: anchorView,
+                        event: event,
+                        debugSource: "titlebar.newWorkspace.cloudMenu.rightClick"
+                    )
                 }
             }
             .background(foregroundColor.opacity(segmentBackgroundOpacity(for: .cloudMenu)))
@@ -239,8 +246,14 @@ struct TitlebarCloudVMButton: View {
     }
 
     @MainActor
-    private static func makeCloudVMMenu() -> NSMenu {
+    static func makeCloudVMMenu() -> NSMenu {
         let menu = NSMenu()
+        appendCloudVMMenuItems(to: menu)
+        return menu
+    }
+
+    @MainActor
+    static func appendCloudVMMenuItems(to menu: NSMenu) {
         menu.addItem(menuItem(
             title: String(localized: "command.cloudVM.open.title", defaultValue: "Open Cloud VM"),
             action: #selector(CloudVMMenuTarget.open)
@@ -279,7 +292,6 @@ struct TitlebarCloudVMButton: View {
             title: String(localized: "command.cloudVM.handoff.title", defaultValue: "Show Agent Handoff"),
             action: #selector(CloudVMMenuTarget.handoff)
         ))
-        return menu
     }
 
     private static func menuItem(title: String, action: Selector) -> NSMenuItem {
