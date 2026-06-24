@@ -3062,6 +3062,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
             )
             let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            reconcileOptimisticClosures(against: response, macDeviceID: macDeviceID)
             return response.workspaces.map { remote in
                 var workspace = MobileWorkspacePreview(remote: remote)
                 workspace.macDeviceID = macDeviceID
@@ -6665,7 +6666,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         mergeExistingWorkspaces: Bool = false,
         groupsAreAuthoritative: Bool = true
     ) {
-        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(from: response)
+        let remoteWorkspaces = remoteWorkspacesPreservingSnapshots(
+            from: response,
+            authoritativeForPendingClosures: !mergeExistingWorkspaces && groupsAreAuthoritative
+        )
         // Write the foreground Mac's per-Mac state; `workspaces` / `workspaceGroups`
         // recompute from the source of truth automatically (no explicit merge or
         // publish). Group sections are authoritative only on a full-list response:
@@ -6701,14 +6705,20 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     func remoteWorkspacesPreservingSnapshots(
-        from response: MobileSyncWorkspaceListResponse
+        from response: MobileSyncWorkspaceListResponse,
+        authoritativeForPendingClosures: Bool = true
     ) -> [MobileWorkspacePreview] {
         // Reconcile pending optimistic closes against this authoritative list
         // first: any id the Mac no longer reports is genuinely closed, so its
         // pending entry is retired (it no longer needs to be filtered). Ids the
         // Mac still reports stay pending and get filtered below, so a snapshot
         // fetched before the Mac processed the close cannot resurrect the row.
-        reconcileOptimisticClosures(against: response)
+        if authoritativeForPendingClosures {
+            reconcileOptimisticClosures(
+                against: response,
+                macDeviceID: foregroundMacDeviceID ?? activeTicket?.macDeviceID
+            )
+        }
         return response.workspaces.compactMap { remoteWorkspace in
             var workspace = MobileWorkspacePreview(remote: remoteWorkspace)
             // Tag every workspace with the Mac it came from, so the aggregated
@@ -6742,12 +6752,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// are gone, so a real server confirmation never stays filtered. Ids still
     /// present in the response remain pending (the close has not landed yet) and
     /// keep being filtered out of the applied list.
-    func reconcileOptimisticClosures(against response: MobileSyncWorkspaceListResponse) {
+    func reconcileOptimisticClosures(
+        against response: MobileSyncWorkspaceListResponse,
+        macDeviceID: String?
+    ) {
         guard !optimisticallyClosedWorkspaces.isEmpty else { return }
         let remoteIDs = Set(response.workspaces.map { MobileWorkspacePreview.ID(rawValue: $0.id) })
-        let foregroundMacID = foregroundMacDeviceID ?? activeTicket?.macDeviceID
         for (id, snapshot) in optimisticallyClosedWorkspaces
-            where pendingOptimisticClose(snapshot, belongsToMacDeviceID: foregroundMacID)
+            where pendingOptimisticClose(snapshot, belongsToMacDeviceID: macDeviceID)
                 && !remoteIDs.contains(snapshot.rpcWorkspaceID)
         {
             optimisticallyClosedWorkspaces.removeValue(forKey: id)

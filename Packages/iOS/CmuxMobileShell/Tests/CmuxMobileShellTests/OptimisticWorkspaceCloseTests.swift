@@ -102,6 +102,40 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.isEmpty)
     }
 
+    /// Scoped merge responses omit unrelated workspaces, so absence there must
+    /// not be treated as close confirmation.
+    @Test func partialSnapshotDoesNotRetirePendingClose() throws {
+        let store = MobileShellComposite.preview()
+        store.applyOptimisticWorkspaceClose(id: "workspace-docs")
+
+        let response = try makeListResponse(ids: ["workspace-main"])
+        _ = store.remoteWorkspacesPreservingSnapshots(
+            from: response,
+            authoritativeForPendingClosures: false
+        )
+
+        #expect(store.optimisticallyClosedWorkspaces.keys.contains("workspace-docs"))
+    }
+
+    /// Secondary full-list refreshes are authoritative for that Mac and must
+    /// retire a pending close once the closed remote id disappears.
+    @Test func secondarySnapshotRetiresPendingCloseForThatMac() throws {
+        let store = MobileShellComposite.preview()
+        var snapshot = MobileWorkspacePreview(
+            id: "mac-b\u{1F}workspace-docs",
+            macDeviceID: "mac-b",
+            name: "Docs",
+            terminals: []
+        )
+        snapshot.remoteWorkspaceID = "workspace-docs"
+        store.optimisticallyClosedWorkspaces[snapshot.id] = snapshot
+
+        let response = try makeListResponse(ids: ["workspace-main"])
+        store.reconcileOptimisticClosures(against: response, macDeviceID: "mac-b")
+
+        #expect(store.optimisticallyClosedWorkspaces.isEmpty)
+    }
+
     private func makeListResponse(ids: [String]) throws -> MobileSyncWorkspaceListResponse {
         let workspaceObjects = ids.enumerated().map { index, id -> [String: Any] in
             [

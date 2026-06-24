@@ -8,6 +8,7 @@ import SwiftUI
 /// These follow ``GhosttyRuntime/currentTheme`` so the chrome blends with the
 /// live terminal under any theme instead of flashing a hardcoded color. They
 /// fall back to Monokai when no theme has been supplied.
+@MainActor
 enum TerminalPalette {
     /// Terminal background, from the active theme.
     static var background: Color { color(GhosttyRuntime.currentTheme.background) }
