@@ -718,14 +718,66 @@ enum BrowserInsecureHTTPSettings {
 /// owned by one navigation delegate instead of a global actor or singleton.
 /// That keeps bypass grants scoped to the lifetime of the relevant browser
 /// surface while preserving the exact failed `URLRequest` for replay.
+struct BrowserSSLTrustScope: Hashable {
+    let scheme: String
+    let host: String
+    let port: Int
+
+    init?(url: URL) {
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "https",
+              let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+            return nil
+        }
+        self.scheme = scheme
+        self.host = host
+        self.port = url.port ?? 443
+    }
+
+    init?(protectionSpace: URLProtectionSpace) {
+        let rawScheme = protectionSpace.protocol?.lowercased() ?? "https"
+        guard rawScheme == "https",
+              let host = BrowserInsecureHTTPSettings.normalizeHost(protectionSpace.host) else {
+            return nil
+        }
+        scheme = rawScheme
+        self.host = host
+        port = protectionSpace.port > 0 ? protectionSpace.port : 443
+    }
+}
+
+struct BrowserServerTrustFingerprint: Hashable {
+    let sha256: Data
+}
+
+func browserServerTrustLeafFingerprint(_ trust: SecTrust) -> BrowserServerTrustFingerprint? {
+    let certificate: SecCertificate?
+    if #available(macOS 12.0, *) {
+        certificate = (SecTrustCopyCertificateChain(trust) as? [SecCertificate])?.first
+    } else {
+        certificate = SecTrustGetCertificateAtIndex(trust, 0)
+    }
+
+    guard let certificate else { return nil }
+    let certificateData = SecCertificateCopyData(certificate) as Data
+    return BrowserServerTrustFingerprint(sha256: Data(SHA256.hash(data: certificateData)))
+}
+
 final class BrowserSSLTrustBypassState {
+    private struct TrustGrant: Hashable {
+        let scope: BrowserSSLTrustScope
+        let fingerprint: BrowserServerTrustFingerprint
+    }
+
     private struct PendingBypass {
-        let host: String
+        let grant: TrustGrant
         let request: URLRequest
         let expiresAt: Date
     }
 
-    private var bypassedHosts: Set<String> = []
+    private var bypassedTrusts: Set<TrustGrant> = []
+    private var observedFingerprints: [BrowserSSLTrustScope: BrowserServerTrustFingerprint] = [:]
+    private var observedFingerprintOrder: [BrowserSSLTrustScope] = []
     private var pendingBypasses: [String: PendingBypass] = [:]
     private var pendingTokenOrder: [String] = []
     private let tokenLifetime: TimeInterval
@@ -742,20 +794,40 @@ final class BrowserSSLTrustBypassState {
         self.now = now
     }
 
-    func addBypass(for host: String) {
-        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return }
-        bypassedHosts.insert(normalizedHost)
+    func recordObservedServerTrust(_ trust: SecTrust, for protectionSpace: URLProtectionSpace) {
+        guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
+              let fingerprint = browserServerTrustLeafFingerprint(trust) else {
+            return
+        }
+        recordObservedServerTrustFingerprint(fingerprint, for: scope)
     }
 
-    func isBypassed(host: String) -> Bool {
-        guard let normalizedHost = BrowserInsecureHTTPSettings.normalizeHost(host) else { return false }
-        return bypassedHosts.contains(normalizedHost)
+    func recordObservedServerTrustFingerprint(
+        _ fingerprint: BrowserServerTrustFingerprint,
+        for scope: BrowserSSLTrustScope
+    ) {
+        observedFingerprints[scope] = fingerprint
+        observedFingerprintOrder.removeAll { $0 == scope }
+        observedFingerprintOrder.append(scope)
+        enforceObservedFingerprintLimit()
+    }
+
+    func isBypassed(protectionSpace: URLProtectionSpace, serverTrust: SecTrust) -> Bool {
+        guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
+              let fingerprint = browserServerTrustLeafFingerprint(serverTrust) else {
+            return false
+        }
+        return isBypassed(scope: scope, fingerprint: fingerprint)
+    }
+
+    func isBypassed(scope: BrowserSSLTrustScope, fingerprint: BrowserServerTrustFingerprint) -> Bool {
+        bypassedTrusts.contains(TrustGrant(scope: scope, fingerprint: fingerprint))
     }
 
     func createPendingBypassAction(for request: URLRequest) -> URL? {
         guard let url = request.url,
-              url.scheme?.lowercased() == "https",
-              let host = BrowserInsecureHTTPSettings.normalizeHost(url.host ?? "") else {
+              let scope = BrowserSSLTrustScope(url: url),
+              let fingerprint = observedFingerprints[scope] else {
             return nil
         }
 
@@ -763,7 +835,7 @@ final class BrowserSSLTrustBypassState {
         let currentDate = now()
         purgeExpiredPendingBypasses(now: currentDate)
         pendingBypasses[token] = PendingBypass(
-            host: host,
+            grant: TrustGrant(scope: scope, fingerprint: fingerprint),
             request: request,
             expiresAt: currentDate.addingTimeInterval(tokenLifetime)
         )
@@ -792,7 +864,7 @@ final class BrowserSSLTrustBypassState {
         guard pending.expiresAt > now() else {
             return nil
         }
-        addBypass(for: pending.host)
+        bypassedTrusts.insert(pending.grant)
         return pending.request
     }
 
@@ -805,6 +877,13 @@ final class BrowserSSLTrustBypassState {
         while pendingTokenOrder.count > maximumPendingBypassCount {
             let token = pendingTokenOrder.removeFirst()
             pendingBypasses.removeValue(forKey: token)
+        }
+    }
+
+    private func enforceObservedFingerprintLimit() {
+        while observedFingerprintOrder.count > maximumPendingBypassCount {
+            let scope = observedFingerprintOrder.removeFirst()
+            observedFingerprints.removeValue(forKey: scope)
         }
     }
 }
@@ -8916,9 +8995,12 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     ) {
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust,
-           sslBypassState.isBypassed(host: challenge.protectionSpace.host) {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-            return
+           BrowserSSLTrustScope(protectionSpace: challenge.protectionSpace) != nil {
+            if sslBypassState.isBypassed(protectionSpace: challenge.protectionSpace, serverTrust: trust) {
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                return
+            }
+            sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
         }
 
         // WKWebView rejects all authentication challenges by default when this

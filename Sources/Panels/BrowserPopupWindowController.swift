@@ -3,6 +3,9 @@ import Bonsplit
 import CmuxFoundation
 import ObjectiveC
 import WebKit
+#if canImport(Security)
+import Security
+#endif
 
 func browserPopupContentRect(
     requestedWidth: CGFloat?,
@@ -743,9 +746,12 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     ) {
         if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
            let trust = challenge.protectionSpace.serverTrust,
-           sslBypassState.isBypassed(host: challenge.protectionSpace.host) {
-            completionHandler(.useCredential, URLCredential(trust: trust))
-            return
+           BrowserSSLTrustScope(protectionSpace: challenge.protectionSpace) != nil {
+            if sslBypassState.isBypassed(protectionSpace: challenge.protectionSpace, serverTrust: trust) {
+                completionHandler(.useCredential, URLCredential(trust: trust))
+                return
+            }
+            sslBypassState.recordObservedServerTrust(trust, for: challenge.protectionSpace)
         }
 
         // Parity with main browser: performDefaultHandling enables system keychain

@@ -160,7 +160,11 @@ final class BrowserSSLTrustBypassStateTests: XCTestCase {
 
     func testPendingBypassReplaysOriginalRequestOnceAndMarksHostBypassed() throws {
         let state = BrowserSSLTrustBypassState()
-        let url = try XCTUnwrap(URL(string: "https://example.internal/submit"))
+        let url = try XCTUnwrap(URL(string: "https://example.internal:8443/submit"))
+        let scope = try XCTUnwrap(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = Data("token=abc123".utf8)
@@ -175,7 +179,14 @@ final class BrowserSSLTrustBypassStateTests: XCTestCase {
         XCTAssertEqual(replayed.httpMethod, "POST")
         XCTAssertEqual(replayed.httpBody, Data("token=abc123".utf8))
         XCTAssertEqual(replayed.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
-        XCTAssertTrue(state.isBypassed(host: "EXAMPLE.internal"))
+        XCTAssertTrue(state.isBypassed(scope: scope, fingerprint: fingerprint))
+        let defaultPortURL = try XCTUnwrap(URL(string: "https://example.internal/submit"))
+        let defaultPortScope = try XCTUnwrap(BrowserSSLTrustScope(url: defaultPortURL))
+        XCTAssertFalse(state.isBypassed(scope: defaultPortScope, fingerprint: fingerprint))
+        XCTAssertFalse(state.isBypassed(
+            scope: scope,
+            fingerprint: BrowserServerTrustFingerprint(sha256: Data("leaf-b".utf8))
+        ))
 
         XCTAssertNil(state.consumePendingBypassAction(actionURL))
     }
@@ -184,6 +195,9 @@ final class BrowserSSLTrustBypassStateTests: XCTestCase {
         let now = Date(timeIntervalSince1970: 1_000)
         let state = BrowserSSLTrustBypassState(tokenLifetime: 10, now: { now })
         let url = try XCTUnwrap(URL(string: "https://expired.internal"))
+        let scope = try XCTUnwrap(BrowserSSLTrustScope(url: url))
+        let fingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        state.recordObservedServerTrustFingerprint(fingerprint, for: scope)
         let request = URLRequest(url: url)
         _ = try XCTUnwrap(state.createPendingBypassAction(for: request))
 
@@ -193,9 +207,10 @@ final class BrowserSSLTrustBypassStateTests: XCTestCase {
         XCTAssertNil(state.consumePendingBypassAction(forgedTokenURL))
 
         let expiredState = BrowserSSLTrustBypassState(tokenLifetime: -1, now: { now })
+        expiredState.recordObservedServerTrustFingerprint(fingerprint, for: scope)
         let expiredActionURL = try XCTUnwrap(expiredState.createPendingBypassAction(for: request))
         XCTAssertNil(expiredState.consumePendingBypassAction(expiredActionURL))
-        XCTAssertFalse(expiredState.isBypassed(host: "expired.internal"))
+        XCTAssertFalse(expiredState.isBypassed(scope: scope, fingerprint: fingerprint))
     }
 }
 
