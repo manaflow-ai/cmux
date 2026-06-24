@@ -7,8 +7,11 @@ import Testing
     @Test func preservesRenderableStackCodes() {
         let preserved = [
             "SCHEMA_ERROR", "USER_EMAIL_ALREADY_EXISTS", "VERIFICATION_CODE_ERROR",
-            "INVALID_OTP", "OTP_EXPIRED", "RATE_LIMIT", "EMAIL_PASSWORD_MISMATCH",
-            "USER_NOT_FOUND", "INVALID_TOTP_CODE",
+            "INVALID_OTP", "OTP_EXPIRED", "RATE_LIMIT", "RATE_LIMITED",
+            "EMAIL_PASSWORD_MISMATCH", "USER_NOT_FOUND", "INVALID_TOTP_CODE",
+            "apple_signin_not_configured", "apple_signin_not_handled",
+            "apple_signin_invalid_response", "apple_signin_failed",
+            "apple_signin_not_interactive", "apple_signin_error",
         ]
         for code in preserved {
             // nil means "surface the original error unchanged".
