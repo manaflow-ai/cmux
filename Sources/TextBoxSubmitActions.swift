@@ -68,11 +68,6 @@ extension TextBoxInputContainer {
         pendingProviderLaunchAction = nil
     }
 
-    func clearPendingProviderLaunchIfPromptIdle() {
-        guard allowsCommandTemplateSubmit else { return }
-        clearPendingProviderLaunch()
-    }
-
     static func shouldForceTextEntrySubmit(
         allowsCommandTemplateSubmit: Bool,
         terminalAgentContext: String

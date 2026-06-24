@@ -2578,7 +2578,6 @@ struct TextBoxInputContainer: View {
                 clearPendingProviderLaunch()
             }
         }
-        .onChange(of: allowsCommandTemplateSubmit) { _, _ in clearPendingProviderLaunchIfPromptIdle() }
         .onChange(of: defaultSubmitActionID) { _, _ in clearPendingProviderLaunch() }
     }
 
@@ -2795,7 +2794,6 @@ struct TextBoxInputContainer: View {
                 NSSound.beep()
                 return
             }
-            clearPendingProviderLaunch()
             if !pendingComments.isEmpty {
                 for (repoRoot, entries) in Dictionary(grouping: pendingComments, by: \.repoRoot) {
                     DiffCommentStore.shared.markConsumed(ids: entries.map(\.commentId), repoRoot: repoRoot)
