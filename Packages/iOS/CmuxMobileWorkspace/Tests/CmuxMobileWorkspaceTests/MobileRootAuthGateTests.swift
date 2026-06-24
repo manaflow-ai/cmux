@@ -98,6 +98,45 @@ import Testing
         ))
     }
 
+    @Test func waitsForAuthenticatedUserScopeBeforeDecidingNoSavedMacs() {
+        #expect(MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            connectionState: .disconnected,
+            currentUserID: nil
+        ))
+        #expect(MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            connectionState: .disconnected,
+            currentUserID: "  "
+        ))
+        #expect(!MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            connectionState: .disconnected,
+            currentUserID: "user-1"
+        ))
+        #expect(!MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: true,
+            connectionState: .disconnected,
+            currentUserID: nil
+        ))
+        #expect(!MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: false,
+            attachTicketAuthenticated: false,
+            connectionState: .disconnected,
+            currentUserID: nil
+        ))
+        #expect(!MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            connectionState: .connected,
+            currentUserID: nil
+        ))
+    }
+
     @Test func showsRestoringStoredMacWhileReconnectingAKnownPairedMac() {
         // Actively reconnecting a found stored Mac.
         #expect(MobileRootAuthGate.shouldShowRestoringStoredMac(
