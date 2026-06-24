@@ -134,6 +134,21 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 }
 
 final class BrowserSSLTrustBypassStateTests: XCTestCase {
+    func testSecureConnectionFailedPermitsSSLBypass() {
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed)
+
+        let content = browserErrorPageContent(
+            for: error,
+            failedURL: "https://self-signed.internal"
+        )
+
+        XCTAssertTrue(content.permitsSSLBypass)
+        XCTAssertEqual(
+            content.message,
+            String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid.")
+        )
+    }
+
     func testPendingBypassRequiresHTTPSRequest() throws {
         let state = BrowserSSLTrustBypassState()
         let httpURL = try XCTUnwrap(URL(string: "http://example.internal"))

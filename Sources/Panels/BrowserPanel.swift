@@ -809,6 +809,51 @@ final class BrowserSSLTrustBypassState {
     }
 }
 
+struct BrowserErrorPageContent {
+    let title: String
+    let message: String
+    let permitsSSLBypass: Bool
+}
+
+func browserErrorPageContent(for error: NSError, failedURL: String) -> BrowserErrorPageContent {
+    switch (error.domain, error.code) {
+    case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
+         (NSURLErrorDomain, NSURLErrorCannotFindHost),
+         (NSURLErrorDomain, NSURLErrorTimedOut):
+        let title = String(localized: "browser.error.cantReach.title", defaultValue: "Can\u{2019}t reach this page")
+        let message: String
+        if failedURL.isEmpty {
+            message = String(localized: "browser.error.cantReach.messageSite", defaultValue: "The site refused to connect. Check that a server is running on this address.")
+        } else {
+            message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
+        }
+        return BrowserErrorPageContent(title: title, message: message, permitsSSLBypass: false)
+    case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
+         (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
+        return BrowserErrorPageContent(
+            title: String(localized: "browser.error.noInternet", defaultValue: "No internet connection"),
+            message: String(localized: "browser.error.checkNetwork", defaultValue: "Check your network connection and try again."),
+            permitsSSLBypass: false
+        )
+    case (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
+         (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
+         (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
+         (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid),
+         (NSURLErrorDomain, NSURLErrorSecureConnectionFailed):
+        return BrowserErrorPageContent(
+            title: String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure"),
+            message: String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid."),
+            permitsSSLBypass: true
+        )
+    default:
+        return BrowserErrorPageContent(
+            title: String(localized: "browser.error.cantOpen.title", defaultValue: "Can\u{2019}t open this page"),
+            message: String(localized: "browser.error.cantOpen.message", defaultValue: "The page could not be opened. Check the address and try again."),
+            permitsSSLBypass: false
+        )
+    }
+}
+
 func browserLoadErrorPage(
     in webView: WKWebView,
     failedURL: String,
@@ -816,38 +861,7 @@ func browserLoadErrorPage(
     error: NSError,
     sslBypassState: BrowserSSLTrustBypassState
 ) {
-    let title: String
-    let message: String
-
-    let isSSLError: Bool
-    switch (error.domain, error.code) {
-    case (NSURLErrorDomain, NSURLErrorCannotConnectToHost),
-         (NSURLErrorDomain, NSURLErrorCannotFindHost),
-         (NSURLErrorDomain, NSURLErrorTimedOut):
-        title = String(localized: "browser.error.cantReach.title", defaultValue: "Can\u{2019}t reach this page")
-        if failedURL.isEmpty {
-            message = String(localized: "browser.error.cantReach.messageSite", defaultValue: "The site refused to connect. Check that a server is running on this address.")
-        } else {
-            message = String(localized: "browser.error.cantReach.messageURL", defaultValue: "\(failedURL) refused to connect. Check that a server is running on this address.")
-        }
-        isSSLError = false
-    case (NSURLErrorDomain, NSURLErrorNotConnectedToInternet),
-         (NSURLErrorDomain, NSURLErrorNetworkConnectionLost):
-        title = String(localized: "browser.error.noInternet", defaultValue: "No internet connection")
-        message = String(localized: "browser.error.checkNetwork", defaultValue: "Check your network connection and try again.")
-        isSSLError = false
-    case (NSURLErrorDomain, NSURLErrorServerCertificateUntrusted),
-         (NSURLErrorDomain, NSURLErrorServerCertificateHasUnknownRoot),
-         (NSURLErrorDomain, NSURLErrorServerCertificateHasBadDate),
-         (NSURLErrorDomain, NSURLErrorServerCertificateNotYetValid):
-        title = String(localized: "browser.error.insecure.title", defaultValue: "Connection isn\u{2019}t secure")
-        message = String(localized: "browser.error.invalidCertificate", defaultValue: "The certificate for this site is invalid.")
-        isSSLError = true
-    default:
-        title = String(localized: "browser.error.cantOpen.title", defaultValue: "Can\u{2019}t open this page")
-        message = String(localized: "browser.error.cantOpen.message", defaultValue: "The page could not be opened. Check the address and try again.")
-        isSSLError = false
-    }
+    let content = browserErrorPageContent(for: error, failedURL: failedURL)
 
     let escapeHTML: (String) -> String = { value in
         value
@@ -857,14 +871,14 @@ func browserLoadErrorPage(
             .replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    let escapedTitle = escapeHTML(title)
-    let escapedMessage = escapeHTML(message)
+    let escapedTitle = escapeHTML(content.title)
+    let escapedMessage = escapeHTML(content.message)
     let escapedURL = escapeHTML(failedURL)
     let escapedReloadLabel = escapeHTML(String(localized: "browser.error.reload", defaultValue: "Reload"))
     let escapedBypassLabel = escapeHTML(String(localized: "browser.error.bypass", defaultValue: "Proceed Anyway (Unsafe)"))
 
     let bypassButtonHTML: String
-    if isSSLError,
+    if content.permitsSSLBypass,
        let failedRequest,
        let bypassURL = sslBypassState.createPendingBypassAction(for: failedRequest) {
         let escapedBypassURL = escapeHTML(bypassURL.absoluteString)
