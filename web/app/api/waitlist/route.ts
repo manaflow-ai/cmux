@@ -48,21 +48,6 @@ export async function POST(request: Request) {
     "/api/waitlist",
     { "cmux.subsystem": "waitlist", "cmux.waitlist.operation": "notify" },
     async (span): Promise<Response> => {
-      // Reuse the feedback rate-limit rule so a public POST that fans out to
-      // Slack can't be used to flood the channel. Only active on Vercel.
-      if (process.env.VERCEL === "1") {
-        const { error, rateLimited } = await checkRateLimit(
-          env.CMUX_FEEDBACK_RATE_LIMIT_ID,
-          { request },
-        );
-        setSpanAttributes(span, {
-          "cmux.rate_limited": rateLimited || error === "blocked",
-        });
-        if (rateLimited || error === "blocked") {
-          return jsonError("Rate limit exceeded", 429);
-        }
-      }
-
       let payload: unknown;
       try {
         payload = await request.json();
@@ -94,6 +79,23 @@ export async function POST(request: Request) {
       // the post-record `notify` call fans out to Slack.
       if (!notify) {
         return ok({ valid: true, slack: "skipped" });
+      }
+
+      // Rate-limit the notify phase only (the one that posts to Slack) with the
+      // feedback rule, so a public POST can't flood the channel. The validate
+      // phase is deliberately un-throttled: it never touches Slack, and a
+      // rate-limit blip there would needlessly block a real signup.
+      if (process.env.VERCEL === "1") {
+        const { error, rateLimited } = await checkRateLimit(
+          env.CMUX_FEEDBACK_RATE_LIMIT_ID,
+          { request },
+        );
+        setSpanAttributes(span, {
+          "cmux.rate_limited": rateLimited || error === "blocked",
+        });
+        if (rateLimited || error === "blocked") {
+          return jsonError("Rate limit exceeded", 429);
+        }
       }
 
       const webhookUrl = env.SLACK_WAITLIST_WEBHOOK_URL;

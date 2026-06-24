@@ -88,21 +88,28 @@ function isNoSuchRecord(err: unknown): boolean {
   return code === "ENOTFOUND" || code === "ENODATA";
 }
 
+async function classifyAddress(
+  lookup: Promise<string[]>,
+): Promise<"ok" | "miss" | "transient"> {
+  try {
+    return (await lookup).length > 0 ? "ok" : "miss";
+  } catch (err) {
+    return isNoSuchRecord(err) ? "miss" : "transient";
+  }
+}
+
 // No MX record: RFC 5321 §5.1 treats the domain's A/AAAA address as an implicit
-// mail exchanger, so a domain with only an address record can still receive mail.
+// mail exchanger, so a domain with only an address record can still receive
+// mail. Run A and AAAA in parallel so this (rare, MX-less) fallback path never
+// pays two sequential lookups.
 async function hasAddressRecord(domain: string): Promise<EmailCheck> {
-  let transient = false;
-  try {
-    if ((await dns.resolve4(domain)).length > 0) return "ok";
-  } catch (err) {
-    if (!isNoSuchRecord(err)) transient = true;
-  }
-  try {
-    if ((await dns.resolve6(domain)).length > 0) return "ok";
-  } catch (err) {
-    if (!isNoSuchRecord(err)) transient = true;
-  }
-  return transient ? "unknown" : "invalid";
+  const [a, aaaa] = await Promise.all([
+    classifyAddress(dns.resolve4(domain)),
+    classifyAddress(dns.resolve6(domain)),
+  ]);
+  if (a === "ok" || aaaa === "ok") return "ok";
+  if (a === "transient" || aaaa === "transient") return "unknown";
+  return "invalid";
 }
 
 async function resolveDomain(domain: string): Promise<EmailCheck> {

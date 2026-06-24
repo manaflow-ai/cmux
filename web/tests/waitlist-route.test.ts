@@ -1,7 +1,18 @@
 // Skip env validation so importing the route doesn't require server secrets.
+// Captured + restored in afterAll so the flag can't leak into other test files
+// sharing this process and silently suppress their env validation.
+const priorSkipEnvValidation = process.env.SKIP_ENV_VALIDATION;
 process.env.SKIP_ENV_VALIDATION = "1";
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
+
+afterAll(() => {
+  if (priorSkipEnvValidation === undefined) {
+    delete process.env.SKIP_ENV_VALIDATION;
+  } else {
+    process.env.SKIP_ENV_VALIDATION = priorSkipEnvValidation;
+  }
+});
 
 function dnsError(code: string): NodeJS.ErrnoException {
   const err = new Error(code) as NodeJS.ErrnoException;
