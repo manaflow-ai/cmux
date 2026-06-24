@@ -11365,7 +11365,8 @@ struct VerticalTabsSidebar: View {
                     CmuxSystemSymbolImage(
                         systemName: "plus",
                         pointSize: 15,
-                        weight: .regular
+                        weight: .regular,
+                        appliesGlobalFontMagnification: true
                     )
                         .frame(width: 22, height: 22)
                     Text(String(localized: "sidebar.browserStack.newTab", defaultValue: "New Tab"))
@@ -11405,7 +11406,8 @@ struct VerticalTabsSidebar: View {
                 CmuxSystemSymbolImage(
                     systemName: "folder.fill",
                     pointSize: 14,
-                    weight: .regular
+                    weight: .regular,
+                    appliesGlobalFontMagnification: true
                 )
                     .foregroundColor(.secondary)
                 Text(extensionSidebarTreeSectionTitle(section.treeSection))
@@ -11415,7 +11417,8 @@ struct VerticalTabsSidebar: View {
                 CmuxSystemSymbolImage(
                     systemName: "chevron.down",
                     pointSize: 11,
-                    weight: .medium
+                    weight: .medium,
+                    appliesGlobalFontMagnification: true
                 )
                     .foregroundColor(.secondary)
                 Spacer(minLength: 0)
@@ -11711,7 +11714,8 @@ struct VerticalTabsSidebar: View {
                 CmuxSystemSymbolImage(
                     systemName: systemImageName,
                     pointSize: size * 0.58,
-                    weight: .semibold
+                    weight: .semibold,
+                    appliesGlobalFontMagnification: true
                 )
                     .foregroundColor(foreground)
             } else {
@@ -11773,7 +11777,8 @@ struct VerticalTabsSidebar: View {
                     CmuxSystemSymbolImage(
                         systemName: isCollapsed ? "folder" : "folder.fill",
                         pointSize: 13,
-                        weight: .regular
+                        weight: .regular,
+                        appliesGlobalFontMagnification: true
                     )
                         .offset(y: -0.5)
                 }
@@ -11798,7 +11803,8 @@ struct VerticalTabsSidebar: View {
                         CmuxSystemSymbolImage(
                             systemName: worktreeButtonSymbol,
                             pointSize: 11,
-                            weight: .regular
+                            weight: .regular,
+                            appliesGlobalFontMagnification: true
                         )
                             .frame(width: 18, height: 18)
                     }
@@ -12459,7 +12465,8 @@ private struct SidebarFooterButtons: View {
                     CmuxSystemSymbolImage(
                         systemName: "puzzlepiece.extension",
                         pointSize: 12,
-                        weight: .medium
+                        weight: .medium,
+                        appliesGlobalFontMagnification: true
                     )
                         .foregroundStyle(Color(nsColor: .secondaryLabelColor))
                         .frame(width: 22, height: 22, alignment: .center)
@@ -13444,7 +13451,8 @@ struct TabItemView: View, Equatable {
                     CmuxSystemSymbolImage(
                         systemName: "pin.fill",
                         pointSize: scaledFontSize(9),
-                        weight: .semibold
+                        weight: .semibold,
+                        appliesGlobalFontMagnification: true
                     )
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(protectedWorkspaceTooltip)
@@ -13462,7 +13470,8 @@ struct TabItemView: View, Equatable {
                     CmuxSystemSymbolImage(
                         systemName: "speaker.wave.2.fill",
                         pointSize: scaledFontSize(9),
-                        weight: .semibold
+                        weight: .semibold,
+                        appliesGlobalFontMagnification: true
                     )
                         .foregroundColor(activeSecondaryColor(0.8))
                         .safeHelp(audioPlayingTooltip)
@@ -13477,7 +13486,8 @@ struct TabItemView: View, Equatable {
                     CmuxSystemSymbolImage(
                         systemName: "mic.fill",
                         pointSize: scaledFontSize(9),
-                        weight: .semibold
+                        weight: .semibold,
+                        appliesGlobalFontMagnification: true
                     )
                         .foregroundColor(.orange)
                         .safeHelp(microphoneInUseTooltip)
@@ -13492,7 +13502,8 @@ struct TabItemView: View, Equatable {
                     CmuxSystemSymbolImage(
                         systemName: "video.fill",
                         pointSize: scaledFontSize(9),
-                        weight: .semibold
+                        weight: .semibold,
+                        appliesGlobalFontMagnification: true
                     )
                         .foregroundColor(.green)
                         .safeHelp(cameraInUseTooltip)
@@ -13523,7 +13534,8 @@ struct TabItemView: View, Equatable {
                         CmuxSystemSymbolImage(
                             systemName: "xmark",
                             pointSize: scaledFontSize(9),
-                            weight: .medium
+                            weight: .medium,
+                            appliesGlobalFontMagnification: true
                         )
                             .foregroundColor(activeSecondaryColor(0.7))
                             .frame(width: scaledCloseButtonWidth, height: scaledCloseButtonHitSize, alignment: .center)
@@ -13588,7 +13600,8 @@ struct TabItemView: View, Equatable {
                 HStack(spacing: 4) {
                     CmuxSystemSymbolImage(
                         systemName: logLevelIcon(latestLog.level),
-                        pointSize: scaledFontSize(8)
+                        pointSize: scaledFontSize(8),
+                        appliesGlobalFontMagnification: true
                     )
                         .foregroundColor(logLevelColor(latestLog.level, isActive: usesInvertedActiveForeground))
                     Text(latestLog.message)
@@ -13631,7 +13644,8 @@ struct TabItemView: View, Equatable {
                             if sidebarShowGitBranchIcon, workspaceSnapshot.branchLinesContainBranch {
                                 CmuxSystemSymbolImage(
                                     systemName: "arrow.triangle.branch",
-                                    pointSize: scaledFontSize(9)
+                                    pointSize: scaledFontSize(9),
+                                    appliesGlobalFontMagnification: true
                                 )
                                     .foregroundColor(activeSecondaryColor(0.6))
                             }
@@ -13664,7 +13678,8 @@ struct TabItemView: View, Equatable {
                                             if line.branch != nil, !line.directoryCandidates.isEmpty {
                                                 CmuxSystemSymbolImage(
                                                     systemName: "circle.fill",
-                                                    pointSize: scaledFontSize(3)
+                                                    pointSize: scaledFontSize(3),
+                                                    appliesGlobalFontMagnification: true
                                                 )
                                                     .foregroundColor(activeSecondaryColor(0.6))
                                                     .padding(.horizontal, 1)
@@ -13689,7 +13704,8 @@ struct TabItemView: View, Equatable {
                         if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
                             CmuxSystemSymbolImage(
                                 systemName: "arrow.triangle.branch",
-                                pointSize: scaledFontSize(9)
+                                pointSize: scaledFontSize(9),
+                                appliesGlobalFontMagnification: true
                             )
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
@@ -13715,7 +13731,8 @@ struct TabItemView: View, Equatable {
                         if sidebarShowGitBranchIcon, workspaceSnapshot.compactGitBranchSummaryText != nil {
                             CmuxSystemSymbolImage(
                                 systemName: "arrow.triangle.branch",
-                                pointSize: scaledFontSize(9)
+                                pointSize: scaledFontSize(9),
+                                appliesGlobalFontMagnification: true
                             )
                                 .foregroundColor(activeSecondaryColor(0.6))
                         }
@@ -14859,7 +14876,8 @@ struct TabItemView: View, Equatable {
                 CmuxSystemSymbolImage(
                     systemName: "xmark.circle",
                     pointSize: 7 * fontScale,
-                    weight: .regular
+                    weight: .regular,
+                    appliesGlobalFontMagnification: true
                 )
                     .foregroundColor(color)
                     .frame(width: closedFrameSize, height: closedFrameSize)
@@ -15252,7 +15270,12 @@ private struct SidebarMetadataEntryRow: View {
             symbolName = iconRaw
         }
         guard !symbolName.isEmpty else { return nil }
-        return AnyView(CmuxSystemSymbolImage(systemName: symbolName, pointSize: 8 * fontScale, weight: .medium))
+        return AnyView(CmuxSystemSymbolImage(
+            systemName: symbolName,
+            pointSize: 8 * fontScale,
+            weight: .medium,
+            appliesGlobalFontMagnification: true
+        ))
     }
 
     @ViewBuilder

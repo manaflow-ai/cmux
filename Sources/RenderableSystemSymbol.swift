@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import SwiftUI
 
 enum RenderableSystemSymbol {
@@ -69,6 +70,18 @@ enum RenderableSystemSymbol {
         return max(minimumRasterPointSize, pointSize)
     }
 
+    static func resolvedRasterPointSize(
+        _ pointSize: CGFloat,
+        globalFontPercent: Int,
+        appliesGlobalFontMagnification: Bool
+    ) -> CGFloat {
+        let rasterSize = clampedRasterPointSize(pointSize)
+        guard appliesGlobalFontMagnification else {
+            return rasterSize
+        }
+        return GlobalFontMagnification.scaledSize(rasterSize, percent: globalFontPercent)
+    }
+
     @MainActor
     static func configuredAppKitImage(
         systemName: String,
@@ -129,13 +142,20 @@ enum RenderableSystemSymbol {
 }
 
 struct CmuxSystemSymbolImage: View {
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var globalFontPercent
+
     let systemName: String
     let pointSize: CGFloat
     var weight: Font.Weight?
     var alignment: Alignment = .center
+    var appliesGlobalFontMagnification = false
 
     var body: some View {
-        let rasterSize = RenderableSystemSymbol.clampedRasterPointSize(pointSize)
+        let rasterSize = RenderableSystemSymbol.resolvedRasterPointSize(
+            pointSize,
+            globalFontPercent: globalFontPercent,
+            appliesGlobalFontMagnification: appliesGlobalFontMagnification
+        )
         if let image = RenderableSystemSymbol.configuredAppKitImage(
             systemName: systemName,
             pointSize: rasterSize,

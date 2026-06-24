@@ -1078,7 +1078,8 @@ private struct TextBoxAttachmentPreviewPopoverView: View {
                 CmuxSystemSymbolImage(
                     systemName: "doc",
                     pointSize: 42,
-                    weight: .regular
+                    weight: .regular,
+                    appliesGlobalFontMagnification: true
                 )
                 Text(attachment.displayName)
                     .cmuxFont(size: 13, weight: .medium)
@@ -1163,7 +1164,8 @@ private struct TextBoxAttachmentChip: View {
                 CmuxSystemSymbolImage(
                     systemName: "doc",
                     pointSize: 12,
-                    weight: .medium
+                    weight: .medium,
+                    appliesGlobalFontMagnification: true
                 )
                     .frame(
                         width: TextBoxLayout.attachmentImageSize,
@@ -1181,7 +1183,8 @@ private struct TextBoxAttachmentChip: View {
                 CmuxSystemSymbolImage(
                     systemName: "xmark",
                     pointSize: 8,
-                    weight: .bold
+                    weight: .bold,
+                    appliesGlobalFontMagnification: true
                 )
                     .frame(width: 14, height: 14)
             }
@@ -2823,7 +2826,8 @@ struct TextBoxInputContainer: View {
             CmuxSystemSymbolImage(
                 systemName: "plus",
                 pointSize: TextBoxLayout.iconSymbolSize,
-                weight: .semibold
+                weight: .semibold,
+                appliesGlobalFontMagnification: true
             )
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
                 .background(
@@ -2865,7 +2869,8 @@ struct TextBoxInputContainer: View {
             CmuxSystemSymbolImage(
                 systemName: "arrow.up",
                 pointSize: TextBoxLayout.sendSymbolSize,
-                weight: .bold
+                weight: .bold,
+                appliesGlobalFontMagnification: true
             )
                 .frame(width: TextBoxLayout.iconButtonSize, height: TextBoxLayout.iconButtonSize)
         }
@@ -2888,7 +2893,8 @@ struct TextBoxInputContainer: View {
                     CmuxSystemSymbolImage(
                         systemName: "text.bubble",
                         pointSize: 11,
-                        weight: .medium
+                        weight: .medium,
+                        appliesGlobalFontMagnification: true
                     )
                     Text(pendingCommentsLabel(count))
                         .cmuxFont(size: 12, weight: .medium)
@@ -2906,7 +2912,8 @@ struct TextBoxInputContainer: View {
                 CmuxSystemSymbolImage(
                     systemName: "xmark",
                     pointSize: 9,
-                    weight: .bold
+                    weight: .bold,
+                    appliesGlobalFontMagnification: true
                 )
                     .frame(width: 16, height: 16)
                     .background(Circle().fill(foreground.opacity(0.12)))

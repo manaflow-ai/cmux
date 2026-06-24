@@ -351,7 +351,8 @@ struct ModeBarButton: View {
                 CmuxSystemSymbolImage(
                     systemName: item.symbolName,
                     pointSize: RightSidebarChromeControlStyle.modeIconSize,
-                    weight: RightSidebarChromeControlStyle.iconWeight
+                    weight: RightSidebarChromeControlStyle.iconWeight,
+                    appliesGlobalFontMagnification: true
                 )
                     .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
                         keyPrefix: "rightSidebarModeIcon_\(item.id)",

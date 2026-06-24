@@ -127,7 +127,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
             CmuxSystemSymbolImage(
                 systemName: isCollapsed ? "chevron.right" : "chevron.down",
                 pointSize: metrics.chevronFontSize,
-                weight: .semibold
+                weight: .semibold,
+                appliesGlobalFontMagnification: true
             )
                 .foregroundStyle(.secondary)
                 .frame(width: metrics.chevronFrame, height: metrics.chevronFrame)
@@ -146,7 +147,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 CmuxSystemSymbolImage(
                     systemName: displayedIconSymbol,
                     pointSize: metrics.iconFontSize,
-                    weight: .semibold
+                    weight: .semibold,
+                    appliesGlobalFontMagnification: true
                 )
                     .foregroundStyle(iconColor)
                     .frame(width: metrics.iconFrame, height: metrics.iconFrame)
@@ -187,7 +189,8 @@ struct SidebarWorkspaceGroupHeaderView: View, Equatable {
                 CmuxSystemSymbolImage(
                     systemName: "plus",
                     pointSize: metrics.plusFontSize,
-                    weight: .medium
+                    weight: .medium,
+                    appliesGlobalFontMagnification: true
                 )
                     .foregroundStyle(.secondary)
                     .frame(width: metrics.plusFrame, height: metrics.plusFrame)

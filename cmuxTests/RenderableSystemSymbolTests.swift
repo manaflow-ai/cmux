@@ -19,6 +19,24 @@ struct RenderableSystemSymbolTests {
         #expect(RenderableSystemSymbol.clampedRasterPointSize(-.infinity) == 1)
     }
 
+    @Test func resolvedRasterPointSizeAppliesGlobalFontMagnificationWhenRequested() {
+        #expect(RenderableSystemSymbol.resolvedRasterPointSize(
+            10,
+            globalFontPercent: 150,
+            appliesGlobalFontMagnification: true
+        ) == 15)
+        #expect(RenderableSystemSymbol.resolvedRasterPointSize(
+            10,
+            globalFontPercent: 150,
+            appliesGlobalFontMagnification: false
+        ) == 10)
+        #expect(RenderableSystemSymbol.resolvedRasterPointSize(
+            0,
+            globalFontPercent: 200,
+            appliesGlobalFontMagnification: true
+        ) == 2)
+    }
+
     @Test @MainActor func configuredAppKitImageUsesTemplateImageWithClampedSize() throws {
         RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
