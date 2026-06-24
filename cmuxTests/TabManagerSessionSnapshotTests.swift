@@ -3096,7 +3096,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNil(configuration.localSocketPath)
         XCTAssertFalse(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("ssh -p 22"), terminalStartupCommand)
-        XCTAssertTrue(terminalStartupCommand.contains("vm ssh-attach"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("vm-pty-attach"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("--id nncop8f8h6w9blhns6sy"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("--default-freestyle-sshd"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("CMUX_SSH_RECONNECT_LIMIT"), terminalStartupCommand)
@@ -3152,7 +3152,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
         XCTAssertFalse(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
         XCTAssertFalse(restoredInitialCommand.contains("ssh-stale-session"), restoredInitialCommand)
-        XCTAssertTrue(restoredInitialCommand.contains("vm ssh-attach"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("vm-pty-attach"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("--default-freestyle-sshd"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("CMUX_CLOUD_RECONNECT_ATTEMPT"), restoredInitialCommand)
         XCTAssertFalse(restoredInitialCommand.contains("[cmux] ssh exited with status"), restoredInitialCommand)
@@ -3182,7 +3182,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(configuration.managedCloudVMID, "71smiccrg35sw9pydt8k")
         XCTAssertEqual(configuration.persistentDaemonSlot, "cmux-default-freestyle-sshd-v1")
         XCTAssertEqual(configuration.preserveAfterTerminalExit, true)
-        XCTAssertTrue(terminalStartupCommand.contains("vm ssh-attach"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("vm-pty-attach"), terminalStartupCommand)
         XCTAssertTrue(terminalStartupCommand.contains("--id 71smiccrg35sw9pydt8k"), terminalStartupCommand)
         XCTAssertFalse(terminalStartupCommand.contains("ssh -p 22"), terminalStartupCommand)
 
@@ -3200,7 +3200,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
         )
-        XCTAssertTrue(restoredInitialCommand.contains("vm ssh-attach"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("vm-pty-attach"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains("--default-freestyle-sshd"), restoredInitialCommand)
         XCTAssertFalse(restoredInitialCommand.contains("ssh -p 22"), restoredInitialCommand)
     }

@@ -20,6 +20,10 @@ cmux_existing_db_password_set="${CMUX_DB_PASSWORD+x}"
 cmux_existing_db_password="${CMUX_DB_PASSWORD-}"
 cmux_existing_db_name_set="${CMUX_DB_NAME+x}"
 cmux_existing_db_name="${CMUX_DB_NAME-}"
+cmux_existing_freestyle_snapshot_set="${FREESTYLE_SANDBOX_SNAPSHOT+x}"
+cmux_existing_freestyle_snapshot="${FREESTYLE_SANDBOX_SNAPSHOT-}"
+cmux_existing_e2b_template_set="${E2B_CMUXD_WS_TEMPLATE+x}"
+cmux_existing_e2b_template="${E2B_CMUXD_WS_TEMPLATE-}"
 
 cmux_extra_secret_file="${CMUXTERM_EXTRA_ENV_FILE:-${CMUX_WEB_EXTRA_ENV_FILE:-}}"
 if [[ -z "$cmux_extra_secret_file" && -f "$HOME/.secrets/cmux.env" ]]; then
@@ -67,6 +71,8 @@ if [[ -n "$cmux_existing_db_port_set" ]]; then export CMUX_DB_PORT="$cmux_existi
 if [[ -n "$cmux_existing_db_user_set" ]]; then export CMUX_DB_USER="$cmux_existing_db_user"; fi
 if [[ -n "$cmux_existing_db_password_set" ]]; then export CMUX_DB_PASSWORD="$cmux_existing_db_password"; fi
 if [[ -n "$cmux_existing_db_name_set" ]]; then export CMUX_DB_NAME="$cmux_existing_db_name"; fi
+if [[ -n "$cmux_existing_freestyle_snapshot_set" ]]; then export FREESTYLE_SANDBOX_SNAPSHOT="$cmux_existing_freestyle_snapshot"; fi
+if [[ -n "$cmux_existing_e2b_template_set" ]]; then export E2B_CMUXD_WS_TEMPLATE="$cmux_existing_e2b_template"; fi
 
 cmux_port="${CMUX_PORT:-${PORT:-3777}}"
 if [[ ! "$cmux_port" =~ ^[0-9]+$ ]]; then

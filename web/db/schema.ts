@@ -63,6 +63,7 @@ export const cloudVms = pgTable(
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
+    providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   },
   (table) => [
     index("cloud_vms_user_status_idx").on(table.userId, table.status),

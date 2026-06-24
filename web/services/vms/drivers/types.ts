@@ -11,10 +11,12 @@ export type VMHandle = {
   status: VMStatus;
   image: string; // e.g. "cmux-sandbox:v0-71a954b8e53b" for e2b
   createdAt: number;
+  providerMetadata?: Record<string, unknown>;
 };
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  providerMetadata?: Record<string, unknown>;
 };
 
 export type SSHEndpoint = {
@@ -77,6 +79,11 @@ export type AttachOptions = {
    * stale pane/client attachment without killing the underlying VM session.
    */
   attachmentId?: string;
+  /**
+   * Server-side provider metadata loaded from the owned VM row. Never trust client input
+   * for this field; workflows overwrite it before calling the provider.
+   */
+  providerMetadata?: Record<string, unknown>;
 };
 
 export type ExecResult = {

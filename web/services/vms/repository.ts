@@ -65,6 +65,7 @@ export type VmRepositoryShape = {
     readonly providerVmId: string;
     readonly image: string;
     readonly imageVersion?: string | null;
+    readonly providerMetadata?: Record<string, unknown>;
   }) => Effect.Effect<CloudVmRow, VmDatabaseError>;
   readonly markCreateFailed: (input: {
     readonly id: string;
@@ -440,6 +441,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           providerVmId: input.providerVmId,
           imageId: input.image,
           imageVersion: input.imageVersion ?? null,
+          providerMetadata: input.providerMetadata ?? {},
           status: "running",
           failureCode: null,
           failureMessage: null,

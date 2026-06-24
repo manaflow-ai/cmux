@@ -456,7 +456,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
             workspace.newTerminalSplit(from: remotePanelId, orientation: .horizontal, focus: false)
         )
         let splitCommand = try XCTUnwrap(splitPanel.surface.debugInitialCommand())
-        XCTAssertTrue(splitCommand.contains("vm ssh-attach"), splitCommand)
+        XCTAssertTrue(splitCommand.contains("vm-pty-attach"), splitCommand)
         XCTAssertTrue(splitCommand.contains("--default-freestyle-sshd"), splitCommand)
         XCTAssertFalse(splitCommand.contains("ssh -p 22"), splitCommand)
     }
@@ -492,7 +492,7 @@ final class TabManagerChildExitCloseTests: XCTestCase {
         XCTAssertTrue(workspace.reconnectRemoteConnection(surfaceId: remotePanelId))
         let replacement = try XCTUnwrap(workspace.terminalPanel(for: remotePanelId))
         let reconnectCommand = try XCTUnwrap(replacement.surface.debugInitialCommand())
-        XCTAssertTrue(reconnectCommand.contains("vm ssh-attach"), reconnectCommand)
+        XCTAssertTrue(reconnectCommand.contains("vm-pty-attach"), reconnectCommand)
         XCTAssertTrue(reconnectCommand.contains("--default-freestyle-sshd"), reconnectCommand)
         XCTAssertFalse(reconnectCommand.contains("ssh -p 22"), reconnectCommand)
     }

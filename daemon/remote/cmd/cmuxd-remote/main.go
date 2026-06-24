@@ -175,6 +175,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		listen := fs.String("listen", "127.0.0.1:7777", "address for --ws")
 		authLeaseFile := fs.String("auth-lease-file", "", "required lease JSON path for --ws")
 		rpcAuthLeaseFile := fs.String("rpc-auth-lease-file", "", "optional daemon RPC lease JSON path for --ws /rpc")
+		adminTokenSHA256 := fs.String("admin-token-sha256", "", "optional bearer token SHA-256 for HTTPS lease installation")
+		adminEd25519PublicKey := fs.String("admin-ed25519-public-key", "", "optional base64 Ed25519 public key for signed HTTPS lease installation")
 		shell := fs.String("shell", "", "shell path for --ws PTY sessions")
 		if err := fs.Parse(args[1:]); err != nil {
 			return 2
@@ -215,7 +217,12 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 				ListenAddr:       strings.TrimSpace(*listen),
 				PTYAuthLeaseFile: strings.TrimSpace(*authLeaseFile),
 				RPCAuthLeaseFile: strings.TrimSpace(*rpcAuthLeaseFile),
-				Shell:            strings.TrimSpace(*shell),
+				AdminTokenSHA256: firstNonEmpty(strings.TrimSpace(*adminTokenSHA256), strings.TrimSpace(os.Getenv("CMUXD_WS_ADMIN_TOKEN_SHA256"))),
+				AdminEd25519PubKey: firstNonEmpty(
+					strings.TrimSpace(*adminEd25519PublicKey),
+					strings.TrimSpace(os.Getenv("CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY")),
+				),
+				Shell: strings.TrimSpace(*shell),
 			}, stderr); err != nil {
 				_, _ = fmt.Fprintf(stderr, "serve --ws failed: %v\n", err)
 				return 1

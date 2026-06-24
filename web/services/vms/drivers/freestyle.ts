@@ -1,4 +1,5 @@
 import { Freestyle } from "freestyle";
+import { createHash, createPrivateKey, createPublicKey, randomBytes, sign, verify } from "node:crypto";
 import {
   ProviderError,
   type AttachOptions,
@@ -37,10 +38,12 @@ const CMUX_LINUX_USER = "cmux"; // must match Resources/install.sh in scratch/vm
 const CMUXD_WS_PTY_LEASE_PATH = "/tmp/cmux/attach-pty-lease.json";
 const CMUXD_WS_LEGACY_PTY_LEASE_PATH = "/tmp/cmux/attach-lease.json";
 const CMUXD_WS_RPC_CLIENT_PATH = "/tmp/cmux/attach-rpc-client.json";
+const CMUXD_WS_RPC_LEASE_PATH = "/tmp/cmux/attach-rpc-lease.json";
 const CMUXD_WS_PTY_LEASE_TTL_SECONDS = 5 * 60;
 const CMUXD_WS_RPC_LEASE_TTL_SECONDS = 12 * 60 * 60;
 const CMUXD_WS_RPC_RENEW_BEFORE_SECONDS = 60;
 const FREESTYLE_WS_PORTS = [{ port: 443, targetPort: 7777 }];
+const FREESTYLE_DAEMON_ADMIN_TOKEN_METADATA_KEY = "freestyleDaemonAdminToken";
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const CREATE_TIMEOUT_MS = 15 * 60 * 1000;
@@ -85,6 +88,17 @@ export class FreestyleProvider implements VMProvider {
     if (!image) {
       throw new ProviderError("freestyle", "create requires a resolved image");
     }
+    const signedAdmin = freestyleAdminSigningConfig();
+    const adminToken = signedAdmin
+      ? null
+      : freestyleDaemonAdminToken(options.providerMetadata)
+        ?? `cmux-freestyle-admin-${randomBytes(32).toString("hex")}`;
+    const providerMetadata = adminToken
+      ? {
+        ...(options.providerMetadata ?? {}),
+        [FREESTYLE_DAEMON_ADMIN_TOKEN_METADATA_KEY]: adminToken,
+      }
+      : { ...(options.providerMetadata ?? {}) };
     return withVmSpan(
       "cmux.vm.provider.create",
       {
@@ -97,11 +111,17 @@ export class FreestyleProvider implements VMProvider {
         const fs = client(CREATE_TIMEOUT_MS);
         try {
           // Build images can take several minutes if the snapshot cache misses.
-          const created = await fs.vms.create({
+          const createRequest: Parameters<typeof fs.vms.create>[0] = {
             snapshotId: image,
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
-          });
+          };
+          if (adminToken) {
+            createRequest.systemd = {
+              services: [freestyleWebSocketService(adminToken)],
+            };
+          }
+          const created = await fs.vms.create(createRequest);
           setSpanAttributes(span, { "cmux.vm.id": created.vmId });
           return {
             provider: "freestyle",
@@ -109,6 +129,7 @@ export class FreestyleProvider implements VMProvider {
             status: "running",
             image,
             createdAt: Date.now(),
+            providerMetadata,
           };
         } catch (err) {
           throw new ProviderError("freestyle", `create(${image})`, err);
@@ -288,11 +309,19 @@ export class FreestyleProvider implements VMProvider {
       async (span) => {
         try {
           const fs = client(CREATE_TIMEOUT_MS);
-          const created = await fs.vms.create({
+          const signedAdmin = freestyleAdminSigningConfig();
+          const adminToken = signedAdmin ? null : `cmux-freestyle-admin-${randomBytes(32).toString("hex")}`;
+          const createRequest: Parameters<typeof fs.vms.create>[0] = {
             snapshotId,
             ports: FREESTYLE_WS_PORTS,
             readySignalTimeoutSeconds: 600,
-          });
+          };
+          if (adminToken) {
+            createRequest.systemd = {
+              services: [freestyleWebSocketService(adminToken)],
+            };
+          }
+          const created = await fs.vms.create(createRequest);
           setSpanAttributes(span, { "cmux.vm.id": created.vmId });
           return {
             provider: "freestyle",
@@ -300,6 +329,9 @@ export class FreestyleProvider implements VMProvider {
             status: "running",
             image: snapshotId,
             createdAt: Date.now(),
+            providerMetadata: adminToken ? {
+              [FREESTYLE_DAEMON_ADMIN_TOKEN_METADATA_KEY]: adminToken,
+            } : {},
           };
         } catch (err) {
           throw new ProviderError("freestyle", `restore(${snapshotId})`, err);
@@ -360,6 +392,9 @@ export class FreestyleProvider implements VMProvider {
       }
       return endpoint;
     } catch (err) {
+      if (options?.requireDaemon) {
+        throw err;
+      }
       if (!shouldFallbackAttachToSSH(err)) {
         throw err;
       }
@@ -393,39 +428,55 @@ export class FreestyleProvider implements VMProvider {
           const fs = client();
           const vm = fs.vms.ref({ vmId });
           const domain = `${vmId}.vm.freestyle.sh`;
-          const service = await readFreestyleWebSocketService(vm);
           await ensureFreestyleWebSocketHealthy(domain);
 
           const pty = makeWebSocketLease("freestyle", "pty", true, CMUXD_WS_PTY_LEASE_TTL_SECONDS, options?.sessionId);
           const attachmentId = options?.attachmentId?.trim() || makeWebSocketAttachmentId("freestyle");
-          const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
-          const commands = [
-            ensurePrivateDirectoryCommand(service.ptyLeasePath),
-            `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(service.ptyLeasePath)}`,
-            `chmod 600 ${shellQuote(service.ptyLeasePath)}`,
-          ];
           let daemon: ReusableRpcLease | null = null;
           let daemonReused = false;
-          if (service.rpcLeasePath) {
-            const existingDaemon = await readReusableRpcLease(vm, service.rpcLeasePath);
-            const newDaemon = existingDaemon
-              ? null
-              : makeWebSocketLease("freestyle", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
-            daemon = existingDaemon ?? newDaemon!;
-            daemonReused = !!existingDaemon;
-            if (newDaemon) {
-              const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
-              const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
-              commands.push(
-                ensurePrivateDirectoryCommand(service.rpcLeasePath),
-                `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(service.rpcLeasePath)}`,
-                `chmod 600 ${shellQuote(service.rpcLeasePath)}`,
-                `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-                `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
-              );
+          const adminToken = freestyleDaemonAdminToken(options?.providerMetadata);
+          const signedAdmin = freestyleAdminSigningConfig();
+          if (adminToken || signedAdmin) {
+            const daemonLease = makeWebSocketLease("freestyle", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
+            daemon = daemonLease;
+            await installFreestyleLeasesViaDaemon(domain, adminToken ? { kind: "bearer", token: adminToken } : {
+              kind: "ed25519",
+              privateKeySeed: signedAdmin!.privateKeySeed,
+              publicKey: signedAdmin!.publicKey,
+            }, {
+              ptyLease: pty.lease,
+              rpcLease: daemonLease.lease,
+              rpcClient: leaseClientMetadata(daemonLease),
+            });
+          } else {
+            const service = await readFreestyleWebSocketService(vm);
+            const encodedPTY = Buffer.from(JSON.stringify(pty.lease)).toString("base64");
+            const commands = [
+              ensurePrivateDirectoryCommand(service.ptyLeasePath),
+              `printf '%s' '${encodedPTY}' | base64 -d > ${shellQuote(service.ptyLeasePath)}`,
+              `chmod 600 ${shellQuote(service.ptyLeasePath)}`,
+            ];
+            if (service.rpcLeasePath) {
+              const existingDaemon = await readReusableRpcLease(vm, service.rpcLeasePath);
+              const newDaemon = existingDaemon
+                ? null
+                : makeWebSocketLease("freestyle", "rpc", false, CMUXD_WS_RPC_LEASE_TTL_SECONDS);
+              daemon = existingDaemon ?? newDaemon!;
+              daemonReused = !!existingDaemon;
+              if (newDaemon) {
+                const encodedDaemon = Buffer.from(JSON.stringify(newDaemon.lease)).toString("base64");
+                const encodedDaemonClient = Buffer.from(JSON.stringify(leaseClientMetadata(newDaemon))).toString("base64");
+                commands.push(
+                  ensurePrivateDirectoryCommand(service.rpcLeasePath),
+                  `printf '%s' '${encodedDaemon}' | base64 -d > ${shellQuote(service.rpcLeasePath)}`,
+                  `chmod 600 ${shellQuote(service.rpcLeasePath)}`,
+                  `printf '%s' '${encodedDaemonClient}' | base64 -d > ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
+                  `chmod 600 ${shellQuote(CMUXD_WS_RPC_CLIENT_PATH)}`,
+                );
+              }
             }
+            await execFreestyleOrThrow(vm, commands.join(" && "));
           }
-          await execFreestyleOrThrow(vm, commands.join(" && "));
           span.setAttribute("cmux.vm.attach.transport", "websocket");
           span.setAttribute("cmux.vm.attach.expires_at_unix", pty.expiresAtUnix);
           span.setAttribute("cmux.vm.attach.daemon_available", !!daemon);
@@ -591,6 +642,146 @@ function shouldFallbackAttachToSSH(err: unknown): boolean {
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+function freestyleDaemonAdminToken(metadata: Record<string, unknown> | undefined): string | null {
+  const value = metadata?.[FREESTYLE_DAEMON_ADMIN_TOKEN_METADATA_KEY];
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+type FreestyleAdminAuth =
+  | { kind: "bearer"; token: string }
+  | { kind: "ed25519"; privateKeySeed: Buffer; publicKey: Buffer };
+
+function freestyleAdminSigningConfig(): { privateKeySeed: Buffer; publicKey: Buffer } | null {
+  const seedRaw = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED?.trim();
+  const publicRaw = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY?.trim();
+  if (!seedRaw && !publicRaw) return null;
+  if (!seedRaw || !publicRaw) {
+    throw new Error(
+      "CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED and CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY must be set together",
+    );
+  }
+  const privateKeySeed = decodeBase64Bytes(seedRaw);
+  const publicKey = decodeBase64Bytes(publicRaw);
+  if (privateKeySeed.length !== 32) {
+    throw new Error("CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED must decode to 32 bytes");
+  }
+  if (publicKey.length !== 32) {
+    throw new Error("CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY must decode to 32 bytes");
+  }
+  const auth = { kind: "ed25519" as const, privateKeySeed, publicKey };
+  const probe = Buffer.from("cmux-freestyle-admin-signing-config");
+  const signature = Buffer.from(signAdminLeaseBody(auth, probe.toString("utf8")), "base64");
+  if (!verify(null, probe, ed25519PublicKeyFromRaw(publicKey), signature)) {
+    throw new Error(
+      "CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED does not match CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY",
+    );
+  }
+  return { privateKeySeed, publicKey };
+}
+
+function decodeBase64Bytes(value: string): Buffer {
+  return Buffer.from(value.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+}
+
+function base64url(bytes: Buffer): string {
+  return bytes.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
+}
+
+function signAdminLeaseBody(auth: Extract<FreestyleAdminAuth, { kind: "ed25519" }>, body: string): string {
+  const privateKey = createPrivateKey({
+    format: "jwk",
+    key: {
+      kty: "OKP",
+      crv: "Ed25519",
+      d: base64url(auth.privateKeySeed),
+      x: base64url(auth.publicKey),
+    },
+  });
+  return sign(null, Buffer.from(body), privateKey).toString("base64");
+}
+
+function ed25519PublicKeyFromRaw(publicKey: Buffer) {
+  return createPublicKey({
+    format: "jwk" as const,
+    key: {
+      kty: "OKP",
+      crv: "Ed25519",
+      x: base64url(publicKey),
+    },
+  });
+}
+
+function freestyleWebSocketService(adminToken: string) {
+  return {
+    name: "cmuxd-ws",
+    mode: "service" as const,
+    user: "root",
+    after: ["network.target"],
+    env: {
+      CMUXD_WS_ADMIN_TOKEN_SHA256: sha256Hex(adminToken),
+    },
+    exec: [
+      [
+        "/usr/local/bin/cmuxd-remote",
+        "serve",
+        "--ws",
+        "--listen",
+        "0.0.0.0:7777",
+        "--auth-lease-file",
+        CMUXD_WS_PTY_LEASE_PATH,
+        "--rpc-auth-lease-file",
+        CMUXD_WS_RPC_LEASE_PATH,
+        "--shell",
+        "/bin/bash",
+      ].map(shellQuote).join(" "),
+    ],
+  };
+}
+
+async function installFreestyleLeasesViaDaemon(
+  domain: string,
+  auth: FreestyleAdminAuth,
+  leases: {
+    ptyLease: unknown;
+    rpcLease?: unknown;
+    rpcClient?: ReusableRpcLease;
+  },
+): Promise<void> {
+  const body = JSON.stringify({
+    pty_lease: leases.ptyLease,
+    rpc_lease: leases.rpcLease,
+    rpc_client: leases.rpcClient,
+  });
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (auth.kind === "bearer") {
+    headers.authorization = `Bearer ${auth.token}`;
+  } else {
+    headers["x-cmux-admin-signature-ed25519"] = signAdminLeaseBody(auth, body);
+  }
+  const response = await fetch(`https://${domain}/admin/leases`, {
+    method: "POST",
+    headers,
+    body,
+    signal: AbortSignal.timeout(10_000),
+  }).catch((err: unknown) => {
+    throw new Error(`Freestyle cmuxd lease install failed: ${errorMessage(err)}`);
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(
+      `Freestyle cmuxd lease install returned ${response.status}${text ? `: ${text.trim()}` : ""}`,
+    );
+  }
 }
 
 async function ensureFreestyleWebSocketHealthy(domain: string): Promise<void> {

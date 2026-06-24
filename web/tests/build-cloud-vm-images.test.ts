@@ -5,6 +5,7 @@ import {
   cloudImageSmokeTestCommands,
   cloudToolInstallCommands,
   findFreestyleSnapshotByName,
+  freestyleBaseDockerfileContent,
   freestyleRecoveryWindowStart,
   pinnedNpmPackageVersion,
   positiveIntFromEnv,
@@ -128,6 +129,32 @@ describe("Cloud VM image build helpers", () => {
     const smoke = cloudImageSmokeTestCommands().join("\n");
     expect(smoke).toContain("test -x /usr/local/bin/cmuxd-remote && test -x /usr/local/bin/cmux");
     expect(smoke).toContain("cmux --help");
+  });
+
+  test("Freestyle Dockerfile bakes signed-admin service from public key only", () => {
+    const previousPublic = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY;
+    const previousPrivate = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED;
+    try {
+      process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = "LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=";
+      process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = "private-seed-must-not-be-baked";
+      const dockerfile = freestyleBaseDockerfileContent("https://example.com/cmuxd-remote");
+      expect(dockerfile).toContain(
+        "CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=LFxQT06qOOAKo9Wr+kaq7npatVr4nYW2kPSb3RoebVQ=",
+      );
+      expect(dockerfile).toContain("systemctl enable cmuxd-ws.service");
+      expect(dockerfile).not.toContain("private-seed-must-not-be-baked");
+    } finally {
+      if (previousPublic === undefined) {
+        delete process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY;
+      } else {
+        process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY = previousPublic;
+      }
+      if (previousPrivate === undefined) {
+        delete process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED;
+      } else {
+        process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PRIVATE_KEY_SEED = previousPrivate;
+      }
+    }
   });
 
   test("snapshot recovery window tolerates provider clock skew", () => {

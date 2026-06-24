@@ -1828,6 +1828,7 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     destroyedAt: null,
     failureCode: null,
     failureMessage: null,
+    providerMetadata: {},
     ...overrides,
   };
 }

@@ -188,6 +188,7 @@ async function buildE2BTemplate(
     })
     .runCmd(cloudToolInstallCommands(), { user: "root" })
     .runCmd(cloudRootSetupCommands(), { user: "root" })
+    .runCmd(cloudShellProfileCommands(), { user: "root" })
     .runCmd(cloudImageSmokeTestCommands(), { user: "root" })
     .setStartCmd(
       "/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash",
@@ -235,13 +236,12 @@ async function buildFreestyleSnapshot(
   const createStartedAt = new Date();
   let result: unknown;
   try {
-    result = await fs.vms.snapshots.create({
+    result = await createFreestyleSnapshot(fs, {
       name,
       template: {
         baseImage: {
           dockerfileContent: freestyleBaseDockerfileContent(daemonURL),
         },
-        ports: [{ port: 443, targetPort: 7777 }],
         discriminator: `cmuxd-ws-${tag}`,
         skipCache,
       },
@@ -372,6 +372,50 @@ function cloudRootSetupCommands(): string[] {
   ];
 }
 
+function cloudShellProfileCommands(): string[] {
+  return [
+    "mkdir -p /etc/cmux /home/cmux/.config/cmux /home/cmux/.cmux",
+    "cat > /etc/cmux/zshrc <<'CMUX_ZSHRC'\n# cmux default zsh profile. Put personal overrides in ~/.zshrc.local.\nexport PATH=\"/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nexport SHELL=\"$(command -v zsh)\"\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\nautoload -Uz colors 2>/dev/null && colors\nsetopt prompt_subst interactivecomments no_beep hist_ignore_dups share_history 2>/dev/null || true\nPROMPT_EOL_MARK=''\nunsetopt prompt_sp 2>/dev/null || true\nHISTFILE=\"${HISTFILE:-$HOME/.zsh_history}\"\nHISTSIZE=\"${HISTSIZE:-50000}\"\nSAVEHIST=\"${SAVEHIST:-50000}\"\nbindkey -e 2>/dev/null || true\nif [ -r /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]; then\n  source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh\n  ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE=\"${ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE:-fg=8}\"\nfi\n: ${CMUX_PROMPT_USER:=cmux-cloud}\n: ${CMUX_PROMPT_CHAR:=$'\\u03bb'}\nPROMPT='%F{magenta}${CMUX_PROMPT_USER}%f in %F{green}%~%f ${CMUX_PROMPT_CHAR} '\nCMUX_ZSHRC",
+    "cat > /home/cmux/.zshrc <<'CMUX_USER_ZSHRC'\n# cmux-managed zsh defaults. Edit ~/.zshrc.local for personal overrides.\nmkdir -p \"$HOME/.cmux\" 2>/dev/null || true\nprintf '%s' '/tmp/cmux-cloud-cli.sock' > \"$HOME/.cmux/socket_addr\" 2>/dev/null || true\nexport CMUX_SOCKET_PATH=\"${CMUX_SOCKET_PATH:-/tmp/cmux-cloud-cli.sock}\"\n[ -r /etc/cmux/zshrc ] && source /etc/cmux/zshrc\n[ -r \"$HOME/.zshrc.local\" ] && source \"$HOME/.zshrc.local\"\nif [ \"${CMUX_CLOUD_WELCOME:-1}\" != \"0\" ] && [ -z \"${CMUX_CLOUD_WELCOME_SHOWN:-}\" ] && [ -t 1 ]; then\n  export CMUX_CLOUD_WELCOME_SHOWN=1\n  printf '\\033[38;2;0;212;255m  ::\\033[0m\\n'\n  printf '\\033[38;2;24;181;250m    ::::              \\033[38;2;0;212;255mc\\033[38;2;24;181;250mm\\033[38;2;48;150;245mu\\033[38;2;124;58;237mx cloud\\033[0m\\n'\n  printf '\\033[38;2;48;150;245m      ::::::\\033[0m\\n'\n  printf '\\033[38;2;72;119;241m        ::::::\\033[0m        \\033[38;2;130;130;140mpersistent cloud VM\\033[0m\\n'\n  printf '\\033[38;2;96;88;239m      ::::::\\033[0m          \\033[38;2;130;130;140mready for coding agents\\033[0m\\n'\n  printf '\\033[38;2;110;73;238m    ::::\\033[0m\\n'\n  printf '\\033[38;2;124;58;237m  ::\\033[0m\\n'\n  printf '\\n'\nfi\nCMUX_USER_ZSHRC",
+    "cat > /home/cmux/.zshrc.local <<'CMUX_LOCAL_ZSHRC'\n# Personal zsh overrides for this cloud VM.\n# Examples:\n#   CMUX_CLOUD_WELCOME=0\n#   CMUX_PROMPT_USER='cmux-cloud'\n#   CMUX_PROMPT_CHAR='>'\n#   PROMPT='%F{cyan}%n%f:%F{green}%~%f %# '\nCMUX_LOCAL_ZSHRC",
+    "touch /home/cmux/.hushlogin",
+    "chown -R cmux:cmux /home/cmux/.zshrc /home/cmux/.zshrc.local /home/cmux/.hushlogin /home/cmux/.config /home/cmux/.cmux",
+  ];
+}
+
+function freestyleSignedAdminServiceCommands(): string[] {
+  const publicKey = process.env.CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY?.trim();
+  if (!publicKey) return [];
+  validateFreestyleAdminPublicKey(publicKey);
+  return [
+    "mkdir -p /tmp/cmux && chmod 700 /tmp/cmux",
+    `cat > /etc/systemd/system/cmuxd-ws.service <<'CMUXD_WS_SERVICE'
+[Unit]
+Description=cmux remote WebSocket daemon
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=CMUXD_WS_ADMIN_ED25519_PUBLIC_KEY=${publicKey}
+ExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+CMUXD_WS_SERVICE`,
+    "systemctl enable cmuxd-ws.service",
+  ];
+}
+
+function validateFreestyleAdminPublicKey(publicKey: string): void {
+  const decoded = Buffer.from(publicKey.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  if (decoded.length !== 32) {
+    throw new Error("CMUX_FREESTYLE_ADMIN_SIGNING_PUBLIC_KEY must decode to 32 bytes");
+  }
+}
+
 export function cloudImageSmokeTestCommands(): string[] {
   const agentToolVersionChecks = cloudAgentToolPackageSpecs().flatMap((tool) =>
     tool.binaries.map((binary) => `${binary} --version >/tmp/cmux-${tool.name}-version.txt 2>&1`)
@@ -491,7 +535,7 @@ function freestylePythonOpenSSLCommands(): string[] {
   ];
 }
 
-function freestyleBaseDockerfileContent(daemonURL: string): string {
+export function freestyleBaseDockerfileContent(daemonURL: string): string {
   return [
     "FROM ubuntu:24.04",
     `ENV LANG=${UTF8_LOCALE} LC_ALL=${UTF8_LOCALE} LANGUAGE=${UTF8_LOCALE}`,
@@ -500,10 +544,9 @@ function freestyleBaseDockerfileContent(daemonURL: string): string {
     `RUN curl -fsSL ${shellQuote(daemonURL)} -o /usr/local/bin/cmuxd-remote && chmod 0755 /usr/local/bin/cmuxd-remote`,
     ...cloudToolInstallCommands().map((command) => `RUN ${command}`),
     ...cloudRootSetupCommands().map((command) => `RUN ${command}`),
+    ...cloudShellProfileCommands().map((command) => `RUN ${command}`),
+    ...freestyleSignedAdminServiceCommands().map((command) => `RUN ${command}`),
     ...cloudImageSmokeTestCommands().map((command) => `RUN ${command}`),
-    "RUN mkdir -p /etc/systemd/system/multi-user.target.wants",
-    "RUN cat <<'EOF' >/etc/systemd/system/cmuxd-ws.service\n[Unit]\nDescription=cmuxd websocket daemon\nAfter=network.target\n\n[Service]\nType=simple\nUser=root\nExecStart=/usr/local/bin/cmuxd-remote serve --ws --listen 0.0.0.0:7777 --auth-lease-file /tmp/cmux/attach-pty-lease.json --rpc-auth-lease-file /tmp/cmux/attach-rpc-lease.json --shell /bin/bash\nRestart=always\nRestartSec=1\n\n[Install]\nWantedBy=multi-user.target\nEOF",
-    "RUN ln -sf /etc/systemd/system/cmuxd-ws.service /etc/systemd/system/multi-user.target.wants/cmuxd-ws.service",
   ].join("\n");
 }
 
@@ -594,6 +637,24 @@ export function semverFromEnv(key: string, fallback: string): string {
 
 export function freestyleRecoveryWindowStart(startedAt: Date): string {
   return new Date(startedAt.getTime() - FREESTYLE_SNAPSHOT_RECOVERY_CLOCK_SKEW_MS).toISOString();
+}
+
+async function createFreestyleSnapshot(
+  fs: Freestyle,
+  body: Record<string, unknown>,
+): Promise<unknown> {
+  const base = (process.env.FREESTYLE_API_URL ?? "https://api.freestyle.sh").replace(/\/+$/, "");
+  const response = await fs.fetch(`${base}/v1/vms/snapshots`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(`Freestyle snapshot create failed: HTTP ${response.status} ${await response.text()}`);
+  }
+  return await response.json();
 }
 
 function fetchWithTimeout(timeoutMs: number): typeof fetch {

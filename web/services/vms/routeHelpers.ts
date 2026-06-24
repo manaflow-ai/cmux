@@ -130,12 +130,22 @@ export function notFoundVm(vmId: string): Response {
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
   if (isVmProviderOperationError(err)) {
+    const providerCause = providerCauseSummary(err.cause);
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",
       status: 502,
-      message: "The Cloud VM service could not complete this request.",
+      message: "The Cloud VM provider control plane could not complete this request.",
+      reason: providerCause?.message
+        ? `Cloud VM provider control plane is unavailable: ${providerCause.message}`
+        : "Cloud VM provider control plane is temporarily unavailable.",
       action: cloudServiceAction(err.operation),
-      details: { operation: err.operation },
+      details: {
+        operation: err.operation,
+        provider: err.provider,
+        retryable: true,
+        ...(providerCause?.code ? { providerCode: providerCause.code } : {}),
+        ...(providerCause?.message ? { providerMessage: providerCause.message } : {}),
+      },
     });
   }
 
@@ -162,13 +172,38 @@ export function vmWorkflowErrorResponse(err: unknown): Response | null {
   return null;
 }
 
+function providerCauseSummary(cause: unknown): { code?: string; message?: string } | null {
+  let current: unknown = cause;
+  let fallback: { code?: string; message?: string } | null = null;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    const record = current as {
+      body?: { code?: unknown; message?: unknown };
+      cause?: unknown;
+      message?: unknown;
+    };
+    const code = typeof record.body?.code === "string" ? record.body.code.trim() : "";
+    const bodyMessage = typeof record.body?.message === "string" ? record.body.message.trim() : "";
+    const message = typeof record.message === "string" ? record.message.trim() : "";
+    const summaryMessage = bodyMessage || message;
+    if (code) {
+      return {
+        code,
+        ...(summaryMessage ? { message: summaryMessage } : {}),
+      };
+    }
+    if (!fallback && summaryMessage) fallback = { message: summaryMessage };
+    current = record.cause;
+  }
+  return fallback;
+}
+
 function cloudServiceAction(operation: string): string {
   switch (operation) {
     case "create":
       return "Retry once. If it fails again, run `cmux vm ls` to check whether a VM was created, then try `cmux vm new` again or contact support.";
     case "openAttach":
     case "openSSH":
-      return "Run `cmux vm ls` to confirm the VM still exists. If it was paused or destroyed, start a fresh VM with `cmux vm new`.";
+      return "cmux is retrying attach while the Cloud VM provider control plane recovers. Run `cmux vm ls` to confirm the VM still exists.";
     case "exec":
       return "Check that the VM is still running with `cmux vm ls`, then retry the command. For long commands, increase the exec timeout.";
     case "destroy":

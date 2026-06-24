@@ -3739,8 +3739,9 @@ struct CMUXCLI {
                     print("  image:    \(image)")
                     break
                 }
-                // Create the VM then drop the user into a cmux-managed workspace. Freestyle
-                // attaches over SSH; E2B attaches over cmuxd-remote WebSocket PTY.
+                // Create the VM then drop the user into a cmux-managed workspace. Managed
+                // Cloud VMs use the cmuxd-remote WebSocket PTY so they can reconnect and
+                // attach from mobile clients without minting foreground SSH passwords.
                 let shortId = String(id.prefix(8))
                 let createdMessage = String(
                     format: String(
@@ -3754,7 +3755,7 @@ struct CMUXCLI {
                     id: id,
                     workspaceName: usesPersistentDefaultCloud ? Self.persistentFreestyleCloudWorkspaceName : "vm:\(shortId)",
                     windowRaw: targetWindow,
-                    forceSSH: usesPersistentDefaultCloud,
+                    forceSSH: false,
                     shouldPinWorkspaceToTop: usesPersistentDefaultCloud,
                     client: client,
                     jsonOutput: jsonOutput,
@@ -3823,7 +3824,7 @@ struct CMUXCLI {
                     id: id,
                     workspaceName: "vm:\(String(id.prefix(8)))",
                     windowRaw: targetWindow,
-                    forceSSH: provider == "freestyle",
+                    forceSSH: false,
                     shouldPinWorkspaceToTop: false,
                     client: client,
                     jsonOutput: jsonOutput,
@@ -3866,7 +3867,7 @@ struct CMUXCLI {
                     id: id,
                     workspaceName: "vm:\(String(id.prefix(8)))",
                     windowRaw: targetWindow,
-                    forceSSH: provider == "freestyle",
+                    forceSSH: false,
                     shouldPinWorkspaceToTop: false,
                     client: client,
                     jsonOutput: jsonOutput,
@@ -10167,9 +10168,9 @@ struct CMUXCLI {
         )
     }
 
-    /// Open an interactive cmux-managed shell on a cloud VM. Freestyle uses the existing SSH
-    /// workspace path. E2B uses the cmuxd-remote WebSocket PTY path because E2B does not expose
-    /// raw TCP/22.
+    /// Open an interactive cmux-managed shell on a cloud VM. The managed Cloud VM path requires
+    /// cmuxd-remote WebSocket attach so reconnects, mobile attach, and notification fanout all
+    /// use the same session primitive. SSH remains an explicit manual fallback.
     private func logVMTiming(
         _ stage: String,
         vmID: String,
@@ -10238,10 +10239,10 @@ struct CMUXCLI {
         }
 
         let attachInfoStartedAt = Date()
-        let response = try client.sendV2(
-            method: "vm.attach_info",
-            params: ["id": id, "require_daemon": true],
-            responseTimeout: Self.vmAttachResponseTimeoutSeconds
+        let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
+            vmID: id,
+            usesDefaultFreestyleSSHD: true,
+            client: client
         )
         let transport = (response["transport"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -10494,14 +10495,25 @@ struct CMUXCLI {
             "cmux_freestyle_cli=\(quotedCLI)",
             "CMUX_SSH_RECONNECT_LIMIT=\"${CMUX_SSH_RECONNECT_LIMIT:-86400}\"",
             "CMUX_SSH_RECONNECT_DELAY_SECONDS=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
+            "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT:-$CMUX_SSH_RECONNECT_LIMIT}\"",
+            "CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS=\"${CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS:-$CMUX_SSH_RECONNECT_DELAY_SECONDS}\"",
             "export CMUX_SSH_RECONNECT_LIMIT CMUX_SSH_RECONNECT_DELAY_SECONDS",
+            "export CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_LIMIT CMUX_DEFAULT_FREESTYLE_ATTACH_RETRY_DELAY_SECONDS",
+            "cmux_freestyle_attach() {",
+            "  if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then",
+            "    \"$cmux_freestyle_cli\" --socket \"$CMUX_SOCKET_PATH\" vm-pty-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "  else",
+            "    \"$cmux_freestyle_cli\" vm-pty-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "  fi",
+            "}",
             "cmux_freestyle_retry=0",
             "while :; do",
             "  if [ \"$cmux_freestyle_retry\" -gt 0 ]; then",
-            "    CMUX_CLOUD_RECONNECT_ATTEMPT=\"$cmux_freestyle_retry\" \"$cmux_freestyle_cli\" vm ssh-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "    export CMUX_CLOUD_RECONNECT_ATTEMPT=\"$cmux_freestyle_retry\"",
             "  else",
-            "    \"$cmux_freestyle_cli\" vm ssh-attach --id \(quotedVMID) --default-freestyle-sshd",
+            "    unset CMUX_CLOUD_RECONNECT_ATTEMPT",
             "  fi",
+            "  cmux_freestyle_attach",
             "  cmux_freestyle_status=$?",
             "  case \"$cmux_freestyle_status\" in 254|255) ;; *) exit \"$cmux_freestyle_status\" ;; esac",
             "  if [ \"$cmux_freestyle_retry\" -ge \"$CMUX_SSH_RECONNECT_LIMIT\" ]; then exit \"$cmux_freestyle_status\"; fi",
@@ -10607,22 +10619,36 @@ struct CMUXCLI {
     ) -> String {
         let retryText = String(
             localized: "cli.vm.sshInfo.retry.status",
-            defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (attempt \(attempt)/\(retryLimit))."
+            defaultValue: "Retrying in \(Self.retryDelayLabel(retryDelaySeconds)) (\(Self.retryAttemptLabel(attempt: attempt, retryLimit: retryLimit)))."
         )
         let errorText = String(describing: error)
         if Self.isLocalCloudVMServiceUnreachable(errorText),
            let url = Self.firstHTTPURL(in: errorText) {
             let reason = String(
                 localized: "cli.vm.sshInfo.retry.localServerOffline",
-                defaultValue: "Local cmux web server is offline"
+                defaultValue: "Waiting for the local cmux web server"
             )
             return "[cmux] \(reason) at \(url). \(retryText)"
         }
+        if errorText.lowercased().contains("provider control plane") {
+            let reason = String(
+                localized: "cli.vm.sshInfo.retry.cloudProviderControlPlaneUnavailable",
+                defaultValue: "Waiting for the Cloud VM control plane"
+            )
+            return "[cmux] \(reason). \(retryText)"
+        }
         let reason = String(
             localized: "cli.vm.sshInfo.retry.cloudServiceUnavailable",
-            defaultValue: "Cloud VM service is unavailable"
+            defaultValue: "Waiting for the Cloud VM service"
         )
         return "[cmux] \(reason). \(retryText)"
+    }
+
+    private static func retryAttemptLabel(attempt: Int, retryLimit: Int) -> String {
+        if retryLimit >= 86_400 {
+            return "attempt \(attempt)"
+        }
+        return "attempt \(attempt)/\(retryLimit)"
     }
 
     private static func retryDelayLabel(_ seconds: Double) -> String {
@@ -10663,13 +10689,22 @@ struct CMUXCLI {
         let message = String(describing: error).lowercased()
         return message.contains("http 502") ||
             message.contains("http 503") ||
+            message.contains("returned 502") ||
+            message.contains("returned 503") ||
             message.contains("service unavailable") ||
             message.contains("temporarily unavailable") ||
             message.contains("vm_cloud_state_unavailable") ||
+            message.contains("provider control plane") ||
             message.contains("cannot reach the cmux cloud vm service") ||
+            message.contains("local cmux web server is offline") ||
             message.contains("connection refused") ||
             message.contains("failed to connect") ||
-            message.contains("could not connect to the server")
+            message.contains("could not connect to the server") ||
+            message.contains("cmuxd websocket health check failed") ||
+            message.contains("operation was aborted") ||
+            message.contains("timed out") ||
+            message.contains("timeout") ||
+            message.contains("requires a cmuxd rpc endpoint")
     }
 
     private static func writeStderr(_ text: String) {
@@ -11147,10 +11182,12 @@ struct CMUXCLI {
 
     private func runVMPtyAttach(commandArgs: [String], client: SocketClient) throws {
         let (vmIDOpt, remaining) = parseOption(commandArgs, name: "--id")
-        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+        let usesDefaultFreestyleSSHD = hasFlag(remaining, name: "--default-freestyle-sshd")
+        let filteredRemaining = remaining.filter { $0 != "--default-freestyle-sshd" }
+        if let unknown = filteredRemaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "vm-pty-attach: unknown flag '\(unknown)'. Use `cmux vm-pty-attach --id <vm-id>`.")
         }
-        guard remaining.isEmpty else {
+        guard filteredRemaining.isEmpty else {
             throw CLIError(message: "Usage: cmux vm-pty-attach --id <vm-id>")
         }
         guard let vmID = vmIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -11164,7 +11201,11 @@ struct CMUXCLI {
         }
 
         let attachInfoStartedAt = Date()
-        let response = try client.sendV2(method: "vm.attach_info", params: ["id": vmID], responseTimeout: Self.vmAttachResponseTimeoutSeconds)
+        let response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
+            vmID: vmID,
+            usesDefaultFreestyleSSHD: usesDefaultFreestyleSSHD,
+            client: client
+        )
         logVMTiming("attach_info", vmID: vmID, transport: "websocket", startedAt: attachInfoStartedAt)
         let endpoint = try parseVMPtyWebSocketEndpoint(response)
         let config = VMPtyWebSocketConfig(
@@ -11177,6 +11218,73 @@ struct CMUXCLI {
         try VMPtyWebSocketBridge(config: config, debugEvent: { stage in
             log(stage)
         }).run()
+    }
+
+    private func defaultFreestyleAttachInfoWithRetryIfNeeded(
+        vmID: String,
+        usesDefaultFreestyleSSHD: Bool,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        let params: [String: Any] = usesDefaultFreestyleSSHD
+            ? ["id": vmID, "require_daemon": true]
+            : ["id": vmID]
+        var attempt = 0
+        var printedRetryNotice = false
+        let isReconnectAttach = ProcessInfo.processInfo.environment["CMUX_CLOUD_RECONNECT_ATTEMPT"] != nil
+        let retryLimit = Self.defaultFreestyleAttachRetryLimit()
+        let retryDelaySeconds = Self.defaultFreestyleAttachRetryDelaySeconds()
+        while true {
+            do {
+                let response = try client.sendV2(
+                    method: "vm.attach_info",
+                    params: params,
+                    responseTimeout: Self.vmAttachResponseTimeoutSeconds
+                )
+                if !isReconnectAttach, printedRetryNotice {
+                    Self.writeStderr(Self.clearTerminalLinePrefix)
+                }
+                return response
+            } catch {
+                if usesDefaultFreestyleSSHD, Self.isVMNotFoundError(error) {
+                    throw CLIError(message: """
+                        The Cloud VM attached to this workspace no longer exists.
+
+                        What to do:
+                          Close this workspace and open a fresh Cloud VM workspace with the cloud button or `cmux vm new`.
+
+                        Details:
+                          cmux will not recreate the VM from inside an attached terminal because that would leave the workspace's saved Cloud VM id stale.
+                        """)
+                }
+                guard usesDefaultFreestyleSSHD,
+                      Self.isRetryableCloudVMServiceError(error),
+                      attempt < retryLimit else {
+                    if !isReconnectAttach, printedRetryNotice {
+                        Self.writeStderrLine("")
+                    }
+                    throw error
+                }
+                let retryAttempt = attempt + 1
+                if !isReconnectAttach {
+                    Self.writeStderr(
+                        Self.clearTerminalLinePrefix + Self.defaultFreestyleAttachRetryNotice(
+                            error: error,
+                            attempt: retryAttempt,
+                            retryLimit: retryLimit,
+                            retryDelaySeconds: retryDelaySeconds
+                        )
+                    )
+                    printedRetryNotice = true
+                }
+                cliDebugLog(
+                    "cli.vm.attach_info.retry vm=\(String(vmID.prefix(8))) attempt=\(retryAttempt) retry_in_seconds=\(retryDelaySeconds) error=\(String(describing: error))"
+                )
+                attempt += 1
+                if retryDelaySeconds > 0 {
+                    usleep(useconds_t(retryDelaySeconds * 1_000_000))
+                }
+            }
+        }
     }
 
     private final class VMPtyWebSocketBridgeDelegate: NSObject, URLSessionWebSocketDelegate {

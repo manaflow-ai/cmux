@@ -145,7 +145,7 @@ export function createVm(input: {
     const handle = yield* measureVmEffect(
       input.timing,
       "provider_create",
-      providers.create(input.provider, { image: input.image }),
+      providers.create(input.provider, { image: input.image, providerMetadata: create.vm.providerMetadata }),
     ).pipe(
       Effect.tapError((err) =>
         Effect.all([
@@ -177,6 +177,7 @@ export function createVm(input: {
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
+        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -384,6 +385,7 @@ export function forkVm(input: {
           providerVmId: handle.providerVmId,
           image: source.imageId,
           imageVersion: source.imageVersion,
+          providerMetadata: handle.providerMetadata ?? source.providerMetadata,
         }),
       ).pipe(
         Effect.catchAll((err) =>
@@ -657,7 +659,10 @@ function openAttachEndpointResult(input: OpenAttachEndpointInput) {
       providers,
       "attach",
     );
-    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, input.options);
+    const endpoint = yield* providers.openAttach(vm.provider, input.providerVmId, {
+      ...(input.options ?? {}),
+      providerMetadata: vm.providerMetadata,
+    });
     if (endpoint.transport === "ssh") {
       yield* revokeActiveIdentities(vm);
     }
