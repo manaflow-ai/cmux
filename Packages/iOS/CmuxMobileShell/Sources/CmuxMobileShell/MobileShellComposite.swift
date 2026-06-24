@@ -250,10 +250,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Reachability prober for the Computers screen. Owned here (the layer that
     /// already knows the transport) so the SwiftUI package depends only on the
     /// core ``CmxRoutePinging`` seam and never constructs the concrete network
-    /// service itself. `@ObservationIgnored`: it is stateless infrastructure, not
-    /// observed UI state.
+    /// service itself. Injected via `init` (default = the production network
+    /// pinger) so shell/UI tests can drive the Ping UI with deterministic
+    /// success/refused/timeout results instead of real sockets.
+    /// `@ObservationIgnored`: it is stateless infrastructure, not observed state.
     @ObservationIgnored
-    private let routePinger: any CmxRoutePinging = CmxNetworkRoutePinger()
+    private let routePinger: any CmxRoutePinging
 
     /// Probe whether the phone can reach this route right now (a direct TCP
     /// connect, independent of the live subscription). See ``CmxRoutePinging``.
@@ -784,6 +786,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         identityProvider: (any MobileIdentityProviding)? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         reachability: any ReachabilityProviding = ReachabilityService(),
+        routePinger: any CmxRoutePinging = CmxNetworkRoutePinger(),
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
@@ -805,6 +808,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
         self.reachability = reachability
+        self.routePinger = routePinger
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
