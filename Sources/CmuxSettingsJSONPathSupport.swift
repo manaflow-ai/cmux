@@ -169,6 +169,21 @@ enum TerminalSettingsFileMapping {
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
         ),
+        .init(
+            jsonKey: "offerResumeAfterCrash",
+            defaultsKey: CrashRecoverySettings.offerResumeAfterCrashKey,
+            invalidPath: "terminal.offerResumeAfterCrash"
+        ),
+        .init(
+            jsonKey: "injectResumeBreadcrumb",
+            defaultsKey: CrashRecoverySettings.injectResumeBreadcrumbKey,
+            invalidPath: "terminal.injectResumeBreadcrumb"
+        ),
+        .init(
+            jsonKey: "resumeAgentsAfterUpdate",
+            defaultsKey: CrashRecoverySettings.resumeAgentsAfterUpdateKey,
+            invalidPath: "terminal.resumeAgentsAfterUpdate"
+        ),
     ]
 }
 

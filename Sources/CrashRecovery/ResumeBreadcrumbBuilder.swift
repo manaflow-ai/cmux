@@ -18,7 +18,7 @@ enum ResumeBreadcrumbBuilder {
 
     /// Why a restored workspace cannot be auto-resumed. Surfaced to the user
     /// (offer modal / disabled menu tooltip) — never thrown.
-    enum SkipReason: Equatable, Sendable {
+    enum SkipReason: Hashable, Sendable {
         /// No agent session id was persisted, so there is nothing to resume.
         case noSessionId
         /// A session id exists but the restore could not prove it is live/valid.
