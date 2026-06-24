@@ -4217,7 +4217,13 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
-    private func cancelPendingInteractiveBrowserPrompts(reason: String) {
+    private func cancelPendingInteractiveBrowserPrompts(
+        reason: String,
+        cancelHTTPBasicAuthPrompts: Bool = true
+    ) {
+        if cancelHTTPBasicAuthPrompts {
+            navigationDelegate?.cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: true)
+        }
         guard !pendingInteractiveBrowserPrompts.isEmpty else { return }
         let prompts = pendingInteractiveBrowserPrompts
         pendingInteractiveBrowserPrompts.removeAll()
@@ -5151,7 +5157,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
         navigationDelegate?.cancelPendingHTTPBasicAuthPrompts()
-        cancelPendingInteractiveBrowserPrompts(reason: "close")
+        cancelPendingInteractiveBrowserPrompts(reason: "close", cancelHTTPBasicAuthPrompts: false)
         closeBackgroundPreloadHost(reason: "close")
 
         // Snapshot first: popup close unregisters itself from popupControllers.
@@ -8751,7 +8757,7 @@ final class BrowserHTTPBasicAuthPromptCoordinator {
         return true
     }
 
-    func cancelAll() {
+    func cancelAll(allowFuturePrompts: Bool = false) {
         isCancelling = true
         let active = activeRequest
         activeRequest = nil
@@ -8760,6 +8766,9 @@ final class BrowserHTTPBasicAuthPromptCoordinator {
         active?.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
         queued.forEach {
             $0.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
+        }
+        if allowFuturePrompts {
+            isCancelling = false
         }
     }
 
@@ -8976,8 +8985,8 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var lastAttemptedURL: URL?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
 
-    func cancelPendingHTTPBasicAuthPrompts() {
-        basicAuthPromptCoordinator.cancelAll()
+    func cancelPendingHTTPBasicAuthPrompts(allowFuturePrompts: Bool = false) {
+        basicAuthPromptCoordinator.cancelAll(allowFuturePrompts: allowFuturePrompts)
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

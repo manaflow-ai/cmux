@@ -2445,6 +2445,63 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         XCTAssertEqual(secondDisposition, .cancelAuthenticationChallenge)
     }
 
+    func testBasicAuthPromptCoordinatorReusableCancellationCancelsQueuedWork() {
+        let coordinator = BrowserHTTPBasicAuthPromptCoordinator()
+        let firstChallenge = makeAuthChallenge(
+            host: "first.test",
+            method: NSURLAuthenticationMethodHTTPBasic
+        )
+        let secondChallenge = makeAuthChallenge(
+            host: "second.test",
+            method: NSURLAuthenticationMethodHTTPBasic
+        )
+        let thirdChallenge = makeAuthChallenge(
+            host: "third.test",
+            method: NSURLAuthenticationMethodHTTPBasic
+        )
+        var promptStartCount = 0
+        var firstDisposition: URLSession.AuthChallengeDisposition?
+        var secondDisposition: URLSession.AuthChallengeDisposition?
+        var thirdDisposition: URLSession.AuthChallengeDisposition?
+
+        func startPrompt(_ finishPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.Completion) -> Bool {
+            _ = finishPrompt
+            promptStartCount += 1
+            return true
+        }
+
+        XCTAssertTrue(coordinator.handle(
+            challenge: firstChallenge,
+            startPrompt: startPrompt
+        ) { disposition, _ in
+            firstDisposition = disposition
+        })
+
+        XCTAssertTrue(coordinator.handle(
+            challenge: secondChallenge,
+            startPrompt: startPrompt
+        ) { disposition, _ in
+            secondDisposition = disposition
+        })
+
+        XCTAssertEqual(promptStartCount, 1)
+
+        coordinator.cancelAll(allowFuturePrompts: true)
+
+        XCTAssertEqual(firstDisposition, .cancelAuthenticationChallenge)
+        XCTAssertEqual(secondDisposition, .cancelAuthenticationChallenge)
+
+        XCTAssertTrue(coordinator.handle(
+            challenge: thirdChallenge,
+            startPrompt: startPrompt
+        ) { disposition, _ in
+            thirdDisposition = disposition
+        })
+
+        XCTAssertEqual(promptStartCount, 2)
+        XCTAssertNil(thirdDisposition)
+    }
+
     func testBasicAuthPromptShowsPreviousFailureMessage() {
         let challenge = makeAuthChallenge(
             method: NSURLAuthenticationMethodHTTPBasic,
