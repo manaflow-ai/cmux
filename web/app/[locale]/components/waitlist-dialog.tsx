@@ -190,12 +190,15 @@ function WaitlistBody({
     // spinner pleasant when the request is fast.
     const [ok] = await Promise.all([
       recordWaitlistSignup(trimmed, platforms, location),
-      // Best-effort Slack ping in parallel; its result doesn't gate success.
-      notifyWaitlistSlack(trimmed, platforms, location),
       new Promise<void>((resolve) => {
         timerRef.current = setTimeout(resolve, SUBMIT_DELAY_MS);
       }),
     ]);
+    // Ping Slack only after the signup was durably recorded, so the channel
+    // never reports a signup that actually failed. Best-effort, not awaited.
+    if (ok) {
+      void notifyWaitlistSlack(trimmed, platforms, location);
+    }
     setStatus(ok ? "done" : "sendError");
   };
 

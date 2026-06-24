@@ -79,15 +79,21 @@ export async function POST(request: Request) {
       }
 
       try {
+        // Platform labels come from a fixed enum; email + location are
+        // user-controlled, so escape Slack mrkdwn metacharacters (`&`, `<`, `>`)
+        // to keep `<!channel>`, `<@USER>`, and link syntax from rendering or
+        // notifying the channel.
         const platformList = platforms
           .map((p) => PLATFORM_LABELS[p])
           .join(", ");
-        const fromSuffix = location ? ` (from ${location})` : "";
+        const fromSuffix = location
+          ? ` (from ${escapeSlack(location)})`
+          : "";
         const res = await fetch(webhookUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            text: `:tada: New waitlist signup: *${email}* for *${platformList}*${fromSuffix}`,
+            text: `:tada: New waitlist signup: *${escapeSlack(email)}* for *${platformList}*${fromSuffix}`,
           }),
         });
         if (!res.ok) {
@@ -102,6 +108,12 @@ export async function POST(request: Request) {
       return ok({ slack: "sent" });
     },
   );
+}
+
+// Escape the characters Slack treats specially in mrkdwn so user-controlled
+// text can't inject links, mentions, or channel broadcasts.
+function escapeSlack(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function ok(extra: Record<string, unknown>) {
