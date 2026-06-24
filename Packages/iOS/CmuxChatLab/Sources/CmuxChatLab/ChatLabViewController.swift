@@ -146,15 +146,26 @@ final class ChatLabViewController: UIViewController {
         guard let composerTopScreen = screenFrame(of: composer, usePresentation: true)?.minY,
               let listBottomScreen = screenFrame(of: list.view, usePresentation: false)?.maxY
         else { return }
-        #if DEBUG
-        probe.record(
-            composerTopScreen: composerTopScreen,
-            listBottomScreen: listBottomScreen,
-            appliedInset: list.collectionView.contentInset.top
-        )
-        #endif
-        let overlap = max(restingOverlap, listBottomScreen - composerTopScreen)
+        // Drive the list inset from the composer's CURRENT presentation, then
+        // measure the residual gap. A correctly-synced frame leaves this within
+        // sub-pixel; if the link ever stopped driving the inset (the old
+        // notification-frozen bug), the composer would move while the inset
+        // stayed put and the residual would blow up to the full keyboard travel.
+        let dynamicOverlap = listBottomScreen - composerTopScreen
+        let overlap = max(restingOverlap, dynamicOverlap)
         applyOverlap(overlap, animated: false, duration: 0, rawCurve: 0)
+        #if DEBUG
+        // Only sample while the keyboard is meaningfully raised; below the
+        // resting position the overlap intentionally clamps and the residual is
+        // not a tracking error.
+        if dynamicOverlap > restingOverlap {
+            probe.record(
+                composerTopScreen: composerTopScreen,
+                listBottomScreen: listBottomScreen,
+                appliedInset: list.collectionView.contentInset.top
+            )
+        }
+        #endif
     }
 
     // MARK: Overlap math
