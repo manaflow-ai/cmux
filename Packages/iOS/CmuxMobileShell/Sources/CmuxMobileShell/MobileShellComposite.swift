@@ -247,6 +247,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return result
     }
 
+    /// Reachability prober for the Computers screen, injected via `init` (default
+    /// = production network pinger) so the UI depends only on the core
+    /// ``CmxRoutePinging`` seam and tests can pass a fake. `@ObservationIgnored`:
+    /// stateless infrastructure, not observed state.
+    @ObservationIgnored
+    private let routePinger: any CmxRoutePinging
+
+    /// Probe whether the phone can reach this route right now (a direct TCP
+    /// connect, independent of the live subscription). See ``CmxRoutePinging``.
+    public func pingRoute(_ route: CmxAttachRoute) async -> CmxRoutePingResult {
+        await routePinger.ping(route)
+    }
+
     /// Device-local collapse state for workspace groups (per-device UI preference:
     /// collapsing on the phone must not collapse on the Mac). Seeded once from the
     /// Mac, then phone-owned. `@ObservationIgnored` (views read `workspaceGroups`);
@@ -770,6 +783,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         identityProvider: (any MobileIdentityProviding)? = nil,
         teamIDProvider: @escaping @Sendable () async -> String? = { nil },
         reachability: any ReachabilityProviding = ReachabilityService(),
+        routePinger: any CmxRoutePinging = CmxNetworkRoutePinger(),
         deliveredNotificationClearer: any DeliveredNotificationClearing = SystemDeliveredNotificationClearer(),
         pendingDismissQueue: PendingNotificationDismissQueue = PendingNotificationDismissQueue(),
         pairingHintDefaults: UserDefaults = .standard,
@@ -791,6 +805,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.identityProvider = identityProvider
         self.teamIDProvider = teamIDProvider
         self.reachability = reachability
+        self.routePinger = routePinger
         self.deliveredNotificationClearer = deliveredNotificationClearer
         self.pendingDismissQueue = pendingDismissQueue
         self.pairingHintDefaults = pairingHintDefaults
