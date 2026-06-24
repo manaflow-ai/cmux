@@ -9,6 +9,7 @@ artifact; also runnable locally.
 Usage: generate_preview.py <screenshots_dir>
 """
 import html
+import urllib.parse
 import os
 import re
 import sys
@@ -49,7 +50,7 @@ def main():
         blocks = []
         for dev in devices:
             cards = "".join(
-                f'<figure><img loading="lazy" src="../{html.escape(loc)}/{html.escape(f)}" '
+                f'<figure><img loading="lazy" src="{urllib.parse.quote(loc)}/{urllib.parse.quote(f)}" '
                 f'alt="{html.escape(name)}"><figcaption>{html.escape(order)} · '
                 f'{html.escape(name)}</figcaption></figure>'
                 for d2, order, name, f in shots if d2 == dev
@@ -97,11 +98,11 @@ def main():
  tabs.forEach(t=>t.addEventListener('click',()=>show(t.dataset.loc)));
  if(secs[0])show(secs[0].dataset.loc);
 </script></body></html>"""
-    out = os.path.join(ss, "preview")
-    os.makedirs(out, exist_ok=True)
-    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
+    # Write at the screenshots root so img src uses <locale>/<file> (a subdir):
+    # browsers block file:// access to parent dirs (../), which broke the gallery.
+    with open(os.path.join(ss, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(doc)
-    print(f"wrote {out}/index.html ({total} screenshots, {len(locales)} locales)")
+    print(f"wrote {ss}/index.html ({total} screenshots, {len(locales)} locales)")
 
 
 if __name__ == "__main__":
