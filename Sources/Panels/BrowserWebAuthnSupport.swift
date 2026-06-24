@@ -1516,11 +1516,8 @@ private extension BrowserWebAuthnCoordinator {
         bluetoothState: BrowserBluetoothAuthorizationState,
         callerMayPromptForPlatformAuthorization: Bool
     ) -> [String: Any] {
-        let authorized = state == .authorized
         let denied = state == .denied
-        let canPromptForAccess = state == .notDetermined && callerMayPromptForPlatformAuthorization
         let platformRequestSupport = supportsPlatformCredentialRequests
-        let securityKeySupport = supportsSecurityKeyCredentialRequests
         let deviceConfiguredForPasskeys = denied ? nil : self.deviceConfiguredForPasskeys()
         let platformPasskeyAvailability = browserWebAuthnAdvertisedPlatformPasskeyAvailability(
             authorizationState: state,
@@ -1528,22 +1525,13 @@ private extension BrowserWebAuthnCoordinator {
             callerMayPromptForPlatformAuthorization: callerMayPromptForPlatformAuthorization
         )
         #if DEBUG
+        let authorized = state == .authorized
+        let canPromptForAccess = state == .notDetermined && callerMayPromptForPlatformAuthorization
+        let securityKeySupport = supportsSecurityKeyCredentialRequests
         cmuxDebugLog("webauthn.capability state=\(state.rawValue) authorized=\(authorized) denied=\(denied) canPrompt=\(canPromptForAccess) callerMayPrompt=\(callerMayPromptForPlatformAuthorization) platformSupport=\(platformRequestSupport) securityKeySupport=\(securityKeySupport) deviceConfigured=\(deviceConfiguredForPasskeys as Any) advertisedPlatform=\(platformPasskeyAvailability as Any) btAuth=\(bluetoothState.isAuthorized) btHybrid=\(bluetoothState.canUseHybridTransport)")
         #endif
 
-        var payload: [String: Any] = [
-            "authorized": authorized,
-            "denied": denied,
-            "canPromptForAccess": canPromptForAccess,
-            "bluetoothAuthorized": bluetoothState.isAuthorized,
-            "hybridTransportAvailable": platformRequestSupport && bluetoothState.canUseHybridTransport,
-            "securityKeysAvailable": securityKeySupport,
-        ]
-
-        if let bluetoothPoweredOn = bluetoothState.isPoweredOn {
-            payload["bluetoothPoweredOn"] = bluetoothPoweredOn
-        }
-
+        var payload: [String: Any] = [:]
         if platformRequestSupport,
            let platformPasskeyAvailability {
             payload["userVerifyingPlatformAuthenticatorAvailable"] = platformPasskeyAvailability
