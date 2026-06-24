@@ -127,6 +127,57 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     }
 }
 
+final class BrowserSSLTrustBypassStateTests: XCTestCase {
+    func testPendingBypassRequiresHTTPSRequest() throws {
+        let state = BrowserSSLTrustBypassState()
+        let httpURL = try XCTUnwrap(URL(string: "http://example.internal"))
+        let fileURL = try XCTUnwrap(URL(string: "file:///tmp/example"))
+
+        XCTAssertNil(state.createPendingBypassAction(for: URLRequest(url: httpURL)))
+        XCTAssertNil(state.createPendingBypassAction(for: URLRequest(url: fileURL)))
+    }
+
+    func testPendingBypassReplaysOriginalRequestOnceAndMarksHostBypassed() throws {
+        let state = BrowserSSLTrustBypassState()
+        let url = try XCTUnwrap(URL(string: "https://example.internal/submit"))
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = Data("token=abc123".utf8)
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+
+        let actionURL = try XCTUnwrap(state.createPendingBypassAction(for: request))
+        XCTAssertEqual(actionURL.scheme, "cmux-browser-action")
+        XCTAssertEqual(actionURL.host, "bypass-ssl")
+
+        let replayed = try XCTUnwrap(state.consumePendingBypassAction(actionURL))
+        XCTAssertEqual(replayed.url, url)
+        XCTAssertEqual(replayed.httpMethod, "POST")
+        XCTAssertEqual(replayed.httpBody, Data("token=abc123".utf8))
+        XCTAssertEqual(replayed.value(forHTTPHeaderField: "Content-Type"), "application/x-www-form-urlencoded")
+        XCTAssertTrue(state.isBypassed(host: "EXAMPLE.internal"))
+
+        XCTAssertNil(state.consumePendingBypassAction(actionURL))
+    }
+
+    func testPendingBypassRejectsMissingForgedAndExpiredTokens() throws {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let state = BrowserSSLTrustBypassState(tokenLifetime: 10, now: { now })
+        let url = try XCTUnwrap(URL(string: "https://expired.internal"))
+        let request = URLRequest(url: url)
+        _ = try XCTUnwrap(state.createPendingBypassAction(for: request))
+
+        let missingTokenURL = try XCTUnwrap(URL(string: "cmux-browser-action://bypass-ssl"))
+        let forgedTokenURL = try XCTUnwrap(URL(string: "cmux-browser-action://bypass-ssl?token=not-issued"))
+        XCTAssertNil(state.consumePendingBypassAction(missingTokenURL))
+        XCTAssertNil(state.consumePendingBypassAction(forgedTokenURL))
+
+        let expiredState = BrowserSSLTrustBypassState(tokenLifetime: -1, now: { now })
+        let expiredActionURL = try XCTUnwrap(expiredState.createPendingBypassAction(for: request))
+        XCTAssertNil(expiredState.consumePendingBypassAction(expiredActionURL))
+        XCTAssertFalse(expiredState.isBypassed(host: "expired.internal"))
+    }
+}
+
 final class TitlebarControlsSizingPolicyTests: XCTestCase {
     func testSchedulePolicyRequiresMeaningfulViewSizeChange() {
         XCTAssertFalse(titlebarControlsShouldScheduleForViewSizeChange(previous: .zero, current: .zero))
