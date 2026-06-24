@@ -620,7 +620,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     private func requestForFailedNavigation(failedURL: String) -> URLRequest? {
         if let lastAttemptedRequest,
            lastAttemptedRequest.url != nil {
-            if browserRequestMatchesFailedNavigation(lastAttemptedRequest, failedURL: failedURL) {
+            if lastAttemptedRequest.browserMatchesFailedNavigationURLString(failedURL) {
                 return lastAttemptedRequest
             }
         }
@@ -710,13 +710,12 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         let failedURL = nsError.userInfo[NSURLErrorFailingURLStringErrorKey] as? String
             ?? lastAttemptedURL?.absoluteString
             ?? ""
-        browserLoadErrorPage(
-            in: webView,
+        BrowserErrorPage(
             failedURL: failedURL,
             failedRequest: requestForFailedNavigation(failedURL: failedURL),
             error: nsError,
             sslBypassState: sslBypassState
-        )
+        ).load(in: webView)
     }
 
     func webView(

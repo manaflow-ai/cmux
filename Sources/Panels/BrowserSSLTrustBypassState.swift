@@ -1,0 +1,133 @@
+import Foundation
+import Security
+
+/// Per-WebKit-delegate state for user-approved server-trust bypasses.
+///
+/// WebKit requires synchronous answers from `WKNavigationDelegate`, so this is
+/// owned by one navigation delegate instead of a global actor or singleton.
+/// That keeps bypass grants scoped to the lifetime of the relevant browser
+/// surface while preserving the exact failed `URLRequest` for replay.
+final class BrowserSSLTrustBypassState {
+    private struct TrustGrant: Hashable {
+        let scope: BrowserSSLTrustScope
+        let fingerprint: BrowserServerTrustFingerprint
+    }
+
+    private struct PendingBypass {
+        let grant: TrustGrant
+        let request: URLRequest
+        let expiresAt: Date
+    }
+
+    private var bypassedTrusts: Set<TrustGrant> = []
+    private var observedFingerprints: [BrowserSSLTrustScope: BrowserServerTrustFingerprint] = [:]
+    private var observedFingerprintOrder: [BrowserSSLTrustScope] = []
+    private var pendingBypasses: [String: PendingBypass] = [:]
+    private var pendingTokenOrder: [String] = []
+    private let tokenLifetime: TimeInterval
+    private let maximumPendingBypassCount: Int
+    private let now: () -> Date
+
+    init(
+        tokenLifetime: TimeInterval = 24 * 60 * 60,
+        maximumPendingBypassCount: Int = 32,
+        now: @escaping () -> Date = { Date.now }
+    ) {
+        self.tokenLifetime = tokenLifetime
+        self.maximumPendingBypassCount = max(1, maximumPendingBypassCount)
+        self.now = now
+    }
+
+    func recordObservedServerTrust(_ trust: SecTrust, for protectionSpace: URLProtectionSpace) {
+        guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
+              let fingerprint = BrowserServerTrustFingerprint(serverTrust: trust) else {
+            return
+        }
+        recordObservedServerTrustFingerprint(fingerprint, for: scope)
+    }
+
+    func recordObservedServerTrustFingerprint(
+        _ fingerprint: BrowserServerTrustFingerprint,
+        for scope: BrowserSSLTrustScope
+    ) {
+        observedFingerprints[scope] = fingerprint
+        observedFingerprintOrder.removeAll { $0 == scope }
+        observedFingerprintOrder.append(scope)
+        enforceObservedFingerprintLimit()
+    }
+
+    func isBypassed(protectionSpace: URLProtectionSpace, serverTrust: SecTrust) -> Bool {
+        guard let scope = BrowserSSLTrustScope(protectionSpace: protectionSpace),
+              let fingerprint = BrowserServerTrustFingerprint(serverTrust: serverTrust) else {
+            return false
+        }
+        return isBypassed(scope: scope, fingerprint: fingerprint)
+    }
+
+    func isBypassed(scope: BrowserSSLTrustScope, fingerprint: BrowserServerTrustFingerprint) -> Bool {
+        bypassedTrusts.contains(TrustGrant(scope: scope, fingerprint: fingerprint))
+    }
+
+    func createPendingBypassAction(for request: URLRequest) -> URL? {
+        guard let url = request.url,
+              let scope = BrowserSSLTrustScope(url: url),
+              let fingerprint = observedFingerprints[scope] else {
+            return nil
+        }
+
+        let token = UUID().uuidString
+        let currentDate = now()
+        purgeExpiredPendingBypasses(now: currentDate)
+        pendingBypasses[token] = PendingBypass(
+            grant: TrustGrant(scope: scope, fingerprint: fingerprint),
+            request: request,
+            expiresAt: currentDate.addingTimeInterval(tokenLifetime)
+        )
+        pendingTokenOrder.append(token)
+        enforcePendingBypassLimit()
+
+        var components = URLComponents()
+        components.scheme = "cmux-browser-action"
+        components.host = "bypass-ssl"
+        components.queryItems = [
+            URLQueryItem(name: "token", value: token),
+        ]
+        return components.url
+    }
+
+    func consumePendingBypassAction(_ actionURL: URL) -> URLRequest? {
+        guard actionURL.scheme == "cmux-browser-action",
+              actionURL.host == "bypass-ssl",
+              let components = URLComponents(url: actionURL, resolvingAgainstBaseURL: false),
+              let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
+              let pending = pendingBypasses.removeValue(forKey: token) else {
+            return nil
+        }
+
+        pendingTokenOrder.removeAll { $0 == token }
+        guard pending.expiresAt > now() else {
+            return nil
+        }
+        bypassedTrusts.insert(pending.grant)
+        return pending.request
+    }
+
+    private func purgeExpiredPendingBypasses(now currentDate: Date) {
+        pendingBypasses = pendingBypasses.filter { $0.value.expiresAt > currentDate }
+        pendingTokenOrder.removeAll { pendingBypasses[$0] == nil }
+    }
+
+    private func enforcePendingBypassLimit() {
+        while pendingTokenOrder.count > maximumPendingBypassCount {
+            let token = pendingTokenOrder.removeFirst()
+            pendingBypasses.removeValue(forKey: token)
+        }
+    }
+
+    private func enforceObservedFingerprintLimit() {
+        while observedFingerprintOrder.count > maximumPendingBypassCount {
+            let scope = observedFingerprintOrder.removeFirst()
+            observedFingerprints.removeValue(forKey: scope)
+        }
+    }
+}
