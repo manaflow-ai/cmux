@@ -4,6 +4,8 @@ import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
+private let chatTranscriptAtBottomThreshold: CGFloat = 40
+
 /// UIKit-backed transcript list used on iOS for deterministic keyboard and inset behavior.
 struct ChatTranscriptTableView: UIViewRepresentable {
     let rows: [ChatTranscriptRow]
@@ -96,12 +98,13 @@ struct ChatTranscriptTableView: UIViewRepresentable {
 
         func attach(_ tableView: ChatTranscriptUITableView) {
             self.tableView = tableView
-            tableView.afterLayout = { [weak self, weak tableView] oldBoundsSize, oldContentSize in
+            tableView.afterLayout = { [weak self, weak tableView] oldBoundsSize, oldContentSize, oldViewport in
                 guard let self, let tableView else { return }
                 self.handleLayoutChange(
                     in: tableView,
                     oldBoundsSize: oldBoundsSize,
-                    oldContentSize: oldContentSize
+                    oldContentSize: oldContentSize,
+                    oldViewport: oldViewport
                 )
             }
         }
@@ -118,7 +121,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 || configuration.agentState != agentState
             let shouldScrollToBottom = scrollToBottomRequest != lastScrollToBottomRequest
             lastScrollToBottomRequest = scrollToBottomRequest
-            let wasAtBottom = isAtBottom.wrappedValue || distanceFromBottom(in: tableView) <= Self.atBottomThreshold
+            let wasAtBottom = isAtBottom.wrappedValue
+                || distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
             let anchor = firstVisibleAnchor(in: tableView)
 
             guard shouldReload else {
@@ -177,7 +181,8 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         private func handleLayoutChange(
             in tableView: ChatTranscriptUITableView,
             oldBoundsSize: CGSize,
-            oldContentSize: CGSize
+            oldContentSize: CGSize,
+            oldViewport: MobileScrollViewportSnapshot?
         ) {
             guard !isHandlingLayout else { return }
             let boundsChanged = abs(oldBoundsSize.height - tableView.bounds.height) > 0.5
@@ -192,7 +197,12 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             defer { isHandlingLayout = false }
 
             if shouldPreserveKeyboardViewport {
-                preserveViewportAfterLayout(in: tableView)
+                preserveViewportAfterLayout(
+                    in: tableView,
+                    snapshot: keyboardViewportSnapshot ?? oldViewport
+                )
+            } else if boundsChanged, let oldViewport {
+                restoreKeyboardViewport(snapshot: oldViewport, in: tableView)
             } else if isAtBottom.wrappedValue {
                 scrollToBottom(in: tableView, animated: false)
             }
@@ -222,10 +232,15 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             tableView.setContentOffset(offset, animated: false)
         }
 
-        private func preserveViewportAfterLayout(in tableView: UITableView) {
+        private func preserveViewportAfterLayout(
+            in tableView: UITableView,
+            snapshot: MobileScrollViewportSnapshot?
+        ) {
+            guard let snapshot else { return }
+            keyboardViewportSnapshot = snapshot
             let changes: @MainActor @Sendable () -> Void = {
                 tableView.layoutIfNeeded()
-                self.restoreKeyboardViewport(in: tableView)
+                self.restoreKeyboardViewport(snapshot: snapshot, in: tableView)
             }
             if let keyboardTransition {
                 keyboardTransition.animate(animations: changes)
@@ -255,7 +270,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
         }
 
         private func updateBottomState(from tableView: UITableView) {
-            setAtBottom(distanceFromBottom(in: tableView) <= Self.atBottomThreshold)
+            setAtBottom(distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold)
         }
 
         private func setAtBottom(_ value: Bool) {
@@ -295,14 +310,22 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 boundsHeight: tableView.bounds.height,
                 adjustedBottomInset: tableView.adjustedContentInset.bottom,
                 contentHeight: tableView.contentSize.height,
-                atBottomThreshold: Self.atBottomThreshold,
-                wasAtBottom: isAtBottom.wrappedValue || distanceFromBottom(in: tableView) <= Self.atBottomThreshold
+                atBottomThreshold: chatTranscriptAtBottomThreshold,
+                wasAtBottom: isAtBottom.wrappedValue
+                    || distanceFromBottom(in: tableView) <= chatTranscriptAtBottomThreshold
             )
         }
 
         private func restoreKeyboardViewport(in tableView: UITableView) {
             guard let keyboardViewportSnapshot else { return }
-            let offsetY = keyboardViewportSnapshot.restoredOffsetY(
+            restoreKeyboardViewport(snapshot: keyboardViewportSnapshot, in: tableView)
+        }
+
+        private func restoreKeyboardViewport(
+            snapshot: MobileScrollViewportSnapshot,
+            in tableView: UITableView
+        ) {
+            let offsetY = snapshot.restoredOffsetY(
                 contentHeight: tableView.contentSize.height,
                 boundsHeight: tableView.bounds.height,
                 adjustedTopInset: tableView.adjustedContentInset.top,
@@ -312,7 +335,7 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 CGPoint(x: tableView.contentOffset.x, y: offsetY),
                 animated: false
             )
-            setAtBottom(keyboardViewportSnapshot.wasAtBottom)
+            setAtBottom(snapshot.wasAtBottom)
         }
 
         private func applyKeyboardViewport(
@@ -320,9 +343,9 @@ struct ChatTranscriptTableView: UIViewRepresentable {
             in tableView: UITableView
         ) {
             keyboardViewportSnapshot = snapshot
-            // ChatScreen's SwiftUI stack already resizes this table above the
-            // composer during keyboard avoidance. A keyboard-height inset here
-            // double-counts that shrink and pushes the latest messages away.
+            // ChatKeyboardTrackingLayout resizes this table's actual frame above
+            // the composer/keyboard. A keyboard-height inset here double-counts
+            // that shrink and pushes the latest messages away.
             tableView.contentInset.bottom = 0
             tableView.verticalScrollIndicatorInsets.bottom = 0
             tableView.layoutIfNeeded()
@@ -362,8 +385,6 @@ struct ChatTranscriptTableView: UIViewRepresentable {
                 self.finishKeyboardViewportTransition(id: transitionID, in: tableView)
             }
         }
-
-        private static let atBottomThreshold: CGFloat = 40
     }
 }
 
@@ -528,17 +549,30 @@ private struct ChatTranscriptTableAnchor {
 }
 
 final class ChatTranscriptUITableView: UITableView {
-    var afterLayout: ((_ oldBoundsSize: CGSize, _ oldContentSize: CGSize) -> Void)?
+    var afterLayout: ((
+        _ oldBoundsSize: CGSize,
+        _ oldContentSize: CGSize,
+        _ oldViewport: MobileScrollViewportSnapshot?
+    ) -> Void)?
     private var lastBoundsSize: CGSize = .zero
     private var lastContentSize: CGSize = .zero
+    private var lastViewport: MobileScrollViewportSnapshot?
 
     override func layoutSubviews() {
         let oldBoundsSize = lastBoundsSize
         let oldContentSize = lastContentSize
+        let oldViewport = lastViewport
         super.layoutSubviews()
         lastBoundsSize = bounds.size
         lastContentSize = contentSize
-        afterLayout?(oldBoundsSize, oldContentSize)
+        lastViewport = MobileScrollViewportSnapshot(
+            contentOffsetY: contentOffset.y,
+            boundsHeight: bounds.height,
+            adjustedBottomInset: adjustedContentInset.bottom,
+            contentHeight: contentSize.height,
+            atBottomThreshold: chatTranscriptAtBottomThreshold
+        )
+        afterLayout?(oldBoundsSize, oldContentSize, oldViewport)
     }
 }
 #endif
