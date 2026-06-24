@@ -28,10 +28,6 @@ typealias Tab = Workspace
 
 private let tabManagerLogger = Logger(subsystem: "com.cmuxterm.app", category: "TabManager")
 
-enum WorkspaceOrderChangeNotificationKey {
-    static let movedWorkspaceIds = "movedWorkspaceIds"
-}
-
 #if DEBUG
 // Sample the actual IOSurface-backed terminal layer at vsync cadence so UI tests can reliably
 // catch a single compositor-frame blank flash and any transient compositor scaling (stretched text).
@@ -250,29 +246,12 @@ class TabManager {
     /// work here is the DEBUG workspace-switch tracing.
     func selectedWorkspaceIdWillChange(to newValue: UUID?) {
 #if DEBUG
-            guard newValue != selectedTabId else {
-                debugPendingWorkspaceSwitchTrigger = nil
-                debugPendingWorkspaceSwitchTarget = nil
-                debugPreparedWorkspaceSwitchTarget = nil
-                return
-            }
-
-            if debugPreparedWorkspaceSwitchTarget == newValue {
-                debugPreparedWorkspaceSwitchTarget = nil
-                debugPendingWorkspaceSwitchTrigger = nil
-                debugPendingWorkspaceSwitchTarget = nil
-            } else {
-                let trigger = (debugPendingWorkspaceSwitchTarget == newValue
-                    ? debugPendingWorkspaceSwitchTrigger
-                    : nil) ?? "direct"
-                debugPendingWorkspaceSwitchTrigger = nil
-                debugPendingWorkspaceSwitchTarget = nil
-                debugBeginWorkspaceSwitch(
-                    trigger: trigger,
-                    from: selectedTabId,
-                    to: newValue
-                )
-            }
+            workspaceSwitchDebugTracer.selectedWorkspaceIdWillChange(
+                to: newValue,
+                selectedWorkspaceId: selectedTabId,
+                isCycleHot: isWorkspaceCycleHot,
+                tabCount: tabs.count
+            )
 #endif
     }
 
@@ -314,13 +293,9 @@ class TabManager {
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
             let notificationDismissalContext = notificationDismissal.takePendingSelectionContext() ?? .activeFocus
 #if DEBUG
-            let switchId = debugWorkspaceSwitchId
-            let switchDtMs = debugWorkspaceSwitchStartTime > 0
-                ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
-                : 0
-            cmuxDebugLog(
-                "ws.select.didSet id=\(switchId) from=\(previousTabId.debugShortWorkspaceId) " +
-                "to=\(selectedTabId.debugShortWorkspaceId) dt=\(switchDtMs.debugMillisecondsText)"
+            workspaceSwitchDebugTracer.logSelectDidSet(
+                previousWorkspaceId: previousTabId,
+                selectedWorkspaceId: selectedTabId
             )
 #endif
             selectionSideEffectsGeneration &+= 1
@@ -348,12 +323,8 @@ class TabManager {
                     applySelectionSideEffects()
                 }
 #if DEBUG
-                let dtMs = self.debugWorkspaceSwitchStartTime > 0
-                    ? (CACurrentMediaTime() - self.debugWorkspaceSwitchStartTime) * 1000
-                    : 0
-                cmuxDebugLog(
-                    "ws.select.asyncDone id=\(self.debugWorkspaceSwitchId) dt=\(dtMs.debugMillisecondsText) " +
-                    "selected=\(self.selectedTabId.debugShortWorkspaceId)"
+                self.workspaceSwitchDebugTracer.logSelectAsyncDone(
+                    selectedWorkspaceId: self.selectedTabId
                 )
 #endif
             }
@@ -530,12 +501,15 @@ class TabManager {
     /// task when this TabManager deallocates.
     private let agentPIDLivenessSweep = AgentPIDLivenessSweepService()
 #if DEBUG
-    private var debugWorkspaceSwitchCounter: UInt64 = 0
-    private var debugWorkspaceSwitchId: UInt64 = 0
-    private var debugWorkspaceSwitchStartTime: CFTimeInterval = 0
-    private var debugPendingWorkspaceSwitchTrigger: String?
-    private var debugPendingWorkspaceSwitchTarget: UUID?
-    private var debugPreparedWorkspaceSwitchTarget: UUID?
+    /// `#if DEBUG` workspace-switch telemetry (extracted to CmuxWorkspaces).
+    /// Owns the transient switch counter/id/start-time and the
+    /// pending/prepared trigger+target cursors that back the `ws.switch.begin`,
+    /// `ws.select.*`, and `ws.hot.*` debug trace lines. TabManager forwards the
+    /// selection `willSet`/`didSet`, the cycle-hot transitions, and the
+    /// create/focus/select priming into it, passing `isWorkspaceCycleHot` and
+    /// `tabs.count` for the trace fields the tracer cannot reach. The app's
+    /// `cmuxDebugLog` sink is injected at construction.
+    let workspaceSwitchDebugTracer = WorkspaceSwitchDebugTracer(debugLog: { cmuxDebugLog($0) })
 #endif
 
 #if DEBUG
@@ -1460,10 +1434,11 @@ class TabManager {
     /// this hook).
     func workspaceOrderDidChange(movedWorkspaceIds: [UUID]) {
         guard !movedWorkspaceIds.isEmpty else { return }
+        let event = WorkspaceOrderDidChangeEvent(movedWorkspaceIds: movedWorkspaceIds)
         NotificationCenter.default.post(
-            name: .workspaceOrderDidChange,
+            name: WorkspaceOrderDidChangeEvent.notificationName,
             object: self,
-            userInfo: [WorkspaceOrderChangeNotificationKey.movedWorkspaceIds: movedWorkspaceIds]
+            userInfo: event.userInfo()
         )
         CmuxEventBus.shared.publishWorkspaceReordered(
             workspaceIds: tabs.map(\.id),
@@ -3034,95 +3009,70 @@ class TabManager {
         )
     }
 
+    // MARK: - DEBUG workspace-switch tracing forwarders
+    //
+    // The switch-trace state and logic live in
+    // `WorkspaceSwitchDebugTracer` (CmuxWorkspaces). These remain TabManager's
+    // entrypoints for the create/focus/select priming and the cycle-hot trace
+    // lines; each just forwards into the tracer, supplying the
+    // `isWorkspaceCycleHot`/`tabs.count` trace fields the tracer cannot reach.
+
     func debugPrimeWorkspaceSwitch(trigger: String, to target: UUID?) {
 #if DEBUG
-        debugPrimeWorkspaceSwitchTrigger(trigger, to: target)
+        workspaceSwitchDebugTracer.primeWorkspaceSwitchTrigger(
+            trigger,
+            to: target,
+            selectedWorkspaceId: selectedTabId
+        )
 #endif
     }
 
     func debugPrepareWorkspaceSwitch(trigger: String, from: UUID?, to: UUID?) {
 #if DEBUG
-        debugPrepareWorkspaceSwitch(trigger, from: from, to: to)
+        workspaceSwitchDebugTracer.prepareWorkspaceSwitch(
+            trigger,
+            from: from,
+            to: to,
+            isCycleHot: isWorkspaceCycleHot,
+            tabCount: tabs.count
+        )
 #endif
     }
 
     func debugLogWorkspaceCycleHotOn(generation: UInt64) {
 #if DEBUG
-        cmuxDebugLog(
-            "ws.hot.on id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
-        )
+        workspaceSwitchDebugTracer.logWorkspaceCycleHotOn(generation: generation)
 #endif
     }
 
     func debugLogWorkspaceCycleHotCancelPrevious(generation: UInt64) {
 #if DEBUG
-        cmuxDebugLog(
-            "ws.hot.cancelPrev id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
-        )
+        workspaceSwitchDebugTracer.logWorkspaceCycleHotCancelPrevious(generation: generation)
 #endif
     }
 
     func debugLogWorkspaceCycleHotCooldownCanceled(generation: UInt64) {
 #if DEBUG
-        cmuxDebugLog(
-            "ws.hot.cooldownCanceled id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
-        )
+        workspaceSwitchDebugTracer.logWorkspaceCycleHotCooldownCanceled(generation: generation)
 #endif
     }
 
     func debugLogWorkspaceCycleHotOff(generation: UInt64) {
 #if DEBUG
-        cmuxDebugLog(
-            "ws.hot.off id=\(debugWorkspaceSwitchId) gen=\(generation) dt=\(debugWorkspaceCycleSwitchDtMs.debugMillisecondsText)"
-        )
+        workspaceSwitchDebugTracer.logWorkspaceCycleHotOff(generation: generation)
 #endif
     }
 
 #if DEBUG
-    /// Elapsed ms since the current DEBUG workspace switch started, or 0 when no
-    /// switch is timed — the `dt=` field the cycle-hot trace lines report.
-    private var debugWorkspaceCycleSwitchDtMs: Double {
-        debugWorkspaceSwitchStartTime > 0
-            ? (CACurrentMediaTime() - debugWorkspaceSwitchStartTime) * 1000
-            : 0
-    }
-
     func debugCurrentWorkspaceSwitchSnapshot() -> (id: UInt64, startedAt: CFTimeInterval)? {
-        guard debugWorkspaceSwitchId > 0, debugWorkspaceSwitchStartTime > 0 else { return nil }
-        return (debugWorkspaceSwitchId, debugWorkspaceSwitchStartTime)
+        workspaceSwitchDebugTracer.currentWorkspaceSwitchSnapshot()
     }
 
     func debugPrimeWorkspaceSwitchTrigger(_ trigger: String, to target: UUID?) {
-        guard selectedTabId != target else {
-            debugPendingWorkspaceSwitchTrigger = nil
-            debugPendingWorkspaceSwitchTarget = nil
-            return
-        }
-        debugPendingWorkspaceSwitchTrigger = trigger
-        debugPendingWorkspaceSwitchTarget = target
-    }
-
-    private func debugPrepareWorkspaceSwitch(_ trigger: String, from: UUID?, to: UUID?) {
-        guard from != to else {
-            debugPendingWorkspaceSwitchTrigger = nil
-            debugPendingWorkspaceSwitchTarget = nil
-            debugPreparedWorkspaceSwitchTarget = nil
-            return
-        }
-        debugPendingWorkspaceSwitchTrigger = nil
-        debugPendingWorkspaceSwitchTarget = nil
-        debugBeginWorkspaceSwitch(trigger: trigger, from: from, to: to)
-        debugPreparedWorkspaceSwitchTarget = to
-    }
-
-    private func debugBeginWorkspaceSwitch(trigger: String, from: UUID?, to: UUID?) {
-        debugWorkspaceSwitchCounter &+= 1
-        debugWorkspaceSwitchId = debugWorkspaceSwitchCounter
-        debugWorkspaceSwitchStartTime = CACurrentMediaTime()
-        cmuxDebugLog(
-            "ws.switch.begin id=\(debugWorkspaceSwitchId) trigger=\(trigger) " +
-            "from=\(from.debugShortWorkspaceId) to=\(to.debugShortWorkspaceId) " +
-            "hot=\(isWorkspaceCycleHot ? 1 : 0) tabs=\(tabs.count)"
+        workspaceSwitchDebugTracer.primeWorkspaceSwitchTrigger(
+            trigger,
+            to: target,
+            selectedWorkspaceId: selectedTabId
         )
     }
 #endif
@@ -5182,7 +5132,6 @@ extension Notification.Name {
     static let webViewDidReceiveClick = Notification.Name("webViewDidReceiveClick")
     static let terminalPortalVisibilityDidChange = Notification.Name("cmux.terminalPortalVisibilityDidChange")
     static let browserPortalRegistryDidChange = Notification.Name("cmux.browserPortalRegistryDidChange")
-    static let workspaceOrderDidChange = Notification.Name("cmux.workspaceOrderDidChange")
     /// Posted when an existing workspace group's `name` changes (rename). The
     /// imperatively-cached window-chrome surfaces (custom title bar in
     /// `ContentView`, toolbar command label in `WindowToolbarController`) read

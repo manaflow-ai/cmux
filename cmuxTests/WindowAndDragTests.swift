@@ -3879,7 +3879,7 @@ final class TmuxWorkspacePaneOverlayTests: XCTestCase {
         contentView.addSubview(targetView)
 
         XCTAssertEqual(
-            ContentView.tmuxWorkspacePaneExactRect(for: targetView, in: contentView),
+            TmuxPaneOverlayGeometry.exactRect(for: targetView, in: contentView),
             CGRect(x: 120, y: 48, width: 300, height: 200)
         )
     }

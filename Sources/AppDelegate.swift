@@ -934,21 +934,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// itself moved to the router.
     var liveShortcutEventFocusContextCache: (event: NSEvent, context: ShortcutEventFocusContext)?
     private var ghosttyConfigObserver: NSObjectProtocol?
-    private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
-    private var ghosttyGotoSplitRightShortcut: StoredShortcut?
-    private var ghosttyGotoSplitUpShortcut: StoredShortcut?
-    private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    /// The four directional Ghostty `goto_split` shortcuts cmux mirrors into pane
+    /// focus navigation, decoded once from the live Ghostty config into the
+    /// ``GhosttyGotoSplitShortcuts`` value (CmuxTerminalCore). Replaces the four
+    /// parallel `StoredShortcut?` optionals and the `refreshGhosttyGotoSplitShortcuts()`
+    /// builder; the app builds each direction's `StoredShortcut` from the decoded
+    /// ``GhosttyTriggerShortcut`` at the read sites and runs the `NSEvent` matching.
+    private var ghosttyGotoSplitShortcuts: GhosttyGotoSplitShortcuts = .none
 #if DEBUG
     /// The resolved Ghostty goto-split trigger shortcut display strings, read by
     /// ``GotoSplitUITestRecorder`` when it captures the initial focus snapshot.
-    /// The backing `StoredShortcut`s stay private to the live shortcut-routing
-    /// path; this exposes only their display strings to the recorder.
+    /// The backing shortcuts stay private to the live shortcut-routing path; this
+    /// exposes only their display strings to the recorder.
     var ghosttyGotoSplitShortcutDisplayStrings: (left: String, right: String, up: String, down: String) {
         (
-            ghosttyGotoSplitLeftShortcut?.displayString ?? "",
-            ghosttyGotoSplitRightShortcut?.displayString ?? "",
-            ghosttyGotoSplitUpShortcut?.displayString ?? "",
-            ghosttyGotoSplitDownShortcut?.displayString ?? ""
+            storedShortcut(from: ghosttyGotoSplitShortcuts.left)?.displayString ?? "",
+            storedShortcut(from: ghosttyGotoSplitShortcuts.right)?.displayString ?? "",
+            storedShortcut(from: ghosttyGotoSplitShortcuts.up)?.displayString ?? "",
+            storedShortcut(from: ghosttyGotoSplitShortcuts.down)?.displayString ?? ""
         )
     }
 #endif
@@ -8241,37 +8244,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func refreshGhosttyGotoSplitShortcuts() {
-        guard let config = GhosttyApp.shared.config else {
-            ghosttyGotoSplitLeftShortcut = nil
-            ghosttyGotoSplitRightShortcut = nil
-            ghosttyGotoSplitUpShortcut = nil
-            ghosttyGotoSplitDownShortcut = nil
-            return
-        }
-
-        ghosttyGotoSplitLeftShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:left", UInt("goto_split:left".utf8.count))
-        )
-        ghosttyGotoSplitRightShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:right", UInt("goto_split:right".utf8.count))
-        )
-        ghosttyGotoSplitUpShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:up", UInt("goto_split:up".utf8.count))
-        )
-        ghosttyGotoSplitDownShortcut = storedShortcutFromGhosttyTrigger(
-            ghostty_config_trigger(config, "goto_split:down", UInt("goto_split:down".utf8.count))
-        )
+        // The whole goto-split decode (read the config, lift each C trigger, decode
+        // it) now lives in CmuxTerminalCore's GhosttyGotoSplitShortcuts value type.
+        // A nil config yields `.none`, matching the old builder's early-return.
+        ghosttyGotoSplitShortcuts = GhosttyGotoSplitShortcuts(decodingConfig: GhosttyApp.shared.config)
     }
 
-    private func storedShortcutFromGhosttyTrigger(_ trigger: ghostty_input_trigger_s) -> StoredShortcut? {
-        // The GhosttyKit C-trigger lift and shortcut decode live in
-        // CmuxTerminalCore (GhosttyTriggerInput / GhosttyTriggerShortcut).
-        // StoredShortcut is a CmuxSettings type the package cannot see, so the app
-        // assembles it here from the decoded shortcut.
-        guard
-            let input = GhosttyTriggerInput(decoding: trigger),
-            let shortcut = GhosttyTriggerShortcut(decoding: input)
-        else { return nil }
+    private func storedShortcut(from shortcut: GhosttyTriggerShortcut?) -> StoredShortcut? {
+        // GhosttyTriggerShortcut is the package-visible decoded form (the C-trigger
+        // lift + decode live in CmuxTerminalCore). StoredShortcut is a CmuxSettings
+        // type the package cannot see, so the app assembles it here from the decoded
+        // shortcut for the live NSEvent matching.
+        guard let shortcut else { return nil }
         return StoredShortcut(
             key: shortcut.key,
             command: shortcut.command,
@@ -9245,7 +9229,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusLeft,
             arrowGlyph: "←",
             arrowKeyCode: 123
-        ) || (ghosttyGotoSplitLeftShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.left).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "←", arrowKeyCode: 123) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .left)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .left)
@@ -9257,7 +9241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusRight,
             arrowGlyph: "→",
             arrowKeyCode: 124
-        ) || (ghosttyGotoSplitRightShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.right).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "→", arrowKeyCode: 124) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .right)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .right)
@@ -9269,7 +9253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusUp,
             arrowGlyph: "↑",
             arrowKeyCode: 126
-        ) || (ghosttyGotoSplitUpShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.up).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↑", arrowKeyCode: 126) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .up)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .up)
@@ -9281,7 +9265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             action: .focusDown,
             arrowGlyph: "↓",
             arrowKeyCode: 125
-        ) || (ghosttyGotoSplitDownShortcut.map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
+        ) || (storedShortcut(from: ghosttyGotoSplitShortcuts.down).map { matchDirectionalShortcut(event: event, shortcut: $0, arrowGlyph: "↓", arrowKeyCode: 125) } ?? false) {
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutRoutingKeyWindow); tabManager?.movePaneFocus(direction: .down)
 #if DEBUG
             recordGotoSplitMoveIfNeeded(direction: .down)

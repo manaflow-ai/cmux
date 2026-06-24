@@ -4011,11 +4011,11 @@ final class WorkspaceReorderTests: XCTestCase {
         _ = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4032,11 +4032,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let third = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4052,7 +4052,7 @@ final class WorkspaceReorderTests: XCTestCase {
         let first = manager.tabs[0]
         var notificationCount = 0
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { _ in
@@ -4073,11 +4073,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let second = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
@@ -4146,7 +4146,7 @@ final class WorkspaceReorderTests: XCTestCase {
         _ = manager.addWorkspace()
         var notificationCount = 0
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { _ in
@@ -4227,11 +4227,11 @@ final class WorkspaceReorderTests: XCTestCase {
         let fourth = manager.addWorkspace()
         var observedMovedIds: [UUID] = []
         let token = NotificationCenter.default.addObserver(
-            forName: .workspaceOrderDidChange,
+            forName: WorkspaceOrderDidChangeEvent.notificationName,
             object: manager,
             queue: nil
         ) { notification in
-            observedMovedIds = notification.userInfo?[WorkspaceOrderChangeNotificationKey.movedWorkspaceIds] as? [UUID] ?? []
+            observedMovedIds = WorkspaceOrderDidChangeEvent(notification)?.movedWorkspaceIds ?? []
         }
         defer { NotificationCenter.default.removeObserver(token) }
 
