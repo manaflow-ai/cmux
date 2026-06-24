@@ -189,10 +189,14 @@ extension MessageListController: UICollectionViewDelegate {
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { onScroll?(scrollView) }
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { onBeginDragging?(scrollView) }
+    // Finger lifted: fire ALWAYS, regardless of `willDecelerate`. The touch ends
+    // here whether or not momentum follows; the keyboard's interactive-dismiss
+    // commit happens at lift, not at scroll-momentum end. Gating on `!decelerate`
+    // (and using `didEndDecelerating` as the lift signal) tied keyboard-settle to
+    // scroll momentum, which delayed the release on a fling.
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        if !decelerate { onEndDragging?(scrollView) }
+        onEndDragging?(scrollView)
     }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { onEndDragging?(scrollView) }
 }
 
 extension MessageListController: UICollectionViewDataSourcePrefetching {

@@ -4,13 +4,19 @@ import UIKit
 
 /// Host controller for the chat lab. It is the first responder that vends the
 /// composer as the keyboard's `inputAccessoryView`, hosts the inverted message
-/// list as a child, and keeps the list's bottom inset glued to the composer:
+/// list as a child, and keeps the list's bottom inset glued to the composer.
 ///
-/// - Resting transitions (show/hide, snap-back) animate the inset with the
-///   keyboard's own duration and curve, read from the notification `userInfo`.
-/// - The interactive dismiss drag is driven by a `CADisplayLink` in `.common`
-///   mode that reads the composer's presentation-layer top each frame, because
-///   the keyboard frame notifications do not fire during the drag.
+/// All keyboard/scroll decisions live in ``KeyboardSyncMachine`` (a pure,
+/// host-tested reducer). This controller is the thin adapter: it feeds UIKit
+/// signals in as events and performs the effects the machine returns. The two
+/// inset clocks are kept mutually exclusive by the machine, not by ad hoc flags:
+///
+/// - Resting transitions (show/hide, snap-back, docked height change) animate
+///   the inset with the keyboard's own duration and curve from the notification.
+/// - The interactive dismiss drag and its release spring are driven by a
+///   `CADisplayLink` in `.common` mode that reads the composer's
+///   presentation-layer top each frame, because the keyboard frame notifications
+///   do not fire during the drag.
 ///
 /// One scalar (the composer top) feeds both the composer position (free, it is
 /// the accessory) and the list inset, so they can never disagree.
@@ -24,17 +30,12 @@ final class ChatLabViewController: UIViewController {
     private let jumpButton = UIButton(type: .system)
     private var jumpButtonBottomConstraint: NSLayoutConstraint!
 
-    private var keyboardVisible = false
+    /// The single source of truth for keyboard/scroll sync. Mutated only here, on
+    /// the main actor.
+    private var machine = KeyboardSyncMachine()
+    /// The per-frame clock for the interactive drag and its release spring. Owned
+    /// while the machine is in `dragging`/`releasing`.
     private var dragLink: CADisplayLink?
-    /// True while the user's finger is on the list during an interactive
-    /// dismiss; false once lifted (the link keeps running through the release
-    /// spring until the composer settles).
-    private var fingerDown = false
-    /// While true, the display link owns the list inset and the keyboard
-    /// notifications must not also animate it (they would fight the link).
-    private var interactiveSyncActive = false
-    private var lastComposerTopScreen: CGFloat = 0
-    private var settledFrames = 0
 
     #if DEBUG
     private let probe = ChatLabMetricsProbe()
@@ -75,17 +76,10 @@ final class ChatLabViewController: UIViewController {
             guard let self else { return }
             Task { await store.send(text: text) }
         }
-        composer.onHeightChange = { [weak self] in
-            guard let self else { return }
-            composer.invalidateIntrinsicContentSize()
-            applyOverlapForResting(animated: true)
-            #if DEBUG
-            probe.noteComposerHeight(composer.barContentHeight)
-            #endif
-        }
+        composer.onHeightChange = { [weak self] in self?.dispatch(.composerHeightChanged) }
 
-        list.onBeginDragging = { [weak self] _ in self?.beginDragSync() }
-        list.onEndDragging = { [weak self] _ in self?.fingerLifted() }
+        list.onBeginDragging = { [weak self] _ in self?.dispatch(.beganDragging) }
+        list.onEndDragging = { [weak self] _ in self?.dispatch(.endedDragging) }
         list.onScroll = { [weak self] scrollView in self?.updateJumpButton(scrollView) }
 
         // Tap anywhere in the list (a message or the negative space) dismisses
@@ -124,6 +118,45 @@ final class ChatLabViewController: UIViewController {
         applyOverlapForResting(animated: false)
     }
 
+    // MARK: Machine plumbing
+
+    /// Feed one UIKit signal into the machine and perform whatever it returns.
+    /// `note` carries the keyboard animation timing when the event came from a
+    /// keyboard notification.
+    private func dispatch(_ event: KeyboardSyncEvent, note: Notification? = nil) {
+        perform(machine.handle(event), note: note)
+    }
+
+    private func perform(_ effects: [KeyboardSyncEffect], note: Notification?) {
+        for effect in effects {
+            switch effect {
+            case .startLink:
+                startDragLink()
+            case .stopLink:
+                stopDragLink()
+            case .applyAnimated(let target):
+                applyAnimatedInset(to: target, note: note)
+            case .applyPerFrame(let composerTop):
+                applyPerFrameInset(composerTop: composerTop)
+            case .reconcile:
+                reconcileInset()
+            case .invalidateComposerIntrinsicSize:
+                composer.invalidateIntrinsicContentSize()
+                #if DEBUG
+                probe.noteComposerHeight(composer.barContentHeight)
+                #endif
+            case .resignTextView:
+                composer.editor.resignFirstResponder()
+            case .dockAccessory:
+                // Re-become first responder so the accessory bar stays docked at
+                // the bottom instead of vanishing with the keyboard.
+                becomeFirstResponder()
+            case .ignoreKeyboardNotification:
+                break
+            }
+        }
+    }
+
     // MARK: Keyboard notifications (resting transitions)
 
     private func registerKeyboardNotifications() {
@@ -135,27 +168,17 @@ final class ChatLabViewController: UIViewController {
 
     @objc private func handleListTap() {
         guard composer.editor.isFirstResponder else { return }
-        // Resign the text view, then re-become first responder so the accessory
-        // bar stays docked at the bottom instead of disappearing.
-        composer.editor.resignFirstResponder()
-        becomeFirstResponder()
+        dispatch(.tapToDismiss)
     }
 
-    @objc private func keyboardWillShow(_ note: Notification) { keyboardVisible = true }
-    @objc private func keyboardWillHide(_ note: Notification) { keyboardVisible = false }
+    @objc private func keyboardWillShow(_ note: Notification) { dispatch(.keyboardWillShow, note: note) }
+    @objc private func keyboardWillHide(_ note: Notification) { dispatch(.keyboardWillHide, note: note) }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
-        // The display link owns the inset throughout an interactive drag AND its
-        // release spring; ignore the commit/snap-back notification so we don't
-        // run a second, competing animation on the same inset.
-        guard !interactiveSyncActive else { return }
         guard let info = note.userInfo,
               let endFrame = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
         else { return }
-        let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        let rawCurve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
-        let overlap = overlapFromKeyboardTopScreen(endFrame.minY)
-        applyOverlap(overlap, animated: duration > 0, adjustOffset: true, duration: duration, rawCurve: rawCurve)
+        dispatch(.keyboardFrameWillChange(keyboardTop: endFrame.minY), note: note)
     }
 
     // MARK: Interactive drag sync
@@ -164,66 +187,27 @@ final class ChatLabViewController: UIViewController {
     // INCLUDING the release phase, where UIKit springs the keyboard to its
     // committed position (dismissed or snapped back). By reading the composer's
     // presentation layer every frame we follow that real spring exactly, in
-    // lockstep, with no curve to match and nothing to fight.
+    // lockstep, with no curve to match and nothing to fight. Lifecycle is driven
+    // by the machine's `startLink`/`stopLink` effects.
 
-    private func beginDragSync() {
-        guard keyboardVisible else { return }
-        fingerDown = true
-        guard dragLink == nil else { return }
-        interactiveSyncActive = true
-        settledFrames = 0
-        lastComposerTopScreen = screenFrame(of: composer, usePresentation: true)?.minY ?? 0
+    private func startDragLink() {
         #if DEBUG
         probe.reset()
         #endif
+        guard dragLink == nil else { return }
         let link = CADisplayLink(target: self, selector: #selector(dragTick))
         link.add(to: .main, forMode: .common)
         dragLink = link
     }
 
-    /// Finger lifted: the keyboard now springs to its committed position. Keep
-    /// the link running so the inset rides that spring; stop once it settles.
-    private func fingerLifted() {
-        fingerDown = false
-    }
-
-    private func stopDragSync() {
+    private func stopDragLink() {
         dragLink?.invalidate()
         dragLink = nil
-        interactiveSyncActive = false
     }
 
     @objc private func dragTick() {
-        guard let composerTopScreen = screenFrame(of: composer, usePresentation: true)?.minY,
-              let listBottomScreen = screenFrame(of: list.view, usePresentation: false)?.maxY
-        else { return }
-        let dynamicOverlap = listBottomScreen - composerTopScreen
-        let overlap = max(restingOverlap, dynamicOverlap)
-        // Inset only: the scroll view's pan owns contentOffset during the drag,
-        // and the keyboard's own spring owns the composer during the release, so
-        // we never write offset and never run a competing animation here. No
-        // layoutIfNeeded — an inset change applies immediately.
-        applyOverlap(overlap, animated: false, adjustOffset: false, duration: 0, rawCurve: 0)
-        #if DEBUG
-        if dynamicOverlap > restingOverlap {
-            probe.record(
-                composerTopScreen: composerTopScreen,
-                listBottomScreen: listBottomScreen,
-                appliedInset: list.collectionView.contentInset.top
-            )
-        }
-        #endif
-        // After the finger lifts, watch the release spring: once the composer
-        // stops moving for a few frames, the spring has settled — stop the link.
-        if !fingerDown {
-            if abs(composerTopScreen - lastComposerTopScreen) < 0.5 {
-                settledFrames += 1
-                if settledFrames >= 3 { stopDragSync() }
-            } else {
-                settledFrames = 0
-            }
-        }
-        lastComposerTopScreen = composerTopScreen
+        guard let composerTop = screenFrame(of: composer, usePresentation: true)?.minY else { return }
+        dispatch(.linkTick(composerTop: composerTop))
     }
 
     // MARK: Overlap math
@@ -243,6 +227,51 @@ final class ChatLabViewController: UIViewController {
 
     private func applyOverlapForResting(animated: Bool) {
         applyOverlap(restingOverlap, animated: animated, adjustOffset: true, duration: 0.2, rawCurve: Int(UIView.AnimationCurve.easeInOut.rawValue))
+    }
+
+    /// Animated inset for a resting transition: the keyboard's own duration/curve
+    /// when the event came from a keyboard notification, a short default for a
+    /// docked composer height change.
+    private func applyAnimatedInset(to target: KeyboardInsetTarget, note: Notification?) {
+        let overlap: CGFloat
+        switch target {
+        case .keyboardTop(let top): overlap = overlapFromKeyboardTopScreen(top)
+        case .resting: overlap = restingOverlap
+        }
+        let info = note?.userInfo
+        let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.2
+        let rawCurve = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? Int(UIView.AnimationCurve.easeInOut.rawValue)
+        applyOverlap(overlap, animated: duration > 0, adjustOffset: true, duration: duration, rawCurve: rawCurve)
+    }
+
+    /// Per-frame inset during the interactive drag/release: read the list bottom
+    /// live and glue the inset to the composer's presentation top. No offset write
+    /// (the pan / spring own it) and no animation.
+    private func applyPerFrameInset(composerTop: CGFloat) {
+        guard let listBottomScreen = screenFrame(of: list.view, usePresentation: false)?.maxY else { return }
+        let dynamicOverlap = listBottomScreen - composerTop
+        let overlap = max(restingOverlap, dynamicOverlap)
+        applyOverlap(overlap, animated: false, adjustOffset: false, duration: 0, rawCurve: 0)
+        #if DEBUG
+        if dynamicOverlap > restingOverlap {
+            probe.record(
+                composerTopScreen: composerTop,
+                listBottomScreen: listBottomScreen,
+                appliedInset: list.collectionView.contentInset.top
+            )
+        }
+        #endif
+    }
+
+    /// Final unanimated snap when a release ends. The committed keyboard frame was
+    /// ignored while the link owned the inset, so we recompute the settled target
+    /// from live geometry (composer model frame == presentation frame now) and pin.
+    private func reconcileInset() {
+        guard let composerTop = screenFrame(of: composer, usePresentation: false)?.minY,
+              let listBottomScreen = screenFrame(of: list.view, usePresentation: false)?.maxY
+        else { return }
+        let overlap = max(restingOverlap, listBottomScreen - composerTop)
+        applyOverlap(overlap, animated: false, adjustOffset: true, duration: 0, rawCurve: 0)
     }
 
     /// Applies the list's bottom inset (and, for resting transitions, keeps the
