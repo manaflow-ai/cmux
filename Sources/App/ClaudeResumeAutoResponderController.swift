@@ -107,13 +107,22 @@ final class ClaudeResumeAutoResponderController {
                 allowVTExport: false
             ) else { continue }
             if let keys = entry.responder.evaluate(screen: screen) {
-                for key in keys {
-                    _ = panel.sendNamedKeyResult(key.namedKey)
+                guard deliver(keys, to: panel) else {
+                    continue
                 }
+                entry.responder.confirmDelivered()
                 entries.removeValue(forKey: id)
             }
         }
         pollCursor = (pollCursor + count) % max(ids.count, 1)
         if entries.isEmpty { stopTimer() }
+    }
+
+    private func deliver(_ keys: [ClaudeResumeKey], to panel: TerminalPanel) -> Bool {
+        for key in keys {
+            let result = panel.sendNamedKeyResult(key.namedKey)
+            guard result.accepted else { return false }
+        }
+        return true
     }
 }

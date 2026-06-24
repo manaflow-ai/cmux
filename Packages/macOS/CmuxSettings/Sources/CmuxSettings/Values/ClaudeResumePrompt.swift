@@ -95,8 +95,8 @@ public struct ClaudeResumePrompt: Sendable {
 
 /// One-shot responder armed for a single resumed Claude pane. The controller
 /// feeds it the pane's rendered screen on each poll; it returns the keys to send
-/// exactly once — when the menu first appears — then reports having responded so
-/// the controller can disarm it.
+/// when the menu appears, then the controller confirms delivery so a failed
+/// synthetic-key send can be retried on the next screen sample.
 public final class ClaudeResumeAutoResponder {
     public let mode: ClaudeResumeMode
     public private(set) var hasResponded = false
@@ -108,12 +108,14 @@ public final class ClaudeResumeAutoResponder {
     }
 
     /// Returns the keys to send if the menu is now visible and we haven't already
-    /// responded; nil otherwise. Marks itself responded when it returns keys so a
-    /// later call never double-fires.
+    /// responded; nil otherwise. The controller calls ``confirmDelivered()`` only
+    /// after every planned key reaches, or is queued for, the terminal surface.
     public func evaluate(screen: String) -> [ClaudeResumeKey]? {
         guard !hasResponded, mode != .ask else { return nil }
-        guard let keys = prompt.keystrokes(for: mode, in: screen) else { return nil }
+        return prompt.keystrokes(for: mode, in: screen)
+    }
+
+    public func confirmDelivered() {
         hasResponded = true
-        return keys
     }
 }
