@@ -16,6 +16,14 @@ import Foundation
 actor RemoteTmuxSSHTransport {
     private static let maxCapturedOutputBytes = 1_048_576
 
+    /// Max `ssh -O check` polls while waiting for a freshly opened master to start
+    /// accepting sessions. With ``masterReadyPollDelayNanos`` this bounds the wait
+    /// (the master is normally ready within a poll or two of the establishing
+    /// command returning); on timeout ``ensureMasterReady`` proceeds best-effort.
+    private static let masterReadyMaxPolls = 20
+    /// Delay between master-readiness polls (50 ms ⇒ ≤ ~1 s total).
+    private static let masterReadyPollDelayNanos: UInt64 = 50_000_000
+
     /// The host this transport talks to.
     ///
     /// `nonisolated` so the controller can read it synchronously (it's an immutable
@@ -84,6 +92,45 @@ actor RemoteTmuxSSHTransport {
             host.sshControlArguments(controlPersistSeconds: controlPersistSeconds, batchMode: true)
             + ["--", host.destination, remoteCommand]
         return try await Self.runProcess(executable: sshExecutablePath, arguments: sshArgs)
+    }
+
+    /// Establishes the shared SSH ControlMaster and waits until it is accepting
+    /// multiplexed sessions, so the burst of `tmux -CC attach` control connections
+    /// the controller spawns next (each `ControlMaster=auto`) attach to a *ready*
+    /// master instead of all racing to create it.
+    ///
+    /// On a cold first attach with many sessions, that creation race makes all but
+    /// one connection fail with "ControlSocket … already exists, disabling
+    /// multiplexing" — so only one session mirrors. A second attach happened to
+    /// work only because the master was still warm from `ControlPersist`. Gating
+    /// on `ssh -O check` here removes the race on the first attach too.
+    ///
+    /// Best-effort and idempotent: returns immediately if a master is already
+    /// live, and never throws. Discovery (``listSessions``) remains the
+    /// auth/reachability gate, so an unreachable or interactive-auth host still
+    /// surfaces through the normal path rather than as a failure here.
+    func ensureMasterReady() async {
+        try? host.ensureControlSocketDirectory()
+        if await masterIsRunning() { return }
+        // A trivial no-op command opens the master (ControlMaster=auto +
+        // ControlPersist backgrounds it). Its exit is ignored — the readiness
+        // poll below, not this command, decides whether the master is usable.
+        _ = try? await run(["true"])
+        for _ in 0..<Self.masterReadyMaxPolls {
+            if await masterIsRunning() { return }
+            try? await Task.sleep(nanoseconds: Self.masterReadyPollDelayNanos)
+        }
+    }
+
+    /// Whether the shared ControlMaster is live and accepting sessions, via the
+    /// local `ssh -O check` control command (hits the LOCAL socket, no network
+    /// round-trip).
+    private func masterIsRunning() async -> Bool {
+        let result = try? await Self.runProcess(
+            executable: sshExecutablePath,
+            arguments: ["-O", "check", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]
+        )
+        return result?.succeeded ?? false
     }
 
     /// Tears down the shared SSH master (e.g. when the user removes a host).
