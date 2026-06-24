@@ -1913,6 +1913,7 @@
     "joining": "登録中…",
     "cancel": "キャンセル",
     "invalidEmail": "有効なメールアドレスを入力してください。",
+    "sendError": "送信できませんでした。もう一度お試しください。",
     "successTitle": "登録が完了しました",
     "successBody": "{platform}版が利用可能になりましたらメールでお知らせします。",
     "successBodyAny": "cmux がお使いのプラットフォームで利用可能になりましたらメールでお知らせします。",

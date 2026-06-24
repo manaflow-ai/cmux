@@ -18,10 +18,56 @@ import { Modal } from "./modal";
 // we record the signup.
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// A short, intentional pause so the submit feels considered: the PostHog calls
-// are fire-and-forget (nothing to await), so this is a deliberate delight beat,
-// not a real network wait. Kept brief so it never feels like lag.
-const SUBMIT_DELAY_MS = 750;
+// Minimum spinner duration so a fast request still feels like a considered
+// submit rather than an instant flash. The real wait is the capture POST below.
+const SUBMIT_DELAY_MS = 600;
+
+/**
+ * Records a waitlist signup by POSTing the event straight to PostHog's capture
+ * endpoint and awaiting delivery, so the UI shows success only when the record
+ * is actually accepted (posthog-js `capture` is fire-and-forget). The event
+ * `$set`s the email and Early Access enrollment, so the signup persists
+ * server-side even if the SDK's own requests are blocked. Returns whether the
+ * server accepted it.
+ */
+async function recordWaitlistSignup(
+  email: string,
+  platforms: WaitlistPlatform[],
+  location: string,
+): Promise<boolean> {
+  const host = posthog.config?.api_host;
+  const token = posthog.config?.token;
+  if (!host || !token) return false;
+  const enrollment = Object.fromEntries(
+    platforms.map((p) => [
+      `$feature_enrollment/${WAITLIST_EARLY_ACCESS_FLAGS[p]}`,
+      true,
+    ]),
+  );
+  try {
+    const res = await fetch(`${host.replace(/\/+$/, "")}/i/v0/e/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({
+        api_key: token,
+        event: "cmuxterm_waitlist_signup",
+        properties: {
+          distinct_id: email,
+          email,
+          platforms,
+          location,
+          $set: { email, ...enrollment },
+          $set_once: { waitlist_email: email },
+        },
+        timestamp: new Date().toISOString(),
+      }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 export function WaitlistDialog({
   target,
@@ -73,7 +119,7 @@ function WaitlistBody({
   const targetLabel = isAny ? "" : tp(target);
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<
-    "idle" | "error" | "submitting" | "done"
+    "idle" | "error" | "submitting" | "sendError" | "done"
   >("idle");
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The generic dialog forces the visitor to choose which platforms to join
@@ -95,7 +141,7 @@ function WaitlistBody({
     });
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (status === "submitting") return;
     if (isAny && chosen.length === 0) {
@@ -109,21 +155,13 @@ function WaitlistBody({
     }
     setStatus("submitting");
     const platforms = chosen;
-    // Identify the visitor by the email they gave so the signup becomes a real
-    // PostHog person (queryable in People, not just a raw event). `$set_once`
-    // keeps `waitlist_email` as the original waitlist address even if the
-    // person is later merged. This is the *waitlist* email and may differ from
-    // the account email the user eventually signs in with; reconcile at app
-    // sign-in by identifying the canonical user id (PostHog aliases the email
-    // person into it) rather than treating this as their permanent identity.
+    // Best-effort SDK calls: identify the visitor by their email so the signup
+    // becomes a real PostHog person (queryable in People), and enroll them in
+    // each platform's Early Access Feature so they show up as a managed
+    // enrollee. `$set_once` keeps `waitlist_email` as the original address. This
+    // is the *waitlist* email and may differ from the account email they later
+    // sign in with; reconcile at app sign-in by identifying the canonical id.
     posthog.identify(trimmed, { email: trimmed }, { waitlist_email: trimmed });
-    posthog.capture("cmuxterm_waitlist_signup", {
-      platforms,
-      email: trimmed,
-      location,
-    });
-    // Enroll the identified person in each platform's Early Access Feature so
-    // the signup shows up as a managed enrollee in PostHog, not just an event.
     for (const p of platforms) {
       posthog.updateEarlyAccessFeatureEnrollment(
         WAITLIST_EARLY_ACCESS_FLAGS[p],
@@ -131,7 +169,18 @@ function WaitlistBody({
         "concept",
       );
     }
-    timerRef.current = setTimeout(() => setStatus("done"), SUBMIT_DELAY_MS);
+    // The SDK calls above are fire-and-forget, so the authoritative signup is an
+    // awaited POST straight to PostHog's capture endpoint: success only shows
+    // when delivery is confirmed, and the event `$set`s the email + enrollment
+    // so the record persists server-side even if the SDK requests are blocked.
+    // A minimum delay keeps the spinner pleasant when the request is fast.
+    const [ok] = await Promise.all([
+      recordWaitlistSignup(trimmed, platforms, location),
+      new Promise<void>((resolve) => {
+        timerRef.current = setTimeout(resolve, SUBMIT_DELAY_MS);
+      }),
+    ]);
+    setStatus(ok ? "done" : "sendError");
   };
 
   const submitting = status === "submitting";
@@ -223,7 +272,7 @@ function WaitlistBody({
             disabled={submitting}
             onChange={(event) => {
               setEmail(event.target.value);
-              if (status === "error") setStatus("idle");
+              if (status === "error" || status === "sendError") setStatus("idle");
             }}
             placeholder={t("emailPlaceholder")}
             aria-invalid={status === "error"}
@@ -231,14 +280,14 @@ function WaitlistBody({
             className="mt-1.5 w-full rounded-lg border border-border bg-background px-3 py-2.5 text-[15px] outline-none transition-colors focus:border-foreground aria-[invalid=true]:border-red-500 disabled:opacity-60"
           />
           {/* Absolutely positioned in the gap below the input so the error
-              never pushes the buttons down (no shift on the error state). */}
-          {status === "error" ? (
+              never pushes the buttons down (no shift on the error states). */}
+          {status === "error" || status === "sendError" ? (
             <p
               id="waitlist-email-error"
               role="alert"
               className="absolute left-0 top-full mt-1 text-sm text-red-500"
             >
-              {t("invalidEmail")}
+              {status === "sendError" ? t("sendError") : t("invalidEmail")}
             </p>
           ) : null}
         </div>

@@ -1891,6 +1891,7 @@
     "joining": "Pridruživanje…",
     "cancel": "Otkaži",
     "invalidEmail": "Unesi ispravnu email adresu.",
+    "sendError": "Slanje nije uspjelo. Pokušaj ponovo.",
     "successTitle": "Na listi si",
     "successBody": "Poslat ćemo ti email kada {platform} verzija bude spremna.",
     "successBodyAny": "Poslat ćemo ti email kada cmux bude spreman za tvoju platformu.",

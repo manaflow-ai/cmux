@@ -1891,6 +1891,7 @@
     "joining": "Katılıyor…",
     "cancel": "İptal",
     "invalidEmail": "Geçerli bir e-posta adresi gir.",
+    "sendError": "Gönderilemedi. Lütfen tekrar dene.",
     "successTitle": "Listedesin",
     "successBody": "{platform} sürümü hazır olduğunda sana e-posta göndereceğiz.",
     "successBodyAny": "cmux senin platformun için hazır olduğunda sana e-posta göndereceğiz.",

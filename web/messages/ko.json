@@ -1891,6 +1891,7 @@
     "joining": "등록 중…",
     "cancel": "취소",
     "invalidEmail": "유효한 이메일 주소를 입력하세요.",
+    "sendError": "전송하지 못했습니다. 다시 시도해 주세요.",
     "successTitle": "등록되었습니다",
     "successBody": "{platform} 버전이 준비되면 이메일로 알려드릴게요.",
     "successBodyAny": "cmux가 회원님의 플랫폼에서 준비되면 이메일로 알려드릴게요.",

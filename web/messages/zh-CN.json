@@ -1891,6 +1891,7 @@
     "joining": "正在加入…",
     "cancel": "取消",
     "invalidEmail": "请输入有效的邮箱地址。",
+    "sendError": "发送失败，请重试。",
     "successTitle": "你已加入名单",
     "successBody": "{platform} 版本就绪后，我们会给你发邮件。",
     "successBodyAny": "cmux 在你的平台上就绪后，我们会给你发邮件。",

@@ -1891,6 +1891,7 @@
     "joining": "Uniéndote…",
     "cancel": "Cancelar",
     "invalidEmail": "Introduce un correo electrónico válido.",
+    "sendError": "No se pudo enviar. Inténtalo de nuevo.",
     "successTitle": "Estás en la lista",
     "successBody": "Te enviaremos un correo cuando la versión de {platform} esté lista.",
     "successBodyAny": "Te enviaremos un correo cuando cmux esté listo para tu plataforma.",

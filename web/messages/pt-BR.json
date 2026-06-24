@@ -1891,6 +1891,7 @@
     "joining": "Entrando…",
     "cancel": "Cancelar",
     "invalidEmail": "Insira um endereço de e-mail válido.",
+    "sendError": "Não foi possível enviar. Tente novamente.",
     "successTitle": "Você está na lista",
     "successBody": "Enviaremos um e-mail quando a versão para {platform} estiver pronta.",
     "successBodyAny": "Enviaremos um e-mail quando o cmux estiver pronto para sua plataforma.",

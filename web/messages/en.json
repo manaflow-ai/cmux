@@ -1911,6 +1911,7 @@
     "joining": "Joining…",
     "cancel": "Cancel",
     "invalidEmail": "Enter a valid email address.",
+    "sendError": "Couldn't send. Please try again.",
     "successTitle": "You're on the list",
     "successBody": "We'll email you when the {platform} build is ready.",
     "successBodyAny": "We'll email you when cmux is ready on your platform.",

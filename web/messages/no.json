@@ -1891,6 +1891,7 @@
     "joining": "Blir med…",
     "cancel": "Avbryt",
     "invalidEmail": "Skriv inn en gyldig e-postadresse.",
+    "sendError": "Kunne ikke sende. Prøv igjen.",
     "successTitle": "Du er på listen",
     "successBody": "Vi sender deg en e-post når {platform}-versjonen er klar.",
     "successBodyAny": "Vi sender deg en e-post når cmux er klar for plattformen din.",
