@@ -78,6 +78,21 @@ import Testing
         #expect(cleaned?.contains("\n") == false)
     }
 
+    @Test func pathStripsUnicodeLineAndParagraphSeparators() {
+        // U+2028 / U+2029 are category Zl/Zp, NOT controlCharacters; some agents
+        // treat them as a line break and would submit the prompt early.
+        let cleaned = ResumeBreadcrumbBuilder.sanitizedPath("/Users/me/a\u{2028}b\u{2029}c/sess.jsonl")
+        #expect(cleaned != nil)
+        #expect(cleaned?.contains("\u{2028}") == false)
+        #expect(cleaned?.contains("\u{2029}") == false)
+        // And the composed breadcrumb stays single-line.
+        let text = ResumeBreadcrumbBuilder.breadcrumb(
+            forVerified: anchor(path: "/Users/me/a\u{2028}b/sess.jsonl")
+        )
+        #expect(text.contains("\u{2028}") == false)
+        #expect(!text.contains("\n"))
+    }
+
     @Test func pathSanitizerRejectsEmptyAndCapsLength() {
         #expect(ResumeBreadcrumbBuilder.sanitizedPath(nil) == nil)
         #expect(ResumeBreadcrumbBuilder.sanitizedPath("   \n ") == nil)

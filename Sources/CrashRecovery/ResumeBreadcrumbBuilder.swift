@@ -157,15 +157,24 @@ enum ResumeBreadcrumbBuilder {
     /// Collapses a raw transcript path into a safe single-line fragment for
     /// injection as terminal startup input. Paths may legitimately contain
     /// spaces, so internal whitespace is preserved (unlike `sanitizedName`); only
-    /// control characters / newlines (which would submit the prompt early) are
-    /// stripped, the tilde is expanded so the path is unambiguous, and length is
-    /// bounded. Returns `nil` when nothing usable remains.
+    /// line-breaking scalars are stripped, the tilde is expanded so the path is
+    /// unambiguous, and length is bounded. Returns `nil` when nothing usable
+    /// remains.
+    ///
+    /// Newline neutralization must cover the Unicode line/paragraph separators
+    /// U+2028/U+2029 (category Zl/Zp — *not* in `controlCharacters`), which some
+    /// terminals/agents treat as a line break and would submit the prompt early.
+    /// `sanitizedName` gets this for free via its `.whitespacesAndNewlines` split;
+    /// this path-preserving variant has no such split, so it filters
+    /// `CharacterSet.newlines` (which includes U+2028/U+2029) explicitly.
     static func sanitizedPath(_ raw: String?, maxLength: Int = 400) -> String? {
         guard let raw else { return nil }
         let expanded = (raw as NSString).expandingTildeInPath
         var scalars = String.UnicodeScalarView()
         for scalar in expanded.unicodeScalars {
-            if CharacterSet.controlCharacters.contains(scalar) || scalar == "\"" {
+            if CharacterSet.controlCharacters.contains(scalar)
+                || CharacterSet.newlines.contains(scalar)
+                || scalar == "\"" {
                 continue
             }
             scalars.append(scalar)

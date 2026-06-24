@@ -7,10 +7,11 @@ import Foundation
 /// This is deliberately a plain value type with no app or filesystem coupling so
 /// the decision is exhaustively unit-testable. The two on-disk facts —
 /// `transcriptExistsAtWindowCwd` and `transcriptExistsElsewhere` — are produced
-/// by a thin adapter (`ResumeBindingFactsResolver`, wired at the restore call
-/// site) that consults the real transcript store; the gate itself never reads a
-/// file. Keeping the filesystem at the edge is what lets the full
-/// verified/unverified matrix be proven without the app host.
+/// by a thin adapter at the restore call site (the real `Workspace` overrides
+/// `ResumableWorkspaceSurface`'s defaulted verification facts with the on-disk
+/// transcript lookup; that override + its live validation are the U14 step). The
+/// gate itself never reads a file — keeping the filesystem at the edge is what
+/// lets the full verified/unverified matrix be proven without the app host.
 struct ResumeBindingFacts: Equatable, Sendable {
     /// Whether *any* binding was persisted for this restored panel. A panel that
     /// never recorded a session (the common "[no agent]" pre-crash pane, U9)

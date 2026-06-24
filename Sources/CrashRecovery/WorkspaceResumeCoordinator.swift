@@ -161,12 +161,17 @@ struct WorkspaceResumeCoordinator {
         )
     }
 
-    /// The default *silent* restore path (R14/R17): verify the binding, then
-    /// either resume the exact session + deliver the transcript-anchored
-    /// breadcrumb, or deliver the honest cwd-scoped recovery prompt and resume
-    /// nothing. Never auto-resumes an unverified binding; never enumerates
-    /// sessions. Distinct from `resume(_:)`, which backs the opt-in offer (U5) and
-    /// manual action (U6) under the v1 proven-binding rule.
+    /// The verification-gated recovery entry point for the silent restore path
+    /// (R14/R17): verify the binding, then either resume the exact session +
+    /// deliver the transcript-anchored breadcrumb, or deliver the honest
+    /// cwd-scoped recovery prompt and resume nothing. Never auto-resumes an
+    /// unverified binding; never enumerates sessions. Distinct from `resume(_:)`,
+    /// which backs the opt-in offer (U5) and manual action (U6) under the v1
+    /// proven-binding rule.
+    ///
+    /// Calling this from the live restore path, and having the real `Workspace`
+    /// supply on-disk verification facts (instead of the conservative
+    /// honest-recovery defaults), is the U14 live-validation step.
     @discardableResult
     func recover(_ surface: ResumableWorkspaceSurface) -> RecoveryPerformed {
         let facts = bindingFacts(for: surface)

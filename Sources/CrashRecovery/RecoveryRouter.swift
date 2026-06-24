@@ -46,8 +46,13 @@ enum RecoveryAction: Equatable, Sendable {
 /// The router is the seam between the pure verification gate (U10) and the two
 /// human-language builders (U12 verified breadcrumb, U11 honest prompt). It owns
 /// no side effects: it turns "are these binding facts trustworthy?" into "resume
-/// and say this" vs "don't resume, say this honestly instead." The default
-/// silent auto-resume path and the opt-in crash offer both consult it; neither
+/// and say this" vs "don't resume, say this honestly instead."
+///
+/// It is consumed through `WorkspaceResumeCoordinator.recover(_:)`. Wiring that
+/// `recover(_:)` into the live silent restore path — and the real `Workspace`
+/// supplying on-disk verification facts — is the U14 step; until then the
+/// conservative `ResumableWorkspaceSurface` defaults route every real restore to
+/// honest recovery (never a blind resume). By contract neither delivery surface
 /// may auto-resume an unverified binding, and neither enumerates sessions.
 struct RecoveryRouter {
     /// Whether to attach the breadcrumb on the verified branch (mirrors

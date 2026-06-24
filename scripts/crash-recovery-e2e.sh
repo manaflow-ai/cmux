@@ -122,24 +122,37 @@ assert_not_main_app() {
   esac
 }
 
+# The absolute exec path of THIS tag's app — the single source of truth every
+# guard compares against.
+TAGGED_EXEC_MARKER="/cmux-${TAG_SLUG}/Build/Products/Debug/cmux DEV ${TAG_SLUG}.app/Contents/MacOS/cmux"
+
+# Resolve a PID's running executable path via lsof. `lsof -Fn` prints one field
+# per line; file paths are the `n`-prefixed lines (`sed -n 's/^n//p'` extracts
+# them cleanly — no fragile `txt`-substring filtering). Returns the first
+# resolved path, or empty.
+resolve_exec_path() {
+  local pid="$1"
+  lsof -p "$pid" -Fn 2>/dev/null | sed -n 's/^n//p' | grep -F "$TAGGED_EXEC_MARKER" | head -1
+}
+
+# True iff `path` is THIS tag's tagged Debug exec and not an installed app.
+is_tagged_exec_path() {
+  local path="$1"
+  [[ -n "$path" ]] \
+    && [[ "$path" == *"$TAGGED_EXEC_MARKER"* ]] \
+    && [[ "$path" != *"/Applications/"* ]]
+}
+
 # Echo the PIDs whose executable path is THIS tag's app exec, and nothing else.
-# Cross-checks each PID's path so a coincidental name match can never select the
-# main app.
+# Cross-checks each PID's resolved exec path so a coincidental command-line match
+# can never select the main app.
 tagged_pids() {
   assert_not_main_app
-  # pgrep -f matches the full command line; we then verify the resolved exec path.
   local pid path
-  for pid in $(pgrep -f "cmux DEV ${TAG_SLUG}.app/Contents/MacOS/cmux" 2>/dev/null || true); do
-    path="$(ps -o comm= -p "$pid" 2>/dev/null || true)"
-    # ps comm may be truncated; resolve the real exec via /proc-like lsof fallback.
-    path="$(lsof -p "$pid" -Fn 2>/dev/null | awk '/txt/{next} 1' | grep -m1 "cmux DEV ${TAG_SLUG}.app/Contents/MacOS/cmux" || true)"
-    if [[ -n "$path" ]]; then
-      # Hard guard: the path must be under THIS tag's Debug products dir and must
-      # NOT be the main app bundle.
-      if [[ "$path" == *"/cmux-${TAG_SLUG}/Build/Products/Debug/"* ]] \
-         && [[ "$path" != *"/Applications/"* ]]; then
-        echo "$pid"
-      fi
+  for pid in $(pgrep -f "$TAGGED_EXEC_MARKER" 2>/dev/null || true); do
+    path="$(resolve_exec_path "$pid")"
+    if is_tagged_exec_path "$path"; then
+      echo "$pid"
     fi
   done
 }
@@ -220,9 +233,16 @@ cmd_forcequit() {
     return 0
   fi
   echo "[forcequit] simulating a crash — kill -9 of tagged PIDs: $pids"
-  local pid
+  local pid path
   for pid in $pids; do
-    # Re-assert per-PID right before the kill: never the main app.
+    # Re-assert per-PID right before the kill: the PID's CURRENT exec path must
+    # still be this tag's tagged Debug exec. Guards against a PID recycled to an
+    # unrelated process between resolution and kill — never the main app.
+    path="$(resolve_exec_path "$pid")"
+    if ! is_tagged_exec_path "$path"; then
+      echo "  SKIP $pid (no longer this tag's exec: '${path:-unresolved}')"
+      continue
+    fi
     kill -9 "$pid" && echo "  killed $pid"
   done
 }

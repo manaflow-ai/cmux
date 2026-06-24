@@ -76,6 +76,24 @@ own; the live loop is where they get fixed and verified:
    `Workspace` conformance must override the verification facts
    (`transcriptExistsAtWindowCwd` / `transcriptExistsElsewhere` / `resumeCwd` /
    `resumeTranscriptPath`) with the on-disk transcript lookup and call
-   `recover()` from the silent restore path. Until that override lands, the
-   conservative protocol defaults route every restore to honest recovery (safe:
-   never a wrong resume). This live loop is where the override is validated.
+   `recover()` from the silent restore path (`Sources/Workspace.swift` ~1249,
+   where `restoredAgentResumeLaunch` is constructed). Until that override lands,
+   the conservative protocol defaults route every restore to honest recovery
+   (safe: never a wrong resume). This live loop is where the override is
+   validated.
+
+   Adapter must-dos when wiring:
+   - **Feed the bare session id, not the launch command.** `Workspace`'s
+     `resumeSessionToken` returns the full resume *command* (e.g.
+     `claude --resume <id>`) when there is no cold-restored-agent snapshot, but
+     the gate/adapter need the bare session id for the transcript path
+     (`~/.claude/projects/<encode(cwd)>/<id>.jsonl`). Add a dedicated
+     `resumeSessionId` (the bare id from `crashRecoveryRestoredAgent` /
+     parsed from the binding) so `bindingFacts` does not pass a command string
+     where an id is expected. `coordinator.bindingFacts` currently maps
+     `resumeSessionToken → sessionId`; the override must correct this.
+   - **Transcript-existence helpers are `private` in `RestorableAgentSession`**
+     (`claudeTranscriptExists`, `ClaudeTranscriptLookupCache`). Expose a small
+     internal entry point (or reuse `encodeClaudeProjectDir`, which is internal)
+     to answer "transcript at this cwd's project dir?" vs "in any project?"
+     rather than replicating the config-root logic.
