@@ -8457,16 +8457,33 @@ private let browserHTTPBasicAuthPromptDangerousScalars: Set<Unicode.Scalar> = [
     "\u{FEFF}",
 ]
 
-private func browserSanitizedHTTPBasicAuthPromptText(_ text: String) -> String {
+private func browserFilteredHTTPBasicAuthPromptText(_ text: String) -> String {
     let filtered = String(text.unicodeScalars.filter { scalar in
         !browserHTTPBasicAuthPromptDangerousScalars.contains(scalar)
             && !CharacterSet.controlCharacters.contains(scalar)
     })
-    let trimmed = filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+    return filtered.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+private func browserSanitizedHTTPBasicAuthPromptText(_ text: String) -> String {
+    let trimmed = browserFilteredHTTPBasicAuthPromptText(text)
     guard trimmed.count > browserHTTPBasicAuthPromptTextMaxLength else {
         return trimmed
     }
     return String(trimmed.prefix(browserHTTPBasicAuthPromptTextMaxLength))
+}
+
+private func browserMiddleElidedHTTPBasicAuthPromptText(_ text: String) -> String {
+    let trimmed = browserFilteredHTTPBasicAuthPromptText(text)
+    guard trimmed.count > browserHTTPBasicAuthPromptTextMaxLength else {
+        return trimmed
+    }
+
+    let marker = "..."
+    let keptCharacterCount = browserHTTPBasicAuthPromptTextMaxLength - marker.count
+    let prefixCount = min(48, max(16, keptCharacterCount / 3))
+    let suffixCount = max(0, keptCharacterCount - prefixCount)
+    return String(trimmed.prefix(prefixCount)) + marker + String(trimmed.suffix(suffixCount))
 }
 
 private func browserDefaultPort(forHTTPBasicAuthProtocol protocolName: String?) -> Int? {
@@ -8483,7 +8500,7 @@ private func browserDefaultPort(forHTTPBasicAuthProtocol protocolName: String?) 
 private func browserHTTPBasicAuthPromptOrigin(
     protectionSpace: URLProtectionSpace
 ) -> String {
-    let host = browserSanitizedHTTPBasicAuthPromptText(protectionSpace.host)
+    let host = browserFilteredHTTPBasicAuthPromptText(protectionSpace.host)
     guard !host.isEmpty else {
         return String(
             localized: "browser.dialog.auth.basic.unknownHost",
@@ -8492,7 +8509,7 @@ private func browserHTTPBasicAuthPromptOrigin(
     }
 
     let rawProtocol = protectionSpace.`protocol` ?? ""
-    let protocolName = browserSanitizedHTTPBasicAuthPromptText(rawProtocol).lowercased()
+    let protocolName = browserFilteredHTTPBasicAuthPromptText(rawProtocol).lowercased()
     let defaultPort = browserDefaultPort(forHTTPBasicAuthProtocol: protocolName)
 
     let displayHost: String
@@ -8511,7 +8528,7 @@ private func browserHTTPBasicAuthPromptOrigin(
     }
 
     let origin = protocolName.isEmpty ? authority : "\(protocolName)://\(authority)"
-    return browserSanitizedHTTPBasicAuthPromptText(origin)
+    return browserMiddleElidedHTTPBasicAuthPromptText(origin)
 }
 
 private func browserHTTPBasicAuthPromptMessage(

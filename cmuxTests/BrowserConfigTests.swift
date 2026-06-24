@@ -2382,6 +2382,40 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         XCTAssertEqual(promptMessage?.contains("http://localhost:8443"), true)
     }
 
+    func testBasicAuthPromptMiddleElidesLongOriginPreservingHostSuffixAndPort() {
+        let longHost = "trusted.example."
+            + String(repeating: "middle.", count: 80)
+            + "attacker.test"
+        let challenge = makeAuthChallenge(
+            host: longHost,
+            method: NSURLAuthenticationMethodHTTPBasic,
+            realm: nil,
+            protocolName: "https",
+            port: 9443
+        )
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var promptMessage: String?
+
+        alertSpy.beforeResponding = { accessoryView in
+            promptMessage = self.textFields(in: accessoryView)
+                .first(where: { !$0.isEditable })?
+                .stringValue
+        }
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            windowProvider: { nil }
+        ) { _, _ in }
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(alertSpy.runModalCallCount, 1)
+        XCTAssertEqual(promptMessage?.contains("..."), true)
+        XCTAssertEqual(promptMessage?.contains("attacker.test:9443"), true)
+    }
+
     func testBasicAuthPromptCoordinatorSeparatesProtocolProtectionSpaces() {
         let coordinator = BrowserHTTPBasicAuthPromptCoordinator()
         let httpChallenge = makeAuthChallenge(
