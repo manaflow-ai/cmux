@@ -1258,6 +1258,7 @@ struct RestorableAgentSessionIndex: Sendable {
         guard kind == .claude else {
             return record.isRestorable != false
         }
+        // A located transcript is the strongest signal the conversation can replay.
         if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
            regularNonEmptyFileExists(
                atPath: (transcriptPath as NSString).expandingTildeInPath,
@@ -1265,7 +1266,25 @@ struct RestorableAgentSessionIndex: Sendable {
            ) {
             return true
         }
-        return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
+        if claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup) {
+            return true
+        }
+        // Fall back to the authoritative signal: the claude Stop hook sets
+        // `isRestorable == true` only for a genuinely resumable session. Transcript
+        // resolution legitimately misses (custom CLAUDE_CONFIG_DIR, account-scoped or
+        // forked roots, project-dir encoding drift); discarding a would-be-restorable
+        // session there made claude silently never hibernate while codex did (the
+        // classic "only codex hibernates" report). Trust the hook's explicit flag;
+        // `claude --resume` errors cleanly if the transcript is truly gone, which beats
+        // permanent invisibility. Log the gap so it stays diagnosable, not silent.
+        if record.isRestorable == true {
+            cmuxDebugLog(
+                "agentHib.restorable.claudeTranscriptMissing session=\(record.sessionId.prefix(8)) "
+                    + "transcriptPath=\(record.transcriptPath ?? "<nil>") — trusting isRestorable=true"
+            )
+            return true
+        }
+        return false
     }
 
     private static func resolvedClaudeWorkflowRecord(
