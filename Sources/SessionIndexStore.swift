@@ -16,12 +16,12 @@ nonisolated private let sessionIndexLogger = Logger(
 
 // MARK: - Parsed metadata cache
 
-/// Process-wide cache for parsed Claude session metadata, keyed by file URL with
-/// mtime as the freshness check. Avoids re-reading and re-parsing the same
-/// jsonls across pagination calls. Bounded by `maxEntries` to keep memory in
-/// check (LRU on insert).
+/// Cache for parsed Claude session metadata, keyed by file URL with mtime as
+/// the freshness check. Avoids re-reading and re-parsing the same jsonls across
+/// pagination calls. Bounded by `maxEntries` to keep memory in check (LRU on
+/// insert). Owned by a single `SessionIndexStore` and injected into the
+/// nonisolated static loader chain (no process-wide singleton).
 final class ClaudeMetadataCache: @unchecked Sendable {
-    static let shared = ClaudeMetadataCache()
     private let maxEntries = 1000
     private let lock = NSLock()
     private var entries: [URL: (mtime: Date, entry: SessionEntry)] = [:]
@@ -49,33 +49,10 @@ final class ClaudeMetadataCache: @unchecked Sendable {
     }
 }
 
-// MARK: - Drag registry
-
-/// Process-wide registry that pairs a synthetic drag UUID with a SessionEntry.
-/// Used to forward sessions through bonsplit's external-tab-drop hook (which only
-/// carries UUIDs in its payload). Workspace.handleExternalTabDrop consults this
-/// to decide whether a drop should spawn a brand new terminal vs. move an existing tab.
-@MainActor
-final class SessionDragRegistry {
-    static let shared = SessionDragRegistry()
-
-    private var pending: [UUID: SessionEntry] = [:]
-
-    func register(_ entry: SessionEntry) -> UUID {
-        let id = UUID()
-        pending[id] = entry
-        // Auto-expire so a cancelled drag doesn't leak forever.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(60))
-            self?.pending.removeValue(forKey: id)
-        }
-        return id
-    }
-
-    func consume(id: UUID) -> SessionEntry? {
-        pending.removeValue(forKey: id)
-    }
-}
+// `SessionDragRegistry` moved to `Sources/SessionDragRegistry.swift` as a
+// constructor-injected owner held at the app composition root (the `static let
+// shared` singleton was removed). Producer/consumer reach the same instance
+// through the injected owner.
 
 // MARK: - Store
 
@@ -226,6 +203,11 @@ final class SessionIndexStore {
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
+
+    /// Store-owned parsed-Claude-metadata cache, injected into the nonisolated
+    /// static loader chain (`loadAgents` -> `timedAgent` -> `searchAgent` ->
+    /// `loadClaudeEntries`) the same way `ErrorBag` is threaded through.
+    nonisolated private let claudeMetadataCache = ClaudeMetadataCache()
 
     init() {
         self.agentOrder = Self.loadAgentOrder()
@@ -498,8 +480,9 @@ final class SessionIndexStore {
         isLoading = true
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
+        let claudeMetadataCache = self.claudeMetadataCache
         loadTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let scanned = await Self.scanAll()
+            let scanned = await Self.scanAll(claudeMetadataCache: claudeMetadataCache)
             await MainActor.run {
                 guard let self else { return }
                 if Task.isCancelled { return }
@@ -563,7 +546,8 @@ final class SessionIndexStore {
             cwdFilter: cwdFilter,
             offset: 0,
             limit: bigLimit,
-            errorBag: bag
+            errorBag: bag,
+            claudeMetadataCache: claudeMetadataCache
         )
         if Task.isCancelled {
             return DirectorySnapshot(cwd: key, entries: [], errors: [])
@@ -627,7 +611,9 @@ final class SessionIndexStore {
     /// Hard cap on candidate files inspected per call to keep deep-page searches bounded.
     nonisolated static let searchMaxFiles = 1500
 
-    private static func scanAll() async -> [SessionEntry] {
+    nonisolated private static func scanAll(
+        claudeMetadataCache: ClaudeMetadataCache
+    ) async -> [SessionEntry] {
         // Initial scan errors are silently ignored — UI just shows the cached
         // entries we did get. Errors get surfaced when the user actively
         // searches via the popover.
@@ -640,7 +626,8 @@ final class SessionIndexStore {
             cwdFilter: nil,
             offset: 0,
             limit: perAgentLimit,
-            errorBag: bag
+            errorBag: bag,
+            claudeMetadataCache: claudeMetadataCache
         )
         return combined.sorted { $0.modified > $1.modified }
     }
@@ -881,7 +868,8 @@ final class SessionIndexStore {
                 cwdFilter: cwdFilter,
                 offset: 0,
                 limit: target,
-                errorBag: bag
+                errorBag: bag,
+                claudeMetadataCache: claudeMetadataCache
             )
             if noFolderScope {
                 merged = merged.filter { ($0.cwd ?? "").isEmpty }
@@ -899,7 +887,8 @@ final class SessionIndexStore {
         cwdFilter: String?,
         offset: Int,
         limit: Int,
-        errorBag: ErrorBag
+        errorBag: ErrorBag,
+        claudeMetadataCache: ClaudeMetadataCache
     ) async -> [SessionEntry] {
         await withTaskGroup(of: [SessionEntry].self) { group in
             for agent in agents {
@@ -911,7 +900,8 @@ final class SessionIndexStore {
                         offset: offset,
                         limit: limit,
                         errorBag: errorBag,
-                        registry: registry
+                        registry: registry,
+                        claudeMetadataCache: claudeMetadataCache
                     )
                 }
             }
@@ -926,7 +916,8 @@ final class SessionIndexStore {
     nonisolated private static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
-        registry: CmuxVaultAgentRegistry
+        registry: CmuxVaultAgentRegistry,
+        claudeMetadataCache: ClaudeMetadataCache
     ) async -> [SessionEntry] {
         #if DEBUG
         let start = ProcessInfo.processInfo.systemUptime
@@ -937,7 +928,8 @@ final class SessionIndexStore {
             offset: offset,
             limit: limit,
             errorBag: errorBag,
-            registry: registry
+            registry: registry,
+            claudeMetadataCache: claudeMetadataCache
         )
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         cmuxDebugLog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
@@ -950,7 +942,8 @@ final class SessionIndexStore {
             offset: offset,
             limit: limit,
             errorBag: errorBag,
-            registry: registry
+            registry: registry,
+            claudeMetadataCache: claudeMetadataCache
         )
         #endif
     }
@@ -958,10 +951,11 @@ final class SessionIndexStore {
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
-        registry: CmuxVaultAgentRegistry
+        registry: CmuxVaultAgentRegistry,
+        claudeMetadataCache: ClaudeMetadataCache
     ) async -> [SessionEntry] {
         switch agent {
-        case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
+        case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, claudeMetadataCache: claudeMetadataCache)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .grok:
             return await loadGrokEntries(
@@ -1032,7 +1026,8 @@ final class SessionIndexStore {
     /// - When `needle` is non-empty and rg is missing/failed: falls back to the
     ///   Foundation enumeration + 64 KB head + 32 KB tail substring scan.
     nonisolated private static func loadClaudeEntries(
-        needle: String, cwdFilter: String?, offset: Int, limit: Int
+        needle: String, cwdFilter: String?, offset: Int, limit: Int,
+        claudeMetadataCache: ClaudeMetadataCache
     ) async -> [SessionEntry] {
         let roots = claudeSessionRoots()
         guard !roots.isEmpty else { return [] }
@@ -1118,7 +1113,7 @@ final class SessionIndexStore {
             for (idx, candidate) in workCandidates.enumerated() {
                 group.addTask {
                     // Cache hit
-                    let cached = ClaudeMetadataCache.shared.get(url: candidate.url, mtime: candidate.mtime)
+                    let cached = claudeMetadataCache.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
                         return (
@@ -1173,7 +1168,7 @@ final class SessionIndexStore {
                         )
                     )
                     if needle.isEmpty {
-                        ClaudeMetadataCache.shared.put(
+                        claudeMetadataCache.put(
                             url: candidate.url,
                             mtime: candidate.mtime,
                             entry: entry

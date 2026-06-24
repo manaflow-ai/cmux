@@ -39,6 +39,13 @@ extension Workspace: WorkspaceDropHosting {
         // already consumed and the legacy body returned `false` before the
         // file-preview check; here it is consumed and yields `nil`, after which
         // the coordinator runs the file-preview consume next, exactly as before.)
+        // TODO(refactor): `SessionDragRegistry.shared` was removed when the
+        // registry was de-singletonized into a constructor-injected owner held at
+        // the app composition root (`Sources/SessionDragRegistry.swift`). This
+        // call must switch to the injected owner reached via the Workspace host
+        // (e.g. an injected `sessionDragRegistry`). Left dangling intentionally:
+        // this is a reader file owned by another slice; the orchestrator wires
+        // the injected owner.
         guard let entry = SessionDragRegistry.shared.consume(id: tabId) else { return nil }
         guard let resumeCommand = entry.resumeCommand else { return nil }
         return WorkspaceSessionDropPayload(

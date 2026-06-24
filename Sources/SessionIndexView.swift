@@ -2606,6 +2606,12 @@ private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Da
 /// UTTypes there reliably.
 @MainActor
 private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider {
+    // TODO(refactor): `SessionDragRegistry.shared` was removed when the registry
+    // was de-singletonized into a constructor-injected owner held at the app
+    // composition root (`Sources/SessionDragRegistry.swift`). This producer must
+    // switch to the injected owner (e.g. an injected `sessionDragRegistry`
+    // reached from the Sessions sidebar's environment/owner). Left dangling
+    // intentionally: forbidden/reader file; the orchestrator wires the owner.
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
 

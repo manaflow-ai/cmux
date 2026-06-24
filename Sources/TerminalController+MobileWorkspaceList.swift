@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import CmuxControlSocket
 import CmuxWindowing
 import CmuxWorkspaces
@@ -149,7 +150,7 @@ extension TerminalController: MobileWorkspaceListRPCHost {
     }
 
     func mobileWorkspaceListNonEmpty(_ raw: String?) -> String? {
-        mobileNonEmpty(raw)
+        raw?.mobileTrimmedNonEmpty
     }
 
     func mobileWorkspaceListTerminalPanels(in workspace: Workspace) -> [TerminalPanel] {

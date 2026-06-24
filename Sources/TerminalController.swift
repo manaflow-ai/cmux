@@ -5394,12 +5394,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
         }
     }
 
-    enum MobileTerminalAliasUUID {
-        case missing
-        case value(UUID)
-        case invalid
-        case conflict
-    }
+    typealias MobileTerminalAliasUUID = CMUXMobileCore.MobileTerminalAliasUUID
 
     func mobileTerminalAliasUUID(params: [String: Any]) -> MobileTerminalAliasUUID {
         var selected: UUID?
@@ -6047,11 +6042,6 @@ class TerminalController: MobileViewportSurfaceLimiting {
         // rather than focused-first/UUID order. `is_focused` in the payload still
         // tells the phone which terminal is active.
         orderedPanels(in: workspace).compactMap { $0 as? TerminalPanel }
-    }
-
-    func mobileNonEmpty(_ raw: String?) -> String? {
-        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed?.isEmpty == false ? trimmed : nil
     }
 
     deinit {
