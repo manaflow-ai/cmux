@@ -3686,6 +3686,15 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: false
             )
         )
+        // WebAuthn can originate from same-origin child frames.
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: BrowserWebAuthnBridgeContract.scriptSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false,
+                in: .page
+            )
+        )
         // Track the last editable focused element continuously so omnibar exit can
         // restore page input focus even if capture runs after first-responder handoff.
         // Main frame only — same CAPTCHA interference concern as telemetry hooks.
