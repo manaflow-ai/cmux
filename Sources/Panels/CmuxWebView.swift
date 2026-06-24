@@ -55,11 +55,9 @@ struct BrowserImageCopyPasteboardPayload {
     let sourceURL: URL?
 }
 
-enum BrowserFocusModeKeyDecision: Equatable {
-    case inactive
-    case forwardToWebView
-    case consume
-}
+// `BrowserFocusModeKeyDecision` moved to
+// `CmuxBrowser/Focus/BrowserFocusModeKeyDecision.swift` alongside the pure
+// `BrowserFocusModeEscapeMachine` that produces it (imported via CmuxBrowser).
 
 enum BrowserImageCopyPasteboardBuilder {
     private static let pngPasteboardType = NSPasteboard.PasteboardType(UTType.png.identifier)

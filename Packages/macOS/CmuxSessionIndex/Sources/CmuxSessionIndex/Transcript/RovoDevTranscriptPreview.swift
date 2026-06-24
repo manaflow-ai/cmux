@@ -1,19 +1,30 @@
-import Foundation
+public import Foundation
 
-enum SessionTranscriptLoadError: Error {
-    case missingFile
-    case databaseError(String)
-}
-
-struct RovoDevTranscriptPreviewTurn: Equatable, Sendable {
-    let role: String
-    let text: String
-}
-
-enum RovoDevTranscriptPreview {
+/// Pure JSON parser for RovoDev session transcript previews.
+///
+/// Reads a RovoDev transcript JSON file and extracts up to `limit` turns, tolerating
+/// the several message-history shapes RovoDev has emitted (`message_history`,
+/// `messages`, `conversation`, `turns`, `entries`; nested `payload`/`message`/`data`;
+/// and the `parts`-based part-kind layout). Foundation-only, no app or god reach.
+///
+/// The truncation marker is supplied by the caller as `truncatedLabel` so the
+/// localized string is resolved against the app bundle: `String(localized:)` evaluated
+/// inside this package would bind to the package bundle, which lacks the
+/// `sessionIndex.preview.truncated` key, silently dropping every non-English
+/// translation.
+public enum RovoDevTranscriptPreview {
     private static let maxJSONBytes = 8 * 1024 * 1024
 
-    static func load(from url: URL, limit: Int) throws -> [RovoDevTranscriptPreviewTurn]? {
+    /// Parse up to `limit` preview turns from the transcript JSON at `url`.
+    ///
+    /// Returns `nil` when the file is too large, unreadable as a JSON object, or
+    /// matches no known message-history shape. When the limit is reached, an extra
+    /// `event` turn carrying `truncatedLabel` is appended.
+    public static func load(
+        from url: URL,
+        limit: Int,
+        truncatedLabel: String
+    ) throws -> [RovoDevTranscriptPreviewTurn]? {
         guard limit > 0 else { return [] }
         if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
            fileSize > maxJSONBytes {
@@ -24,22 +35,27 @@ enum RovoDevTranscriptPreview {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return parseContextObject(object, limit: limit)
+        return parseContextObject(object, limit: limit, truncatedLabel: truncatedLabel)
     }
 
     private static func parseContextObject(
         _ object: [String: Any],
-        limit: Int
+        limit: Int,
+        truncatedLabel: String
     ) -> [RovoDevTranscriptPreviewTurn]? {
         for key in ["message_history", "messages", "conversation", "turns", "entries"] {
-            if let turns = parseMessages(object[key], limit: limit) {
+            if let turns = parseMessages(object[key], limit: limit, truncatedLabel: truncatedLabel) {
                 return turns
             }
         }
         return nil
     }
 
-    private static func parseMessages(_ value: Any?, limit: Int) -> [RovoDevTranscriptPreviewTurn]? {
+    private static func parseMessages(
+        _ value: Any?,
+        limit: Int,
+        truncatedLabel: String
+    ) -> [RovoDevTranscriptPreviewTurn]? {
         guard let messages = value as? [Any] else { return nil }
 
         var turns: [RovoDevTranscriptPreviewTurn] = []
@@ -64,7 +80,7 @@ enum RovoDevTranscriptPreview {
         if didHitLimit {
             turns.append(RovoDevTranscriptPreviewTurn(
                 role: "event",
-                text: String(localized: "sessionIndex.preview.truncated", defaultValue: "Preview truncated")
+                text: truncatedLabel
             ))
         }
         guard !turns.isEmpty else {

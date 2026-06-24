@@ -15,24 +15,11 @@ import CFNetwork
 import Darwin
 import CmuxTerminal
 
-private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
-    let type: NSEvent.EventType
-    let timestamp: TimeInterval
-    let windowNumber: Int
-    let keyCode: UInt16
-    let modifierFlags: NSEvent.ModifierFlags.RawValue
-
-    init(_ event: NSEvent) {
-        self.type = event.type
-        self.timestamp = event.timestamp
-        self.windowNumber = event.windowNumber
-        self.keyCode = event.keyCode
-        self.modifierFlags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-            .rawValue
-    }
-}
+// The browser focus-mode plain-Escape decision logic moved to
+// `CmuxBrowser/Focus/BrowserFocusModeEscapeMachine.swift` as a pure value-type
+// machine (with `BrowserFocusModePlainEscapeEventFingerprint`). This panel keeps
+// the published mirrors, the eligibility check, and the focus mutations; it
+// feeds state into the machine and applies the returned decision.
 
 // `GhosttyBackgroundTheme` moved to `Sources/RightSidebarChromeStyle.swift` as a
 // real instance resolver holding an injected default-background provider
@@ -923,9 +910,12 @@ final class BrowserPanel: Panel, ObservableObject {
     /// A first plain Escape in browser focus mode is forwarded to the page and arms exit.
     @Published private(set) var isBrowserFocusModeExitArmed: Bool = false
 
-    private static let browserFocusModeEscapeSequenceInterval: TimeInterval = 1.6
-    private var browserFocusModeExitArmedAt: TimeInterval?
-    private var lastBrowserFocusModePlainEscapeEventFingerprint: BrowserFocusModePlainEscapeEventFingerprint?
+    /// The pure plain-Escape decision/arming state. This panel feeds its mirrors
+    /// into the machine, applies the returned decision, and adopts the machine's
+    /// next state. The machine owns the arm timestamp and last-fingerprint; the
+    /// panel owns `isBrowserFocusModeActive`/`isBrowserFocusModeExitArmed` and the
+    /// notifications.
+    private var browserFocusModeEscapeMachine = BrowserFocusModeEscapeMachine()
 
     /// Sticky omnibar-focus intent. This survives view mount timing races and is
     /// cleared only after BrowserPanelView acknowledges handling it.
@@ -5008,11 +4998,9 @@ extension BrowserPanel {
         let shouldNotify = isBrowserFocusModeActive || isBrowserFocusModeExitArmed
         guard isBrowserFocusModeActive ||
             isBrowserFocusModeExitArmed ||
-            browserFocusModeExitArmedAt != nil ||
-            lastBrowserFocusModePlainEscapeEventFingerprint != nil
+            browserFocusModeEscapeMachine.hasArmingState
         else { return }
-        browserFocusModeExitArmedAt = nil
-        lastBrowserFocusModePlainEscapeEventFingerprint = nil
+        browserFocusModeEscapeMachine = browserFocusModeEscapeMachine.cleared()
         isBrowserFocusModeExitArmed = false
         isBrowserFocusModeActive = false
 #if DEBUG
@@ -5025,22 +5013,16 @@ extension BrowserPanel {
 
     func clearBrowserFocusModeEscapeArms(reason: String) {
         clearBrowserFocusModeExitArm(reason: reason)
-        lastBrowserFocusModePlainEscapeEventFingerprint = nil
+        browserFocusModeEscapeMachine = browserFocusModeEscapeMachine.cleared()
     }
 
     func clearBrowserFocusModeExitArm(reason: String) {
-        guard isBrowserFocusModeExitArmed || browserFocusModeExitArmedAt != nil else { return }
-        browserFocusModeExitArmedAt = nil
+        guard isBrowserFocusModeExitArmed || browserFocusModeEscapeMachine.hasArmedExitTimestamp else { return }
+        browserFocusModeEscapeMachine = browserFocusModeEscapeMachine.disarmedExitTimestamp()
         isBrowserFocusModeExitArmed = false
 #if DEBUG
         cmuxDebugLog("browser.focusMode.escape.disarm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
 #endif
-    }
-
-    private func browserFocusModeEscapeArmIsFresh(for event: NSEvent) -> Bool {
-        guard let startedAt = browserFocusModeExitArmedAt else { return false }
-        guard startedAt > 0, event.timestamp > 0 else { return true }
-        return max(0, event.timestamp - startedAt) <= Self.browserFocusModeEscapeSequenceInterval
     }
 
     func handleBrowserFocusModeKeyEvent(_ event: NSEvent, reason: String) -> BrowserFocusModeKeyDecision {
@@ -5049,57 +5031,44 @@ extension BrowserPanel {
             return .inactive
         }
 
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        let isPlainEscape = flags.isEmpty && event.keyCode == 53
-        guard isPlainEscape else {
-            lastBrowserFocusModePlainEscapeEventFingerprint = nil
-            clearBrowserFocusModeEscapeArms(reason: "\(reason).nonEscape")
-            return isBrowserFocusModeActive ? .forwardToWebView : .inactive
+        let outcome = browserFocusModeEscapeMachine.decide(
+            event: event,
+            isActive: isBrowserFocusModeActive,
+            isExitArmed: isBrowserFocusModeExitArmed
+        )
+        applyBrowserFocusModeEscapeOutcome(outcome, reason: reason)
+        return outcome.decision
+    }
+
+    /// Adopts the machine's next state, sets the exit-armed mirror, performs the
+    /// requested panel clears, and emits the requested DEBUG markers, faithfully
+    /// reproducing the side-effect order of the legacy `handleBrowserFocusModeKeyEvent`.
+    private func applyBrowserFocusModeEscapeOutcome(
+        _ outcome: BrowserFocusModeEscapeMachine.Outcome,
+        reason: String
+    ) {
+        // Adopt the machine's authoritative next state (arm timestamp +
+        // fingerprint), then arm the published mirror on the arm/re-arm paths
+        // exactly as the legacy handler did before logging its marker.
+        browserFocusModeEscapeMachine = outcome.machine
+        if outcome.armsExit {
+            isBrowserFocusModeExitArmed = true
         }
 
-        guard isBrowserFocusModeActive else {
-            lastBrowserFocusModePlainEscapeEventFingerprint = nil
-            clearBrowserFocusModeEscapeArms(reason: "\(reason).inactiveEscape")
-            return .inactive
-        }
-
-        guard !event.isARepeat else {
-#if DEBUG
-            cmuxDebugLog("browser.focusMode.escape.repeat panel=\(id.uuidString.prefix(5)) reason=\(reason)")
-#endif
-            return .consume
-        }
-
-        let eventFingerprint = BrowserFocusModePlainEscapeEventFingerprint(event)
-        if lastBrowserFocusModePlainEscapeEventFingerprint == eventFingerprint {
-#if DEBUG
-            cmuxDebugLog("browser.focusMode.escape.duplicate panel=\(id.uuidString.prefix(5)) reason=\(reason)")
-#endif
-            return .consume
-        }
-        lastBrowserFocusModePlainEscapeEventFingerprint = eventFingerprint
-
-        if isBrowserFocusModeExitArmed {
-            if browserFocusModeEscapeArmIsFresh(for: event) {
-                clearBrowserFocusMode(reason: "\(reason).escapeExit")
-                return .consume
+        for clear in outcome.clears {
+            switch clear {
+            case let .focusMode(reasonSuffix):
+                clearBrowserFocusMode(reason: "\(reason)\(reasonSuffix)")
+            case let .escapeArms(reasonSuffix):
+                clearBrowserFocusModeEscapeArms(reason: "\(reason)\(reasonSuffix)")
             }
-
-            browserFocusModeExitArmedAt = event.timestamp
-#if DEBUG
-            cmuxDebugLog("browser.focusMode.escape.rearm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
-#endif
-            return .forwardToWebView
         }
 
-        isBrowserFocusModeExitArmed = true
-        browserFocusModeExitArmedAt = event.timestamp
 #if DEBUG
-        cmuxDebugLog("browser.focusMode.escape.arm panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+        for marker in outcome.debugMarkers {
+            cmuxDebugLog("\(marker.logEvent) panel=\(id.uuidString.prefix(5)) reason=\(reason)")
+        }
 #endif
-        return .forwardToWebView
     }
 
     private func restoreFindStateAfterNavigation(replaySearch: Bool) {

@@ -1,18 +1,12 @@
+import CmuxSessionIndex
 import SwiftUI
 
-struct SessionTranscriptTurn: Identifiable, Equatable, Sendable {
-    let id: Int
-    let role: SessionTranscriptRole
-    let text: String
-}
-
-enum SessionTranscriptRole: Equatable, Sendable {
-    case user
-    case assistant
-    case system
-    case tool
-    case event
-
+// The transcript data value types (`SessionTranscriptRole`, `SessionTranscriptTurn`,
+// `SessionTranscriptDisplayRow`) now live in CmuxSessionIndex/Transcript. The
+// SwiftUI/localization accessors stay app-side: `String(localized:)` must resolve
+// against the app bundle (the package bundle lacks the keys), and Color/Font are
+// SwiftUI presentation, not data.
+extension SessionTranscriptRole {
     var label: String {
         switch self {
         case .user:

@@ -156,19 +156,23 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         fileManager: FileManager = .default,
         temporaryDirectory: URL = FileManager.default.temporaryDirectory
     ) -> String? {
+        // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
+        // the current directory (no cd), so the post-exit shell must not force the launch dir.
+        let returnShellWorkingDirectory = registration?.cwd == .ignore
+            ? nil
+            : (workingDirectory ?? launchCommand?.workingDirectory)
         guard let command = resumeCommand,
-              let scriptURL = AgentResumeScriptStore.writeLauncherScript(
-                  command: command,
-                  kind: kind,
-                  sessionId: sessionId,
+              let scriptURL = AgentResumeScriptStore(
                   fileManager: fileManager,
-                  temporaryDirectory: temporaryDirectory,
-                  returnToLoginShell: true,
-                  // Match the resume command's own cd: agents with an `.ignore` cwd policy resume from
-                  // the current directory (no cd), so the post-exit shell must not force the launch dir.
-                  workingDirectory: registration?.cwd == .ignore
-                      ? nil
-                      : (workingDirectory ?? launchCommand?.workingDirectory)
+                  temporaryDirectory: temporaryDirectory
+              ).writeLauncherScript(
+                  command: command,
+                  kindRawValue: kind.rawValue,
+                  sessionId: sessionId,
+                  returnShellLines: TerminalStartupReturnShellScript.commandThenReturnLines(
+                      command: command,
+                      workingDirectory: returnShellWorkingDirectory
+                  )
               ) else {
             return nil
         }
@@ -204,12 +208,13 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             return inlineInput
         }
         guard allowLauncherScript else { return nil }
-        guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
-            command: command,
-            kind: kind,
-            sessionId: sessionId,
+        guard let scriptURL = AgentResumeScriptStore(
             fileManager: fileManager,
             temporaryDirectory: temporaryDirectory
+        ).writeLauncherScript(
+            command: command,
+            kindRawValue: kind.rawValue,
+            sessionId: sessionId
         ) else {
             return nil
         }
@@ -226,74 +231,6 @@ extension SessionRestorableAgentSnapshot {
             return name
         }
         return kind.displayName
-    }
-}
-
-private enum AgentResumeScriptStore {
-    private static let directoryName = "cmux-agent-resume"
-    private static let scriptTTL: TimeInterval = 24 * 60 * 60
-
-    static func writeLauncherScript(
-        command: String,
-        kind: RestorableAgentKind,
-        sessionId: String,
-        fileManager: FileManager,
-        temporaryDirectory: URL,
-        returnToLoginShell: Bool = false,
-        workingDirectory: String? = nil
-    ) -> URL? {
-        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
-            pruneOldScripts(in: directoryURL, fileManager: fileManager)
-
-            let safeSessionPrefix = sessionId
-                .prefix(12)
-                .map { character -> Character in
-                    character.isLetter || character.isNumber || character == "-" ? character : "_"
-                }
-            let scriptURL = directoryURL.appendingPathComponent(
-                "\(kind.rawValue)-\(String(safeSessionPrefix))-\(UUID().uuidString).zsh",
-                isDirectory: false
-            )
-            var lines = [
-                "#!/bin/zsh",
-                "rm -f -- \"$0\" 2>/dev/null || true"
-            ]
-            if returnToLoginShell {
-                lines.append(contentsOf: TerminalStartupReturnShellScript.commandThenReturnLines(
-                    command: command,
-                    workingDirectory: workingDirectory
-                ))
-            } else {
-                lines.append(command)
-            }
-            let contents = lines.joined(separator: "\n") + "\n"
-            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
-            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: scriptURL.path)
-            return scriptURL
-        } catch {
-            return nil
-        }
-    }
-
-    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
-        guard let scriptURLs = try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]
-        ) else {
-            return
-        }
-
-        let cutoff = Date().addingTimeInterval(-scriptTTL)
-        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
-            let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey])
-            if let modified = values?.contentModificationDate, modified < cutoff {
-                try? fileManager.removeItem(at: scriptURL)
-            }
-        }
     }
 }
 
@@ -1088,17 +1025,18 @@ struct RestorableAgentSessionIndex: Sendable {
             return nil
         }
 
-        if let liveKind = normalizedProcessValue(process.environment["CMUX_AGENT_LAUNCH_KIND"]),
+        if let liveKind = process.environment["CMUX_AGENT_LAUNCH_KIND"].normalizedProcessValue,
            liveKind.compare(kind.rawValue, options: [.caseInsensitive, .literal]) != .orderedSame {
             return nil
         }
 
-        guard let recordedExecutable = recordedExecutableBasename(record),
-              let liveExecutable = process.arguments.first.map(executableBasename) else {
+        guard let recordedLaunchCommand = record.launchCommand?.resumeLaunchCommand,
+              let recordedExecutable = recordedLaunchCommand.recordedExecutableBasename,
+              let liveExecutable = process.arguments.first?.executableBasename else {
             return pid
         }
-        guard liveProcessExecutableMatchesRecordedAgent(
-            kind: kind,
+        guard recordedLaunchCommand.liveProcessExecutableMatchesRecordedAgent(
+            isClaude: kind == .claude,
             liveExecutable: liveExecutable,
             recordedExecutable: recordedExecutable,
             arguments: process.arguments
@@ -1108,41 +1046,12 @@ struct RestorableAgentSessionIndex: Sendable {
         return pid
     }
 
-    private static func liveProcessExecutableMatchesRecordedAgent(
-        kind: RestorableAgentKind,
-        liveExecutable: String,
-        recordedExecutable: String,
-        arguments: [String]
-    ) -> Bool {
-        if liveExecutable.compare(recordedExecutable, options: [.caseInsensitive, .literal]) == .orderedSame {
-            return true
-        }
-
-        guard kind == .claude else { return false }
-        let liveBase = liveExecutable.lowercased()
-        guard liveBase == "node" || liveBase == "bun" else { return false }
-        return arguments.dropFirst().contains { argument in
-            let lowered = argument.lowercased()
-            return executableBasename(argument).compare("claude", options: [.caseInsensitive, .literal]) == .orderedSame
-                || lowered.contains("/.claude/")
-                || lowered.contains("/claude/versions/")
-        }
-    }
-
-    private static func recordedExecutableBasename(_ record: RestorableAgentHookSessionRecord) -> String? {
-        let executable = normalizedProcessValue(record.launchCommand?.executablePath)
-            ?? normalizedProcessValue(record.launchCommand?.arguments.first)
-        return executable.map(executableBasename)
-    }
-
-    private static func executableBasename(_ value: String) -> String {
-        (value as NSString).lastPathComponent
-    }
-
-    private static func normalizedProcessValue(_ value: String?) -> String? {
-        normalizedNonEmptyValue(value)
-    }
-
+    /// `value` trimmed of surrounding whitespace and newlines, or `nil` when it
+    /// is missing or empty after trimming.
+    ///
+    /// Shared by the agent session/transcript/working-directory readers in this
+    /// type; the process/executable matcher's equivalent is the package-side
+    /// `String?.normalizedNonEmptyValue` in `AgentResumeLaunchCommand+ProcessMatch.swift`.
     private static func normalizedNonEmptyValue(_ value: String?) -> String? {
         guard let rawValue = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
