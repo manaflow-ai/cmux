@@ -129,6 +129,13 @@ struct CMUXMobileRootView: View {
             // drawer only writes `selectedTeamID`; this is the single observation
             // point, so every entrypoint that changes the team flows through here.
             store.currentTeamDidChange()
+            reconnectStoredMacIfNeeded()
+        }
+        .onChange(of: authManager.currentUser?.id) { _, _ in
+            // Cached-session restore can publish `isAuthenticated` before the
+            // concrete Stack user object arrives. Paired-Mac restore is user-scoped,
+            // so retry the stored-Mac reconnect as soon as that scope exists.
+            reconnectStoredMacIfNeeded()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
@@ -192,6 +199,8 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if !isAuthenticated {
             SignInView()
+        } else if shouldWaitForAuthenticatedUserScope {
+            MobilePairedMacDeterminingView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
             RestoringStoredMacWorkspaceShell(
                 store: store,
@@ -335,6 +344,15 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var shouldWaitForAuthenticatedUserScope: Bool {
+        MobileRootAuthGate.shouldWaitForAuthenticatedUserScope(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
+            connectionState: store.connectionState,
+            currentUserID: authManager.currentUser?.id
+        )
+    }
+
     private var hasActiveAttachTicketAuthentication: Bool {
         didAuthenticateWithAttachTicket && store.hasActiveUnexpiredAttachTicket
     }
@@ -364,7 +382,8 @@ struct CMUXMobileRootView: View {
                 attachTicketAuthenticated: hasActiveAttachTicketAuthentication,
                 connectionState: store.connectionState
               ) else { return }
-        let stackUserID = authManager.currentUser?.id
+        guard !shouldWaitForAuthenticatedUserScope,
+              let stackUserID = authManager.currentUser?.id else { return }
         Task {
             await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
         }
