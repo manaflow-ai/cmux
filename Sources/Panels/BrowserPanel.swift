@@ -5954,7 +5954,7 @@ extension BrowserPanel {
         estimatedProgress = 0
         nativeCanGoBack = false
         nativeCanGoForward = false
-        navigationDelegate?.clearAttemptedRequest()
+        navigationDelegate?.clearAttemptedRequest(discardPendingBypasses: true)
         abandonRestoredSessionHistoryIfNeeded()
 
         pendingAddressBarFocusRequestId = nil
@@ -8610,8 +8610,10 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         lastAttemptedURL = displayURL ?? request.url
     }
 
-    func clearAttemptedRequest() {
-        sslBypassState.clearPendingBypasses()
+    func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
+        if discardPendingBypasses {
+            sslBypassState.clearPendingBypasses()
+        }
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
     }
@@ -8795,7 +8797,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
-            clearAttemptedRequest()
+            clearAttemptedRequest(discardPendingBypasses: true)
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
@@ -8810,7 +8812,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         if navigationAction.shouldPerformDownload {
-            clearAttemptedRequest()
+            clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.download)
             return
         }
@@ -8823,7 +8825,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 "browser.nav.decidePolicy.action kind=openInNewTab url=\(requestURL.absoluteString)"
             )
 #endif
-            clearAttemptedRequest()
+            clearAttemptedRequest(discardPendingBypasses: true)
             openRequestInNewTab(navigationAction.request)
             decisionHandler(.cancel)
             return
@@ -8842,7 +8844,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 "browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(requestURL.absoluteString)"
             )
 #endif
-            clearAttemptedRequest()
+            clearAttemptedRequest(discardPendingBypasses: true)
             openRequestInNewTab(navigationAction.request)
             decisionHandler(.cancel)
             return

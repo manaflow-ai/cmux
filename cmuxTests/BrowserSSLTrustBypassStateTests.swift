@@ -111,4 +111,25 @@ struct BrowserSSLTrustBypassStateTests {
         #expect(state.consumePendingBypassAction(actionURL) == nil)
         #expect(!state.isBypassed(scope: scope, fingerprint: fingerprint))
     }
+
+    @Test
+    func acceptedBypassGrantsAreBounded() throws {
+        let state = BrowserSSLTrustBypassState(maximumPendingBypassCount: 1)
+        let firstURL = try #require(URL(string: "https://first.internal"))
+        let firstScope = try #require(BrowserSSLTrustScope(url: firstURL))
+        let firstFingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-a".utf8))
+        state.recordObservedServerTrustFingerprint(firstFingerprint, for: firstScope)
+        let firstActionURL = try #require(state.createPendingBypassAction(for: URLRequest(url: firstURL)))
+        _ = try #require(state.consumePendingBypassAction(firstActionURL))
+
+        let secondURL = try #require(URL(string: "https://second.internal"))
+        let secondScope = try #require(BrowserSSLTrustScope(url: secondURL))
+        let secondFingerprint = BrowserServerTrustFingerprint(sha256: Data("leaf-b".utf8))
+        state.recordObservedServerTrustFingerprint(secondFingerprint, for: secondScope)
+        let secondActionURL = try #require(state.createPendingBypassAction(for: URLRequest(url: secondURL)))
+        _ = try #require(state.consumePendingBypassAction(secondActionURL))
+
+        #expect(!state.isBypassed(scope: firstScope, fingerprint: firstFingerprint))
+        #expect(state.isBypassed(scope: secondScope, fingerprint: secondFingerprint))
+    }
 }

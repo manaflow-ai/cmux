@@ -9,6 +9,7 @@ import Security
 /// surface while preserving the exact failed `URLRequest` for replay.
 final class BrowserSSLTrustBypassState {
     private var bypassedTrusts: Set<BrowserSSLTrustGrant> = []
+    private var bypassedTrustOrder: [BrowserSSLTrustGrant] = []
     private var observedFingerprints: [BrowserSSLTrustScope: BrowserServerTrustFingerprint] = [:]
     private var observedFingerprintOrder: [BrowserSSLTrustScope] = []
     private var pendingBypasses: [String: BrowserPendingSSLTrustBypass] = [:]
@@ -101,6 +102,9 @@ final class BrowserSSLTrustBypassState {
             return nil
         }
         bypassedTrusts.insert(pending.grant)
+        bypassedTrustOrder.removeAll { $0 == pending.grant }
+        bypassedTrustOrder.append(pending.grant)
+        enforceBypassedTrustLimit()
         return pending.request
     }
 
@@ -125,6 +129,13 @@ final class BrowserSSLTrustBypassState {
         while observedFingerprintOrder.count > maximumPendingBypassCount {
             let scope = observedFingerprintOrder.removeFirst()
             observedFingerprints.removeValue(forKey: scope)
+        }
+    }
+
+    private func enforceBypassedTrustLimit() {
+        while bypassedTrustOrder.count > maximumPendingBypassCount {
+            let grant = bypassedTrustOrder.removeFirst()
+            bypassedTrusts.remove(grant)
         }
     }
 }

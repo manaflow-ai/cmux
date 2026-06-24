@@ -613,8 +613,10 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         lastAttemptedURL = request.url
     }
 
-    private func clearAttemptedRequest() {
-        sslBypassState.clearPendingBypasses()
+    private func clearAttemptedRequest(discardPendingBypasses: Bool = false) {
+        if discardPendingBypasses {
+            sslBypassState.clearPendingBypasses()
+        }
         lastAttemptedRequest = nil
         lastAttemptedURL = nil
     }
@@ -653,7 +655,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
 
         // External URL schemes → hand off to macOS
         if browserShouldRouteExternalNavigation(url) {
-            clearAttemptedRequest()
+            clearAttemptedRequest(discardPendingBypasses: true)
             browserHandleExternalNavigation(
                 url,
                 source: "popupNavDelegate",
@@ -682,7 +684,7 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         if navigationAction.shouldPerformDownload {
-            clearAttemptedRequest()
+            clearAttemptedRequest(discardPendingBypasses: true)
             decisionHandler(.download)
             return
         }
