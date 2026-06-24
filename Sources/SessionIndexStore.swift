@@ -903,7 +903,7 @@ final class SessionIndexStore {
             ClaudeConfigDirectoryPath.preferredPath(configDir, fileManager: fileManager)
         },
         configuredResumeDirectory: { configDir, fileManager in
-            ClaudeConfigurationRoot.configuredResumeDirectory(configDir, fileManager: fileManager)
+            ClaudeConfigurationRoot(fileManager: fileManager).configuredResumeDirectory(configDir)
         },
         encodeClaudeProjectDir: { cwd in
             RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd)
