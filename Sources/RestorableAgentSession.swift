@@ -1274,10 +1274,18 @@ struct RestorableAgentSessionIndex: Sendable {
         // resolution legitimately misses (custom CLAUDE_CONFIG_DIR, account-scoped or
         // forked roots, project-dir encoding drift); discarding a would-be-restorable
         // session there made claude silently never hibernate while codex did (the
-        // classic "only codex hibernates" report). Trust the hook's explicit flag;
-        // `claude --resume` errors cleanly if the transcript is truly gone, which beats
-        // permanent invisibility. Log the gap so it stays diagnosable, not silent.
-        if record.isRestorable == true {
+        // classic "only codex hibernates" report).
+        //
+        // Fail closed unless the hook actually RECORDED a transcript path. The three
+        // miss cases above all still record a path (the file just isn't resolvable from
+        // here); a record with no path at all never proved a transcript and is not
+        // trusted. This bounds the residual risk to "path recorded but file later
+        // deleted" — there `claude --resume` exits cleanly to a shell (the conversation
+        // was already gone; nothing the live pane held is lost), which beats permanently
+        // never hibernating every hard-to-locate-transcript session. Log it so the gap
+        // stays diagnosable, not silent.
+        if record.isRestorable == true,
+           normalizedNonEmptyValue(record.transcriptPath) != nil {
             #if DEBUG
             cmuxDebugLog(
                 "agentHib.restorable.claudeTranscriptMissing session=\(record.sessionId.prefix(8)) "
