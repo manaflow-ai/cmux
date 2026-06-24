@@ -76,3 +76,31 @@ final class AgentNotificationBlockingClassifierTests: XCTestCase {
         XCTAssertFalse(agentNotificationIsBlockingPrompt(signal: "notification", message: "waiting"))
     }
 }
+
+/// Routing guard for agents whose `Notification` event is a permission/attention channel
+/// (turn-end is carried separately by `Stop`). Routing such a Notification to the `stop`
+/// subcommand forces the pane `.idle` and lets it hibernate while a permission prompt is
+/// live. These must route through the `notification` lane so the blocking classifier above
+/// decides correctly. This pins the agent-definition wiring so the regression can't silently
+/// return.
+final class AgentNotificationRoutingTests: XCTestCase {
+    private func subcommand(for agentName: String, agentEvent: String) -> String? {
+        guard let def = CMUXCLI.agentDef(named: agentName) else { return nil }
+        return def.events.first { $0.agentEvent == agentEvent }?.cmuxSubcommand
+    }
+
+    func testNotificationRoutesToNotificationLaneNotStop() {
+        // Agents that have BOTH a Stop turn-boundary and a Notification attention channel.
+        for agent in ["copilot", "codebuddy", "factory"] {
+            XCTAssertEqual(
+                subcommand(for: agent, agentEvent: "Stop"), "stop",
+                "\(agent) Stop should remain the turn boundary"
+            )
+            XCTAssertEqual(
+                subcommand(for: agent, agentEvent: "Notification"), "notification",
+                "\(agent) Notification must route through the notification lane, not stop, "
+                    + "so a live permission prompt cannot be forced idle and hibernated"
+            )
+        }
+    }
+}

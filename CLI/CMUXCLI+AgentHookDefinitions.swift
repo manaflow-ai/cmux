@@ -325,7 +325,11 @@ extension CMUXCLI {
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
+                // Notification is the permission/attention channel (turn-end is Stop).
+                // Route through the notification lane so blocking prompts assert
+                // .needsInput and routine ones preserve idle, instead of "stop"
+                // forcing idle on a live permission prompt (hibernate mid-prompt).
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["PreToolUse"]
@@ -338,7 +342,8 @@ extension CMUXCLI {
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
+                // See copilot: notification lane, not "stop".
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["PreToolUse"]
@@ -351,7 +356,8 @@ extension CMUXCLI {
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
-                .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
+                // See copilot: notification lane, not "stop".
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
             feedHookEvents: ["PreToolUse"]
