@@ -41,6 +41,34 @@ import Testing
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
 }
 
+@MainActor
+@Test func renderGridDeliveryUpdatesActiveTerminalTheme() throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    _ = store.terminalOutputStream(surfaceID: surfaceID)
+    let theme = TerminalTheme(
+        background: "#102030",
+        foreground: "#f0f1f2",
+        cursor: "#abcdef",
+        cursorText: "#102030",
+        selectionBackground: "#334455",
+        selectionForeground: "#ffffff",
+        palette: TerminalTheme.monokai.palette
+    )
+    let frame = try MobileTerminalRenderGridFrame(
+        surfaceID: surfaceID,
+        stateSeq: 1,
+        columns: 4,
+        rows: 1,
+        rowSpans: [],
+        terminalTheme: theme
+    )
+
+    store.deliverTerminalRenderGrid(frame, surfaceID: surfaceID)
+
+    #expect(store.activeTerminalTheme == theme)
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

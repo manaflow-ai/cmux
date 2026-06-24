@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileTerminal
+import Observation
 import SwiftUI
 
 /// Colors derived from the active terminal theme for the SwiftUI chrome around
@@ -12,11 +13,24 @@ import SwiftUI
 let terminalPalette = TerminalPalette()
 
 @MainActor
-struct TerminalPalette {
+@Observable
+final class TerminalPalette {
+    private var theme: TerminalTheme
+
+    init(theme: TerminalTheme = GhosttyRuntime.currentTheme) {
+        self.theme = theme
+    }
+
+    func setTheme(_ theme: TerminalTheme) {
+        let resolved = theme.validatedOrDefault()
+        guard self.theme != resolved else { return }
+        self.theme = resolved
+    }
+
     /// Terminal background, from the active theme.
-    var background: Color { color(GhosttyRuntime.currentTheme.background) }
+    var background: Color { color(theme.background) }
     /// Terminal foreground, from the active theme.
-    var foreground: Color { color(GhosttyRuntime.currentTheme.foreground) }
+    var foreground: Color { color(theme.foreground) }
     /// Dimmed terminal foreground, from the active theme.
     var dimForeground: Color { foreground.opacity(0.78) }
 

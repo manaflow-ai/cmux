@@ -338,6 +338,7 @@ import Testing
             .init(code: 20, ansi: true, on: false),
         ],
         terminalForeground: "#010203",
+        terminalTheme: .monokai,
         scrollbackRows: 1,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
@@ -352,6 +353,7 @@ import Testing
     #expect(decoded.scrollbackRows == 1)
     #expect(decoded.scrollbackSpans == [.init(row: 0, column: 0, text: "sb")])
     #expect(decoded.terminalForeground == "#010203")
+    #expect(decoded.terminalTheme == .monokai)
 }
 
 @Test func renderGridDeltaDropsFullStateFields() throws {
@@ -365,6 +367,7 @@ import Testing
         rowSpans: [.init(row: 1, column: 0, text: "x")],
         activeScreen: .alternate,
         modes: [.init(code: 1000, ansi: false, on: true)],
+        terminalTheme: .monokai,
         scrollbackRows: 3,
         scrollbackSpans: [.init(row: 0, column: 0, text: "sb")]
     )
@@ -373,6 +376,7 @@ import Testing
     // replay modes; it only clears and repaints its changed rows.
     #expect(frame.scrollbackRows == 0)
     #expect(frame.scrollbackSpans.isEmpty)
+    #expect(frame.terminalTheme == nil)
     let vt = try #require(String(data: frame.vtPatchBytes(), encoding: .utf8))
     #expect(!vt.contains("\u{1B}c"))
     #expect(!vt.contains("\u{1B}[?1049h"))

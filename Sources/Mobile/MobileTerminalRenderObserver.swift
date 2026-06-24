@@ -13,6 +13,7 @@ final class MobileTerminalRenderObserver {
         var columns: Int
         var rows: Int
         var stateSeq: UInt64
+        var themeSignature: String?
         /// Per-row signatures of text *and* resolved styling, so a style-only
         /// change (e.g. typing over a dimmed shell autosuggestion) still marks
         /// the row dirty. See `MobileTerminalRenderGridFrame.rowSignatures()`.
@@ -60,6 +61,15 @@ final class MobileTerminalRenderObserver {
         // still push render-grid updates to the iPhone.
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidTick,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.enqueueTerminalUpdate(surfaceID: nil)
+            }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .ghosttyDefaultBackgroundDidChange,
             object: nil,
             queue: .main
         ) { [weak self] _ in
@@ -190,12 +200,18 @@ final class MobileTerminalRenderObserver {
             return
         }
 
+        var snapshotFrame = snapshot.frame
+        let theme = TerminalTheme.currentMacTerminalThemeSnapshot()
+        snapshotFrame.terminalTheme = theme
+        let themeSignature = theme.mobileRenderGridThemeSignature
         let previous = renderGridStatesBySurfaceID[surfaceID]
-        let nextSignatures = snapshot.frame.rowSignatures()
+        let nextSignatures = snapshotFrame.rowSignatures()
         let frame: MobileTerminalRenderGridFrame
-        if let previous,
-           previous.columns == snapshot.frame.columns,
-           previous.rows == snapshot.frame.rows {
+        if previous?.themeSignature != themeSignature {
+            frame = snapshotFrame
+        } else if let previous,
+                  previous.columns == snapshotFrame.columns,
+                  previous.rows == snapshotFrame.rows {
             var changedRows = Set<Int>()
             let count = min(previous.rowSignatures.count, nextSignatures.count)
             for index in 0..<count where previous.rowSignatures[index] != nextSignatures[index] {
@@ -203,34 +219,35 @@ final class MobileTerminalRenderObserver {
             }
 
             if changedRows.isEmpty {
-                guard previous.stateSeq != snapshot.frame.stateSeq else { return }
+                guard previous.stateSeq != snapshotFrame.stateSeq else { return }
                 guard let emptyFrame = try? MobileTerminalRenderGridFrame(
-                    surfaceID: snapshot.frame.surfaceID,
-                    stateSeq: snapshot.frame.stateSeq,
-                    columns: snapshot.frame.columns,
-                    rows: snapshot.frame.rows,
-                    cursor: snapshot.frame.cursor,
+                    surfaceID: snapshotFrame.surfaceID,
+                    stateSeq: snapshotFrame.stateSeq,
+                    columns: snapshotFrame.columns,
+                    rows: snapshotFrame.rows,
+                    cursor: snapshotFrame.cursor,
                     full: false,
-                    styles: snapshot.frame.styles,
+                    styles: snapshotFrame.styles,
                     rowSpans: []
                 ) else {
                     return
                 }
                 frame = emptyFrame
             } else {
-                guard let deltaFrame = try? snapshot.frame.filteredRows(changedRows, full: false) else {
+                guard let deltaFrame = try? snapshotFrame.filteredRows(changedRows, full: false) else {
                     return
                 }
                 frame = deltaFrame
             }
         } else {
-            frame = snapshot.frame
+            frame = snapshotFrame
         }
 
         renderGridStatesBySurfaceID[surfaceID] = RenderGridState(
             columns: frame.columns,
             rows: frame.rows,
             stateSeq: frame.stateSeq,
+            themeSignature: themeSignature,
             rowSignatures: nextSignatures
         )
         guard let payload = try? frame.jsonObject() else { return }
@@ -256,4 +273,17 @@ final class MobileTerminalRenderObserver {
         releaseFrameDemand != nil && releaseTickDemand != nil
     }
     #endif
+}
+
+private extension TerminalTheme {
+    var mobileRenderGridThemeSignature: String {
+        ([
+            background,
+            foreground,
+            cursor,
+            cursorText ?? "",
+            selectionBackground,
+            selectionForeground,
+        ] + palette).joined(separator: "|")
+    }
 }

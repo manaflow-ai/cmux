@@ -11,9 +11,9 @@ import Foundation
 /// 1. The candidate predicate is id-scoped AND visibility-scoped. If the chosen
 ///    surface is re-resolved from the registry *after* the sheet has begun
 ///    presenting, a transient `window == nil` / `isHidden` / `alpha` drop on the
-///    presenter can exclude the one live surface, yielding nil. The fix moves the
-///    resolve to tap time (see `GhosttySurfaceRegistry`), but the predicate is
-///    still the single source of truth and is unit-tested here.
+///    presenter can exclude the one live surface, yielding nil. The predicate now
+///    scopes by terminal id and live surface pointer only; those are the safety
+///    invariants that prevent stale or cross-terminal reads.
 /// 2. `surfaceText` returns a non-nil empty string when the range has zero bytes,
 ///    so `screen ?? viewport` never fell back when SCREEN read empty-but-ok. The
 ///    `resolvedText` decision below treats nil OR empty SCREEN as "try VIEWPORT".
@@ -24,17 +24,15 @@ public struct CopyableTerminalTextSelection: Sendable {
     /// Whether `candidate` is the live, on-screen surface for `surfaceID` and so
     /// may back the "View as Text" capture.
     ///
-    /// The id scoping keeps a second visible surface (another iPad scene, an
-    /// in-flight transition) from leaking a different workspace's terminal into
-    /// the capture; `hasSurface` keeps a dismantling view (registry-resident with
-    /// a non-nil pointer until its queued dispose runs) from contributing stale
-    /// text; the window/hidden/alpha gates keep an off-screen surface out.
+    /// The id scoping keeps a second surface (another iPad scene, an in-flight
+    /// transition) from leaking a different workspace's terminal into the
+    /// capture; `hasSurface` keeps a dismantling view (registry-resident until
+    /// its queued dispose runs) from contributing stale text. Window/hidden/alpha
+    /// are intentionally ignored because UIKit can transiently flip them while
+    /// the menu action presents the sheet, before the queued surface read runs.
     public func isEligible(_ candidate: CopyableTerminalTextCandidate, for surfaceID: String) -> Bool {
         candidate.hostSurfaceID == surfaceID
             && candidate.hasSurface
-            && candidate.hasWindow
-            && !candidate.isHidden
-            && candidate.alpha > 0.01
     }
 
     /// The deterministic pick from the registered candidates: the lowest-keyed

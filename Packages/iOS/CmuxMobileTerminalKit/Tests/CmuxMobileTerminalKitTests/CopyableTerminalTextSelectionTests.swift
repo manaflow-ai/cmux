@@ -30,8 +30,8 @@ struct CopyableTerminalTextSelectionTests {
         #expect(!selection.isEligible(dismantling, for: "surface:1"))
     }
 
-    @Test("off-window / hidden / transparent surfaces are excluded")
-    func excludedWhenOffScreen() {
+    @Test("transitioning window/hidden/alpha state does not exclude the live requested surface")
+    func transitioningSurfaceStillEligible() {
         let detached = Candidate(
             hostSurfaceID: "surface:1", hasSurface: true, hasWindow: false, isHidden: false, alpha: 1
         )
@@ -41,9 +41,9 @@ struct CopyableTerminalTextSelectionTests {
         let transparent = Candidate(
             hostSurfaceID: "surface:1", hasSurface: true, hasWindow: true, isHidden: false, alpha: 0
         )
-        #expect(!selection.isEligible(detached, for: "surface:1"))
-        #expect(!selection.isEligible(hidden, for: "surface:1"))
-        #expect(!selection.isEligible(transparent, for: "surface:1"))
+        #expect(selection.isEligible(detached, for: "surface:1"))
+        #expect(selection.isEligible(hidden, for: "surface:1"))
+        #expect(selection.isEligible(transparent, for: "surface:1"))
     }
 
     @Test("chosenIndex returns the first (lowest-keyed) eligible match")

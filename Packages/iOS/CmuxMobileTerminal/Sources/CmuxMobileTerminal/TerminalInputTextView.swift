@@ -62,6 +62,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The composer toggle, pinned in the container (not the scrollable stack) so
     /// it is always reachable regardless of the button row's scroll position.
     private weak var composerButton: UIButton?
+    private weak var accessoryBackgroundView: UIView?
     /// The armed/sticky modifier state machine, extracted into the testable
     /// ``TerminalInputModifierState`` reducer. This view is now a dumb
     /// first-responder that forwards taps into the reducer and reads its state
@@ -312,6 +313,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         let backgroundView = UIView()
         backgroundView.backgroundColor = Self.themeBarColor
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
+        self.accessoryBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
@@ -661,6 +663,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             name: TerminalAccessoryConfiguration.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleTerminalThemeDidChange),
+            name: .cmuxMobileTerminalThemeDidChange,
+            object: nil
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -669,6 +677,10 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func handleTerminalThemeDidChange() {
+        accessoryBackgroundView?.backgroundColor = Self.themeBarColor
     }
 
     /// Receive a committed character (or block) from the keyboard.

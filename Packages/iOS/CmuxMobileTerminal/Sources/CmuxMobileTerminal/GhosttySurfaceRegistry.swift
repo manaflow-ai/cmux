@@ -83,11 +83,10 @@ extension GhosttySurfaceView {
     public static func copyableTerminalTextCapture(surfaceID: String) -> Task<String?, Never> {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Scoped pick: only views stamped with the requested id qualify, and
-        // only while actually on screen (same visibility filter as
-        // `visibleTerminalSnapshot()`). A dismantling view can linger in the
-        // registry with a non-nil surface until its queued dispose runs, and
-        // its content stops at whenever its byte stream detached — prefer the
-        // sheet's honest empty state over silently copying that stale text.
+        // they must still own a live surface. A dismantling view can linger in
+        // the registry until its queued dispose runs, and its content stops at
+        // whenever its byte stream detached — prefer the sheet's honest empty
+        // state over silently copying that stale text.
         // If the same terminal is mounted in several scenes the contents are
         // identical, so the lowest-keyed visible match keeps the pick
         // deterministic. The eligibility rule itself lives in
@@ -96,9 +95,9 @@ extension GhosttySurfaceView {
         //
         // The resolve happens on the main actor at the call site (the menu tap),
         // BEFORE the sheet finishes presenting, so the surface is still
-        // window-attached and visible when the predicate runs — a sheet
-        // presentation that briefly drops the presenter's window/alpha can no
-        // longer turn the live surface into a miss.
+        // still associated with the selected terminal when the predicate runs.
+        // Visibility is not part of eligibility because a menu/sheet transition
+        // can briefly drop the presenter's window/alpha before the read runs.
         let orderedViews = registeredSurfaceViews
             .sorted { $0.key < $1.key }
             .compactMap(\.value.value)

@@ -51,15 +51,22 @@ public final class GhosttyRuntime {
 
     /// Replaces the theme used when the runtime builds its config and the theme
     /// the surrounding terminal chrome blends with. Pass `nil`, an invalid theme,
-    /// or an incomplete palette to fall back to Monokai. Call before ``shared()``
-    /// is first invoked, since the runtime reads the theme once while building
-    /// its config; setting it afterward has no effect on the live runtime.
+    /// or an incomplete palette to fall back to Monokai. Calls after
+    /// ``shared()`` update the live theme value for SwiftUI/UIKit chrome; the
+    /// terminal grid itself is repainted by the Mac render-grid frame's VT
+    /// snapshot bytes.
     public static func setTheme(_ theme: TerminalTheme?) {
-        guard sharedResult == nil else {
-            log.debug("Ignoring theme update after GhosttyRuntime initialization")
-            return
+        let resolvedTheme = theme?.validatedOrDefault() ?? .monokai
+        guard currentTheme != resolvedTheme else { return }
+        configuredTheme = resolvedTheme
+        if case .success(let runtime) = sharedResult {
+            runtime.theme = resolvedTheme
         }
-        configuredTheme = theme?.validatedOrDefault() ?? .monokai
+        NotificationCenter.default.post(
+            name: .cmuxMobileTerminalThemeDidChange,
+            object: nil,
+            userInfo: [MobileTerminalThemeNotificationKey.theme: resolvedTheme]
+        )
     }
 
     /// The effective theme for the live runtime, or the theme that will be used
@@ -79,8 +86,9 @@ public final class GhosttyRuntime {
     // can free them without a synchronous main-actor hop.
     nonisolated(unsafe) private(set) var app: ghostty_app_t?
     nonisolated(unsafe) private(set) var config: ghostty_config_t?
-    /// The theme used to build this runtime's libghostty config.
-    public let theme: TerminalTheme
+    /// The current theme used by terminal chrome. The initial value also builds
+    /// libghostty's config; later values mirror Mac render-grid theme updates.
+    public private(set) var theme: TerminalTheme
 
     public static func shared() throws -> GhosttyRuntime {
         if let sharedResult {
@@ -433,6 +441,11 @@ extension Optional where Wrapped == String {
 extension Notification.Name {
     static let ghosttySurfaceDidRequestClose = Notification.Name("ghosttySurfaceDidRequestClose")
     static let ghosttySurfaceDidRingBell = Notification.Name("ghosttySurfaceDidRingBell")
+    public static let cmuxMobileTerminalThemeDidChange = Notification.Name("cmuxMobileTerminalThemeDidChange")
+}
+
+public enum MobileTerminalThemeNotificationKey {
+    public static let theme = "theme"
 }
 
 #endif

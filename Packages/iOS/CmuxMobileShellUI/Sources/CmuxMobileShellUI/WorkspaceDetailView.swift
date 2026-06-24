@@ -426,6 +426,12 @@ struct WorkspaceDetailView: View {
         .mobileTerminalNavigationChrome()
         #if os(iOS)
         .task(id: chatRefreshKey) { await refreshChatSessions() }
+        .onAppear {
+            applyTerminalTheme(store.activeTerminalTheme)
+        }
+        .onChange(of: store.activeTerminalTheme) { _, theme in
+            applyTerminalTheme(theme)
+        }
         #endif
         .toolbar {
             #if os(iOS)
@@ -468,6 +474,11 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
+    private func applyTerminalTheme(_ theme: TerminalTheme) {
+        terminalPalette.setTheme(theme)
+        GhosttyRuntime.setTheme(theme)
+    }
+
     /// A nav-bar title on its own Liquid Glass capsule (iOS 26+) so it stays
     /// readable over the pane showing through the cleared header bar. On iOS 18
     /// the bar keeps a material background, so `mobileGlassNavigationTitle` is a

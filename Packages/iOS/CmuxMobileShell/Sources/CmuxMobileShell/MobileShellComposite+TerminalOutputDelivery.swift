@@ -12,6 +12,10 @@ extension MobileShellComposite {
     }
 
     func deliverTerminalRenderGrid(_ frame: MobileTerminalRenderGridFrame, surfaceID: String) {
+        if let theme = frame.terminalTheme?.validatedOrDefault(),
+           activeTerminalTheme != theme {
+            activeTerminalTheme = theme
+        }
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 renderGrid: frame,
