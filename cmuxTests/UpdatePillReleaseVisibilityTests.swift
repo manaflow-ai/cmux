@@ -134,6 +134,13 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
 }
 
 final class BrowserSSLTrustBypassStateTests: XCTestCase {
+    func testFailedNavigationRequestMatchRejectsEmptyFailedURL() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.internal/submit"))
+        let request = URLRequest(url: url)
+
+        XCTAssertFalse(browserRequestMatchesFailedNavigation(request, failedURL: ""))
+    }
+
     func testSecureConnectionFailedPermitsSSLBypass() {
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorSecureConnectionFailed)
 

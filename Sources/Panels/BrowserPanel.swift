@@ -1022,7 +1022,7 @@ func browserLoadErrorPage(
 
 func browserRequestMatchesFailedNavigation(_ request: URLRequest, failedURL: String) -> Bool {
     guard let requestURL = request.url else { return false }
-    guard !failedURL.isEmpty else { return true }
+    guard !failedURL.isEmpty else { return false }
     guard let failed = URL(string: failedURL) else { return false }
     if requestURL.absoluteString == failed.absoluteString {
         return true
