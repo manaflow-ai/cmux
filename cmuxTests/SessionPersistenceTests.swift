@@ -3354,42 +3354,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: ".opencode",
                 processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
                 arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "open-code",
                 processPath: "/opt/homebrew/bin/open-code",
                 arguments: ["open-code"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/opt/homebrew/bin/open-code"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/tmp/not-opencode-ai-helper"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: [
@@ -3399,42 +3399,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "tail",
                 processPath: "/usr/bin/tail",
                 arguments: ["tail", "-f", "/tmp/opencode"]
             )
         )
         XCTAssertFalse(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "/tmp/script.js", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertTrue(
-            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+            OpenCodeProcessResolver(fileManager: .default).processLooksLikeOpenCode(
                 processName: "node",
                 processPath: "/opt/homebrew/bin/node",
                 arguments: ["node", "--require", "/tmp/hook.js", "/Users/lawrence/.bun/bin/opencode"]
             )
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeExecutablePath(
                 arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
                 environment: [:]
             ),
             "/Users/lawrence/.bun/bin/opencode"
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeLaunchArguments(
                 arguments: ["opencode", "run", "--session", "unsupported-session"],
                 environment: [:]
             )
@@ -3454,14 +3454,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeExecutablePath(
                 arguments: ["opencode"],
                 environment: ["PATH": "\(bin.path):/usr/bin"]
             ),
             executable.path
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeExecutablePath(
                 arguments: [".opencode"],
                 environment: ["PATH": "\(bin.path):/usr/bin"]
             ),
@@ -3471,7 +3471,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeWorkingDirectoryUsesProjectPositional() {
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeWorkingDirectory(
                 arguments: [
                     "opencode",
                     "--model",
@@ -3483,7 +3483,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/tmp/opencode-project"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeWorkingDirectory(
                 arguments: [
                     "node",
                     "/Users/example/.bun/bin/opencode",
@@ -3494,7 +3494,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/tmp/shell-cwd/opencode-project"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeWorkingDirectory(
                 arguments: ["opencode", "--session", "known-session"],
                 environment: ["CMUX_AGENT_LAUNCH_CWD": "/tmp/hook-cwd", "PWD": "/tmp/shell-cwd"]
             ),
@@ -3514,7 +3514,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let arguments = try XCTUnwrap(RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+        let arguments = try XCTUnwrap(OpenCodeProcessResolver(fileManager: .default).openCodeLaunchArguments(
             arguments: [
                 "node",
                 "opencode",
@@ -3569,7 +3569,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
     func testProcessDetectedOpenCodeSessionFallbackAvoidsAmbiguousSameDirectoryPanels() {
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--session", "ses-explicit"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 2
@@ -3577,7 +3577,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-explicit"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: "ses-child",
                 sameWorkingDirectoryPanelCount: 1
@@ -3585,7 +3585,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-child",
                 sameWorkingDirectoryPanelCount: 1
@@ -3593,14 +3593,14 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
@@ -3608,7 +3608,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertEqual(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 2
@@ -3616,42 +3616,42 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "ses-child"
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--session", "ses-parent", "--fork"],
                 latestSessionIdForSolePanel: "ses-parent",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode", "--fork"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 1
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: "ses-latest",
                 sameWorkingDirectoryPanelCount: 2
             )
         )
         XCTAssertNil(
-            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+            OpenCodeProcessResolver(fileManager: .default).openCodeFallbackSessionId(
                 arguments: ["opencode"],
                 latestSessionIdForSolePanel: nil,
                 sameWorkingDirectoryPanelCount: 1

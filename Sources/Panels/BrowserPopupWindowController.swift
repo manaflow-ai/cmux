@@ -89,7 +89,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         if #available(macOS 13.3, *) {
             webView.isInspectable = true
         }
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.appDefault.currentColor()
         webView.customUserAgent = BrowserUserAgent.safari
         (openerPanel?.currentBrowserThemeMode ?? BrowserThemeMode.mode()).apply(to: webView)
         self.webView = webView

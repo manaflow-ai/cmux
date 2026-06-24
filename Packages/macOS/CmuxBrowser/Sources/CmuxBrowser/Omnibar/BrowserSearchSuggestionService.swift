@@ -44,17 +44,17 @@ public actor BrowserSearchSuggestionService {
         guard !trimmed.isEmpty else { return [] }
 
         // Deterministic UI-test hook for validating remote suggestion rendering
-        // without relying on external network behavior.
-        let forced = ProcessInfo.processInfo.environment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"]
-            ?? UserDefaults.standard.string(forKey: "CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON")
-        if let forced,
-           let data = forced.data(using: .utf8),
-           let parsed = try? JSONSerialization.jsonObject(with: data) as? [Any] {
-            return parsed.compactMap { item in
-                guard let s = item as? String else { return nil }
-                let value = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
-            }
+        // without relying on external network behavior. When the override is set
+        // and parses as a JSON array, return its trimmed string values (an empty
+        // array still short-circuits the network path, matching legacy behavior).
+        let forced = BrowserForcedRemoteSuggestions(
+            processInfo: .processInfo,
+            defaults: .standard
+        )
+        if let raw = forced.raw,
+           let data = raw.data(using: .utf8),
+           (try? JSONSerialization.jsonObject(with: data)) as? [Any] != nil {
+            return forced.parse() ?? []
         }
 
         // Google's endpoint can intermittently throttle/block app-style traffic.

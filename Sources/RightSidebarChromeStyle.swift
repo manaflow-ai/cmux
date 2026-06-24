@@ -1,5 +1,114 @@
+import AppKit
 import CmuxAppKitSupportUI
+import Foundation
 import SwiftUI
+
+/// Resolves the terminal background color used to tint browser, sidebar, and
+/// canvas chrome so they match the live Ghostty terminal backdrop.
+///
+/// The pure clamp + composite math lives in
+/// `CmuxAppKitSupportUI.WindowAppearanceSnapshot`; this resolver routes through
+/// it and adds the app-only default-background lookup behind an injected
+/// provider closure (`defaults`). Tests construct an instance with a fixed
+/// provider; the running app uses `appDefault`, whose provider reads
+/// `GhosttyApp.shared.engineRuntime`.
+struct GhosttyBackgroundTheme {
+    /// The current default terminal background color and opacity.
+    struct Defaults {
+        /// Current default background color.
+        let color: NSColor
+
+        /// Current default background opacity.
+        let opacity: Double
+
+        /// Creates a default-background pair.
+        init(color: NSColor, opacity: Double) {
+            self.color = color
+            self.opacity = opacity
+        }
+    }
+
+    /// Supplies the current default background color and opacity.
+    private let defaults: () -> Defaults
+
+    /// Creates a resolver backed by the given default-background provider.
+    init(defaults: @escaping () -> Defaults) {
+        self.defaults = defaults
+    }
+
+    /// App-wired resolver reading the live Ghostty engine-runtime defaults.
+    ///
+    /// The engine-runtime default-background reads are non-isolated (a plain
+    /// `GhosttyEngineRuntime` class), so the resolver and its provider stay
+    /// non-isolated to match the call sites that resolve chrome color off the
+    /// main actor (e.g. the canvas `themeProvider`).
+    static var appDefault: GhosttyBackgroundTheme {
+        GhosttyBackgroundTheme {
+            let runtime = GhosttyApp.shared.engineRuntime
+            return Defaults(
+                color: runtime.defaultBackgroundColor,
+                opacity: runtime.defaultBackgroundOpacity
+            )
+        }
+    }
+
+    /// Clamps opacity into the visible `0...1` range.
+    static func clampedOpacity(_ opacity: Double) -> CGFloat {
+        WindowAppearanceSnapshot.clampedOpacity(opacity)
+    }
+
+    /// Returns `backgroundColor` composited over the window background at `opacity`.
+    static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
+        WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: backgroundColor,
+            opacity: opacity
+        )
+    }
+
+    /// Resolves the background color from a Ghostty default-change notification,
+    /// using explicit fallbacks when the payload is missing keys.
+    static func color(
+        from notification: Notification?,
+        fallbackColor: NSColor,
+        fallbackOpacity: Double
+    ) -> NSColor {
+        let userInfo = notification?.userInfo
+        let backgroundColor =
+            (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
+            ?? fallbackColor
+
+        let opacity: Double
+        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
+            opacity = value
+        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
+            opacity = value.doubleValue
+        } else {
+            opacity = fallbackOpacity
+        }
+
+        return color(backgroundColor: backgroundColor, opacity: opacity)
+    }
+
+    /// Resolves the background color from a notification, falling back to the
+    /// injected current defaults when the payload is missing keys.
+    func color(from notification: Notification?) -> NSColor {
+        let current = defaults()
+        return Self.color(
+            from: notification,
+            fallbackColor: current.color,
+            fallbackOpacity: current.opacity
+        )
+    }
+
+    /// The current default terminal background composited at its default opacity.
+    func currentColor() -> NSColor {
+        let current = defaults()
+        return Self.color(
+            backgroundColor: current.color,
+            opacity: current.opacity
+        )
+    }
+}
 
 enum HeaderChromeIconStyle {
     static let opacity = 0.86
@@ -149,7 +258,7 @@ struct RightSidebarChromeBottomBorderModifier: ViewModifier {
                 orientation: .horizontal,
                 ignoresSafeArea: false,
                 refreshNotificationName: .ghosttyDefaultBackgroundDidChange,
-                backgroundColorProvider: { GhosttyBackgroundTheme.currentColor() }
+                backgroundColorProvider: { GhosttyBackgroundTheme.appDefault.currentColor() }
             )
         }
     }

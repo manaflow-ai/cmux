@@ -142,7 +142,7 @@ struct BrowserPanelView: View {
         self.onRequestPanelFocus = onRequestPanelFocus
         self._browserChromeStyle = State(initialValue: BrowserChromeStyle(
             for: .light,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            themeBackgroundColor: GhosttyBackgroundTheme.appDefault.currentColor(),
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         ))
     }
@@ -164,8 +164,10 @@ struct BrowserPanelView: View {
     private var remoteSuggestionsEnabled: Bool {
         // Deterministic UI-test hook: force remote path on even if a persisted
         // setting disabled suggestions in previous sessions.
-        if ProcessInfo.processInfo.environment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"] != nil ||
-            UserDefaults.standard.string(forKey: "CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON") != nil {
+        if CmuxBrowser.BrowserForcedRemoteSuggestions(
+            processInfo: .processInfo,
+            defaults: .standard
+        ).isActive {
             return true
         }
         // Keep UI tests deterministic by disabling network suggestions when requested.
@@ -874,7 +876,7 @@ struct BrowserPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .browserMoveOmnibarSelection)) { notification in
             handleMoveOmnibarSelection(notification)
         }
-        .onReceive(panel.historyStore.$entries) { _ in
+        .onChange(of: panel.historyStore.entries) {
             handleHistoryEntriesChange()
         }
         .onReceive(NotificationCenter.default.publisher(for: .browserDidBlurAddressBar)) { notification in
@@ -1610,7 +1612,7 @@ struct BrowserPanelView: View {
     private func refreshBrowserChromeStyle() {
         browserChromeStyle = BrowserChromeStyle(
             for: colorScheme,
-            themeBackgroundColor: GhosttyBackgroundTheme.currentColor(),
+            themeBackgroundColor: GhosttyBackgroundTheme.appDefault.currentColor(),
             drawsBackground: panel.drawsConfiguredWebViewBackgroundForCurrentPage()
         )
     }
@@ -2456,7 +2458,11 @@ struct BrowserPanelView: View {
 
         guard !query.isEmpty else { return }
 
-        if !isSingleCharacterQuery, let forcedRemote = forcedRemoteSuggestionsForUITest() {
+        if !isSingleCharacterQuery,
+           let forcedRemote = CmuxBrowser.BrowserForcedRemoteSuggestions(
+               processInfo: .processInfo,
+               defaults: .standard
+           ).parse() {
             latestRemoteSuggestionQuery = query
             latestRemoteSuggestions = forcedRemote
             let merged = BrowserOmnibarSuggestionBuilder().build(
@@ -2556,23 +2562,6 @@ struct BrowserPanelView: View {
             includeCurrentPanelForSingleCharacterQuery: includeCurrentPanelForSingleCharacterQuery,
             limit: limit
         ) ?? []
-    }
-
-    private func forcedRemoteSuggestionsForUITest() -> [String]? {
-        let raw = ProcessInfo.processInfo.environment["CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON"]
-            ?? UserDefaults.standard.string(forKey: "CMUX_UI_TEST_REMOTE_SUGGESTIONS_JSON")
-        guard let raw,
-              let data = raw.data(using: .utf8),
-              let parsed = try? JSONSerialization.jsonObject(with: data) as? [Any] else {
-            return nil
-        }
-
-        let values = parsed.compactMap { item -> String? in
-            guard let s = item as? String else { return nil }
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }
-        return values.isEmpty ? nil : values
     }
 
     private func applyOmnibarEffects(_ effects: OmnibarEffects) {

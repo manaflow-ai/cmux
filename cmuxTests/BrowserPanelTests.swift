@@ -10,6 +10,7 @@ import Darwin
 import Testing
 import CmuxAppKitSupportUI
 import CmuxBrowser
+import CmuxBrowserUI
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV

@@ -43,55 +43,13 @@ private struct BrowserFocusModePlainEscapeEventFingerprint: Equatable {
     }
 }
 
-enum GhosttyBackgroundTheme {
-    static func clampedOpacity(_ opacity: Double) -> CGFloat {
-        WindowAppearanceSnapshot.clampedOpacity(opacity)
-    }
-
-    static func color(backgroundColor: NSColor, opacity: Double) -> NSColor {
-        WindowAppearanceSnapshot.compositedTerminalColor(
-            backgroundColor: backgroundColor,
-            opacity: opacity
-        )
-    }
-
-    static func color(
-        from notification: Notification?,
-        fallbackColor: NSColor,
-        fallbackOpacity: Double
-    ) -> NSColor {
-        let userInfo = notification?.userInfo
-        let backgroundColor =
-            (userInfo?[GhosttyNotificationKey.backgroundColor] as? NSColor)
-            ?? fallbackColor
-
-        let opacity: Double
-        if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? Double {
-            opacity = value
-        } else if let value = userInfo?[GhosttyNotificationKey.backgroundOpacity] as? NSNumber {
-            opacity = value.doubleValue
-        } else {
-            opacity = fallbackOpacity
-        }
-
-        return color(backgroundColor: backgroundColor, opacity: opacity)
-    }
-
-    static func color(from notification: Notification?) -> NSColor {
-        color(
-            from: notification,
-            fallbackColor: GhosttyApp.shared.engineRuntime.defaultBackgroundColor,
-            fallbackOpacity: GhosttyApp.shared.engineRuntime.defaultBackgroundOpacity
-        )
-    }
-
-    static func currentColor() -> NSColor {
-        color(
-            backgroundColor: GhosttyApp.shared.engineRuntime.defaultBackgroundColor,
-            opacity: GhosttyApp.shared.engineRuntime.defaultBackgroundOpacity
-        )
-    }
-}
+// `GhosttyBackgroundTheme` moved to `Sources/RightSidebarChromeStyle.swift` as a
+// real instance resolver holding an injected default-background provider
+// (the caseless static namespace is retired). Its pure clamp + composite math
+// routes through `CmuxAppKitSupportUI.WindowAppearanceSnapshot`. It lives beside
+// the other chrome-tinting style helpers in an already-wired app-target file so
+// the relocation lands in the app compile without a new `cmux.xcodeproj`
+// `project.pbxproj` source entry.
 
 // The import-data hint presentation cluster (`BrowserImportHintVariant`,
 // `BrowserImportHintBlankTabPlacement`, `BrowserImportHintSettingsStatus`,
@@ -265,7 +223,8 @@ final class BrowserProfileStore {
 extension BrowserProfileStore: BrowserImportProfileResolving {}
 
 @MainActor
-final class BrowserHistoryStore: ObservableObject {
+@Observable
+final class BrowserHistoryStore {
     static let shared = BrowserHistoryStore()
 
     /// Persisted history record. Owned by `CmuxBrowser`; this alias keeps
@@ -278,21 +237,24 @@ final class BrowserHistoryStore: ObservableObject {
     // suggestion cache here is the one enforced invalidation point. Setting it
     // to nil both frees the retained Entry/URL strings promptly (so clearing
     // history does not leave browsing history resident in the cache) and forces
-    // a rebuild on next use. It must stay `@Published` for SwiftUI observation.
+    // a rebuild on next use. It is the only `@Observable`-tracked property, so
+    // SwiftUI consumers observe history changes through it.
     // Do not add a writer that bypasses this setter (e.g. an unsafe-buffer bulk
     // write or an external `Binding<[Entry]>`) without dropping the cache.
-    @Published private(set) var entries: [Entry] = [] {
+    private(set) var entries: [Entry] = [] {
         didSet { cachedSuggestionCandidates = nil }
     }
 
     private let fileURL: URL?
-    private var didLoad: Bool = false
-    private var saveTask: Task<Void, Never>?
+    // First-load latch and debounced-save handle: internal lifecycle state, not
+    // observable inputs (they were never `@Published`), so kept out of tracking.
+    @ObservationIgnored private var didLoad: Bool = false
+    @ObservationIgnored private var saveTask: Task<Void, Never>?
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
     // Pure suggestion matching/scoring and persistence I/O live in
-    // `CmuxBrowser`; the store owns only the @Published entry list, the
+    // `CmuxBrowser`; the store owns only the observable entry list, the
     // first-load lifecycle, and the debounced-save scheduling.
     private let suggestionEngine = BrowserHistorySuggestionEngine()
     private let fileRepository = BrowserHistoryFileRepository()
@@ -315,7 +277,10 @@ final class BrowserHistoryStore: ObservableObject {
     // beachball). `nil` means "not built / just invalidated"; it is rebuilt only
     // when `entries` changes (via the didSet above), so steady-state typing
     // reuses it and pays only the cheap substring scoring in `suggestionScore`.
-    private var cachedSuggestionCandidates: [SuggestionCandidate]?
+    // `@ObservationIgnored`: this is a derived cache lazily populated inside the
+    // `suggestionCandidates()` read path, never an observed input. Only `entries`
+    // is the observable source of truth (it was the sole `@Published` member).
+    @ObservationIgnored private var cachedSuggestionCandidates: [SuggestionCandidate]?
 
     /// Number of suggestion candidates currently resident in the cache, or 0
     /// when the cache has been invalidated. Used by tests to verify that
@@ -1626,7 +1591,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Match only the unpainted/loading background so newly-created browsers don't flash
         // white before content loads. Do not force page appearance or inject color-scheme CSS;
         // websites must keep control of their own theme.
-        webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
+        webView.underPageBackgroundColor = GhosttyBackgroundTheme.appDefault.currentColor()
         // Always present as Safari.
         webView.customUserAgent = BrowserUserAgent.safari
         return webView
@@ -2685,7 +2650,7 @@ final class BrowserPanel: Panel, ObservableObject {
         NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)
             .sink { [weak self] notification in
                 guard let self else { return }
-                self.applyWebViewBackground(color: GhosttyBackgroundTheme.color(from: notification))
+                self.applyWebViewBackground(color: GhosttyBackgroundTheme.appDefault.color(from: notification))
             }
             .store(in: &webViewCancellables)
 
@@ -2702,7 +2667,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// Configures the live webview's background for the current Ghostty theme.
     private func applyConfiguredWebViewBackground() {
-        applyWebViewBackground(color: GhosttyBackgroundTheme.currentColor())
+        applyWebViewBackground(color: GhosttyBackgroundTheme.appDefault.currentColor())
     }
 
     private func refreshBackgroundAppearance() {

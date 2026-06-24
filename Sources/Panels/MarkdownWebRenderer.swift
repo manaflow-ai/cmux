@@ -143,7 +143,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         var workspaceId: UUID = UUID()
         var filePath: String = ""
         private var pendingMarkdown: String = ""
-        private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.currentColor())
+        private var pendingTheme: MarkdownWebTheme = .resolve(backgroundColor: GhosttyBackgroundTheme.appDefault.currentColor())
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
         private var lastFontFamily: String = ""

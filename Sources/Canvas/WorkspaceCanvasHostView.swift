@@ -202,7 +202,7 @@ private struct CanvasRootRepresentable: NSViewRepresentable {
                 }
             ),
             themeProvider: {
-                let background = GhosttyBackgroundTheme.currentColor()
+                let background = GhosttyBackgroundTheme.appDefault.currentColor()
                 return CanvasTheme(canvasBackground: background, paneBackground: background)
             }
         )
