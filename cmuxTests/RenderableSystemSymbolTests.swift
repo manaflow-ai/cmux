@@ -20,6 +20,7 @@ struct RenderableSystemSymbolTests {
     }
 
     @Test @MainActor func configuredAppKitImageUsesTemplateImageWithClampedSize() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         let image = try #require(RenderableSystemSymbol.configuredAppKitImage(
             systemName: "questionmark.circle",
             pointSize: 0,
@@ -27,6 +28,21 @@ struct RenderableSystemSymbolTests {
         ))
         #expect(image.isTemplate)
         #expect(image.size == NSSize(width: 1, height: 1))
+    }
+
+    @Test @MainActor func configuredAppKitImageReusesCachedImage() throws {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
+        let first = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "questionmark.circle",
+            pointSize: 11,
+            weight: .medium
+        ))
+        let second = try #require(RenderableSystemSymbol.configuredAppKitImage(
+            systemName: "questionmark.circle",
+            pointSize: 11,
+            weight: .medium
+        ))
+        #expect(first === second)
     }
 
     @Test @MainActor func configuredAppKitImageRejectsUnknownSymbols() {

@@ -5,8 +5,19 @@ enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
     static let defaultSurfaceTabIcon = "doc.text"
     private static let minimumRasterPointSize: CGFloat = 1
+    private static let appKitImageCacheLimit = 256
     @MainActor
     private static var renderabilityCache: [String: Bool] = [:]
+    @MainActor
+    private static var appKitImageCache: [AppKitImageCacheKey: NSImage] = [:]
+    @MainActor
+    private static var appKitImageCacheInsertionOrder: [AppKitImageCacheKey] = []
+
+    private struct AppKitImageCacheKey: Hashable {
+        let systemName: String
+        let rasterSize: CGFloat
+        let weightRawValue: CGFloat
+    }
 
     static func trimmed(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -65,17 +76,32 @@ enum RenderableSystemSymbol {
         weight: Font.Weight? = nil
     ) -> NSImage? {
         let rasterSize = clampedRasterPointSize(pointSize)
+        let fontWeight = nsFontWeight(for: weight)
+        let cacheKey = AppKitImageCacheKey(
+            systemName: systemName,
+            rasterSize: rasterSize,
+            weightRawValue: fontWeight.rawValue
+        )
+        if let cached = appKitImageCache[cacheKey] {
+            return cached
+        }
         guard let baseImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
             return nil
         }
         let configuration = NSImage.SymbolConfiguration(
             pointSize: rasterSize,
-            weight: nsFontWeight(for: weight)
+            weight: fontWeight
         )
         let configuredImage = baseImage.withSymbolConfiguration(configuration) ?? baseImage
         let image = (configuredImage.copy() as? NSImage) ?? configuredImage
         image.isTemplate = true
         image.size = NSSize(width: rasterSize, height: rasterSize)
+        appKitImageCache[cacheKey] = image
+        appKitImageCacheInsertionOrder.append(cacheKey)
+        while appKitImageCacheInsertionOrder.count > appKitImageCacheLimit {
+            let evictedKey = appKitImageCacheInsertionOrder.removeFirst()
+            appKitImageCache.removeValue(forKey: evictedKey)
+        }
         return image
     }
 
@@ -96,6 +122,8 @@ enum RenderableSystemSymbol {
     @MainActor
     static func resetRenderabilityCacheForTesting() {
         renderabilityCache.removeAll()
+        appKitImageCache.removeAll()
+        appKitImageCacheInsertionOrder.removeAll()
     }
     #endif
 }
