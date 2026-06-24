@@ -364,7 +364,15 @@ struct WorkspaceDetailView: View {
             // terminal (the recurring "black screen" — a dropped connection left
             // the user staring at an unrendered surface).
             if connectionStatus != .connected {
-                TerminalDisconnectedOverlay(status: connectionStatus, host: host) {
+                TerminalDisconnectedOverlay(
+                    status: connectionStatus,
+                    host: host,
+                    // Surface the specific classified reason only for the offline
+                    // state; during a reconnect the generic progress copy reads
+                    // better than a possibly-stale last error.
+                    detail: connectionStatus == .unavailable ? store.connectionError : nil,
+                    guidance: connectionStatus == .unavailable ? store.connectionErrorGuidance : nil
+                ) {
                     Task {
                         if let macDeviceID = workspace.macDeviceID,
                            !macDeviceID.isEmpty,
