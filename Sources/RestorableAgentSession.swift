@@ -933,24 +933,6 @@ private enum AgentResumeScriptStore {
     }
 }
 
-private struct RestorableAgentHookSessionRecord: Codable, Sendable {
-    var sessionId: String
-    var workspaceId: String
-    var surfaceId: String
-    var cwd: String?
-    var transcriptPath: String?
-    var pid: Int?
-    var launchCommand: AgentLaunchCommandSnapshot?
-    var isRestorable: Bool?
-    var agentLifecycle: AgentHibernationLifecycleState?
-    var updatedAt: TimeInterval
-}
-
-private struct RestorableAgentHookSessionStoreFile: Codable, Sendable {
-    var version: Int = 1
-    var sessions: [String: RestorableAgentHookSessionRecord] = [:]
-}
-
 struct RestorableAgentSessionIndex: Sendable {
     static let empty = RestorableAgentSessionIndex(entriesByPanel: [:])
 
@@ -1256,7 +1238,17 @@ struct RestorableAgentSessionIndex: Sendable {
         claudeTranscriptLookup: ClaudeTranscriptLookupCache
     ) -> Bool {
         if kind == .codex {
-            return codexHookRecordHasDurableRestoreEvidence(record, fileManager: fileManager)
+            guard record.isRestorable != false else { return false }
+            if record.isRestorable == true
+                || record.launchCommand?.arguments.isEmpty == false
+                || normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
+                return true
+            }
+            guard let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) else { return false }
+            return regularNonEmptyFileExists(
+                atPath: (transcriptPath as NSString).expandingTildeInPath,
+                fileManager: fileManager
+            )
         }
         guard kind == .claude else {
             return record.isRestorable != false
@@ -1269,28 +1261,6 @@ struct RestorableAgentSessionIndex: Sendable {
             return true
         }
         return claudeTranscriptExists(for: record, fileManager: fileManager, lookup: claudeTranscriptLookup)
-    }
-
-    private static func codexHookRecordHasDurableRestoreEvidence(
-        _ record: RestorableAgentHookSessionRecord,
-        fileManager: FileManager
-    ) -> Bool {
-        guard record.isRestorable != false else { return false }
-        if record.isRestorable == true { return true }
-        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath),
-           regularNonEmptyFileExists(
-               atPath: (transcriptPath as NSString).expandingTildeInPath,
-               fileManager: fileManager
-           ) {
-            return true
-        }
-        if record.launchCommand?.arguments.isEmpty == false {
-            return true
-        }
-        if normalizedNonEmptyValue(record.launchCommand?.environment?["CODEX_HOME"]) != nil {
-            return true
-        }
-        return false
     }
 
     private static func resolvedClaudeWorkflowRecord(
