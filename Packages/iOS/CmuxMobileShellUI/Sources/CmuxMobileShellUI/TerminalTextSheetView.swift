@@ -2,6 +2,7 @@
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileTerminal
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -19,6 +20,108 @@ struct TerminalTextSheetView: View {
     private enum CaptureOutcome {
         case loaded(String?)
         case timedOut
+    }
+
+    private final class CaptureRaceState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<CaptureOutcome, Never>?
+        private var waiter: Task<Void, Never>?
+        private var timer: Task<Void, Never>?
+        private var finished = false
+        private var completedOutcome: CaptureOutcome?
+
+        func setContinuation(_ continuation: CheckedContinuation<CaptureOutcome, Never>) {
+            let completedOutcome: CaptureOutcome?
+            lock.lock()
+            if finished {
+                completedOutcome = self.completedOutcome ?? .timedOut
+            } else {
+                self.continuation = continuation
+                completedOutcome = nil
+            }
+            lock.unlock()
+            if let completedOutcome {
+                continuation.resume(returning: completedOutcome)
+            }
+        }
+
+        func start(capture: Task<String?, Never>, timeout: Duration) {
+            let waiter = Task.detached(priority: .userInitiated) { [weak self] in
+                let text = await capture.value
+                self?.finish(.loaded(text))
+            }
+            setWaiter(waiter)
+
+            let timer = Task.detached(priority: .userInitiated) { [weak self] in
+                do {
+                    try await ContinuousClock().sleep(for: timeout)
+                } catch {
+                    return
+                }
+                capture.cancel()
+                self?.finish(.timedOut)
+            }
+            setTimer(timer)
+        }
+
+        func cancel(capture: Task<String?, Never>) {
+            capture.cancel()
+            finish(.timedOut)
+        }
+
+        private func finish(_ outcome: CaptureOutcome) {
+            let continuation: CheckedContinuation<CaptureOutcome, Never>?
+            let waiter: Task<Void, Never>?
+            let timer: Task<Void, Never>?
+            lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return
+            }
+            finished = true
+            completedOutcome = outcome
+            continuation = self.continuation
+            self.continuation = nil
+            waiter = self.waiter
+            self.waiter = nil
+            timer = self.timer
+            self.timer = nil
+            lock.unlock()
+
+            waiter?.cancel()
+            timer?.cancel()
+            continuation?.resume(returning: outcome)
+        }
+
+        private func setWaiter(_ waiter: Task<Void, Never>) {
+            let shouldCancel: Bool
+            lock.lock()
+            if finished {
+                shouldCancel = true
+            } else {
+                self.waiter = waiter
+                shouldCancel = false
+            }
+            lock.unlock()
+            if shouldCancel {
+                waiter.cancel()
+            }
+        }
+
+        private func setTimer(_ timer: Task<Void, Never>) {
+            let shouldCancel: Bool
+            lock.lock()
+            if finished {
+                shouldCancel = true
+            } else {
+                self.timer = timer
+                shouldCancel = false
+            }
+            lock.unlock()
+            if shouldCancel {
+                timer.cancel()
+            }
+        }
     }
 
     private static let captureTimeout: Duration = .seconds(3)
@@ -174,26 +277,14 @@ struct TerminalTextSheetView: View {
     }
 
     private func awaitCapture(_ capture: Task<String?, Never>) async -> CaptureOutcome {
+        let state = CaptureRaceState()
         await withTaskCancellationHandler(operation: {
-            await withTaskGroup(of: CaptureOutcome.self) { group in
-                group.addTask {
-                    .loaded(await capture.value)
-                }
-                group.addTask {
-                    do {
-                        try await ContinuousClock().sleep(for: Self.captureTimeout)
-                    } catch {
-                        return .timedOut
-                    }
-                    capture.cancel()
-                    return .timedOut
-                }
-                let outcome = await group.next() ?? .timedOut
-                group.cancelAll()
-                return outcome
+            await withCheckedContinuation { continuation in
+                state.setContinuation(continuation)
+                state.start(capture: capture, timeout: Self.captureTimeout)
             }
         }, onCancel: {
-            capture.cancel()
+            state.cancel(capture: capture)
         })
     }
 
