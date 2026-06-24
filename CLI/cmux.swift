@@ -76,15 +76,14 @@ private struct AgentHookNotificationSummary {
     /// on (permission/approval/error), as opposed to a routine waiting/idle
     /// reminder. Only a blocking notification may flip the hibernation lifecycle to
     /// `.needsInput`; a routine reminder must leave the Stop hook's `.idle` intact so
-    /// the pane stays hibernation-eligible. See `AgentNotificationClassifier`.
+    /// the pane stays hibernation-eligible. See `AgentNotification.isBlockingPrompt`.
     let isBlocking: Bool
 }
 
-// `AgentNotificationClassifier.isBlockingPrompt(signal:message:)` is the single source
-// of truth for "should this notification keep the pane live". It lives in the
-// CMUXAgentLaunch package (imported above) so it is unit testable via `swift test`
-// without launching the app; both the Claude hook lane and the generic agent-hook
-// lane call it.
+// `AgentNotification(signal:message:).isBlockingPrompt` is the single source of truth
+// for "should this notification keep the pane live". It lives in the CMUXAgentLaunch
+// package (imported above) so it is unit testable via `swift test` without launching
+// the app; both the Claude hook lane and the generic agent-hook lane use it.
 
 #if DEBUG
 private func agentHookDebugLog(
@@ -25820,7 +25819,7 @@ struct CMUXCLI {
                 return (
                     classified.subtitle,
                     classified.body,
-                    AgentNotificationClassifier.isBlockingPrompt(signal: fallback, message: fallback)
+                    AgentNotification(signal: fallback, message: fallback).isBlockingPrompt
                 )
             }
             // A bare "waiting for input" reminder is an idle agent, not a blocking prompt.
@@ -25846,7 +25845,7 @@ struct CMUXCLI {
         return (
             classified.subtitle,
             classified.body,
-            AgentNotificationClassifier.isBlockingPrompt(signal: signal, message: normalizedMessage)
+            AgentNotification(signal: signal, message: normalizedMessage).isBlockingPrompt
         )
     }
 
@@ -26156,7 +26155,7 @@ struct CMUXCLI {
         // reminder, a completion, or generic attention is NOT blocking and must not
         // flip the hibernation lifecycle to `.needsInput` (which would clobber the
         // Stop hook's `.idle` and keep the pane from ever hibernating).
-        let blocking = AgentNotificationClassifier.isBlockingPrompt(signal: signal, message: message)
+        let blocking = AgentNotification(signal: signal, message: message).isBlockingPrompt
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.approvalNeeded", defaultValue: "Approval needed")

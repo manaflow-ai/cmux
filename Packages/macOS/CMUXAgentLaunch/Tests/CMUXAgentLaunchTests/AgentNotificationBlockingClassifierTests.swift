@@ -2,7 +2,7 @@ import CMUXAgentLaunch
 import Testing
 
 /// The hibernation lifecycle correctness for every coding-agent kind funnels through
-/// one shared decision: `AgentNotificationClassifier.isBlockingPrompt`. Both the
+/// one shared decision: `AgentNotification.isBlockingPrompt`. Both the
 /// dedicated Claude hook lane and the generic agent-hook lane (codex, grok, gemini,
 /// opencode, cursor, kiro, antigravity, rovodev, copilot, codebuddy, factory, qoder,
 /// hermes-agent, pi, amp, and custom vault agents) use it to decide whether a
@@ -10,7 +10,7 @@ import Testing
 /// reminder must NOT be blocking, or it clobbers the Stop hook's `.idle` and the pane
 /// never hibernates (the "only codex hibernates" class of bug). This suite pins that
 /// contract.
-@Suite("AgentNotificationClassifier")
+@Suite("AgentNotification")
 struct AgentNotificationBlockingClassifierTests {
     @Test("Permission/approval prompts and errors are blocking")
     func genuinelyBlockingNotificationsAreBlocking() {
@@ -34,7 +34,7 @@ struct AgentNotificationBlockingClassifierTests {
         ]
         for message in blocking {
             #expect(
-                AgentNotificationClassifier.isBlockingPrompt(signal: "", message: message),
+                AgentNotification(signal: "", message: message).isBlockingPrompt,
                 "Expected blocking for message \(message.debugDescription)"
             )
         }
@@ -60,7 +60,7 @@ struct AgentNotificationBlockingClassifierTests {
         ]
         for message in nonBlocking {
             #expect(
-                !AgentNotificationClassifier.isBlockingPrompt(signal: "", message: message),
+                !AgentNotification(signal: "", message: message).isBlockingPrompt,
                 "Expected NOT blocking for message \(message.debugDescription)"
             )
         }
@@ -69,8 +69,8 @@ struct AgentNotificationBlockingClassifierTests {
     @Test("The structured signal field also drives the blocking decision")
     func signalFieldAlsoDrivesBlocking() {
         // A `reason: permission_prompt` with an empty message is still blocking.
-        #expect(AgentNotificationClassifier.isBlockingPrompt(signal: "permission_prompt", message: ""))
-        #expect(AgentNotificationClassifier.isBlockingPrompt(signal: "error", message: "something happened"))
-        #expect(!AgentNotificationClassifier.isBlockingPrompt(signal: "notification", message: "waiting"))
+        #expect(AgentNotification(signal: "permission_prompt", message: "").isBlockingPrompt)
+        #expect(AgentNotification(signal: "error", message: "something happened").isBlockingPrompt)
+        #expect(!AgentNotification(signal: "notification", message: "waiting").isBlockingPrompt)
     }
 }
