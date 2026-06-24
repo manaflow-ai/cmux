@@ -9060,13 +9060,6 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        if navigationAction.targetFrame?.isMainFrame != false,
-           let url = navigationAction.request.url,
-           let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            recordAttemptedRequest(navigationAction.request)
-        }
-
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
             if let requestNavigation {
                 requestNavigation(request, .newTab)
@@ -9124,6 +9117,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // Hand these off to macOS so the owning app can handle them.
         if let url = navigationAction.request.url,
            browserShouldRouteExternalNavigation(url) {
+            clearAttemptedRequest()
             browserHandleExternalNavigation(
                 url,
                 source: "navDelegate",
@@ -9138,6 +9132,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         if navigationAction.shouldPerformDownload {
+            clearAttemptedRequest()
             decisionHandler(.download)
             return
         }
@@ -9150,6 +9145,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 "browser.nav.decidePolicy.action kind=openInNewTab url=\(requestURL.absoluteString)"
             )
 #endif
+            clearAttemptedRequest()
             openRequestInNewTab(navigationAction.request)
             decisionHandler(.cancel)
             return
@@ -9168,6 +9164,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
                 "browser.nav.decidePolicy.action kind=openInNewTabFromNilTarget url=\(requestURL.absoluteString)"
             )
 #endif
+            clearAttemptedRequest()
             openRequestInNewTab(navigationAction.request)
             decisionHandler(.cancel)
             return
@@ -9178,7 +9175,13 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         cmuxDebugLog("browser.nav.decidePolicy.action kind=allow url=\(targetURL)")
 #endif
         if navigationAction.targetFrame?.isMainFrame != false {
-            lastAttemptedURL = navigationAction.request.url
+            if let url = navigationAction.request.url,
+               let scheme = url.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" {
+                recordAttemptedRequest(navigationAction.request)
+            } else {
+                clearAttemptedRequest()
+            }
         }
         decisionHandler(.allow)
     }

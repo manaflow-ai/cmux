@@ -612,6 +612,11 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         lastAttemptedURL = request.url
     }
 
+    private func clearAttemptedRequest() {
+        lastAttemptedRequest = nil
+        lastAttemptedURL = nil
+    }
+
     private func requestForFailedNavigation(failedURL: String) -> URLRequest? {
         if let lastAttemptedRequest,
            lastAttemptedRequest.url != nil {
@@ -644,14 +649,9 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
             return
         }
 
-        if navigationAction.targetFrame?.isMainFrame != false,
-           let scheme = url.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            recordAttemptedRequest(navigationAction.request)
-        }
-
         // External URL schemes → hand off to macOS
         if browserShouldRouteExternalNavigation(url) {
+            clearAttemptedRequest()
             browserHandleExternalNavigation(
                 url,
                 source: "popupNavDelegate",
@@ -680,10 +680,17 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         }
 
         if navigationAction.shouldPerformDownload {
+            clearAttemptedRequest()
             decisionHandler(.download)
             return
         }
 
+        if let scheme = url.scheme?.lowercased(),
+           scheme == "http" || scheme == "https" {
+            recordAttemptedRequest(navigationAction.request)
+        } else {
+            clearAttemptedRequest()
+        }
         decisionHandler(.allow)
     }
 
