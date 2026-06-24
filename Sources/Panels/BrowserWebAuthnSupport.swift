@@ -1205,6 +1205,7 @@ private extension BrowserWebAuthnCoordinator {
             return fallbackReply()
         }
 
+        let presentationWindow = try interactivePresentationWindow(for: message)
         let requests = try await authorizationRequests(for: plan, message: message)
         guard !requests.isEmpty else {
             #if DEBUG
@@ -1212,7 +1213,6 @@ private extension BrowserWebAuthnCoordinator {
             #endif
             return fallbackReply()
         }
-        let presentationWindow = try interactivePresentationWindow(for: message)
 
         return try await performAuthorization(
             requests: requests,
@@ -1239,6 +1239,7 @@ private extension BrowserWebAuthnCoordinator {
             return fallbackReply()
         }
 
+        let presentationWindow = try interactivePresentationWindow(for: message)
         let requests = try await authorizationRequests(for: plan, message: message)
         guard !requests.isEmpty else {
             #if DEBUG
@@ -1246,7 +1247,6 @@ private extension BrowserWebAuthnCoordinator {
             #endif
             return fallbackReply()
         }
-        let presentationWindow = try interactivePresentationWindow(for: message)
 
         return try await performAuthorization(
             requests: requests,
