@@ -514,8 +514,10 @@ final class cmuxUITests: XCTestCase {
 
         let table = app.tables["ChatTranscriptTableView"]
         XCTAssertTrue(table.waitForExistence(timeout: 8))
-        let composer = app.descendants(matching: .any)["ChatComposerField"]
-        XCTAssertTrue(composer.waitForExistence(timeout: 8))
+        let composerBar = app.otherElements["ChatComposerBar"]
+        XCTAssertTrue(composerBar.waitForExistence(timeout: 8))
+        let composerField = app.descendants(matching: .any)["ChatComposerField"]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
 
         let loadedMetrics = try waitForTranscriptMetrics(table, timeout: 8) {
             $0.frameHeight > 240 && $0.frameMaxY > 300 && $0.contentHeight > $0.boundsHeight * 1.6
@@ -526,7 +528,8 @@ final class cmuxUITests: XCTestCase {
         }
         try assertChatKeyboardTracking(
             table: table,
-            composer: composer,
+            composerBar: composerBar,
+            composerField: composerField,
             app: app,
             baselineMaxY: loadedMetrics.frameMaxY,
             scrollPosition: "bottom"
@@ -540,7 +543,8 @@ final class cmuxUITests: XCTestCase {
         }
         try assertChatKeyboardTracking(
             table: table,
-            composer: composer,
+            composerBar: composerBar,
+            composerField: composerField,
             app: app,
             baselineMaxY: loadedMetrics.frameMaxY,
             scrollPosition: "middle"
@@ -551,7 +555,8 @@ final class cmuxUITests: XCTestCase {
         }
         try assertChatKeyboardTracking(
             table: table,
-            composer: composer,
+            composerBar: composerBar,
+            composerField: composerField,
             app: app,
             baselineMaxY: loadedMetrics.frameMaxY,
             scrollPosition: "top"
@@ -561,7 +566,8 @@ final class cmuxUITests: XCTestCase {
     @MainActor
     private func assertChatKeyboardTracking(
         table: XCUIElement,
-        composer: XCUIElement,
+        composerBar: XCUIElement,
+        composerField: XCUIElement,
         app: XCUIApplication,
         baselineMaxY: CGFloat,
         scrollPosition: String,
@@ -573,7 +579,7 @@ final class cmuxUITests: XCTestCase {
             abs($0.frameMaxY - baselineMaxY) < 4 && $0.frameHeight > 240
         }
         XCTAssertTrue(
-            focusTextInput(composer, in: app),
+            focusTextInput(composerField, in: app),
             "Expected chat composer to focus and raise the keyboard from \(scrollPosition)",
             file: file,
             line: line
@@ -584,6 +590,14 @@ final class cmuxUITests: XCTestCase {
         let afterKeyboard = try waitForTranscriptMetrics(table, timeout: 6) {
             $0.frameMaxY < beforeKeyboard.frameMaxY - 120
                 && $0.frameHeight < beforeKeyboard.frameHeight - 120
+        }
+        guard let composerBarFrame = waitForUsableFrame(of: composerBar, timeout: 2) else {
+            XCTFail("Chat composer bar frame unavailable after keyboard opens from \(scrollPosition)", file: file, line: line)
+            return
+        }
+        guard let composerFieldFrame = waitForUsableFrame(of: composerField, timeout: 2) else {
+            XCTFail("Chat composer field frame unavailable after keyboard opens from \(scrollPosition)", file: file, line: line)
+            return
         }
 
         XCTAssertLessThan(
@@ -597,6 +611,34 @@ final class cmuxUITests: XCTestCase {
             afterKeyboard.frameMaxY,
             keyboardFrame.minY - 44,
             "Transcript table bottom should sit above the composer and keyboard from \(scrollPosition), not behind the keyboard. after=\(afterKeyboard) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            composerBarFrame.maxY,
+            keyboardFrame.minY + 2,
+            "Chat composer bar must stay above the keyboard from \(scrollPosition). composer=\(composerBarFrame) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThan(
+            composerBarFrame.height,
+            52,
+            "Chat composer bar must retain usable height after keyboard opens from \(scrollPosition). composer=\(composerBarFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            composerFieldFrame.maxY,
+            keyboardFrame.minY - 4,
+            "Chat composer field must stay visibly above the keyboard from \(scrollPosition). field=\(composerFieldFrame) keyboard=\(keyboardFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertGreaterThan(
+            composerFieldFrame.height,
+            18,
+            "Chat composer field must retain a usable text-entry frame after keyboard opens from \(scrollPosition). field=\(composerFieldFrame)",
             file: file,
             line: line
         )

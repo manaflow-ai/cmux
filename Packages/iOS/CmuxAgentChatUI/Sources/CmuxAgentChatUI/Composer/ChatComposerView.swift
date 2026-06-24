@@ -106,6 +106,11 @@ public struct ChatComposerView: View {
                 .fill(theme.hairline)
                 .frame(height: 0.5)
         }
+        #if os(iOS)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("ChatComposerBar")
+        #endif
     }
 
     // MARK: - Field row

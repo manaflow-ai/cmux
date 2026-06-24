@@ -88,6 +88,7 @@ public struct ChatScreen: View {
             .environment(\.chatMarkdownRenderer, renderer)
             .environment(\.chatContentCache, contentCache)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(0)
             #if os(iOS)
             // Measure the transcript so the keyboard-dismiss tap fires only over
             // the conversation, never the composer/accessory bar or header.
@@ -115,6 +116,7 @@ public struct ChatScreen: View {
                 )
                 #if os(iOS)
                 .reportsChatComposerFrame()
+                .layoutPriority(1)
                 #endif
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
