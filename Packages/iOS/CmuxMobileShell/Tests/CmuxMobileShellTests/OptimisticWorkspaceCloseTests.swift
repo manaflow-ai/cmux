@@ -205,6 +205,30 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.keys.contains("workspace-docs"))
     }
 
+    /// Group metadata is derived from the same optimistically filtered workspace
+    /// list, so closing an anchor cannot leave a stale navigable group header.
+    @Test func optimisticClosePrunesGroupAnchoredByClosedWorkspace() {
+        let store = MobileShellComposite.preview()
+        store.setWorkspacesForTesting(
+            [
+                makeWorkspace(id: "workspace-docs", macDeviceID: "mac-a"),
+                makeWorkspace(id: "workspace-main", macDeviceID: "mac-a"),
+            ],
+            groups: [
+                MobileWorkspaceGroupPreview(
+                    id: "group-docs",
+                    name: "Docs",
+                    anchorWorkspaceID: "workspace-docs"
+                ),
+            ]
+        )
+
+        store.applyOptimisticWorkspaceClose(id: "workspace-docs")
+
+        #expect(!store.workspaces.contains { $0.id == "workspace-docs" })
+        #expect(store.workspaceGroups.isEmpty)
+    }
+
     /// Secondary full-list refreshes are authoritative for that Mac and must
     /// retire a pending close once the closed remote id disappears.
     @Test func secondarySnapshotRetiresPendingCloseForThatMac() throws {

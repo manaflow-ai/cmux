@@ -3450,8 +3450,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
             self.selectedWorkspaceID = remapped?.id ?? derived.first?.id
         }
+        let visibleWorkspaceIDs = Set(workspaces.map(\.id))
         workspaceGroups = workspaceAggregation.derivedGroups(
-            statesByMac: workspacesByMac, foregroundMacDeviceID: foregroundKey)
+            statesByMac: workspacesByMac,
+            foregroundMacDeviceID: foregroundKey
+        ).filter { visibleWorkspaceIDs.contains($0.anchorWorkspaceID) }
     }
 
     /// Set the user's per-Mac customizations (name / color / icon), persist them
