@@ -446,7 +446,7 @@ struct SessionEntry: Identifiable, Hashable {
 
     /// Single-quote a value for safe shell injection. Escapes embedded single quotes.
     static func shellQuote(_ value: String) -> String {
-        value.posixShellToken(allowingBareASCII: true)
+        value.shellQuoted
     }
 
     /// Sandbox-policy values the Codex CLI `--sandbox` flag accepts.

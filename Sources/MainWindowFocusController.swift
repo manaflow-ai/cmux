@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFeedUI
 import CmuxFoundation
 import CmuxPanes
 import CmuxTerminal

@@ -3,12 +3,14 @@ import CmuxFoundation
 import Foundation
 
 extension SessionIndexStore {
-    private struct RegisteredAgentJSONLMetadata {
-        var title: String = ""
-        var cwd: String?
-        var branch: String?
-        var sessionId: String?
-    }
+    /// Resolves the pure, registration-decoupled session-layout pieces for
+    /// registered agents (roots, candidate files, transcript metadata). The
+    /// loaders below map each registration onto the resolver's primitive inputs
+    /// and assemble the resulting `SessionEntry` values app-side.
+    nonisolated static let registeredAgentResolver = RegisteredAgentSessionResolver(
+        ripgrepScanner: ripgrepScanner,
+        searchMaxFiles: searchMaxFiles
+    )
 
     private struct AntigravityHistoryMetadata {
         let sessionId: String
@@ -57,7 +59,7 @@ extension SessionIndexStore {
                     fileGlob: "chat_history.jsonl"
                 ) else {
                     candidates.append(
-                        contentsOf: enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
+                        contentsOf: registeredAgentResolver.enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
                             (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
                         }
                     )
@@ -74,7 +76,7 @@ extension SessionIndexStore {
         } else {
             for root in roots {
                 candidates.append(
-                    contentsOf: enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
+                    contentsOf: registeredAgentResolver.enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
                         (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
                     }
                 )
@@ -168,7 +170,11 @@ extension SessionIndexStore {
                 agent: .registered(RegisteredSessionAgent(registration: registration))
             )
         }
-        let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
+        let roots = registeredAgentResolver.registeredSessionRoots(
+            kind: registration.sessionIdSource.registeredAgentKind,
+            sessionDirectory: registration.sessionDirectory,
+            cwdFilter: cwdFilter
+        )
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
         let historyParser = AgentHistoryRecordParser()
@@ -178,7 +184,7 @@ extension SessionIndexStore {
             for root in roots {
                 guard let rgPaths = await ripgrepScanner.matchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
                     candidates.append(
-                        contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
+                        contentsOf: registeredAgentResolver.enumerateRegisteredJSONLCandidates(root: root).map {
                             (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
                         }
                     )
@@ -195,7 +201,7 @@ extension SessionIndexStore {
         } else {
             for root in roots {
                 candidates.append(
-                    contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
+                    contentsOf: registeredAgentResolver.enumerateRegisteredJSONLCandidates(root: root).map {
                         (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
                     }
                 )
@@ -216,9 +222,9 @@ extension SessionIndexStore {
                 guard historyParser.fileContains(candidate.url, needle: needle) else { continue }
             }
 
-            let metadata = extractRegisteredJSONLMetadata(
+            let metadata = registeredAgentResolver.extractRegisteredJSONLMetadata(
                 url: candidate.url,
-                registration: registration,
+                kind: registration.sessionIdSource.registeredAgentKind,
                 fallbackCWD: cwdFilter
             )
             if let cwdFilter, metadata.cwd != cwdFilter { continue }
@@ -246,7 +252,11 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) -> [SessionEntry] {
-        let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
+        let roots = registeredAgentResolver.registeredSessionRoots(
+            kind: registration.sessionIdSource.registeredAgentKind,
+            sessionDirectory: registration.sessionDirectory,
+            cwdFilter: cwdFilter
+        )
         guard !roots.isEmpty else { return [] }
 
         let fm = FileManager.default
@@ -327,136 +337,41 @@ extension SessionIndexStore {
         return Array(entries.dropFirst(offset).prefix(limit))
     }
 
-    nonisolated private static func registeredSessionRoots(
-        registration: CmuxVaultAgentRegistration,
-        cwdFilter: String?
-    ) -> [String] {
-        if case .grokSessionDirectory = registration.sessionIdSource {
-            return GrokSessionResolver()
-                .sessionRoots(sessionDirectory: registration.sessionDirectory, cwdFilter: cwdFilter)
-                .map(\.sessionsRoot)
-        }
-        guard let root = registration.sessionDirectory.map({ ($0 as NSString).expandingTildeInPath }) else {
-            return []
-        }
-        if case .piSessionFile = registration.sessionIdSource,
-           let cwdFilter,
-           let projectDirectory = PiSessionResolver().projectDirectoryName(for: cwdFilter) {
-            return [(root as NSString).appendingPathComponent(projectDirectory)]
-        }
-        return [root]
-    }
-
+    /// The registration with its `resumeCommand` prefixed by the captured
+    /// `GROK_HOME`, or the registration unchanged when no prefix is needed.
+    ///
+    /// Forwards the prefix computation to ``RegisteredAgentSessionResolver`` (which
+    /// owns the shell quoting + skip rules) and applies the result to a copy of the
+    /// app-side `CmuxVaultAgentRegistration`, the one piece the package cannot
+    /// construct.
     nonisolated private static func registrationWithGrokHomePrefix(
         _ registration: CmuxVaultAgentRegistration,
         grokHome: String?
     ) -> CmuxVaultAgentRegistration {
-        guard let grokHome = grokHome?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !grokHome.isEmpty,
-              !registration.resumeCommand.contains("GROK_HOME") else {
+        guard let prefixed = registeredAgentResolver.grokHomePrefixedResumeCommand(
+            registration.resumeCommand,
+            grokHome: grokHome
+        ) else {
             return registration
         }
         var copy = registration
-        copy.resumeCommand = "env GROK_HOME=\(SessionEntry.shellQuote(grokHome)) \(registration.resumeCommand)"
+        copy.resumeCommand = prefixed
         return copy
     }
+}
 
-    nonisolated private static func enumerateGrokHistoryCandidates(
-        root: GrokSessionRoot,
-        fileManager: FileManager
-    ) -> [(URL, Date)] {
-        let fm = fileManager
-        var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: root.sessionsRoot, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fm.enumerator(
-                  at: URL(fileURLWithPath: root.sessionsRoot, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return []
-        }
-        var candidates: [(URL, Date)] = []
-        for case let url as URL in enumerator where url.lastPathComponent == "chat_history.jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            candidates.append((url, modified))
-        }
-        return candidates
-    }
-
-    nonisolated private static func enumerateRegisteredJSONLCandidates(root: String) -> [(URL, Date)] {
-        let fm = FileManager.default
-        var isDirectory: ObjCBool = false
-        guard fm.fileExists(atPath: root, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let enumerator = fm.enumerator(
-                  at: URL(fileURLWithPath: root, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return []
-        }
-        var candidates: [(URL, Date)] = []
-        for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
-            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
-            candidates.append((url, modified))
-        }
-        return candidates
-    }
-
-    nonisolated private static func extractRegisteredJSONLMetadata(
-        url: URL,
-        registration: CmuxVaultAgentRegistration,
-        fallbackCWD: String?
-    ) -> RegisteredAgentJSONLMetadata {
-        var metadata = RegisteredAgentJSONLMetadata()
-        let needsNativeSessionID: Bool
-        switch registration.sessionIdSource {
+extension CmuxVaultAgentSessionIDSource {
+    /// The package-owned ``RegisteredAgentSessionIDKind`` mirror of this app-side
+    /// session-id-source, so the registration-decoupled resolver can branch on
+    /// layout without seeing the app's Codable enum.
+    var registeredAgentKind: RegisteredAgentSessionIDKind {
+        switch self {
         case .argvOption:
-            needsNativeSessionID = true
-        case .piSessionFile, .grokSessionDirectory:
-            needsNativeSessionID = false
+            return .argvOption
+        case .piSessionFile:
+            return .piSessionFile
+        case .grokSessionDirectory:
+            return .grokSessionDirectory
         }
-        let fieldParser = AgentSessionFieldParser()
-        let historyParser = AgentHistoryRecordParser(fieldParser: fieldParser)
-        ripgrepScanner.forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
-            if metadata.sessionId == nil {
-                metadata.sessionId = fieldParser.firstString(in: object, keys: historyParser.registeredJSONLSessionIDKeys())
-            }
-            if metadata.cwd == nil {
-                metadata.cwd = fieldParser.firstString(in: object, keys: historyParser.registeredJSONLCWDKeys())
-            }
-            if metadata.branch == nil, let git = object["git"] as? [String: Any] {
-                metadata.branch = fieldParser.firstString(in: git, keys: ["branch", "gitBranch"])
-            }
-            if metadata.branch == nil {
-                metadata.branch = fieldParser.firstString(in: object, keys: ["gitBranch", "branch"])
-            }
-            if metadata.title.isEmpty {
-                metadata.title = fieldParser.firstTopLevelTitle(in: object) ?? ""
-            }
-            if metadata.title.isEmpty, let message = object["message"] as? [String: Any] {
-                if fieldParser.shouldUseMessageAsTitle(message) {
-                    metadata.title = fieldParser.firstText(in: message, keys: ["content", "text"]) ?? ""
-                }
-            }
-            if metadata.title.isEmpty, let messages = object["messages"] as? [[String: Any]] {
-                metadata.title = messages.compactMap { message in
-                    fieldParser.shouldUseMessageAsTitle(message)
-                        ? fieldParser.firstText(in: message, keys: ["content", "text"])
-                        : nil
-                }.first ?? ""
-            }
-            return !metadata.title.isEmpty
-                && metadata.cwd != nil
-                && metadata.branch != nil
-                && (!needsNativeSessionID || metadata.sessionId != nil)
-        }
-        if case .piSessionFile = registration.sessionIdSource, metadata.cwd == nil {
-            metadata.cwd = fallbackCWD ?? historyParser.piCWDInferred(from: url)
-        }
-        return metadata
     }
 }

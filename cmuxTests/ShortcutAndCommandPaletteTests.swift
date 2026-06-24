@@ -1,5 +1,9 @@
 import CmuxCommandPalette
 import CmuxFoundation
+// FeedKeyboardFocusResponder moved into CmuxFeedUI (the Feed inline-editor
+// extraction); import only the protocol so the rest of CmuxFeedUI's public
+// surface cannot shadow app-target names this file uses.
+import protocol CmuxFeedUI.FeedKeyboardFocusResponder
 import XCTest
 import AppKit
 import SwiftUI
