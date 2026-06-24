@@ -451,6 +451,34 @@ import Testing
         #expect(downgraded?.name == "Secondary")
     }
 
+    @Test func multiMacAggregationDefaultsOnWithoutDebugBuildFlag() throws {
+        let defaults = try Self.emptyDefaults()
+
+        let enabled = MobileShellComposite.resolveMultiMacAggregationEnabled(
+            environment: [:],
+            defaults: defaults
+        )
+
+        #expect(enabled)
+    }
+
+    @Test func multiMacAggregationCanBeDisabledByOverride() throws {
+        let defaults = try Self.emptyDefaults()
+        defaults.set(false, forKey: "multiMacAggregation")
+
+        let defaultsDisabled = MobileShellComposite.resolveMultiMacAggregationEnabled(
+            environment: [:],
+            defaults: defaults
+        )
+        let environmentDisabled = MobileShellComposite.resolveMultiMacAggregationEnabled(
+            environment: ["CMUX_MULTI_MAC_AGGREGATION": "false"],
+            defaults: try Self.emptyDefaults()
+        )
+
+        #expect(!defaultsDisabled)
+        #expect(!environmentDisabled)
+    }
+
     @Test func activeMacReconnectRouteSkipsUnsupportedLoopbackRoute() throws {
         let loopback = try hostPortRoute(
             kind: .debugLoopback,
@@ -470,6 +498,13 @@ import Testing
 
         #expect(route?.0 == "100.71.210.41")
         #expect(route?.1 == CmxMobileDefaults.defaultHostPort)
+    }
+
+    private static func emptyDefaults() throws -> UserDefaults {
+        let suiteName = "MobileShellCompositePreviewTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        return defaults
     }
 }
 
