@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import Darwin
 
 extension CLINotifyProcessIntegrationRegressionTests {
@@ -3178,6 +3179,453 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(isDirectory.boolValue)
     }
 
+    func testCachedAgentHookTrajectoriesReplayThroughCLIAndFeedBridges() throws {
+        let fixture = try loadAgentHookTrajectoryReplayFixture()
+        XCTAssertEqual(fixture.version, 1)
+        XCTAssertEqual(Set(fixture.trajectories.map(\.agent)), ["antigravity", "claude", "codex", "gemini", "opencode"])
+
+        var promptTexts = Set<String>()
+        for trajectory in fixture.trajectories {
+            XCTAssertGreaterThanOrEqual(trajectory.steps.count, 17, "\(trajectory.name) should replay a longer multi-tool turn")
+            let toolNames = replayToolNames(in: trajectory)
+            XCTAssertGreaterThanOrEqual(toolNames.count, 11, "\(trajectory.name) should exercise a diverse tool mix")
+            let expectedToolGroups: [(String, Set<String>)] = [
+                ("read/search", ["Glob", "Grep", "LS", "Read", "ReadManyFiles", "WebFetch", "WebSearch", "list_directory", "list_files", "search_files", "view_file", "web_search"]),
+                ("write/edit", ["Edit", "MultiEdit", "Write", "apply_patch", "replace_file_content", "write_file", "write_to_file"]),
+                ("shell", ["Bash", "run_command", "shell"]),
+                ("todo/task", ["TodoWrite", "manage_task", "update_plan", "update_todo"]),
+                ("question", ["AskUserQuestion"]),
+                ("plan", ["ExitPlanMode"]),
+            ]
+            for (label, expectedTools) in expectedToolGroups {
+                XCTAssertFalse(
+                    toolNames.intersection(expectedTools).isEmpty,
+                    "\(trajectory.name) missing \(label) coverage; saw \(toolNames.sorted())"
+                )
+            }
+
+            let promptText = try XCTUnwrap(
+                trajectory.steps.first(where: { $0.name == "prompt-submit" })?.stdin.objectValue()?["prompt"] as? String,
+                "\(trajectory.name) should include the submitted prompt"
+            )
+            XCTAssertTrue(promptTexts.insert(promptText).inserted, "\(trajectory.name) prompt should be unique")
+
+            let exitPlanIndex = try XCTUnwrap(
+                trajectory.steps.firstIndex(where: { replayToolName(in: $0) == "ExitPlanMode" }),
+                "\(trajectory.name) should include ExitPlanMode"
+            )
+            XCTAssertGreaterThanOrEqual(exitPlanIndex, trajectory.steps.count - 4, "\(trajectory.name) should keep planning near the end")
+            XCTAssertLessThan(exitPlanIndex, trajectory.steps.count - 2, "\(trajectory.name) should plan before stop/session cleanup")
+        }
+
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("agent-replay")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-replay-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let replacements = [
+            "${workspace}": workspace.path,
+            "${workspace_id}": workspaceId,
+            "${surface_id}": surfaceId,
+        ]
+        let feedResults = try replayFeedResultsByRequestId(fixture: fixture, replacements: replacements)
+        var acceptingServer: MultiConnectionMockSocketServer?
+
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer {
+            acceptingServer?.stop()
+            if let acceptingServer {
+                wait(for: [acceptingServer.finished], timeout: 5)
+            }
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        acceptingServer = startMockServerAccepting(listenerFD: listenerFD, socketPath: socketPath, state: state) { line in
+            self.agentReplaySocketResponse(
+                line: line,
+                surfaceId: surfaceId,
+                feedResultsByRequestId: feedResults
+            )
+        }
+
+        for trajectory in fixture.trajectories {
+            try XCTContext.runActivity(named: trajectory.name) { _ in
+                var environment: [String: String] = [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": workspace.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": workspaceId,
+                    "CMUX_SURFACE_ID": surfaceId,
+                    "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                    "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                    "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+                    "CODEX_HOME": root.appendingPathComponent("codex-home", isDirectory: true).path,
+                    "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude-home", isDirectory: true).path,
+                    "GEMINI_CLI_HOME": root.appendingPathComponent("gemini-home", isDirectory: true).path,
+                    "OPENCODE_CONFIG_DIR": root.appendingPathComponent("opencode-home", isDirectory: true).path,
+                ]
+                if let launch = trajectory.launch {
+                    environment["CMUX_AGENT_LAUNCH_KIND"] = launch.kind
+                    environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = launch.executable
+                    environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(launch.argv)
+                    environment["CMUX_AGENT_LAUNCH_CWD"] = workspace.path
+                }
+
+                for step in trajectory.steps {
+                    try XCTContext.runActivity(named: step.name) { _ in
+                        let commandStart = state.snapshot().count
+                        let stdin = try replayJSONString(
+                            from: step.stdin.replacing(replacements),
+                            options: [.sortedKeys]
+                        )
+                        let result = runProcess(
+                            executablePath: cliPath,
+                            arguments: step.arguments,
+                            environment: environment,
+                            standardInput: stdin,
+                            timeout: 5
+                        )
+
+                        XCTAssertFalse(result.timedOut, "\(trajectory.name) \(step.name): \(result.stderr)")
+                        XCTAssertEqual(result.status, 0, "\(trajectory.name) \(step.name): \(result.stderr)")
+                        if let expectedStdout = step.expectedStdout {
+                            XCTAssertEqual(result.stdout, replacingPlaceholders(in: expectedStdout, replacements: replacements))
+                        }
+                        for expected in step.expectedStdoutContains ?? [] {
+                            XCTAssertTrue(
+                                result.stdout.contains(replacingPlaceholders(in: expected, replacements: replacements)),
+                                "\(trajectory.name) \(step.name): stdout was \(result.stdout)"
+                            )
+                        }
+
+                        var expectedSocketSubstrings = step.expectedSocketContains ?? []
+                        if step.expectedFeedEvents?.isEmpty == false {
+                            expectedSocketSubstrings.append("feed.push")
+                        }
+                        expectedSocketSubstrings = expectedSocketSubstrings.map {
+                            replacingPlaceholders(in: $0, replacements: replacements)
+                        }
+                        let stepCommands = waitForReplayCommands(
+                            state: state,
+                            startIndex: commandStart,
+                            expectedSubstrings: expectedSocketSubstrings
+                        )
+                        XCTAssertNil(
+                            acceptingServer?.acceptFailureDescription,
+                            "\(trajectory.name) \(step.name): mock socket accept loop failed"
+                        )
+                        XCTAssertNotNil(
+                            stepCommands,
+                            "\(trajectory.name) \(step.name): expected \(expectedSocketSubstrings), saw \(Array(state.snapshot().dropFirst(commandStart)))"
+                        )
+
+                        if let expectedFeedEvents = step.expectedFeedEvents {
+                            let feedEvents = replayFeedEvents(in: stepCommands ?? Array(state.snapshot().dropFirst(commandStart)))
+                            for expectedEvent in expectedFeedEvents {
+                                let expected = expectedEvent.mapValues {
+                                    replacingPlaceholders(in: $0, replacements: replacements)
+                                }
+                                XCTAssertTrue(
+                                    feedEvents.contains { event in
+                                        expected.allSatisfy { key, value in event[key] as? String == value }
+                                    },
+                                    "\(trajectory.name) \(step.name): expected feed event \(expected), saw \(feedEvents)"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func testCapturedAgentNetworkSessionsIncludeRealHARPayloads() throws {
+        let fixture = try loadAgentNetworkCaptureFixture()
+        XCTAssertEqual(fixture.version, 1)
+        XCTAssertEqual(fixture.captureSource, "real-cli-mitm-har")
+
+        let capturesByAgent = Dictionary(
+            fixture.captures.map { ($0.agent, $0) },
+            uniquingKeysWith: { _, new in new }
+        )
+        XCTAssertTrue(Set(capturesByAgent.keys).isSuperset(of: ["claude", "codex", "opencode"]))
+
+        let unavailableByAgent = Dictionary(
+            fixture.unavailable.map { ($0.agent, $0.reason) },
+            uniquingKeysWith: { _, new in new }
+        )
+        XCTAssertTrue(Set(capturesByAgent.keys).isDisjoint(with: Set(unavailableByAgent.keys)))
+        XCTAssertTrue(capturesByAgent["gemini"] != nil || unavailableByAgent["gemini"] != nil)
+        XCTAssertTrue(capturesByAgent["antigravity"] != nil || unavailableByAgent["antigravity"] != nil)
+        if let geminiUnavailableReason = unavailableByAgent["gemini"] {
+            XCTAssertTrue(
+                [
+                    "Gemini CLI opened an auth flow and produced no HAR entries with the current local configuration.",
+                    "No gemini executable was available on PATH.",
+                ].contains(geminiUnavailableReason),
+                geminiUnavailableReason
+            )
+        }
+        if let antigravityUnavailableReason = unavailableByAgent["antigravity"] {
+            XCTAssertEqual(antigravityUnavailableReason, "No agy or antigravity executable was available on PATH.")
+        }
+
+        let fixtureText = try String(contentsOf: agentNetworkCaptureFixtureURL(), encoding: .utf8)
+        for forbidden in [
+            "Bearer ",
+            "session_token",
+            "sessionToken",
+            "/Users/lawrence",
+            "/var/folders",
+            "lawrence@",
+            "authorization",
+            "cookie",
+            "set-cookie",
+            "api_key",
+            "apikey",
+            "apiKey",
+            "access_token",
+            "accessToken",
+            "refresh_token",
+            "refreshToken",
+            "id_token",
+            "idToken",
+            "client_secret",
+            "clientSecret",
+            "password",
+            "prompt_cache_key",
+            "safety_identifier",
+            "\\\"signature\\\":",
+            "\\\"thinking\\\":",
+            "\\\"type\\\":\\\"thinking\\\"",
+            "thinking_delta",
+            "signature_delta",
+            "encrypted_content",
+            "obfuscation",
+            "reasoning",
+            "system-reminder",
+            "cmuxterm-hq/CLAUDE.md",
+            "AGENTS.md",
+            "You are Codex",
+            "# Personality",
+            "<skills_instructions>",
+            "<plugins_instructions>",
+            "<permissions instructions>",
+            "req_",
+            "msg_",
+            "resp_",
+            "rs_",
+            "anthropic-ratelimit",
+            "anthropic-organization-id",
+            "anthropic-beta",
+            "interleaved-thinking",
+            "clear_thinking",
+            "context_management",
+            "cf-ray",
+            "report-to",
+            "nel.cloudflare",
+            "x-codex-active-limit",
+            "x-codex-plan-type",
+            "x-codex-credits",
+            "used-percent",
+            "used_percent",
+            "rate_limits",
+            "plan_type",
+            "service_tier",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens",
+            "cached_tokens",
+            "tool_usage",
+            "inference_geo",
+            "credits",
+            "reset_after_seconds",
+            "additional_rate_limits",
+            "code_review_rate_limits",
+            "promo",
+            "billing",
+            "cc_version",
+            "cc_entrypoint",
+            "cch=",
+            "\\u00e2\\u0089\\u00a4",
+            "\\u00e2\\u0086\\u0092",
+            "quota",
+            "subscription",
+        ] {
+            XCTAssertFalse(
+                fixtureText.localizedCaseInsensitiveContains(forbidden),
+                "Sanitized network fixture must not contain \(forbidden)"
+            )
+        }
+        assertFixtureText(fixtureText, excludesPattern: #"sk-[A-Za-z0-9_-]{12,}"#)
+
+        for capture in fixture.captures {
+            XCTAssertEqual(capture.status, "captured", capture.name)
+            XCTAssertTrue(capture.markerObserved, capture.name)
+            XCTAssertGreaterThan(capture.durationMs, 0, capture.name)
+            XCTAssertEqual(capture.captureBackend, "mitmproxy-hardump", capture.name)
+            XCTAssertFalse(capture.cliVersion.isEmpty, capture.name)
+            XCTAssertFalse(capture.command.isEmpty, capture.name)
+
+            let entries = capture.har.log.entries
+            XCTAssertFalse(entries.isEmpty, capture.name)
+
+            var responsePayloadText = ""
+            for entry in entries {
+                let requestBody = entry.request.postData?.text ?? ""
+                let responseBody = entry.response.content.text ?? ""
+                let webSocketMessages = entry.webSocketMessages ?? []
+                let responseWebSocketText = webSocketMessages
+                    .filter { $0.type == "receive" }
+                    .map { $0.data }
+                    .joined(separator: "\n")
+                let hasHTTPBodies = !requestBody.isEmpty && !responseBody.isEmpty
+                let hasWebSocketFrames = !webSocketMessages.isEmpty
+
+                XCTAssertTrue(
+                    hasHTTPBodies || hasWebSocketFrames,
+                    "\(capture.name) \(entry.request.url) must include HTTP bodies or WebSocket frames"
+                )
+                XCTAssertFalse(entry.request.headers.isEmpty, "\(capture.name) \(entry.request.url) missing request headers")
+                XCTAssertFalse(entry.response.headers.isEmpty, "\(capture.name) \(entry.request.url) missing response headers")
+                XCTAssertLessThan(entry.response.status, 600, "\(capture.name) \(entry.request.url)")
+
+                if hasHTTPBodies {
+                    XCTAssertGreaterThanOrEqual(entry.response.status, 200, "\(capture.name) \(entry.request.url)")
+                    assertContentLength(
+                        entry.request.headers,
+                        matches: Data(requestBody.utf8).count,
+                        context: "request \(capture.name) \(entry.request.url)"
+                    )
+                    assertContentLength(
+                        entry.response.headers,
+                        matches: Data(responseBody.utf8).count,
+                        context: "response \(capture.name) \(entry.request.url)"
+                    )
+                    XCTAssertEqual(
+                        entry.response.content.size,
+                        Data(responseBody.utf8).count,
+                        "\(capture.name) \(entry.request.url) sanitized HAR response content size"
+                    )
+                }
+                if hasWebSocketFrames {
+                    XCTAssertEqual(entry.resourceType, "websocket", "\(capture.name) \(entry.request.url)")
+                    XCTAssertEqual(entry.response.status, 101, "\(capture.name) \(entry.request.url)")
+                    XCTAssertTrue(
+                        webSocketMessages.contains { !$0.data.isEmpty },
+                        "\(capture.name) \(entry.request.url) missing WebSocket message data"
+                    )
+                }
+
+                responsePayloadText += responseBody
+                responsePayloadText += responseWebSocketText
+            }
+            XCTAssertTrue(
+                responsePayloadText.contains("cmux-network-capture-ok"),
+                "\(capture.name) must include the real CLI response marker in HAR response payloads or WebSocket frames"
+            )
+        }
+    }
+
+    func testCapturedAgentNetworkSessionsReplayThroughHARFixture() throws {
+        let fixture = try loadAgentNetworkCaptureFixture()
+        var replayResponses: [AgentNetworkReplayResponse] = []
+        var webSocketTranscriptCount = 0
+
+        for capture in fixture.captures {
+            for entry in capture.har.log.entries {
+                if let requestBody = entry.request.postData?.text,
+                   let responseBody = entry.response.content.text,
+                   !requestBody.isEmpty,
+                   !responseBody.isEmpty {
+                    guard let url = URL(string: entry.request.url) else {
+                        XCTFail("\(capture.name) has invalid replay URL: \(entry.request.url)")
+                        continue
+                    }
+                    replayResponses.append(AgentNetworkReplayResponse(
+                        captureName: capture.name,
+                        method: entry.request.method,
+                        url: url,
+                        requestHeaders: replayableRequestHeaders(entry.request.headers),
+                        requestBody: requestBody,
+                        status: entry.response.status,
+                        responseHeaders: replayHeaderFields(entry.response.headers),
+                        responseBody: responseBody
+                    ))
+                }
+
+                let webSocketMessages = entry.webSocketMessages ?? []
+                if !webSocketMessages.isEmpty {
+                    webSocketTranscriptCount += 1
+                    XCTAssertTrue(
+                        webSocketMessages.contains { $0.type == "send" },
+                        "\(capture.name) \(entry.request.url) missing outbound WebSocket frame"
+                    )
+                    XCTAssertTrue(
+                        webSocketMessages.contains { $0.type == "receive" },
+                        "\(capture.name) \(entry.request.url) missing inbound WebSocket frame"
+                    )
+                    XCTAssertTrue(
+                        webSocketMessages.contains { $0.data.contains("cmux-network-capture-ok") },
+                        "\(capture.name) \(entry.request.url) missing replay marker in WebSocket transcript"
+                    )
+                }
+            }
+        }
+
+        XCTAssertFalse(replayResponses.isEmpty)
+        XCTAssertGreaterThan(webSocketTranscriptCount, 0)
+
+        AgentNetworkReplayURLProtocol.install(responses: replayResponses)
+        defer { AgentNetworkReplayURLProtocol.reset() }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [AgentNetworkReplayURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+
+        for replay in replayResponses {
+            var request = URLRequest(url: replay.url)
+            request.httpMethod = replay.method
+            for (name, value) in replay.requestHeaders {
+                request.setValue(value, forHTTPHeaderField: name)
+            }
+            request.httpBody = Data(replay.requestBody.utf8)
+
+            let (data, response) = try performAgentNetworkReplay(request: request, session: session)
+            XCTAssertEqual(response.statusCode, replay.status, replay.captureName)
+            XCTAssertEqual(String(data: data, encoding: .utf8), replay.responseBody, replay.captureName)
+            assertReplayHeaders(
+                response.allHeaderFields,
+                contain: replay.responseHeaders,
+                context: "response \(replay.captureName) \(replay.url.absoluteString)"
+            )
+        }
+
+        let observed = AgentNetworkReplayURLProtocol.observedRequests()
+        XCTAssertEqual(observed.count, replayResponses.count)
+        for (replay, observedRequest) in zip(replayResponses, observed) {
+            XCTAssertEqual(observedRequest.method, replay.method.uppercased(), replay.captureName)
+            XCTAssertEqual(observedRequest.url, replay.url.absoluteString, replay.captureName)
+            XCTAssertEqual(observedRequest.body, replay.requestBody, replay.captureName)
+            assertReplayHeaders(
+                observedRequest.headers,
+                contain: replay.requestHeaders,
+                context: "request \(replay.captureName) \(replay.url.absoluteString)"
+            )
+        }
+    }
+
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook-\(scenario.agent)")
@@ -3695,5 +4143,589 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "non-restorable codex exec must not persist an env-only CODEX_HOME record; launchCommand=\(persisted["launchCommand"] ?? "nil")"
             )
         }
+    }
+
+    private struct AgentHookTrajectoryReplayFixture: Decodable {
+        let version: Int
+        let trajectories: [AgentHookTrajectory]
+    }
+
+    private struct AgentNetworkCaptureFixture: Decodable {
+        let version: Int
+        let captureSource: String
+        let prompt: String
+        let captures: [AgentNetworkCapture]
+        let unavailable: [AgentNetworkUnavailable]
+    }
+
+    private struct AgentNetworkCapture: Decodable {
+        let name: String
+        let agent: String
+        let cliVersion: String
+        let command: [String]
+        let captureBackend: String
+        let status: String
+        let markerObserved: Bool
+        let durationMs: Int
+        let har: AgentNetworkHAR
+    }
+
+    private struct AgentNetworkUnavailable: Decodable {
+        let agent: String
+        let reason: String
+    }
+
+    private struct AgentNetworkHAR: Decodable {
+        let log: AgentNetworkHARLog
+    }
+
+    private struct AgentNetworkHARLog: Decodable {
+        let version: String
+        let creator: AgentNetworkHARCreator
+        let entries: [AgentNetworkHAREntry]
+    }
+
+    private struct AgentNetworkHARCreator: Decodable {
+        let name: String
+        let version: String
+    }
+
+    private struct AgentNetworkHAREntry: Decodable {
+        let startedDateTime: String
+        let time: Double
+        let request: AgentNetworkHARRequest
+        let response: AgentNetworkHARResponse
+        let resourceType: String?
+        let webSocketMessages: [AgentNetworkHARWebSocketMessage]?
+
+        private enum CodingKeys: String, CodingKey {
+            case startedDateTime
+            case time
+            case request
+            case response
+            case resourceType = "_resourceType"
+            case webSocketMessages = "_webSocketMessages"
+        }
+    }
+
+    private struct AgentNetworkHARRequest: Decodable {
+        let method: String
+        let url: String
+        let headers: [AgentNetworkHARHeader]
+        let postData: AgentNetworkHARPostData?
+    }
+
+    private struct AgentNetworkHARPostData: Decodable {
+        let mimeType: String?
+        let text: String
+    }
+
+    private struct AgentNetworkHARResponse: Decodable {
+        let status: Int
+        let statusText: String
+        let headers: [AgentNetworkHARHeader]
+        let content: AgentNetworkHARContent
+    }
+
+    private struct AgentNetworkHARContent: Decodable {
+        let mimeType: String?
+        let size: Int
+        let text: String?
+    }
+
+    private struct AgentNetworkHARHeader: Decodable {
+        let name: String
+        let value: String
+    }
+
+    private struct AgentNetworkHARWebSocketMessage: Decodable {
+        let type: String
+        let time: Double
+        let opcode: Int
+        let data: String
+    }
+
+    private struct AgentNetworkReplayResponse {
+        let captureName: String
+        let method: String
+        let url: URL
+        let requestHeaders: [String: String]
+        let requestBody: String
+        let status: Int
+        let responseHeaders: [String: String]
+        let responseBody: String
+    }
+
+    private struct AgentNetworkObservedRequest {
+        let method: String
+        let url: String
+        let headers: [String: String]
+        let body: String
+    }
+
+    private final class AgentNetworkReplayURLProtocol: URLProtocol {
+        private static let lock = NSLock()
+        private static var responses: [AgentNetworkReplayResponse] = []
+        private static var observed: [AgentNetworkObservedRequest] = []
+
+        static func install(responses newResponses: [AgentNetworkReplayResponse]) {
+            lock.lock()
+            responses = newResponses
+            observed = []
+            lock.unlock()
+        }
+
+        static func reset() {
+            lock.lock()
+            responses = []
+            observed = []
+            lock.unlock()
+        }
+
+        static func observedRequests() -> [AgentNetworkObservedRequest] {
+            lock.lock()
+            defer { lock.unlock() }
+            return observed
+        }
+
+        override class func canInit(with request: URLRequest) -> Bool {
+            request.url != nil
+        }
+
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+            request
+        }
+
+        override func startLoading() {
+            guard let url = request.url else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+
+            let method = (request.httpMethod ?? "GET").uppercased()
+            let body = Self.bodyText(from: request)
+            let observedRequest = AgentNetworkObservedRequest(
+                method: method,
+                url: url.absoluteString,
+                headers: request.allHTTPHeaderFields ?? [:],
+                body: body
+            )
+
+            let replay: AgentNetworkReplayResponse
+            Self.lock.lock()
+            Self.observed.append(observedRequest)
+            guard let index = Self.responses.firstIndex(where: {
+                $0.method.uppercased() == method && $0.url.absoluteString == url.absoluteString
+            }) else {
+                Self.lock.unlock()
+                client?.urlProtocol(self, didFailWithError: URLError(.resourceUnavailable))
+                return
+            }
+            replay = Self.responses.remove(at: index)
+            Self.lock.unlock()
+
+            guard let response = HTTPURLResponse(
+                url: url,
+                statusCode: replay.status,
+                httpVersion: "HTTP/1.1",
+                headerFields: replay.responseHeaders
+            ) else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
+                return
+            }
+
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(replay.responseBody.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
+
+        private static func bodyText(from request: URLRequest) -> String {
+            if let body = request.httpBody {
+                return String(data: body, encoding: .utf8) ?? ""
+            }
+            guard let stream = request.httpBodyStream else { return "" }
+
+            stream.open()
+            defer { stream.close() }
+
+            var data = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count > 0 {
+                    data.append(buffer, count: count)
+                } else {
+                    break
+                }
+            }
+            return String(data: data, encoding: .utf8) ?? ""
+        }
+    }
+
+    private func performAgentNetworkReplay(
+        request: URLRequest,
+        session: URLSession
+    ) throws -> (Data, HTTPURLResponse) {
+        let semaphore = DispatchSemaphore(value: 0)
+        var callbackData: Data?
+        var callbackResponse: URLResponse?
+        var callbackError: Error?
+
+        let task = session.dataTask(with: request) { data, response, error in
+            callbackData = data
+            callbackResponse = response
+            callbackError = error
+            semaphore.signal()
+        }
+        task.resume()
+
+        guard semaphore.wait(timeout: .now() + 5) == .success else {
+            throw NSError(
+                domain: "AgentNetworkReplay",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for replay response"]
+            )
+        }
+        if let callbackError {
+            throw callbackError
+        }
+        guard let http = callbackResponse as? HTTPURLResponse else {
+            throw NSError(
+                domain: "AgentNetworkReplay",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Replay response was not HTTP"]
+            )
+        }
+        return (callbackData ?? Data(), http)
+    }
+
+    private func replayHeaderFields(_ headers: [AgentNetworkHARHeader]) -> [String: String] {
+        var fields: [String: String] = [:]
+        for header in headers where !header.name.isEmpty {
+            fields[header.name] = header.value
+        }
+        return fields
+    }
+
+    private func replayableRequestHeaders(_ headers: [AgentNetworkHARHeader]) -> [String: String] {
+        let skippedHopHeaders: Set<String> = [
+            "accept-encoding",
+            "connection",
+            "content-length",
+            "host",
+            "transfer-encoding",
+        ]
+        return replayHeaderFields(headers).filter { name, _ in
+            !skippedHopHeaders.contains(name.lowercased())
+        }
+    }
+
+    private func assertReplayHeaders(
+        _ actual: [AnyHashable: Any],
+        contain expected: [String: String],
+        context: String
+    ) {
+        let normalized = Dictionary(actual.map {
+            (String(describing: $0.key).lowercased(), String(describing: $0.value))
+        }, uniquingKeysWith: { _, new in new })
+        assertReplayHeaders(normalized, contain: expected, context: context)
+    }
+
+    private func assertReplayHeaders(
+        _ actual: [String: String],
+        contain expected: [String: String],
+        context: String
+    ) {
+        let normalized = Dictionary(actual.map {
+            ($0.key.lowercased(), $0.value)
+        }, uniquingKeysWith: { _, new in new })
+        for (name, value) in expected {
+            XCTAssertEqual(normalized[name.lowercased()], value, "\(context) header \(name)")
+        }
+    }
+
+    private struct AgentHookTrajectory: Decodable {
+        let name: String
+        let agent: String
+        let launch: AgentHookTrajectoryLaunch?
+        let steps: [AgentHookTrajectoryStep]
+    }
+
+    private struct AgentHookTrajectoryLaunch: Decodable {
+        let kind: String
+        let executable: String
+        let argv: [String]
+    }
+
+    private struct AgentHookTrajectoryStep: Decodable {
+        let name: String
+        let arguments: [String]
+        let stdin: ReplayJSONValue
+        let feedResult: ReplayJSONValue?
+        let expectedStdout: String?
+        let expectedStdoutContains: [String]?
+        let expectedSocketContains: [String]?
+        let expectedFeedEvents: [[String: String]]?
+    }
+
+    private enum ReplayJSONValue: Decodable {
+        case null
+        case bool(Bool)
+        case number(Double)
+        case string(String)
+        case array([ReplayJSONValue])
+        case object([String: ReplayJSONValue])
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if container.decodeNil() {
+                self = .null
+            } else if let value = try? container.decode(Bool.self) {
+                self = .bool(value)
+            } else if let value = try? container.decode(Int.self) {
+                self = .number(Double(value))
+            } else if let value = try? container.decode(Double.self) {
+                self = .number(value)
+            } else if let value = try? container.decode(String.self) {
+                self = .string(value)
+            } else if let value = try? container.decode([ReplayJSONValue].self) {
+                self = .array(value)
+            } else {
+                self = .object(try container.decode([String: ReplayJSONValue].self))
+            }
+        }
+
+        func replacing(_ replacements: [String: String]) -> ReplayJSONValue {
+            switch self {
+            case .null, .bool, .number:
+                return self
+            case .string(let value):
+                var replaced = value
+                for (placeholder, replacement) in CLINotifyProcessIntegrationRegressionTests.orderedReplayReplacements(replacements) {
+                    replaced = replaced.replacingOccurrences(of: placeholder, with: replacement)
+                }
+                return .string(replaced)
+            case .array(let values):
+                return .array(values.map { $0.replacing(replacements) })
+            case .object(let values):
+                return .object(values.mapValues { $0.replacing(replacements) })
+            }
+        }
+
+        func anyValue() -> Any {
+            switch self {
+            case .null:
+                return NSNull()
+            case .bool(let value):
+                return value
+            case .number(let value):
+                return value
+            case .string(let value):
+                return value
+            case .array(let values):
+                return values.map { $0.anyValue() }
+            case .object(let values):
+                return values.mapValues { $0.anyValue() }
+            }
+        }
+
+        func objectValue() -> [String: Any]? {
+            guard case .object(let values) = self else { return nil }
+            return values.mapValues { $0.anyValue() }
+        }
+    }
+
+    private static func orderedReplayReplacements(
+        _ replacements: [String: String]
+    ) -> [(placeholder: String, replacement: String)] {
+        replacements
+            .map { (placeholder: $0.key, replacement: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.placeholder.count != rhs.placeholder.count {
+                    return lhs.placeholder.count > rhs.placeholder.count
+                }
+                return lhs.placeholder < rhs.placeholder
+            }
+    }
+
+    private func loadAgentHookTrajectoryReplayFixture() throws -> AgentHookTrajectoryReplayFixture {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures", isDirectory: true)
+            .appendingPathComponent("AgentHookTrajectories.json", isDirectory: false)
+        return try JSONDecoder().decode(
+            AgentHookTrajectoryReplayFixture.self,
+            from: Data(contentsOf: fixtureURL)
+        )
+    }
+
+    private func agentNetworkCaptureFixtureURL() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures", isDirectory: true)
+            .appendingPathComponent("AgentNetworkCaptures.json", isDirectory: false)
+    }
+
+    private func loadAgentNetworkCaptureFixture() throws -> AgentNetworkCaptureFixture {
+        try JSONDecoder().decode(
+            AgentNetworkCaptureFixture.self,
+            from: Data(contentsOf: agentNetworkCaptureFixtureURL())
+        )
+    }
+
+    private func replayToolNames(in trajectory: AgentHookTrajectory) -> Set<String> {
+        Set(trajectory.steps.compactMap { replayToolName(in: $0) })
+    }
+
+    private func replayToolName(in step: AgentHookTrajectoryStep) -> String? {
+        step.stdin.objectValue()?["tool_name"] as? String
+    }
+
+    private func replayFeedResultsByRequestId(
+        fixture: AgentHookTrajectoryReplayFixture,
+        replacements: [String: String]
+    ) throws -> [String: [String: Any]] {
+        var results: [String: [String: Any]] = [:]
+        var resultOwners: [String: String] = [:]
+        for trajectory in fixture.trajectories {
+            for step in trajectory.steps {
+                guard let result = step.feedResult?.replacing(replacements).objectValue(),
+                      let requestId = result["request_id"] as? String
+                else {
+                    continue
+                }
+                let owner = "\(trajectory.name).\(step.name)"
+                if let previousOwner = resultOwners[requestId] {
+                    throw NSError(
+                        domain: "AgentHookTrajectoryReplayFixture",
+                        code: 1,
+                        userInfo: [
+                            NSLocalizedDescriptionKey: "Duplicate feed result request_id \(requestId) in \(owner); already used by \(previousOwner)"
+                        ]
+                    )
+                }
+                resultOwners[requestId] = owner
+                results[requestId] = result
+            }
+        }
+        return results
+    }
+
+    private func agentReplaySocketResponse(
+        line: String,
+        surfaceId: String,
+        feedResultsByRequestId: [String: [String: Any]]
+    ) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return surfaceListResponse(id: id, surfaceId: surfaceId)
+        case "surface.resume.set":
+            return v2Response(id: id, ok: true, result: ["set": true])
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
+        case "feed.push":
+            let params = payload["params"] as? [String: Any]
+            let event = params?["event"] as? [String: Any]
+            let requestId = event?["_opencode_request_id"] as? String
+                ?? event?["request_id"] as? String
+            if let requestId, let result = feedResultsByRequestId[requestId] {
+                return v2Response(id: id, ok: true, result: result)
+            }
+            return v2Response(id: id, ok: true, result: [:])
+        default:
+            return v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+            )
+        }
+    }
+
+    private func waitForReplayCommands(
+        state: MockSocketServerState,
+        startIndex: Int,
+        expectedSubstrings: [String],
+        timeout: TimeInterval = 3
+    ) -> [String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let commands = Array(state.snapshot().dropFirst(startIndex))
+            if expectedSubstrings.allSatisfy({ expected in
+                commands.contains { $0.contains(expected) }
+            }) {
+                return commands
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+        let commands = Array(state.snapshot().dropFirst(startIndex))
+        return expectedSubstrings.allSatisfy { expected in
+            commands.contains { $0.contains(expected) }
+        } ? commands : nil
+    }
+
+    private func replayFeedEvents(in commands: [String]) -> [[String: Any]] {
+        commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any]
+            else {
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func replayJSONString(
+        from value: ReplayJSONValue,
+        options: JSONSerialization.WritingOptions = []
+    ) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: value.anyValue(), options: options)
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func replacingPlaceholders(in value: String, replacements: [String: String]) -> String {
+        var result = value
+        for (placeholder, replacement) in Self.orderedReplayReplacements(replacements) {
+            result = result.replacingOccurrences(of: placeholder, with: replacement)
+        }
+        return result
+    }
+
+    private func assertContentLength(
+        _ headers: [AgentNetworkHARHeader],
+        matches byteCount: Int,
+        context: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let normalized = headers.reduce(into: [:]) { result, header in
+            result[header.name.lowercased()] = header.value
+        }
+        if let contentLength = normalized["content-length"] {
+            XCTAssertEqual(Int(contentLength), byteCount, "\(context) content-length", file: file, line: line)
+        }
+    }
+
+    private func assertFixtureText(
+        _ text: String,
+        excludesPattern pattern: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertNil(
+            text.range(of: pattern, options: [.regularExpression, .caseInsensitive]),
+            "Sanitized network fixture must not match \(pattern)",
+            file: file,
+            line: line
+        )
     }
 }
