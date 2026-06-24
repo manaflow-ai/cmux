@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
 import Bonsplit
+import CmuxPanes
 import UserNotifications
 import Network
 import CmuxBrowser

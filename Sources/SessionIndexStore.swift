@@ -21,21 +21,23 @@ nonisolated private let sessionIndexLogger = Logger(
 /// pagination calls. Bounded by `maxEntries` to keep memory in check (LRU on
 /// insert). Owned by a single `SessionIndexStore` and injected into the
 /// nonisolated static loader chain (no process-wide singleton).
-final class ClaudeMetadataCache: @unchecked Sendable {
+///
+/// Isolation: an `actor` rather than a lock-guarded class. The only mutators
+/// and readers are the per-file `group.addTask` closures inside
+/// `loadClaudeEntries`, which are already `async`, so `get`/`put` are `async`
+/// and the actor serializes access without an `NSLock` or `@unchecked Sendable`
+/// escape hatch. LRU semantics (`maxEntries`, ~10% oldest-mtime eviction,
+/// mtime-freshness) are unchanged from the prior lock-guarded form.
+actor ClaudeMetadataCache {
     private let maxEntries = 1000
-    private let lock = NSLock()
     private var entries: [URL: (mtime: Date, entry: SessionEntry)] = [:]
 
     func get(url: URL, mtime: Date) -> SessionEntry? {
-        lock.lock()
-        defer { lock.unlock() }
         guard let cached = entries[url], cached.mtime == mtime else { return nil }
         return cached.entry
     }
 
     func put(url: URL, mtime: Date, entry: SessionEntry) {
-        lock.lock()
-        defer { lock.unlock() }
         entries[url] = (mtime, entry)
         if entries.count > maxEntries {
             // Evict ~10% (oldest mtimes) to amortize cleanup cost.
@@ -1003,7 +1005,7 @@ final class SessionIndexStore {
             for (idx, candidate) in workCandidates.enumerated() {
                 group.addTask {
                     // Cache hit
-                    let cached = claudeMetadataCache.get(url: candidate.url, mtime: candidate.mtime)
+                    let cached = await claudeMetadataCache.get(url: candidate.url, mtime: candidate.mtime)
                     if let cached, needle.isEmpty || candidate.prefilteredByRipgrep {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
                         return (
@@ -1058,7 +1060,7 @@ final class SessionIndexStore {
                         )
                     )
                     if needle.isEmpty {
-                        claudeMetadataCache.put(
+                        await claudeMetadataCache.put(
                             url: candidate.url,
                             mtime: candidate.mtime,
                             entry: entry

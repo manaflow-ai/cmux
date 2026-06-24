@@ -515,12 +515,14 @@ extension SurfaceResumeBindingIndex {
                   let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
                 continue
             }
-            guard let binding = TmuxResumeParser.binding(
-                processName: process.name,
-                processPath: process.path,
-                arguments: processArguments.arguments,
-                environment: processArguments.environment,
-                capturedAt: capturedAt
+            guard let binding = SurfaceResumeBindingSnapshot(
+                tmuxResumeBinding: TmuxResumeBindingResolver().binding(
+                    processName: process.name,
+                    processPath: process.path,
+                    arguments: processArguments.arguments,
+                    environment: processArguments.environment,
+                    capturedAt: capturedAt
+                )
             ) else {
                 continue
             }
@@ -537,31 +539,33 @@ extension SurfaceResumeBindingIndex {
         environment: [String: String],
         capturedAt: TimeInterval = 1_777_777_777
     ) -> SurfaceResumeBindingSnapshot? {
-        TmuxResumeParser.binding(
-            processName: processName,
-            processPath: processPath,
-            arguments: arguments,
-            environment: environment,
-            capturedAt: capturedAt
+        SurfaceResumeBindingSnapshot(
+            tmuxResumeBinding: TmuxResumeBindingResolver().binding(
+                processName: processName,
+                processPath: processPath,
+                arguments: arguments,
+                environment: environment,
+                capturedAt: capturedAt
+            )
         )
     }
 }
 
 // `VaultObservedAgentProcess` (the claude/codex/opencode/node-runtime identity +
 // argv-index detection value type) and its `argumentsContainAll` helper now live in
-// `CMUXAgentLaunch`. Only the tmux forwarders, which bridge to the app-side
-// `TmuxResumeParser`, remain here as an extension on the now-public type.
+// `CMUXAgentLaunch`. Only the tmux forwarders, which bridge to the package's
+// `TmuxResumeBindingResolver`, remain here as an extension on the now-public type.
 private extension VaultObservedAgentProcess {
     static func argumentLooksLikeTmux(_ argument: String) -> Bool {
-        TmuxResumeParser.argumentLooksLikeTmux(argument)
+        TmuxResumeBindingResolver().argumentLooksLikeTmux(argument)
     }
 
     static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
-        TmuxResumeParser.argumentLooksLikeTmuxProcessTitle(argument)
+        TmuxResumeBindingResolver().argumentLooksLikeTmuxProcessTitle(argument)
     }
 
     static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
-        TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
+        TmuxResumeBindingResolver().argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 }
 

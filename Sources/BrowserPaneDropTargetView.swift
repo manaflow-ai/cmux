@@ -127,7 +127,7 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         let location = convert(sender.draggingLocation, from: nil)
-        let zone = BrowserPaneDropRouting.zone(
+        let zone = BrowserPaneDropRouting().zone(
             for: location,
             in: bounds.size,
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
@@ -152,7 +152,11 @@ final class BrowserPaneDropTargetView: NSView {
             return handled
         }
 
-        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard),
+        if let transfer = BrowserPaneDragTransfer.decode(
+            from: sender.draggingPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ),
            transfer.isFromCurrentProcess {
             if transfer.isFilePreview {
                 guard let entry = FilePreviewDragRegistry.shared.consume(id: transfer.tabId),
@@ -167,7 +171,7 @@ final class BrowserPaneDropTargetView: NSView {
                 }
                 let handled = workspace.handleFilePreviewDrop(
                     entry: entry,
-                    destination: BrowserPaneDropRouting.filePreviewDestination(
+                    destination: BrowserPaneDropRouting().filePreviewDestination(
                         target: dropContext,
                         zone: zone
                     )
@@ -181,7 +185,7 @@ final class BrowserPaneDropTargetView: NSView {
                 return handled
             }
 
-            guard let action = BrowserPaneDropRouting.action(
+            guard let action = BrowserPaneDropRouting().action(
                 for: transfer,
                 target: dropContext,
                 zone: zone
@@ -280,7 +284,7 @@ final class BrowserPaneDropTargetView: NSView {
             return []
         }
 
-        let zone = BrowserPaneDropRouting.zone(
+        let zone = BrowserPaneDropRouting().zone(
             for: location,
             in: bounds.size,
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
@@ -293,7 +297,11 @@ final class BrowserPaneDropTargetView: NSView {
 
         exitActiveFileDropWebView(sender)
 
-        if let transfer = BrowserPaneDragTransfer.decode(from: sender.draggingPasteboard) {
+        if let transfer = BrowserPaneDragTransfer.decode(
+            from: sender.draggingPasteboard,
+            filePreviewTransferType: DragOverlayRoutingPolicy.filePreviewTransferType,
+            bonsplitTabTransferType: DragOverlayRoutingPolicy.bonsplitTabTransferType
+        ) {
             guard transfer.isFromCurrentProcess,
                   (!transfer.isFilePreview || FilePreviewDragRegistry.shared.contains(id: transfer.tabId)) else {
                 clearDragState(phase: "\(phase).reject")

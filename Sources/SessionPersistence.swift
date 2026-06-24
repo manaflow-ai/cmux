@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import CmuxPanes
 import CoreGraphics
 import CmuxCore
@@ -482,6 +483,31 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     private static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+extension SurfaceResumeBindingSnapshot {
+    /// Maps a package-resolved ``TmuxResumeBinding`` into a snapshot, or returns
+    /// `nil` when the resolver produced no binding.
+    ///
+    /// The forwarder for the former `TmuxResumeParser.binding(...)`: the
+    /// `CMUXAgentLaunch` ``TmuxResumeBindingResolver`` does the byte-faithful tmux
+    /// argv parsing and returns its fields, and this app-side seam constructs the
+    /// snapshot exactly as the legacy parser did (so the snapshot init's
+    /// normalization runs identically).
+    init?(tmuxResumeBinding binding: TmuxResumeBinding?) {
+        guard let binding else { return nil }
+        self.init(
+            name: binding.name,
+            kind: binding.kind,
+            command: binding.command,
+            cwd: binding.cwd,
+            checkpointId: binding.checkpointId,
+            source: binding.source,
+            environment: binding.environment,
+            autoResume: binding.autoResume,
+            updatedAt: binding.updatedAt
+        )
     }
 }
 

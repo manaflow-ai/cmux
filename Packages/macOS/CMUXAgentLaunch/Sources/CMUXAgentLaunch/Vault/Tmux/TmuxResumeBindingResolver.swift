@@ -1,24 +1,48 @@
-import Foundation
+public import Foundation
 
-enum TmuxResumeParser {
-    static func binding(
+/// Resolves a resumable tmux-attach invocation from an observed terminal
+/// foreground process, and recognizes tmux client/server process titles.
+///
+/// This is the instance form of the former app-side `TmuxResumeParser`
+/// caseless namespace. The app constructs a resolver, asks it for a
+/// ``TmuxResumeBinding`` for a captured process, and maps that value type into
+/// its own `SurfaceResumeBindingSnapshot`. The parsing is byte-faithful to the
+/// legacy `TmuxResumeParser`: the same tmux top-level argument walk, the same
+/// `attach`/`new -A`-only safety gate, the same socket-flag (`-L`/`-S`)
+/// preservation, and the same shell single-quoting of the rebuilt argv.
+public struct TmuxResumeBindingResolver: Sendable {
+    /// Creates a tmux resume binding resolver.
+    public init() {}
+
+    /// Resolves a resumable tmux binding from an observed terminal foreground
+    /// process, or `nil` when the process is not a safely-resumable tmux client.
+    ///
+    /// - Parameters:
+    ///   - processName: The observed process name.
+    ///   - processPath: The observed executable path, if known.
+    ///   - arguments: The observed argument vector.
+    ///   - environment: The observed process environment.
+    ///   - capturedAt: The capture timestamp (seconds since 1970).
+    /// - Returns: A ``TmuxResumeBinding`` describing the resume command, or `nil`.
+    public func binding(
         processName: String,
         processPath: String?,
         arguments: [String],
         environment: [String: String],
         capturedAt: TimeInterval
-    ) -> SurfaceResumeBindingSnapshot? {
+    ) -> TmuxResumeBinding? {
         let observed = ObservedTmuxProcess(
+            resolver: self,
             processName: processName,
             processPath: processPath,
             arguments: arguments
         )
         guard let invocation = resumeInvocation(observed: observed) else { return nil }
 
-        let command = invocation.argv.map(shellSingleQuoted).joined(separator: " ")
-        let cwd = normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
-        let resumeEnvironment = tmuxResumeEnvironment(from: environment)
-        return SurfaceResumeBindingSnapshot(
+        let command = invocation.argv.map(Self.shellSingleQuoted).joined(separator: " ")
+        let cwd = Self.normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"])
+        let resumeEnvironment = Self.tmuxResumeEnvironment(from: environment)
+        return TmuxResumeBinding(
             name: invocation.sessionName.map { "tmux \($0)" } ?? "tmux",
             kind: "tmux",
             command: command,
@@ -31,7 +55,12 @@ enum TmuxResumeParser {
         )
     }
 
-    static func argumentLooksLikeTmux(_ argument: String) -> Bool {
+    /// Whether an argument looks like a tmux executable basename or a tmux
+    /// client process title.
+    ///
+    /// - Parameter argument: The argument to test.
+    /// - Returns: `true` when the argument names tmux.
+    public func argumentLooksLikeTmux(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
         if argumentLooksLikeTmuxClientProcessTitle(normalized) {
             return true
@@ -41,7 +70,11 @@ enum TmuxResumeParser {
         return basename == "tmux" || argumentLooksLikeTmuxClientProcessTitle(basename)
     }
 
-    static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
+    /// Whether an argument looks like any tmux process title (`tmux:` prefix).
+    ///
+    /// - Parameter argument: The argument to test.
+    /// - Returns: `true` when the argument is a tmux process title.
+    public func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
         if normalized.hasPrefix("tmux:") {
             return true
@@ -51,7 +84,12 @@ enum TmuxResumeParser {
         return basename.hasPrefix("tmux:")
     }
 
-    static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
+    /// Whether an argument looks like the tmux server process title
+    /// (`tmux: server`).
+    ///
+    /// - Parameter argument: The argument to test.
+    /// - Returns: `true` when the argument is the tmux server process title.
+    public func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
         if normalized.hasPrefix("tmux: server") {
             return true
@@ -62,6 +100,7 @@ enum TmuxResumeParser {
     }
 
     private struct ObservedTmuxProcess {
+        let resolver: TmuxResumeBindingResolver
         let processName: String
         let processPath: String?
         let arguments: [String]
@@ -76,11 +115,11 @@ enum TmuxResumeParser {
         }
 
         var isTmuxProcess: Bool {
-            executableBasenames.contains(where: TmuxResumeParser.argumentLooksLikeTmux)
+            executableBasenames.contains(where: resolver.argumentLooksLikeTmux)
         }
 
         var hasTmuxServerProcessTitle: Bool {
-            executableBasenames.contains(where: TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle)
+            executableBasenames.contains(where: resolver.argumentLooksLikeTmuxServerProcessTitle)
         }
     }
 
@@ -89,7 +128,7 @@ enum TmuxResumeParser {
         let sessionName: String?
     }
 
-    private static func resumeInvocation(observed: ObservedTmuxProcess) -> TmuxResumeInvocation? {
+    private func resumeInvocation(observed: ObservedTmuxProcess) -> TmuxResumeInvocation? {
         guard observed.isTmuxProcess else { return nil }
         guard !observed.hasTmuxServerProcessTitle else { return nil }
 
@@ -107,13 +146,13 @@ enum TmuxResumeParser {
         return TmuxResumeInvocation(argv: argv, sessionName: parsed.sessionName)
     }
 
-    private static func tmuxExecutable(observed: ObservedTmuxProcess) -> String {
-        if let first = normalized(observed.arguments.first),
+    private func tmuxExecutable(observed: ObservedTmuxProcess) -> String {
+        if let first = Self.normalized(observed.arguments.first),
            argumentLooksLikeTmux(first),
            !argumentLooksLikeTmuxProcessTitle(first) {
             return first
         }
-        if let path = normalized(observed.processPath),
+        if let path = Self.normalized(observed.processPath),
            argumentLooksLikeTmux(path),
            !argumentLooksLikeTmuxProcessTitle(path) {
             return path
@@ -121,7 +160,7 @@ enum TmuxResumeParser {
         return "tmux"
     }
 
-    private static func tmuxTailArguments(observed: ObservedTmuxProcess) -> [String] {
+    private func tmuxTailArguments(observed: ObservedTmuxProcess) -> [String] {
         guard let first = observed.arguments.first else { return [] }
         return argumentLooksLikeTmux(first)
             ? Array(observed.arguments.dropFirst())
@@ -134,7 +173,7 @@ enum TmuxResumeParser {
         let isSafe: Bool
     }
 
-    private static func parseTopLevelArguments(_ arguments: [String]) -> ParsedTmuxTopLevelArguments {
+    private func parseTopLevelArguments(_ arguments: [String]) -> ParsedTmuxTopLevelArguments {
         var index = 0
         var socketFlags: [String] = []
 
@@ -148,7 +187,7 @@ enum TmuxResumeParser {
             if appendSocketFlag(argument, arguments: arguments, index: &index, into: &socketFlags) {
                 continue
             }
-            index += topLevelOptionWidth(argument, arguments: arguments, index: index)
+            index += Self.topLevelOptionWidth(argument, arguments: arguments, index: index)
         }
 
         guard index < arguments.count else {
@@ -169,7 +208,7 @@ enum TmuxResumeParser {
                 isSafe: true
             )
         case "new-session", "new":
-            guard hasFlag(commandArgs, short: "A") else {
+            guard Self.hasFlag(commandArgs, short: "A") else {
                 return ParsedTmuxTopLevelArguments(socketFlags: socketFlags, sessionName: nil, isSafe: false)
             }
             let sessionName = optionValue(commandArgs, short: "s", long: "session-name")
@@ -186,7 +225,7 @@ enum TmuxResumeParser {
         }
     }
 
-    private static func appendSocketFlag(
+    private func appendSocketFlag(
         _ argument: String,
         arguments: [String],
         index: inout Int,
@@ -197,7 +236,7 @@ enum TmuxResumeParser {
             if argument == short {
                 let valueIndex = index + 1
                 guard valueIndex < arguments.count,
-                      let value = normalized(arguments[valueIndex]) else {
+                      let value = Self.normalized(arguments[valueIndex]) else {
                     index = valueIndex
                     return true
                 }
@@ -207,7 +246,7 @@ enum TmuxResumeParser {
             }
             if argument.hasPrefix(short), argument.count > short.count {
                 let value = String(argument.dropFirst(short.count))
-                if let normalizedValue = normalized(value) {
+                if let normalizedValue = Self.normalized(value) {
                     socketFlags.append(contentsOf: [short, normalizedValue])
                 }
                 index += 1
@@ -274,27 +313,27 @@ enum TmuxResumeParser {
         return nil
     }
 
-    private static func optionValue(_ arguments: [String], short: Character, long: String) -> String? {
+    private func optionValue(_ arguments: [String], short: Character, long: String) -> String? {
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
             if argument == "--" { break }
             if argument == "--\(long)" || argument == "-\(short)" {
-                return valueAfter(arguments, index: index)
+                return Self.valueAfter(arguments, index: index)
             }
             let longPrefix = "--\(long)="
             if argument.hasPrefix(longPrefix) {
-                return normalized(String(argument.dropFirst(longPrefix.count)))
+                return Self.normalized(String(argument.dropFirst(longPrefix.count)))
             }
             let shortPrefix = "-\(short)"
             if argument.hasPrefix(shortPrefix), argument.count > shortPrefix.count {
-                return normalized(String(argument.dropFirst(shortPrefix.count)))
+                return Self.normalized(String(argument.dropFirst(shortPrefix.count)))
             }
-            if let clusterValue = clusterValue(argument, short: short) {
+            if let clusterValue = Self.clusterValue(argument, short: short) {
                 if case .inline(let value) = clusterValue {
-                    return normalized(value)
+                    return Self.normalized(value)
                 }
-                return valueAfter(arguments, index: index)
+                return Self.valueAfter(arguments, index: index)
             }
             index += 1
         }
@@ -308,7 +347,7 @@ enum TmuxResumeParser {
         return normalized(arguments[nextIndex])
     }
 
-    private static func argumentLooksLikeTmuxClientProcessTitle(_ argument: String) -> Bool {
+    private func argumentLooksLikeTmuxClientProcessTitle(_ argument: String) -> Bool {
         let normalized = argument.lowercased()
         if normalized.hasPrefix("tmux: client") {
             return true
