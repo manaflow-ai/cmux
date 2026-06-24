@@ -58,7 +58,7 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
 
         #expect(coordinator.handle(
             challenge: httpChallenge,
-            startPrompt: { finishPrompt in
+            startPrompt: { finishPrompt, _ in
                 promptCompletions.append(finishPrompt)
                 return true
             }
@@ -68,7 +68,7 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
 
         #expect(coordinator.handle(
             challenge: httpsChallenge,
-            startPrompt: { finishPrompt in
+            startPrompt: { finishPrompt, _ in
                 promptCompletions.append(finishPrompt)
                 return true
             }
@@ -106,8 +106,12 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         var secondDisposition: URLSession.AuthChallengeDisposition?
         var thirdDisposition: URLSession.AuthChallengeDisposition?
 
-        func startPrompt(_ finishPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.Completion) -> Bool {
+        func startPrompt(
+            _ finishPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.Completion,
+            _ registerCancelPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.PromptCancellationRegistration
+        ) -> Bool {
             _ = finishPrompt
+            _ = registerCancelPrompt
             promptStartCount += 1
             return true
         }
@@ -152,7 +156,11 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         var firstDisposition: URLSession.AuthChallengeDisposition?
         var retryDisposition: URLSession.AuthChallengeDisposition?
 
-        func startPrompt(_ finishPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.Completion) -> Bool {
+        func startPrompt(
+            _ finishPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.Completion,
+            _ registerCancelPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.PromptCancellationRegistration
+        ) -> Bool {
+            _ = registerCancelPrompt
             promptCompletions.append(finishPrompt)
             return true
         }
@@ -186,5 +194,34 @@ struct BrowserHTTPBasicAuthPromptCoordinatorTests {
         retryPromptCompletion(.cancelAuthenticationChallenge, nil)
 
         #expect(retryDisposition == .cancelAuthenticationChallenge)
+    }
+
+    @Test
+    func cancelAllDismissesActivePromptBeforeCompletingChallenge() {
+        let coordinator = BrowserHTTPBasicAuthPromptCoordinator()
+        let challenge = makeAuthChallenge()
+        var cancelPromptCalled = false
+        var completionCount = 0
+        var disposition: URLSession.AuthChallengeDisposition?
+
+        #expect(coordinator.handle(
+            challenge: challenge,
+            startPrompt: { finishPrompt, registerCancelPrompt in
+                registerCancelPrompt {
+                    cancelPromptCalled = true
+                    finishPrompt(.cancelAuthenticationChallenge, nil)
+                }
+                return true
+            }
+        ) { challengeDisposition, _ in
+            completionCount += 1
+            disposition = challengeDisposition
+        })
+
+        coordinator.cancelAll()
+
+        #expect(cancelPromptCalled)
+        #expect(completionCount == 1)
+        #expect(disposition == .cancelAuthenticationChallenge)
     }
 }

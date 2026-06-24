@@ -7,8 +7,8 @@
 13832	Sources/TerminalController.swift
 12845	Sources/Workspace.swift
 12237	Sources/GhosttyTerminalView.swift
-12175	Sources/Panels/BrowserPanel.swift
 12144	cmuxTests/AppDelegateShortcutRoutingTests.swift
+11569	Sources/Panels/BrowserPanel.swift
 9497	cmuxTests/CLINotifyProcessIntegrationRegressionTests.swift
 8016	CLI/cmux_open.swift
 7986	Sources/Panels/BrowserPanelView.swift
@@ -206,6 +206,7 @@
 528	cmuxTests/CLINotifyProcessTestSupport.swift
 528	cmuxUITests/AutomationSocketUITests.swift
 527	CLI/CLISocketPathResolver.swift
+527	cmuxTests/BrowserHTTPBasicAuthPromptTests.swift
 526	Packages/macOS/CMUXAgentLaunch/Sources/CMUXAgentLaunch/Workstream/WorkstreamStore.swift
 525	Packages/macOS/CmuxSettings/Sources/CmuxSettings/SocketControl/SocketControlSettings.swift
 524	CLI/CMUXCLI+AutoNaming.swift

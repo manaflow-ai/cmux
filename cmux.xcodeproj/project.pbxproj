@@ -106,6 +106,8 @@
 		E12E88F82733EC42F32C36A3 /* BrowserConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 970226F3C99D0D937CD00539 /* BrowserConfigTests.swift */; };
 		BABA25000000000000000005 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000006 /* BrowserHTTPBasicAuthPromptCoordinatorTests.swift */; };
 		BABA25000000000000000003 /* BrowserHTTPBasicAuthPromptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000004 /* BrowserHTTPBasicAuthPromptTests.swift */; };
+		BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */; };
+		BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABA2500000000000000000A /* BrowserNavigationDelegate.swift */; };
 		C59240010000000000000001 /* BrowserDownloadFilenameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */; };
 		C59240010000000000000003 /* BrowserDownloadFilenameResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C59240010000000000000004 /* BrowserDownloadFilenameResolverTests.swift */; };
 		A5008381 /* BrowserFindJavaScriptTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5008380 /* BrowserFindJavaScriptTests.swift */; };
@@ -1274,6 +1276,8 @@
 		A500MX00 /* BrowserPanel+MediaPlayback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MediaPlayback.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000008 /* BrowserPanel+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/BrowserPanel+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
 		BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPromptCoordinator.swift; sourceTree = "<group>"; };
+		BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserHTTPBasicAuthPrompt.swift; sourceTree = "<group>"; };
+		BABA2500000000000000000A /* BrowserNavigationDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserNavigationDelegate.swift; sourceTree = "<group>"; };
 		A5001412 /* BrowserPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanel.swift; sourceTree = "<group>"; };
 		C62530010000000000000002 /* BrowserPanelReloadMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/BrowserPanelReloadMode.swift; sourceTree = "<group>"; };
 		B65060010000000000000001 /* BrowserPanelSessionRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserPanelSessionRestoreTests.swift; sourceTree = "<group>"; };
@@ -2764,6 +2768,8 @@
 				B42450020000000000000001 /* BrowserHiddenWebViewDiscardPolicy.swift */,
 				B42450040000000000000001 /* BrowserHiddenWebViewDiscardManager.swift */,
 				BABA25000000000000000002 /* BrowserHTTPBasicAuthPromptCoordinator.swift */,
+				BABA25000000000000000008 /* BrowserHTTPBasicAuthPrompt.swift */,
+				BABA2500000000000000000A /* BrowserNavigationDelegate.swift */,
 				A5001412 /* BrowserPanel.swift */,
 				C62530010000000000000002 /* BrowserPanelReloadMode.swift */,
 				C59240010000000000000002 /* BrowserDownloadFilenameResolver.swift */,
@@ -3858,6 +3864,8 @@
 				A500MX01 /* BrowserPanel+MediaPlayback.swift in Sources */,
 				D7AB00000000000000000007 /* BrowserPanel+MoveTabToNewWorkspace.swift in Sources */,
 				BABA25000000000000000001 /* BrowserHTTPBasicAuthPromptCoordinator.swift in Sources */,
+				BABA25000000000000000007 /* BrowserHTTPBasicAuthPrompt.swift in Sources */,
+				BABA25000000000000000009 /* BrowserNavigationDelegate.swift in Sources */,
 				A5001402 /* BrowserPanel.swift in Sources */,
 				C62530010000000000000001 /* BrowserPanelReloadMode.swift in Sources */,
 				A5001404 /* BrowserPanelView.swift in Sources */,

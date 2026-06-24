@@ -445,6 +445,40 @@ struct BrowserHTTPBasicAuthPromptTests {
     }
 
     @Test
+    func basicAuthPromptRegistersCancellationHandler() throws {
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        let alertSpy = BrowserHTTPBasicAuthAlertSpy()
+        let webView = WKWebView(frame: .zero)
+        var registeredCancelPrompt: (() -> Void)?
+        var completionCount = 0
+        var disposition: URLSession.AuthChallengeDisposition?
+
+        let handled = browserHandleHTTPBasicAuthenticationChallenge(
+            in: webView,
+            challenge: challenge,
+            alertFactory: { alertSpy },
+            presentAlert: { _, _, _, _ in },
+            registerCancelPrompt: { cancelPrompt in
+                registeredCancelPrompt = cancelPrompt
+            }
+        ) { returnedDisposition, _ in
+            completionCount += 1
+            disposition = returnedDisposition
+        }
+
+        #expect(handled)
+        #expect(alertSpy.beginSheetModalCallCount == 0)
+        #expect(alertSpy.runModalCallCount == 0)
+
+        let cancelPrompt = try #require(registeredCancelPrompt)
+        cancelPrompt()
+        cancelPrompt()
+
+        #expect(completionCount == 1)
+        #expect(disposition == .cancelAuthenticationChallenge)
+    }
+
+    @Test
     func nonBasicAuthChallengeDoesNotPrompt() {
         let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodServerTrust)
         let alertSpy = BrowserHTTPBasicAuthAlertSpy()

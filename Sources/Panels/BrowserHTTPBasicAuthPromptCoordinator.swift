@@ -25,15 +25,18 @@ private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
 
 @MainActor final class BrowserHTTPBasicAuthPromptCoordinator {
     typealias Completion = (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    typealias PromptCancellation = () -> Void
+    typealias PromptCancellationRegistration = (@escaping PromptCancellation) -> Void
 
     private final class Request {
         let key: BrowserHTTPBasicAuthProtectionSpaceKey
-        let startPrompt: (@escaping Completion) -> Bool
+        let startPrompt: (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool
         private var completions: [Completion]
+        private var cancelPrompt: PromptCancellation?
 
         init(
             key: BrowserHTTPBasicAuthProtectionSpaceKey,
-            startPrompt: @escaping (@escaping Completion) -> Bool,
+            startPrompt: @escaping (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool,
             completion: @escaping Completion
         ) {
             self.key = key
@@ -47,6 +50,16 @@ private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
 
         func appendCompletion(_ completion: @escaping Completion) {
             completions.append(completion)
+        }
+
+        func setCancelPrompt(_ cancelPrompt: @escaping PromptCancellation) {
+            self.cancelPrompt = cancelPrompt
+        }
+
+        func cancelPromptIfNeeded() {
+            let cancelPrompt = cancelPrompt
+            self.cancelPrompt = nil
+            cancelPrompt?()
         }
 
         func complete(
@@ -69,7 +82,7 @@ private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
     @discardableResult
     func handle(
         challenge: URLAuthenticationChallenge,
-        startPrompt: @escaping (@escaping Completion) -> Bool,
+        startPrompt: @escaping (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool,
         completionHandler: @escaping Completion
     ) -> Bool {
         guard browserShouldPromptForHTTPBasicAuth(challenge: challenge) else {
@@ -113,6 +126,7 @@ private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
         activeRequest = nil
         let queued = queuedRequests
         queuedRequests.removeAll()
+        active?.cancelPromptIfNeeded()
         active?.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
         queued.forEach {
             $0.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
@@ -137,18 +151,23 @@ private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
         }
 
         activeRequest = request
-        let started = request.startPrompt { [weak self, weak request] disposition, credential in
-            guard let request else { return }
-            guard let self else {
+        let started = request.startPrompt(
+            { [weak self, weak request] disposition, credential in
+                guard let request else { return }
+                guard let self else {
+                    request.complete(disposition: disposition, credential: credential)
+                    return
+                }
+                if self.activeRequest === request {
+                    self.activeRequest = nil
+                }
                 request.complete(disposition: disposition, credential: credential)
-                return
+                self.startNext()
+            },
+            { [weak request] cancelPrompt in
+                request?.setCancelPrompt(cancelPrompt)
             }
-            if self.activeRequest === request {
-                self.activeRequest = nil
-            }
-            request.complete(disposition: disposition, credential: credential)
-            self.startNext()
-        }
+        )
 
         if !started {
             if activeRequest === request {

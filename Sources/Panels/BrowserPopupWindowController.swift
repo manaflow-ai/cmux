@@ -688,10 +688,10 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
     ) {
         if basicAuthPromptCoordinator.handle(
             challenge: challenge,
-            startPrompt: { finishPrompt in
+            startPrompt: { finishPrompt, registerCancelPrompt in
                 browserHandleHTTPBasicAuthenticationChallenge(
-                    in: webView,
-                    challenge: challenge,
+                    in: webView, challenge: challenge,
+                    registerCancelPrompt: registerCancelPrompt,
                     completionHandler: finishPrompt
                 )
             },
