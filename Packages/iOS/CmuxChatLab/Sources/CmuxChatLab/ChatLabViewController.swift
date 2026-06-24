@@ -69,7 +69,7 @@ final class ChatLabViewController: UIViewController {
             composer.invalidateIntrinsicContentSize()
             applyOverlapForResting(animated: true)
             #if DEBUG
-            probe.noteComposerHeight(composer.resolvedHeight)
+            probe.noteComposerHeight(composer.barContentHeight)
             #endif
         }
 
@@ -175,9 +175,9 @@ final class ChatLabViewController: UIViewController {
     // MARK: Overlap math
 
     /// Inset that keeps the list's content above the docked composer when the
-    /// keyboard is down.
+    /// keyboard is down: the bar's content height plus the home-indicator inset.
     private var restingOverlap: CGFloat {
-        composer.resolvedHeight + view.safeAreaInsets.bottom
+        composer.barContentHeight + view.safeAreaInsets.bottom
     }
 
     private func overlapFromKeyboardTopScreen(_ keyboardTopScreen: CGFloat) -> CGFloat {

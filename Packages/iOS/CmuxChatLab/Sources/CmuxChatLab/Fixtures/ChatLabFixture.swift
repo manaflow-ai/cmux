@@ -132,6 +132,11 @@ extension ChatLabFixture {
             builder.add(.agent, prose("On it. Bumping the minor version now."))
             builder.add(.user, prose("thanks"))
             builder.add(.agent, prose("Done. Tagged v0.16.0 and pushed."))
+            builder.add(.user, prose("did CI go green?"))
+            builder.add(.agent, prose("All checks passed. The release workflow is building the DMG now."))
+            builder.add(.user, prose("perfect"))
+            builder.add(.agent, prose("Anything else before I close this out?"))
+            builder.add(.user, prose("nope, that's it"))
 
         case .wrapping:
             builder.add(.system, .status(ChatStatusTransition(event: .sessionStarted)))
@@ -154,6 +159,27 @@ extension ChatLabFixture {
                 + "the composer and the message list in the same pass, so they can never "
                 + "disagree. We are doing the same thing here."
             ))
+            builder.add(.user, prose("Great. What about the list itself, does it need anything?"))
+            builder.add(.agent, prose(
+                "The list is an inverted collection view, so the newest message sits at "
+                + "the visual bottom and stays pinned for free. As the keyboard moves we "
+                + "only adjust its bottom inset, never its content offset mid-drag, which "
+                + "is what was causing the jitter you saw earlier."
+            ))
+            builder.add(.user, prose("Nice. Can we also round the composer and use the new glass material?"))
+            builder.add(.agent, prose(
+                "Done. The input is a Liquid Glass capsule now (`UIGlassEffect` on iOS 26, "
+                + "a thick material below that), with the send button tucked inside the "
+                + "pill on the trailing edge."
+            ))
+            builder.add(.user, prose("And it grows when I type a long message like this one that runs onto several lines?"))
+            builder.add(.agent, prose(
+                "It does. The text view grows with its content up to a cap, then starts "
+                + "scrolling internally, and the bar height drives the keyboard region so "
+                + "the list inset tracks it exactly."
+            ))
+            builder.add(.user, prose("Perfect, ship it."))
+            builder.add(.agent, prose("Running the tracking gate one more time, then it is ready for you to feel on device."))
 
         case .code:
             builder.add(.user, prose("Show me the growing text view height logic."))
@@ -168,6 +194,14 @@ extension ChatLabFixture {
                 + "    return CGSize(width: UIView.noIntrinsicMetric, height: clamped)\n"
                 + "}\n```\n\nCall `invalidateIntrinsicContentSize()` from `textViewDidChange`."
             ))
+            builder.add(.user, prose("And how do you clamp it so it scrolls past a few lines?"))
+            builder.add(.agent, prose(
+                "Scrolling stays disabled while it grows, then flips on at the cap:\n\n"
+                + "```swift\nlet result = GrowingTextHeightSolver.solve(\n"
+                + "    fittingHeight: fitting,\n    minHeight: 38,\n    maxHeight: 140\n)\n"
+                + "textView.isScrollEnabled = result.scrollEnabled\nheightConstraint.constant = result.height\n```"
+            ))
+            builder.add(.user, prose("got it, thanks"))
 
         case .burst:
             for index in 0..<20 {
