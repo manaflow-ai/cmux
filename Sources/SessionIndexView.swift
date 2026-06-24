@@ -64,12 +64,6 @@ struct SessionIndexView: View {
     /// Rows shown per section before "Show more" is tapped.
     private static let collapsedRowLimit = 5
 
-    static let relativeFormatter: RelativeDateTimeFormatter = {
-        let f = RelativeDateTimeFormatter()
-        f.unitsStyle = .abbreviated
-        return f
-    }()
-
     static let absoluteFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -361,9 +355,14 @@ private struct IndexSectionView: View, Equatable {
             sectionHeader
             if !isCollapsed {
                 ForEach(Array(section.entries.prefix(rowLimit))) { entry in
+                    let isPreviewPresented = previewEntryId == entry.id
                     SessionRow(
                         entry: entry,
-                        isPreviewPresented: previewEntryId == entry.id,
+                        displayTitle: entry.displayTitle,
+                        agentAssetName: entry.agent.assetName,
+                        agentSystemImageName: entry.agent.systemImageName,
+                        helpText: entry.sessionRowHelpText,
+                        isPreviewPresented: isPreviewPresented,
                         onPreviewPresentationChange: { isPresented in
                             if isPresented {
                                 actions.onPreviewEntry(entry)
@@ -371,7 +370,25 @@ private struct IndexSectionView: View, Equatable {
                                 actions.onDismissPreview(entry.id)
                             }
                         },
-                        onResume: actions.onResume
+                        dragItemProvider: { sessionDragItemProvider(for: entry) },
+                        previewHost: {
+                            SessionTranscriptPopoverHost(
+                                isPresented: Binding(
+                                    get: { isPreviewPresented },
+                                    set: { isPresented in
+                                        if isPresented {
+                                            actions.onPreviewEntry(entry)
+                                        } else {
+                                            actions.onDismissPreview(entry.id)
+                                        }
+                                    }
+                                ),
+                                entry: entry
+                            )
+                        },
+                        menuContent: {
+                            SessionRowMenu(entry: entry, onResume: actions.onResume)
+                        }
                     )
                         .equatable()
                         .id(entry.id)
@@ -536,169 +553,68 @@ private struct SectionGapDropDelegate: DropDelegate {
     }
 }
 
-private struct SessionRow: View, Equatable {
-    let entry: SessionEntry
-    let isPreviewPresented: Bool
-    let onPreviewPresentationChange: (Bool) -> Void
-    let onResume: ((SessionEntry) -> Void)?
-    @State private var isHovered: Bool = false
-
-    static func == (lhs: SessionRow, rhs: SessionRow) -> Bool {
-        // Skip body re-eval during scroll when the entry is unchanged.
-        // The closure isn't compared (it comes from stable parent state).
-        lhs.entry == rhs.entry &&
-            lhs.isPreviewPresented == rhs.isPreviewPresented
-    }
-
-    var body: some View {
-        HStack(spacing: 6) {
-            AgentIconImage(assetName: entry.agent.assetName, systemImageName: entry.agent.systemImageName, size: 12)
-            Text(entry.displayTitle)
-                .font(.system(size: 13))
-                .foregroundColor(.primary.opacity(0.92))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            Text(relativeTime(entry.modified))
-                .font(.system(size: 12).monospacedDigit())
-                .foregroundColor(.secondary.opacity(0.65))
-                .fixedSize()
-        }
-        .padding(.leading, 32)
-        .padding(.trailing, 12)
-        .padding(.vertical, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .background(rowBackground)
-        .background(previewPopoverHost)
-        .onHover { isHovered = $0 }
-        .help(helpText)
-        .onTapGesture(count: 2) {
-            onPreviewPresentationChange(true)
-        }
-        .onDrag {
-            sessionDragItemProvider(for: entry)
-        } preview: {
-            HStack(spacing: 6) {
-                AgentIconImage(assetName: entry.agent.assetName, systemImageName: entry.agent.systemImageName, size: 12)
-                Text(entry.displayTitle)
-                    .font(.system(size: 12, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        }
-        .contextMenu {
-            sessionRowMenuItems(entry: entry, onResume: onResume)
-        }
-    }
-
-    @ViewBuilder
-    private var previewPopoverHost: some View {
-        if isPreviewPresented {
-            SessionTranscriptPopoverHost(
-                isPresented: Binding(
-                    get: { isPreviewPresented },
-                    set: { onPreviewPresentationChange($0) }
-                ),
-                entry: entry
-            )
-        }
-    }
-
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .fill(rowBackgroundColor)
-            .padding(.horizontal, 6)
-    }
-
-    private var rowBackgroundColor: Color {
-        if isHovered {
-            return Color.primary.opacity(0.05)
-        }
-        if isPreviewPresented {
-            return Color.primary.opacity(0.07)
-        }
-        return Color.clear
-    }
-
-    private var helpText: String {
-        var lines: [String] = [entry.displayTitle]
-        if let cwd = entry.cwdLabel {
-            lines.append(cwd)
-        }
-        lines.append(absoluteTime(entry.modified))
-        return lines.joined(separator: "\n")
-    }
-
-    private func relativeTime(_ date: Date) -> String {
-        SessionIndexView.relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private func absoluteTime(_ date: Date) -> String {
-        SessionIndexView.absoluteFormatter.string(from: date)
-    }
-}
-
 // MARK: - Shared row actions
 
-/// Right-click menu items for any session row (full or popover). Built as a
-/// free `@ViewBuilder` so SessionRow and PopoverRow both attach the same set
-/// without duplicating the button list or the action helpers.
-@ViewBuilder
-private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) -> Void)?) -> some View {
-    if let onResume {
-        Button {
-            onResume(entry)
-        } label: {
-            Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
+/// Right-click menu items for any session row (full or popover). A scoped `View`
+/// struct so SessionRow and PopoverRow both attach the same set without
+/// duplicating the button list or the action helpers. Stays app-side because the
+/// buttons reach NSWorkspace/NSPasteboard and resolve app-bundle localization.
+struct SessionRowMenu: View {
+    let entry: SessionEntry
+    let onResume: ((SessionEntry) -> Void)?
+
+    var body: some View {
+        if let onResume {
+            Button {
+                onResume(entry)
+            } label: {
+                Text(String(localized: "sessionIndex.row.resume", defaultValue: "Resume in New Tab"))
+            }
+            Divider()
         }
-        Divider()
-    }
-    if let url = entry.fileURL {
-        Button {
-            NSWorkspace.shared.open(url)
-        } label: {
-            Text(String(localized: "sessionIndex.row.open", defaultValue: "Open"))
+        if let url = entry.fileURL {
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Text(String(localized: "sessionIndex.row.open", defaultValue: "Open"))
+            }
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } label: {
+                Text(String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder"))
+            }
+            Divider()
+            Button {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(url.path, forType: .string)
+            } label: {
+                Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
+            }
         }
-        Button {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
-        } label: {
-            Text(String(localized: "sessionIndex.row.reveal", defaultValue: "Reveal in Finder"))
+        if let resumeCommand = entry.resumeCommand {
+            Button {
+                let pb = NSPasteboard.general
+                pb.clearContents()
+                pb.setString(resumeCommand, forType: .string)
+            } label: {
+                Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
+            }
         }
-        Divider()
-        Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(url.path, forType: .string)
-        } label: {
-            Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
+        if let cwd = entry.cwd, !cwd.isEmpty {
+            Button {
+                NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
+            } label: {
+                Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
+            }
         }
-    }
-    if let resumeCommand = entry.resumeCommand {
-        Button {
-            let pb = NSPasteboard.general
-            pb.clearContents()
-            pb.setString(resumeCommand, forType: .string)
-        } label: {
-            Text(String(localized: "sessionIndex.row.copyResume", defaultValue: "Copy Resume Command"))
-        }
-    }
-    if let cwd = entry.cwd, !cwd.isEmpty {
-        Button {
-            NSWorkspace.shared.open(URL(fileURLWithPath: cwd))
-        } label: {
-            Text(String(localized: "sessionIndex.row.openCwd", defaultValue: "Open Working Directory"))
-        }
-    }
-    if let pr = entry.pullRequest, let url = URL(string: pr.url) {
-        Divider()
-        Button {
-            NSWorkspace.shared.open(url)
-        } label: {
-            Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
+        if let pr = entry.pullRequest, let url = URL(string: pr.url) {
+            Divider()
+            Button {
+                NSWorkspace.shared.open(url)
+            } label: {
+                Text(String(localized: "sessionIndex.row.openPR", defaultValue: "Open Pull Request"))
+            }
         }
     }
 }
@@ -1013,7 +929,7 @@ private struct SectionPopoverView: View {
                                 },
                                 dragItemProvider: { sessionDragItemProvider(for: entry) },
                                 menuContent: {
-                                    sessionRowMenuItems(entry: entry, onResume: { _ in
+                                    SessionRowMenu(entry: entry, onResume: { _ in
                                         onResume?(entry)
                                         onDismiss()
                                     })
@@ -1242,14 +1158,32 @@ private struct SectionPopoverView: View {
     }
 }
 
-// `PopoverRow` and `RelativeTimestampSchedule` were moved to
-// `CmuxSessionIndexUI` (Rows/PopoverRow.swift + Rows/RelativeTimestampSchedule.swift).
-// The drag-payload factory (`sessionDragItemProvider`) and shared menu builder
-// (`sessionRowMenuItems`) stay app-side and are injected into the package
-// `PopoverRow` as the `dragItemProvider` / `menuContent` closures at the call site
-// in `SectionPopoverView`. The relative formatter now lives on the package row;
-// `SessionIndexView.relativeFormatter`/`absoluteFormatter` stay app-side for
-// `SessionRow`, which has not been moved.
+// `SessionRow`, `PopoverRow`, and `RelativeTimestampSchedule` were moved to
+// `CmuxSessionIndexUI` (Rows/SessionRow.swift + Rows/PopoverRow.swift +
+// Rows/RelativeTimestampSchedule.swift). The drag-payload factory
+// (`sessionDragItemProvider`), shared menu view (`SessionRowMenu`), and the
+// transcript-preview popover host (`SessionTranscriptPopoverHost`, an AppKit
+// `NSViewRepresentable`) stay app-side and are injected into the package rows as the
+// `dragItemProvider` / `menuContent` / `previewHost` closures at the call sites in
+// `IndexSectionView` and `SectionPopoverView`. Both rows resolve relative time
+// themselves via the package's `RelativeTimestampSchedule`; the app keeps only the
+// absolute-time `SessionIndexView.absoluteFormatter`, used to compose the row's
+// hover tooltip in `SessionEntry.sessionRowHelpText`.
+
+extension SessionEntry {
+    /// The multi-line hover tooltip for a full session row: the display title, the
+    /// optional working-directory label, and the absolute modified time. Composed
+    /// app-side because the absolute time uses the app's `DateFormatter`, then
+    /// passed into the package `SessionRow` as a resolved string.
+    var sessionRowHelpText: String {
+        var lines: [String] = [displayTitle]
+        if let cwd = cwdLabel {
+            lines.append(cwd)
+        }
+        lines.append(SessionIndexView.absoluteFormatter.string(from: modified))
+        return lines.joined(separator: "\n")
+    }
+}
 
 // MARK: - Drag payload
 

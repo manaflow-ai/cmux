@@ -25,17 +25,11 @@ struct BrowserOpenTabSuggestionSnapshot: Equatable {
     }
 }
 
-extension BrowserHistoryStore {
-    static func uiTestSeedEntriesIfConfigured() -> [Entry]? {
-        let env = ProcessInfo.processInfo.environment
-        guard env["CMUX_UI_TEST_MODE"] == "1",
-              let rawSeed = env["CMUX_UI_TEST_BROWSER_HISTORY_JSON"],
-              let data = rawSeed.data(using: .utf8) else {
-            return nil
-        }
-        return try? JSONDecoder().decode([Entry].self, from: data)
-    }
-}
+// The former app-side `BrowserHistoryStore.uiTestSeedEntriesIfConfigured()`
+// extension moved into `CmuxBrowser` as the store's default
+// `uiTestSeedEntriesProvider` (`BrowserHistoryStore.uiTestSeedEntriesFromEnvironment()`).
+// Its only caller was the store's `loadIfNeeded()`, which now consults that
+// provider directly inside the package.
 
 final class BrowserOpenTabSuggestionIndex {
     private var suggestionsByPanelId: [UUID: BrowserOpenTabSuggestionSnapshot] = [:]

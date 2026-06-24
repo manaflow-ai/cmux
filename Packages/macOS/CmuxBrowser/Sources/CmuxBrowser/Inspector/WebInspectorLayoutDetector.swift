@@ -73,4 +73,62 @@ public struct WebInspectorLayoutDetector {
         guard let contentView = window.contentView else { return false }
         return windowContainsInspectorViews(contentView)
     }
+
+    /// Whether the subtree rooted at `container` shows a side-docked inspector: any
+    /// visible inspector leaf that sits horizontally adjacent to a visible sibling
+    /// with meaningful vertical overlap, walking up to `container`. Pass the
+    /// web view's superview as `container`; a nil container means no layout to
+    /// inspect.
+    public func hasSideDockedLayout(in container: NSView?) -> Bool {
+        guard let container else { return false }
+        return visibleDescendants(in: container)
+            .filter { isVisibleSideDockInspectorCandidate($0) && isInspectorView($0) }
+            .contains { inspectorCandidate in
+                hasSideDockedInspectorSibling(startingAt: inspectorCandidate, root: container)
+            }
+    }
+
+    /// Whether any ancestor container of `inspectorLeaf` (up to but excluding `root`)
+    /// holds a visible sibling beside the inspector: horizontally adjacent within a
+    /// 1pt slop and overlapping vertically by more than 8pt.
+    private func hasSideDockedInspectorSibling(startingAt inspectorLeaf: NSView, root: NSView) -> Bool {
+        var current: NSView? = inspectorLeaf
+
+        while let inspectorView = current, inspectorView !== root {
+            guard let containerView = inspectorView.superview else { break }
+            let hasSideDockedSibling = containerView.subviews.contains { candidate in
+                guard isVisibleSideDockSiblingCandidate(candidate) else { return false }
+                guard candidate !== inspectorView else { return false }
+                let horizontallyAdjacent =
+                    candidate.frame.maxX <= inspectorView.frame.minX + 1 ||
+                    candidate.frame.minX >= inspectorView.frame.maxX - 1
+                guard horizontallyAdjacent else { return false }
+                return verticalOverlap(between: candidate.frame, and: inspectorView.frame) > 8
+            }
+            if hasSideDockedSibling {
+                return true
+            }
+
+            current = containerView
+        }
+
+        return false
+    }
+
+    /// The number of Web Inspector chrome views anywhere in the subtree rooted at
+    /// `root`, counted by an explicit stack so deep trees never overflow. Used by the
+    /// app-side debug geometry summary.
+    public func inspectorSubviewCount(in root: NSView) -> Int {
+        var stack: [NSView] = [root]
+        var count = 0
+        while let current = stack.popLast() {
+            for subview in current.subviews {
+                if subview.cmuxIsWebInspectorObject {
+                    count += 1
+                }
+                stack.append(subview)
+            }
+        }
+        return count
+    }
 }
