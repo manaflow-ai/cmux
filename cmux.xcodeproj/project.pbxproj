@@ -164,6 +164,8 @@
 		A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */; };
 		A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */; };
 		A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */; };
+		A100000000000000000F1E30 /* ClaudeTranscriptPresence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1E31 /* ClaudeTranscriptPresence.swift */; };
+		A100000000000000000F1E40 /* ClaudeTranscriptPresenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1E41 /* ClaudeTranscriptPresenceTests.swift */; };
 		A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */; };
 		C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */; };
 		E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */; };
@@ -1324,6 +1326,8 @@
 		A5D41221A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookSurfaceResolutionSwiftTests.swift; sourceTree = "<group>"; };
 		A5D41223A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeNotificationStatusLifecycleTests.swift; sourceTree = "<group>"; };
 		A9F100000000000000000015 /* ClaudeStreamJSONAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ClaudeStreamJSONAccumulator.swift; sourceTree = "<group>"; };
+		A100000000000000000F1E31 /* ClaudeTranscriptPresence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ClaudeTranscriptPresence.swift; path = "Sources/CrashRecovery/ClaudeTranscriptPresence.swift"; sourceTree = SOURCE_ROOT; };
+		A100000000000000000F1E41 /* ClaudeTranscriptPresenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ClaudeTranscriptPresenceTests.swift; path = "cmuxTests/ClaudeTranscriptPresenceTests.swift"; sourceTree = SOURCE_ROOT; };
 		A5D4120EA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIAuthAliasTests.swift; sourceTree = "<group>"; };
 		C0D3F1F00000000000000104 /* CLICodexHookTimeoutRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICodexHookTimeoutRegressionTests.swift; sourceTree = "<group>"; };
 		1590EE4F01FEF02D40A48698 /* CLIExplicitSurfaceRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExplicitSurfaceRoutingTests.swift; sourceTree = "<group>"; };
@@ -2463,6 +2467,7 @@
 				A100000000000000000F1DA1 /* ResumeFidelityGate.swift */,
 				A100000000000000000F1DD1 /* RecoveryRouter.swift */,
 				A100000000000000000F1E01 /* RestoredNameResolver.swift */,
+				A100000000000000000F1E31 /* ClaudeTranscriptPresence.swift */,
 				27C38528E01954A4CDF2DC04 /* UncleanShutdownSentinel.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
@@ -3118,6 +3123,7 @@
 				A100000000000000000F1DE1 /* RecoveryRouterTests.swift */,
 				A100000000000000000F1E11 /* RestoredWorkspaceNameFidelityTests.swift */,
 				A100000000000000000F1E21 /* WindowSessionBindingTests.swift */,
+				A100000000000000000F1E41 /* ClaudeTranscriptPresenceTests.swift */,
 				2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */,
 				21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */,
 				8BD298CD20B84B435B23F97F /* UncleanShutdownSentinelTests.swift */,
@@ -3932,6 +3938,7 @@
 				CA52B0060000000000000000 /* CanvasLayoutSettings.swift in Sources */,
 				CA52B0070000000000000000 /* CanvasPaneContent.swift in Sources */,
 				A9F200000000000000000015 /* ClaudeStreamJSONAccumulator.swift in Sources */,
+				A100000000000000000F1E30 /* ClaudeTranscriptPresence.swift in Sources */,
 				C46790000000000000000003 /* CLIForwardingLaunchRouter.swift in Sources */,
 				C10D51700000000000000002 /* ClosedItemHistory.swift in Sources */,
 				C10D00010000000000000001 /* CloudVMActionLauncher.swift in Sources */,
@@ -4615,6 +4622,7 @@
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
 				A5D41220A1B2C3D4E5F60718 /* ClaudeHookSurfaceResolutionSwiftTests.swift in Sources */,
 				A5D41222A1B2C3D4E5F60718 /* ClaudeNotificationStatusLifecycleTests.swift in Sources */,
+				A100000000000000000F1E40 /* ClaudeTranscriptPresenceTests.swift in Sources */,
 				A5D4120DA1B2C3D4E5F60718 /* CLIAuthAliasTests.swift in Sources */,
 				C0D3F1F00000000000000103 /* CLICodexHookTimeoutRegressionTests.swift in Sources */,
 					E295EA3753206FE3FFCA6C0A /* CLIExplicitSurfaceRoutingTests.swift in Sources */,

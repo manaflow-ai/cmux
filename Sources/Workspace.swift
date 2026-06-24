@@ -1423,6 +1423,12 @@ extension Workspace {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
+                // Agent-first re-entry (breadcrumb / honest recovery) for a
+                // cold-restored agent — only for a true resume, not a hibernation
+                // restore (which has its own flow below).
+                if restoredHibernation == nil {
+                    scheduleCrashRecoveryReentry(panel: terminalPanel, agent: restorableAgent)
+                }
                 if let restoredHibernation,
                    restorableAgent.resumeCommand != nil {
                     terminalPanel.enterAgentHibernation(
@@ -12868,5 +12874,77 @@ extension Workspace: ResumableWorkspaceSurface {
         WorkspaceResumeCoordinator(
             injectBreadcrumb: CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults)
         ).canResume(self)
+    }
+
+    /// Silent-path agent-first re-entry for a cold-restored agent panel (U11/R17).
+    ///
+    /// cmux already issues the native `claude --resume` during restore (PR #6741
+    /// fixes the cwd it `cd`s into). This layers the *re-entry message* on top,
+    /// gated on a real crash / intentional-update relaunch and the opt-in
+    /// breadcrumb setting: when the binding **verifies** (the transcript exists at
+    /// this window's own cwd) the agent gets the transcript-anchored breadcrumb;
+    /// when it cannot be verified the agent gets the honest, cwd-scoped recovery
+    /// prompt — never a confident wrong guess, never a session picker. Deliberately
+    /// additive: it does not touch the native-resume mechanism or the binding
+    /// store that #6741 / #6631 are reshaping.
+    ///
+    /// Per-panel by construction (facts built from the panel's own snapshot, not
+    /// the focused-panel accessors), so a multi-window restore recovers each
+    /// window's own work without cross-bleed.
+    func scheduleCrashRecoveryReentry(
+        panel: TerminalPanel,
+        agent: SessionRestorableAgentSnapshot,
+        defaults: UserDefaults = .standard,
+        launchState: CrashRecoveryLaunchState = .shared
+    ) {
+        // Opt-in, and only after an actual crash or an intentional update relaunch
+        // (not every normal app restart).
+        guard CrashRecoverySettings.injectResumeBreadcrumb(defaults: defaults) else { return }
+        guard launchState.priorRunCrashed || launchState.restoreWasIntended else { return }
+        guard ResumeBreadcrumbBuilder.isSupported(agent.kind) else { return }
+
+        let presence: ClaudeTranscriptPresence
+        if agent.kind == .claude {
+            presence = ClaudeTranscriptPresenceResolver.resolve(
+                sessionId: agent.sessionId,
+                cwd: agent.workingDirectory,
+                configDirOverride: agent.launchCommand?.environment?["CLAUDE_CONFIG_DIR"]
+            )
+        } else {
+            // Codex sessions are id-keyed (cwd lives inside the session file), so
+            // there is no cwd-namespace to mismatch: a present session id is
+            // treated as verified-at-cwd, with no transcript path to anchor.
+            presence = ClaudeTranscriptPresence(
+                existsAtWindowCwd: !agent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                existsElsewhere: false,
+                resolvedPathAtWindowCwd: nil
+            )
+        }
+
+        let facts = ResumeBindingFacts(
+            hasBinding: true,
+            agentKind: agent.kind,
+            sessionId: agent.sessionId,
+            resumeCommandConstructable: agent.resumeCommand != nil,
+            transcriptExistsAtWindowCwd: presence.existsAtWindowCwd,
+            transcriptExistsElsewhere: presence.existsElsewhere
+        )
+        let context = RecoveryContext(
+            workspaceName: title,
+            cwd: agent.workingDirectory,
+            transcriptPath: presence.resolvedPathAtWindowCwd
+        )
+
+        // The setting gate above already decided injection is on, so a verified
+        // binding always yields a breadcrumb here.
+        let message: String
+        switch RecoveryRouter(injectBreadcrumb: true).route(facts, context: context) {
+        case .resumeVerified(let breadcrumb):
+            guard let breadcrumb else { return }
+            message = breadcrumb
+        case .honestRecovery(let prompt, _):
+            message = prompt
+        }
+        sendInputWhenReady(message + "\n", to: panel)
     }
 }
