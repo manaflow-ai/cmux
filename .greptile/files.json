@@ -26,6 +26,15 @@
       ]
     },
     {
+      "path": ".github/review-bot-rules/browser-automation-webkit-waits-off-main.md",
+      "description": "Source-of-truth cmux review rule for keeping browser socket automation WebKit waits off the main actor.",
+      "scope": [
+        "Sources/TerminalController.swift",
+        "Packages/macOS/CmuxControlSocket/Sources/CmuxControlSocket/Wire/ControlCommandExecutionPolicy.swift",
+        "Packages/macOS/CmuxControlSocket/Tests/CmuxControlSocketTests/ControlCommandExecutionPolicyTests.swift"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/runtime-no-hacky-sleeps.md",
       "description": "Source-of-truth cmux review rule for fixed sleeps, delays, and polling used as runtime synchronization.",
       "scope": [
@@ -136,6 +145,42 @@
       ]
     },
     {
+      "path": ".github/review-bot-rules/no-ambient-global-state.md",
+      "description": "Source-of-truth cmux review rule against ambient global state: top-level free functions, global mutable vars, static-only namespace types, and new singletons that should be owned and injected.",
+      "scope": [
+        "**/*.swift",
+        "**/Package.swift"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/hot-path-allocating-formatting.md",
+      "description": "Source-of-truth cmux review rule against per-call allocating formatting (String(format:), per-call formatters) on hot or concurrent Swift paths.",
+      "scope": [
+        "**/*.swift"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/reliability-single-source-of-truth.md",
+      "description": "Source-of-truth cmux review rule requiring a single reliable source of truth for correctness-critical detection/identity, with no title/name heuristics or unreliable fallbacks.",
+      "scope": [
+        "**/*.swift",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.mjs",
+        "**/*.cjs"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/react-base-ui-accessibility.md",
+      "description": "Source-of-truth cmux review rule requiring relevant Base UI or local React primitives for custom interactive UI accessibility and keyboard behavior.",
+      "scope": [
+        "web/**/*.tsx",
+        "web/**/*.jsx"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/source-control-artifacts.md",
       "description": "Source-of-truth cmux review rule for local/generated artifacts that should not enter source control.",
       "scope": [
@@ -178,6 +223,15 @@
         "README.md",
         "web/app/[locale]/page.tsx",
         "web/messages/en.json"
+      ]
+    },
+    {
+      "path": ".github/review-bot-rules/landing-page-registry-parity.md",
+      "description": "Source-of-truth cmux review rule for keeping new landing pages registered in sitemap.ts, agentReadablePages, the /guides index, and landing.links.",
+      "scope": [
+        "web/app/[locale]/(landing)/**/page.tsx",
+        "web/app/sitemap.ts",
+        "web/app/lib/agent-page-paths.ts"
       ]
     }
   ]

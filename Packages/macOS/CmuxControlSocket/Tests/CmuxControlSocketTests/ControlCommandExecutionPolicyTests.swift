@@ -24,11 +24,20 @@ struct ControlCommandExecutionPolicyTests {
             "workspace.remote.pty_bridge", "workspace.env", "sidebar.custom.reload",
             "sidebar.custom.open",
             "debug.sidebar.simulate_drag", "mobile.attach_ticket.create",
+            "mobile.terminal.set_font",
             // JavaScript-evaluating browser methods block on page JS and must
             // not hold the main actor (see socketWorkerMethods rationale).
             "browser.eval", "browser.wait", "browser.snapshot", "browser.click",
             "browser.fill", "browser.navigate", "browser.get.text",
             "browser.find.text", "browser.highlight",
+            // Adjacent WebKit/page-state methods wait on JS, cookie, or
+            // capture callbacks and follow the same worker-lane contract.
+            "browser.screenshot", "browser.frame.select", "browser.dialog.accept",
+            "browser.dialog.dismiss", "browser.cookies.get", "browser.cookies.set",
+            "browser.cookies.clear", "browser.storage.get", "browser.storage.set",
+            "browser.storage.clear", "browser.console.list", "browser.console.clear",
+            "browser.errors.list", "browser.state.save", "browser.state.load",
+            "browser.addinitscript", "browser.addscript", "browser.addstyle",
         ] {
             #expect(ControlCommandExecutionPolicy(forMethod: method).runsOnSocketWorker, "\(method)")
         }
@@ -37,7 +46,7 @@ struct ControlCommandExecutionPolicyTests {
     @Test func everythingElseRunsOnTheMainActor() {
         for method in [
             "surface.list", "workspace.create", "window.list", "browser.url.get",
-            "browser.open_split", "browser.screenshot", "browser.cookies.get",
+            "browser.open_split", "browser.get.title", "browser.frame.main",
             "mobile.terminal.create", "feed.jump", "vmx.create", "",
         ] {
             let policy = ControlCommandExecutionPolicy(forMethod: method)

@@ -28,6 +28,17 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Always reserve the scrollbar gutter so opening a modal doesn't remove the
+   scrollbar and shift the page. `html` covers the normal scrolling state;
+   `body` covers the locked state, because Base UI's dialog locks scroll by
+   setting `body { overflow: hidden }` (which makes the body the overflow box),
+   and `scrollbar-gutter: stable` there reserves exactly the width the removed
+   scrollbar took. No effect with overlay scrollbars. */
+html,
+body {
+  scrollbar-gutter: stable;
+}
+
 html {
   background: var(--background);
 }
@@ -66,13 +77,23 @@ body {
   }
 }
 
+/* macOS-style insertion point: visible most of the cycle, one quick soft
+   fade out, a short off, a quick fade back. ~1s period, visible longer than
+   hidden. Not a slow symmetric breathe and not a spring (carets never bounce). */
 @keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+  0%, 55% { opacity: 1; }
+  65%, 90% { opacity: 0; }
+  100% { opacity: 1; }
 }
 
 .animate-blink {
-  animation: blink 1s step-end infinite;
+  animation: blink 1.06s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-blink {
+    animation: none;
+  }
 }
 
 @keyframes fade-in {

@@ -39,6 +39,7 @@ public final class WorkstreamStore {
     private let initialLoadLimit: Int
     private let historyPageSize: Int
     private let clock: @Sendable () -> Date
+    private let titleProvider: (WorkstreamEvent) -> String?
     private var oldestLoadedPersistenceOffset: UInt64?
 
     /// Last known conversational context for each workstream. Tool hooks
@@ -46,13 +47,24 @@ public final class WorkstreamStore {
     /// carries forward prompt/preamble context from nearby telemetry rows.
     private var lastContextByWorkstream: [String: WorkstreamContext] = [:]
 
+    /// Creates a store for Feed workstream items.
+    ///
+    /// - Parameters:
+    ///   - transport: Source and reply transport for live Feed events.
+    ///   - persistence: Optional JSONL persistence for event history.
+    ///   - ringCapacity: Maximum in-memory item count.
+    ///   - initialLoadLimit: Maximum persisted item count loaded at startup.
+    ///   - historyPageSize: Page size for older persisted history.
+    ///   - clock: Clock used for timestamps and expiry checks.
+    ///   - titleProvider: App boundary hook for localized display titles.
     public init(
         transport: any WorkstreamTransport = NullWorkstreamTransport(),
         persistence: WorkstreamPersistence? = nil,
         ringCapacity: Int = WorkstreamDefaultRingCapacity,
         initialLoadLimit: Int = WorkstreamDefaultInitialLoadLimit,
         historyPageSize: Int = WorkstreamDefaultHistoryPageSize,
-        clock: @escaping @Sendable () -> Date = { Date() }
+        clock: @escaping @Sendable () -> Date = { Date() },
+        titleProvider: @escaping (WorkstreamEvent) -> String? = { _ in nil }
     ) {
         self.transport = transport
         self.persistence = persistence
@@ -60,6 +72,7 @@ public final class WorkstreamStore {
         self.initialLoadLimit = initialLoadLimit
         self.historyPageSize = historyPageSize
         self.clock = clock
+        self.titleProvider = titleProvider
     }
 
     public func start() async {
@@ -301,6 +314,20 @@ public final class WorkstreamStore {
                 .toolResult,
                 .toolResult(toolName: event.toolName ?? "", resultJSON: toolInput, isError: false)
             )
+        case .preCompact:
+            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
+        case .postCompact:
+            return (
+                .toolResult,
+                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
+            )
+        case .subagentStart:
+            return (.toolUse, .toolUse(toolName: titleProvider(event) ?? event.hookEventName.rawValue, toolInputJSON: toolInput))
+        case .subagentStop:
+            return (
+                .toolResult,
+                .toolResult(toolName: titleProvider(event) ?? event.hookEventName.rawValue, resultJSON: toolInput, isError: false)
+            )
         case .userPromptSubmit:
             let prompt = Self.promptText(from: event.toolInputJSON)
             return (
@@ -311,7 +338,7 @@ public final class WorkstreamStore {
             return (.sessionStart, .sessionStart)
         case .sessionEnd:
             return (.sessionEnd, .sessionEnd)
-        case .stop, .subagentStop:
+        case .stop:
             return (.stop, .stop(reason: Self.stopReason(from: event.toolInputJSON)))
         case .todoWrite:
             return (.todos, .todos(Self.todos(from: event.toolInputJSON)))
@@ -324,7 +351,7 @@ public final class WorkstreamStore {
         if let tool = event.toolName, !tool.isEmpty {
             return tool
         }
-        return nil
+        return titleProvider(event)
     }
 
     /// Parses Claude Code's `AskUserQuestion` tool input (or similar)

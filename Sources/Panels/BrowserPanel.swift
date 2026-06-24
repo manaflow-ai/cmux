@@ -3234,7 +3234,7 @@ final class BrowserPanel: Panel, ObservableObject {
             restoreDiscardedWebViewIfNeeded(reason: "visible.\(reason)")
             drainPendingInteractiveBrowserPromptsIfPossible(reason: "visible.\(reason)")
         } else if changed || isFirstVisibilityRecord || !hiddenWebViewDiscardManager.hasScheduledDiscard {
-            scheduleHiddenWebViewDiscardIfNeeded(reason: reason)
+            scheduleHiddenWebViewDiscardIfNeeded(reason: reason, now: now)
         }
     }
 
@@ -3316,8 +3316,8 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
-    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
-        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
+    private func scheduleHiddenWebViewDiscardIfNeeded(reason: String, now: Date = Date()) {
+        hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason, now: now)
     }
 
     private func cancelHiddenWebViewDiscard() {
@@ -3401,6 +3401,11 @@ final class BrowserPanel: Panel, ObservableObject {
         refreshNavigationAvailability()
         refreshWebViewLifecycleState()
         return true
+    }
+
+    @discardableResult
+    func discardHiddenWebViewForSystemMemoryPressure(now: Date = Date()) -> Bool {
+        hiddenWebViewDiscardManager.requestImmediateDiscardIfSafe(reason: "system_memory_pressure", now: now)
     }
 
     @discardableResult
@@ -4807,18 +4812,9 @@ final class BrowserPanel: Panel, ObservableObject {
             return
         }
         if usesTransparentBackground {
-            // Transparent-background internal surface (the diff viewer, and future
-            // app-bundled cmux panels) on an OPAQUE theme. The page keeps its body
-            // transparent, and the pane behind it is a plain gray window backdrop,
-            // not the terminal color. With WebKit drawing its own background the
-            // webview flashes white during navigation (blank document) and any
-            // transparent page region (loading skeleton, empty/error state) shows
-            // gray. So instead of letting WebKit draw, paint the webview and its
-            // portal anchor with the theme color directly (clear-draw + themed
-            // layer, exactly like the markdown and agent-session renderers). That
-            // makes the blank webview, the brief pane-reveal frame, and every
-            // transparent page region render the terminal color from the first
-            // frame. Tracks live theme changes via this same call.
+            // Transparent internal pages keep their page CSS clear. On opaque
+            // themes, the native webview layer owns the terminal-color backing
+            // fill so loading/empty/code regions never fall through to window gray.
             webView.wantsLayer = true
             webView.setValue(false, forKey: "drawsBackground")
             webView.underPageBackgroundColor = color

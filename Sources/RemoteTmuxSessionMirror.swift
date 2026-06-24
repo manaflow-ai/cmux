@@ -18,6 +18,30 @@ final class RemoteTmuxSessionMirror {
     /// Updates the tracked session name after a `rename-session`.
     func setSessionName(_ name: String) { sessionName = name }
 
+    /// Re-titles the mirror's sidebar workspace to track a remote session rename
+    /// (the reverse of the cmux→tmux `rename-session` push). Uses TabManager's
+    /// title path so selected-window chrome refreshes, while suppressing the
+    /// `rename-session` propagation that would otherwise feed back on itself.
+    /// The remote session name is the source of truth for a mirror workspace's
+    /// title, mirroring how a remote window rename unconditionally re-titles its
+    /// tab, so this overwrites any local custom title.
+    func applySessionNameToWorkspaceTitle(_ name: String) {
+        guard let safe = RemoteTmuxHost.controlModeLineSafeName(name) else { return }
+        guard let workspace else { return }
+        let currentManager = workspace.owningTabManager
+            ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+            ?? tabManager
+        if currentManager?.setCustomTitle(
+            tabId: workspace.id,
+            title: safe,
+            propagateToRemoteTmux: false
+        ) == true {
+            return
+        }
+        _ = workspace.setCustomTitle(safe)
+    }
+
+    private weak var tabManager: TabManager?
     private weak var workspace: Workspace?
     private let defaultPanelIds: [UUID]
     private var defaultClosed = false
@@ -42,11 +66,13 @@ final class RemoteTmuxSessionMirror {
         host: RemoteTmuxHost,
         sessionName: String,
         connection: RemoteTmuxControlConnection,
+        tabManager: TabManager,
         workspace: Workspace
     ) {
         self.host = host
         self.sessionName = sessionName
         self.connection = connection
+        self.tabManager = tabManager
         self.workspace = workspace
         self.defaultPanelIds = Array(workspace.panels.keys)
 
