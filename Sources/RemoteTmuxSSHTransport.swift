@@ -86,6 +86,64 @@ actor RemoteTmuxSSHTransport {
         return try await Self.runProcess(executable: sshExecutablePath, arguments: sshArgs)
     }
 
+    /// Establishes the shared SSH ControlMaster and confirms it is accepting
+    /// multiplexed sessions, so the burst of `tmux -CC attach` control connections
+    /// the controller spawns next (each `ControlMaster=auto`) attach to a *ready*
+    /// master instead of all racing to create it.
+    ///
+    /// On a cold first attach with many sessions, that creation race makes all but
+    /// one connection fail with "ControlSocket … already exists, disabling
+    /// multiplexing" — so only one session mirrors. A second attach happened to
+    /// work only because the master was still warm from `ControlPersist`.
+    ///
+    /// Idempotent and authoritative: `ssh -O check` is the single readiness
+    /// signal. Returns immediately if a master is already live (the warm path,
+    /// e.g. after ``listSessions`` opened it); otherwise opens it exactly once —
+    /// a single creator can't hit the burst's creation race — and re-checks.
+    ///
+    /// - Returns: `true` only when `ssh -O check` confirms the master. Callers
+    ///   MUST fail closed and NOT start the attach burst on `false` (an unready
+    ///   master would put the race back).
+    /// - Throws: `CancellationError` if the caller is cancelled (e.g. a v2VmCall
+    ///   timeout), so it aborts here instead of proceeding against a cold master.
+    @discardableResult
+    func ensureMasterReady() async throws -> Bool {
+        try? host.ensureControlSocketDirectory()
+        if try await masterIsRunning() { return true }
+        // Open the master exactly once (single creator → no creation race), then
+        // confirm. Cancellation propagates; any other launch failure means the
+        // master could not be brought up, i.e. not ready.
+        do {
+            _ = try await run(["true"])
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return false
+        }
+        return try await masterIsRunning()
+    }
+
+    /// Whether the shared ControlMaster is live and accepting sessions, via the
+    /// local `ssh -O check` control command (hits the LOCAL socket, no network
+    /// round-trip).
+    ///
+    /// Propagates `CancellationError` (so a cancelled ``ensureMasterReady`` aborts
+    /// instead of falling through to create the master); collapses only ordinary
+    /// launch/socket failures to `false` (master absent → not running).
+    private func masterIsRunning() async throws -> Bool {
+        do {
+            let result = try await Self.runProcess(
+                executable: sshExecutablePath,
+                arguments: ["-O", "check", "-o", "ControlPath=\(host.controlSocketPath)", "--", host.destination]
+            )
+            return result.succeeded
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            return false
+        }
+    }
+
     /// Tears down the shared SSH master (e.g. when the user removes a host).
     func shutdownMaster() async {
         _ = try? await Self.runProcess(
