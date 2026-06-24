@@ -23,7 +23,9 @@ platform :ios do
       devices: devices,
       languages: languages,
       # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
-      override_status_bar: true
+      override_status_bar: true,
+      # Capture in dark mode.
+      dark_mode: true
     )
     UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
     frame unless ENV["SNAPSHOT_SKIP_FRAME"] == "1"
@@ -34,8 +36,14 @@ platform :ios do
   lane :frame do
     ss = File.expand_path("screenshots", __dir__)
     prep = File.expand_path("frame_assets/prepare_frames.py", __dir__)
+    ipad = File.expand_path("frame_assets/compose_ipad.py", __dir__)
     sh("python3", prep, ss)
+    # frameit applies the real photographic frame to the iPhone shots (it skips
+    # the landscape iPad — frameit has no landscape iPad frame).
     frame_screenshots(path: ss)
+    # The iPad is composited bezel-less in landscape (latest real screen, no
+    # dated frame, since frameit has no current/landscape iPad frame).
+    sh("python3", ipad, ss)
     UI.message("Framed screenshots written alongside originals (*_framed.png)")
   end
 

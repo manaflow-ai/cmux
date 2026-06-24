@@ -12,6 +12,9 @@ import UIKit
 /// - `CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1` feeds a recorded agent session.
 /// - `CMUX_UITEST_TERMINAL_TRANSCRIPT=claude|codex|opencode|pi` picks which one
 ///   (real captured sessions; see ``TerminalPreviewTranscripts``).
+/// - `CMUX_UITEST_TERMINAL_TARGET_COLS=<n>` auto-fits the font so the terminal is
+///   exactly n columns wide on any device, so a single recorded fixture fills
+///   the width edge-to-edge on both iPhone and iPad.
 struct TerminalLayoutPreviewView: View {
     var body: some View {
         TerminalLayoutPreviewSurface()
@@ -41,6 +44,7 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         }
         let fontSize = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_FONT_SIZE"]
             .flatMap(Float32.init) ?? MobileTerminalFontPreference.defaultSize
+        context.coordinator.currentFont = fontSize
         let view = GhosttySurfaceView(
             runtime: runtime,
             delegate: context.coordinator,
@@ -54,28 +58,47 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {}
 
-    /// Retained delegate (the surface holds it weakly). Feeds the selected
-    /// recorded agent session once the grid has real dimensions (the first
-    /// `didResize`), which is the reliable signal that the surface can render
-    /// output. Gated on CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1 so the blank
-    /// layout preview used by geometry tests is unchanged.
+    /// Retained delegate (the surface holds it weakly). Auto-fits the font to the
+    /// target column count (so one fixture fills any device's width), then feeds
+    /// the selected recorded agent session. Gated on
+    /// CMUX_UITEST_TERMINAL_PREVIEW_CONTENT=1.
     final class Coordinator: GhosttySurfaceViewDelegate {
+        var currentFont: Float32 = MobileTerminalFontPreference.defaultSize
+        private var didFitFont = false
         private var didFeedContent = false
         private let feedContent =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW_CONTENT"] == "1"
         private let transcriptName =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TRANSCRIPT"] ?? "claude"
+        private let targetCols =
+            ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TARGET_COLS"].flatMap(Int.init)
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize) {
-            guard feedContent, !didFeedContent, size.columns > 0, size.rows > 0 else { return }
+            guard feedContent, size.columns > 0, size.rows > 0 else { return }
+
+            // Auto-fit the font so the terminal is exactly `targetCols` wide.
+            // cols is inversely proportional to font size; one correction lands
+            // within ~1 column. Re-applying the font triggers another didResize.
+            if let target = targetCols, !didFitFont, transcriptName != "probe" {
+                didFitFont = true
+                let newFont = (currentFont * Float32(size.columns) / Float32(target))
+                    .rounded()
+                let clamped = min(max(newFont, 5), 40)
+                if Int(clamped) != Int(currentFont.rounded()) {
+                    currentFont = clamped
+                    surfaceView.setLiveFontSize(clamped)
+                    return
+                }
+            }
+
+            guard !didFeedContent else { return }
             didFeedContent = true
-            // Grid probe: print the live cols x rows + a column ruler so a single
-            // screenshot reveals the exact terminal grid to record fixtures at.
+
+            // Grid probe: print the live cols x rows + a column ruler.
             if transcriptName == "probe" {
                 var s = "iOS TERMINAL GRID: \(size.columns) cols x \(size.rows) rows\r\n\r\n"
-                let ruler = (1...size.columns).map { String($0 % 10) }.joined()
-                s += ruler + "\r\n"
+                s += (1...size.columns).map { String($0 % 10) }.joined() + "\r\n"
                 surfaceView.processOutput(Data(s.utf8))
                 return
             }

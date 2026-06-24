@@ -56,7 +56,8 @@ def main():
     if not os.path.isdir(ss):
         raise SystemExit(f"screenshots dir not found: {ss}")
 
-    resize_ipad_captures(ss)
+    # iPad is composited bezel-less in landscape (compose_ipad.py); no portrait
+    # resize for a frameit iPad frame anymore.
 
     shutil.copy(os.path.join(HERE, "Framefile.json"), os.path.join(ss, "Framefile.json"))
     shutil.copy(os.path.join(HERE, "background.jpg"), os.path.join(ss, "background.jpg"))

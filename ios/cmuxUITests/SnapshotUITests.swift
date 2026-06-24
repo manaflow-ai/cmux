@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// App Store screenshot capture, driven by `fastlane snapshot` (see
 /// ios/fastlane/Snapfile / Fastfile). Runs against a DEBUG build using the app's
@@ -20,15 +21,6 @@ final class SnapshotUITests: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         setupSnapshot(app)
 
-        // 0) Grid probe (temporary): reports the live cols x rows at the
-        // screenshot font so fixtures can be recorded at the exact width.
-        shoot("00-Probe", [
-            "CMUX_UITEST_TERMINAL_PREVIEW": "1",
-            "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
-            "CMUX_UITEST_TERMINAL_TRANSCRIPT": "probe",
-            "CMUX_UITEST_TERMINAL_FONT_SIZE": "8",
-        ])
-
         // 1) Workspace list.
         shoot("01-Workspaces", [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
@@ -41,11 +33,14 @@ final class SnapshotUITests: XCTestCase {
         ])
 
         // 3-6) Each agent, full terminal showing its real recorded session.
+        // TARGET_COLS auto-fits the font so the 76-col fixtures fill the width
+        // edge-to-edge on both iPhone and iPad.
         for (idx, agent) in ["claude", "codex", "opencode", "pi"].enumerated() {
             shoot(String(format: "%02d-%@", idx + 3, agent.capitalized), [
                 "CMUX_UITEST_TERMINAL_PREVIEW": "1",
                 "CMUX_UITEST_TERMINAL_PREVIEW_CONTENT": "1",
                 "CMUX_UITEST_TERMINAL_TRANSCRIPT": agent,
+                "CMUX_UITEST_TERMINAL_TARGET_COLS": "76",
             ])
         }
     }
@@ -56,6 +51,10 @@ final class SnapshotUITests: XCTestCase {
         full["CMUX_UITEST_MOCK_DATA"] = "1"
         app.launchEnvironment = full
         app.launch()
+        // iPad screenshots are captured in landscape.
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            XCUIDevice.shared.orientation = .landscapeLeft
+        }
         settle()
         snapshot(name)
         app.terminate()
