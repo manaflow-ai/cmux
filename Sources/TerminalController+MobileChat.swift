@@ -188,7 +188,7 @@ extension TerminalController {
             #endif
             return .err(code: "not_found", message: String(
                 localized: "mobile.chat.error.transcriptNotReadable",
-                defaultValue: "This conversation's transcript isn't readable on the Mac yet. Send the agent a prompt from its terminal, then retry."
+                defaultValue: "The Mac can't find a transcript file for this conversation. If the agent just started in a project folder, send it a prompt and tap Retry. If it's running in your home directory, it doesn't keep a transcript, so use the Terminal tab to interact."
             ), data: [
                 "session_id": sessionID
             ])
