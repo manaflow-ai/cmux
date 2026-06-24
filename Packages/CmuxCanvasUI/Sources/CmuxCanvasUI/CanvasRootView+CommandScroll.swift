@@ -8,12 +8,18 @@ extension CanvasRootView {
     func installCommandScrollMonitor() {
         guard commandScrollMonitor == nil else { return }
         commandScrollMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: [.scrollWheel, .magnify]
+            matching: [.scrollWheel, .magnify, .keyDown, .keyUp, .leftMouseDown, .leftMouseDragged, .leftMouseUp]
         ) { [weak self] event in
             guard let self,
                   let window = self.window,
                   event.window === window else {
                 return event
+            }
+            switch event.type {
+            case .keyDown, .keyUp, .leftMouseDown, .leftMouseDragged, .leftMouseUp:
+                return self.handleSpacePanEvent(event)
+            default:
+                break
             }
             let location = self.convert(event.locationInWindow, from: nil)
             guard self.bounds.contains(location) else { return event }

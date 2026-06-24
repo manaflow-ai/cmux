@@ -33,6 +33,8 @@ public final class CanvasRootView: NSView {
     /// Canvas coordinates of the document view's (0,0).
     var documentOriginInCanvas: CGPoint = .zero
     var dragSession: DragSession?
+    var spacePanSession: SpacePanSession?
+    var isSpacePanKeyDown = false, didConsumeSpacePanKeyDown = false, didPushSpacePanCursor = false
     var overviewRestore: (magnification: CGFloat, origin: CGPoint)?
     private var clipBoundsObserver: (any NSObjectProtocol)?
     private var scrollSettleObservers: [any NSObjectProtocol] = []
@@ -151,6 +153,7 @@ public final class CanvasRootView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil {
+            cancelSpacePan()
             removeCommandScrollMonitor()
         } else {
             installCommandScrollMonitor()
@@ -182,6 +185,7 @@ public final class CanvasRootView: NSView {
         commandScrollHintTask = nil
         zoomSettleTask?.cancel()
         zoomSettleTask = nil
+        cancelSpacePan()
         commandScrollHintHost?.removeFromSuperview()
         commandScrollHintHost = nil
         removeCommandScrollMonitor()
