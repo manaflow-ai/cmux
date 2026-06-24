@@ -71,6 +71,7 @@ final class TerminalPanel: Panel, ObservableObject {
     @Published var isTextBoxActive: Bool = false
     @Published var textBoxContent: String = ""
     @Published var textBoxAttachments: [TextBoxAttachment] = []
+    @Published var pendingTextBoxProviderLaunchAction: TextBoxSubmitAction?
     weak var textBoxInputView: TextBoxInputTextView?
     private var shouldFocusTextBoxWhenAvailable = false
     private var shouldOpenTextBoxFilePickerWhenAvailable = false

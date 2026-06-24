@@ -2428,6 +2428,7 @@ struct TextBoxInputContainer: View {
 
     @Binding var text: String
     @Binding var attachments: [TextBoxAttachment]
+    @Binding var pendingProviderLaunchAction: TextBoxSubmitAction?
     let surface: TerminalSurface
     let terminalBackgroundColor: NSColor
     let terminalForegroundColor: NSColor
@@ -2445,7 +2446,6 @@ struct TextBoxInputContainer: View {
     @State private var textViewHeight: CGFloat = 0
     @State private var hasPendingAttachmentUpload = false
     @State private var hasMarkedText = false
-    @State var pendingProviderLaunchAction: TextBoxSubmitAction?
     @State private var textViewReference = TextBoxInputViewReference()
     @State private var contentRevision: UInt64 = 0
     @ObservedObject private var commentPool: DiffCommentSubmissionPool = .shared
