@@ -462,7 +462,7 @@ struct WorkspaceDetailView: View {
     /// A nav-bar title on its own Liquid Glass capsule (iOS 26+) so it stays
     /// readable over the pane showing through the cleared header bar. On iOS 18
     /// the bar keeps a material background, so `mobileGlassNavigationTitle` is a
-    /// no-op and this renders as plain text.
+    /// visual no-op and this renders as plain text.
     private func glassTitle(_ text: String) -> some View {
         Text(text)
             .font(.headline)
