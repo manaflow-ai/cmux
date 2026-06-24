@@ -247,13 +247,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         return result
     }
 
-    /// Reachability prober for the Computers screen. Owned here (the layer that
-    /// already knows the transport) so the SwiftUI package depends only on the
-    /// core ``CmxRoutePinging`` seam and never constructs the concrete network
-    /// service itself. Injected via `init` (default = the production network
-    /// pinger) so shell/UI tests can drive the Ping UI with deterministic
-    /// success/refused/timeout results instead of real sockets.
-    /// `@ObservationIgnored`: it is stateless infrastructure, not observed state.
+    /// Reachability prober for the Computers screen, injected via `init` (default
+    /// = production network pinger) so the UI depends only on the core
+    /// ``CmxRoutePinging`` seam and tests can pass a fake. `@ObservationIgnored`:
+    /// stateless infrastructure, not observed state.
     @ObservationIgnored
     private let routePinger: any CmxRoutePinging
 
