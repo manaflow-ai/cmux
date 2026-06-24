@@ -3358,7 +3358,7 @@ final class BrowserPanel: Panel, ObservableObject {
         detachWebViewObservers()
         closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        oldWebView.stopLoading()
+        webAuthnCoordinator.uninstall(from: oldWebView); oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
@@ -4399,7 +4399,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: "profileSwitch")
         closeBackgroundPreloadHost(reason: "profileSwitch")
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
-        previousWebView.stopLoading()
+        webAuthnCoordinator.uninstall(from: previousWebView); previousWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         previousWebView.navigationDelegate = nil
         previousWebView.uiDelegate = nil
@@ -4980,7 +4980,7 @@ final class BrowserPanel: Panel, ObservableObject {
         cancelPendingInteractiveBrowserPrompts(reason: reason)
         closeBackgroundPreloadHost(reason: reason)
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        oldWebView.stopLoading()
+        webAuthnCoordinator.uninstall(from: oldWebView); oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
@@ -5172,7 +5172,7 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
-        webView.stopLoading()
+        webAuthnCoordinator.uninstall(from: webView); webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -5991,7 +5991,7 @@ extension BrowserPanel {
         cancelPendingInteractiveBrowserPrompts(reason: "contextReset")
         closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        oldWebView.stopLoading()
+        webAuthnCoordinator.uninstall(from: oldWebView); oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
