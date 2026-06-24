@@ -96,6 +96,12 @@ import Testing
             attachTicketAuthenticated: true,
             connectionState: .disconnected
         ))
+        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+            stackAuthenticated: true,
+            attachTicketAuthenticated: false,
+            attachURLConnectionInProgress: true,
+            connectionState: .disconnected
+        ))
     }
 
     @Test func waitsForAuthenticatedUserScopeBeforeDecidingNoSavedMacs() {

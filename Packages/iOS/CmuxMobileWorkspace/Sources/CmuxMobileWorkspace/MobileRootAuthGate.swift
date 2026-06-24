@@ -78,14 +78,19 @@ public struct MobileRootAuthGate {
     /// - Parameters:
     ///   - stackAuthenticated: Whether Stack auth is established.
     ///   - attachTicketAuthenticated: Whether a temporary attach ticket grants access.
+    ///   - attachURLConnectionInProgress: Whether a launch/deep-link attach URL is already connecting.
     ///   - connectionState: The current connection state.
     /// - Returns: `true` when Stack-authenticated without a temporary ticket and not yet connected.
     public static func shouldReconnectStoredMac(
         stackAuthenticated: Bool,
         attachTicketAuthenticated: Bool,
+        attachURLConnectionInProgress: Bool = false,
         connectionState: MobileConnectionState
     ) -> Bool {
-        stackAuthenticated && !attachTicketAuthenticated && connectionState != .connected
+        stackAuthenticated
+            && !attachTicketAuthenticated
+            && !attachURLConnectionInProgress
+            && connectionState != .connected
     }
 
     /// Whether the root should wait for Stack's concrete user id before deciding
