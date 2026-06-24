@@ -76,6 +76,13 @@ final class ChatLabViewController: UIViewController {
         list.onBeginDragging = { [weak self] _ in self?.beginDragSync() }
         list.onEndDragging = { [weak self] _ in self?.endDragSync() }
 
+        // Tap anywhere in the list (a message or the negative space) dismisses
+        // the keyboard. cancelsTouchesInView is false so it never swallows a
+        // scroll or a future cell tap.
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleListTap))
+        tap.cancelsTouchesInView = false
+        list.collectionView.addGestureRecognizer(tap)
+
         typingLabel.text = "Agent is typing…"
         typingLabel.font = .preferredFont(forTextStyle: .footnote)
         typingLabel.textColor = .secondaryLabel
@@ -110,6 +117,14 @@ final class ChatLabViewController: UIViewController {
         center.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
         center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
+    }
+
+    @objc private func handleListTap() {
+        guard composer.editor.isFirstResponder else { return }
+        // Resign the text view, then re-become first responder so the accessory
+        // bar stays docked at the bottom instead of disappearing.
+        composer.editor.resignFirstResponder()
+        becomeFirstResponder()
     }
 
     @objc private func keyboardWillShow(_ note: Notification) { keyboardVisible = true }

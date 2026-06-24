@@ -63,6 +63,25 @@ final class ChatLabUITests: XCTestCase {
         XCTAssertLessThanOrEqual(maxDelta, 4.0, "composer/list tracking drifted: \(probe.value ?? "nil")")
     }
 
+    /// Tapping the list (a message or negative space) dismisses the keyboard.
+    func testTappingListDismissesKeyboard() throws {
+        let app = launch(fixture: "wrapping")
+        let list = app.otherElements["ChatLabList"]
+        XCTAssertTrue(list.waitForExistence(timeout: 15))
+
+        let field = app.textViews["ChatLabComposerField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "keyboard did not appear")
+
+        // Tap in the list's upper area (a message / negative space), not the composer.
+        list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+
+        let gone = NSPredicate(format: "exists == false")
+        expectation(for: gone, evaluatedWith: app.keyboards.element)
+        waitForExpectations(timeout: 5)
+    }
+
     /// Scrolling a large history must stay smooth (hitch gate, soft).
     func testLargeHistoryScrollPerformance() throws {
         let app = launch(fixture: "history-10k")
