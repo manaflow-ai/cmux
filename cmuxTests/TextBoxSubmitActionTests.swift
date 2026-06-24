@@ -121,7 +121,7 @@ struct TextBoxSubmitActionTests {
 
         XCTAssertEqual(
             claude.command(forPrompt: "ship user's fix"),
-            "claude --dangerously-skip-permissions 'ship user'\\''s fix'"
+            "env CLAUDE_CODE_SANDBOXED=1 claude --dangerously-skip-permissions 'ship user'\\''s fix'"
         )
         XCTAssertEqual(launchCommandsByID["claude"], nil)
         XCTAssertEqual(
