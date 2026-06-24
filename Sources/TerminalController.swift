@@ -1837,10 +1837,9 @@ class TerminalController {
         // still-shared v2SurfaceMove). surface.action/tab.action and
         // surface.drag_to_split/surface.split_off (the latter forwarding to the
         // still-shared v2SurfaceSplitOff) handled by ControlCommandCoordinator too.
-        // surface.refresh/health/resume.set/get/clear, debug.terminals (forwards to the
-        // still-shared v2DebugTerminals), surface.send_text/send_key/report_tty/
-        // report_pwd/report_shell_state/ports_kick/clear_history/trigger_flash, and
-        // surface.read_text handled by ControlCommandCoordinator.
+        // surface.refresh/health/resume.set/get/clear, debug.terminals, surface.send_text/
+        // send_key/report_tty/report_pwd/report_shell_state/ports_kick/clear_history/
+        // trigger_flash/read_text handled by ControlCommandCoordinator.
 
         // Panes
         // pane.* handled by ControlCommandCoordinator.

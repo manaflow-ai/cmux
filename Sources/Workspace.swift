@@ -2545,6 +2545,10 @@ final class Workspace: Identifiable, ObservableObject {
     private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
         extensionSidebarProjectRootRefreshID &+= 1
         let refreshID = extensionSidebarProjectRootRefreshID
+        guard !isRemoteWorkspace else {
+            extensionSidebarProjectRootPath = nil
+            return
+        }
         let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedDirectory.isEmpty else {
             extensionSidebarProjectRootPath = nil
@@ -4459,13 +4463,13 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func configTrackingDirectory(for panelId: UUID?) -> String? {
-        // A remote tmux mirror's directories are paths on the REMOTE host.
+        // A remote workspace's directories are paths on the REMOTE host.
         // Feeding one into local cmux.json tracking makes CmuxConfigStore walk
         // the ancestor chain with FileManager.fileExists on the main thread,
         // and stat'ing e.g. /home/… locally blocks on the autofs automounter
         // for hundreds of ms (measured via sample during tab-reveal stalls).
         // No local per-directory config can apply to a remote path — track none.
-        if isRemoteTmuxMirror { return nil }
+        if isRemoteWorkspace { return nil }
         if let panelId {
             for candidate in [
                 panelDirectories[panelId],
@@ -4504,8 +4508,9 @@ final class Workspace: Identifiable, ObservableObject {
         }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
-            if surfaceTabBarDirectory != trimmed {
-                surfaceTabBarDirectory = trimmed
+            let nextSurfaceTabBarDirectory = configTrackingDirectory(for: panelId)
+            if surfaceTabBarDirectory != nextSurfaceTabBarDirectory {
+                surfaceTabBarDirectory = nextSurfaceTabBarDirectory
             }
             if currentDirectory != trimmed {
                 currentDirectory = trimmed

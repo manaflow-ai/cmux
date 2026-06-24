@@ -300,7 +300,7 @@ if test "$_cmux_integration_enabled" != 0
             set -g _CMUX_PWD_LAST_PWD "$pwd"
             if _cmux_socket_is_unix
                 if test -n "$CMUX_TAB_ID"; and test -n "$CMUX_PANEL_ID"
-                    set -l qpwd (string replace -a '"' '\"' -- "$pwd")
+                    set -l qpwd (_cmux_json_escape "$pwd")
                     _cmux_send_bg "report_pwd \"$qpwd\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
                 end
             else
