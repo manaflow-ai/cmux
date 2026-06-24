@@ -262,160 +262,6 @@ final class BrowserProfileStore: ObservableObject {
 // seam to `RealizedBrowserImportExecutionPlan.realized(from:profileResolver:)`.
 extension BrowserProfileStore: BrowserImportProfileResolving {}
 
-enum BrowserLinkOpenSettings {
-    static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
-    static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
-
-    static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
-    static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
-
-    static let openSidebarPortLinksInCmuxBrowserKey = "browserOpenSidebarPortLinksInCmuxBrowser"
-    static let defaultOpenSidebarPortLinksInCmuxBrowser: Bool = true
-
-    static let interceptTerminalOpenCommandInCmuxBrowserKey = "browserInterceptTerminalOpenCommandInCmuxBrowser"
-    static let defaultInterceptTerminalOpenCommandInCmuxBrowser: Bool = true
-
-    static let browserHostWhitelistKey = "browserHostWhitelist"
-    static let defaultBrowserHostWhitelist: String = ""
-    static let browserExternalOpenPatternsKey = "browserExternalOpenPatterns"
-    static let defaultBrowserExternalOpenPatterns: String = ""
-
-    static func openTerminalLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
-        if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) == nil {
-            return defaultOpenTerminalLinksInCmuxBrowser
-        }
-        return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
-    }
-
-    static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
-        if defaults.object(forKey: openSidebarPullRequestLinksInCmuxBrowserKey) == nil {
-            return defaultOpenSidebarPullRequestLinksInCmuxBrowser
-        }
-        return defaults.bool(forKey: openSidebarPullRequestLinksInCmuxBrowserKey)
-    }
-
-    static func openSidebarPortLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
-        if defaults.object(forKey: openSidebarPortLinksInCmuxBrowserKey) == nil {
-            return defaultOpenSidebarPortLinksInCmuxBrowser
-        }
-        return defaults.bool(forKey: openSidebarPortLinksInCmuxBrowserKey)
-    }
-
-    static func interceptTerminalOpenCommandInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return false }
-        if defaults.object(forKey: interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
-            return defaults.bool(forKey: interceptTerminalOpenCommandInCmuxBrowserKey)
-        }
-
-        // Migrate existing behavior for users who only had the link-click toggle.
-        if defaults.object(forKey: openTerminalLinksInCmuxBrowserKey) != nil {
-            return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
-        }
-
-        return defaultInterceptTerminalOpenCommandInCmuxBrowser
-    }
-
-    static func initialInterceptTerminalOpenCommandInCmuxBrowserValue(defaults: UserDefaults = .standard) -> Bool {
-        interceptTerminalOpenCommandInCmuxBrowser(defaults: defaults)
-    }
-
-    static func hostWhitelist(defaults: UserDefaults = .standard) -> [String] {
-        let raw = defaults.string(forKey: browserHostWhitelistKey) ?? defaultBrowserHostWhitelist
-        return raw
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-    }
-
-    static func externalOpenPatterns(defaults: UserDefaults = .standard) -> [String] {
-        let raw = defaults.string(forKey: browserExternalOpenPatternsKey) ?? defaultBrowserExternalOpenPatterns
-        return raw
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-    }
-
-    static func shouldOpenExternally(_ url: URL, defaults: UserDefaults = .standard) -> Bool {
-        shouldOpenExternally(url.absoluteString, defaults: defaults)
-    }
-
-    static func shouldOpenExternally(_ rawURL: String, defaults: UserDefaults = .standard) -> Bool {
-        let target = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !target.isEmpty else { return false }
-        guard BrowserAvailabilitySettings.isEnabled(defaults: defaults) else { return true }
-
-        for rawPattern in externalOpenPatterns(defaults: defaults) {
-            guard let (isRegex, value) = parseExternalPattern(rawPattern) else { continue }
-            if isRegex {
-                guard let regex = try? NSRegularExpression(pattern: value, options: [.caseInsensitive]) else { continue }
-                let range = NSRange(target.startIndex..<target.endIndex, in: target)
-                if regex.firstMatch(in: target, options: [], range: range) != nil {
-                    return true
-                }
-            } else if target.range(of: value, options: [.caseInsensitive]) != nil {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    /// Check whether a hostname matches the configured whitelist.
-    /// Empty whitelist means "allow all" (no filtering).
-    /// Supports exact match and wildcard prefix (`*.example.com`).
-    static func hostMatchesWhitelist(_ host: String, defaults: UserDefaults = .standard) -> Bool {
-        let rawPatterns = hostWhitelist(defaults: defaults)
-        if rawPatterns.isEmpty { return true }
-        guard let normalizedHost = RemoteLoopbackProxyAlias.normalizeHost(host) else { return false }
-        for rawPattern in rawPatterns {
-            guard let pattern = normalizeWhitelistPattern(rawPattern) else { continue }
-            if hostMatchesPattern(normalizedHost, pattern: pattern) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private static func normalizeWhitelistPattern(_ rawPattern: String) -> String? {
-        let trimmed = rawPattern
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.hasPrefix("*.") {
-            let suffixRaw = String(trimmed.dropFirst(2))
-            guard let suffix = RemoteLoopbackProxyAlias.normalizeHost(suffixRaw) else { return nil }
-            return "*.\(suffix)"
-        }
-
-        return RemoteLoopbackProxyAlias.normalizeHost(trimmed)
-    }
-
-    private static func hostMatchesPattern(_ host: String, pattern: String) -> Bool {
-        if pattern.hasPrefix("*.") {
-            let suffix = String(pattern.dropFirst(2))
-            return host == suffix || host.hasSuffix(".\(suffix)")
-        }
-        return host == pattern
-    }
-
-    private static func parseExternalPattern(_ rawPattern: String) -> (isRegex: Bool, value: String)? {
-        let trimmed = rawPattern.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        if trimmed.lowercased().hasPrefix("re:") {
-            let regexPattern = String(trimmed.dropFirst(3)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !regexPattern.isEmpty else { return nil }
-            return (isRegex: true, value: regexPattern)
-        }
-
-        return (isRegex: false, value: trimmed)
-    }
-}
-
 func browserPreparedNavigationRequest(_ request: URLRequest) -> URLRequest {
     var preparedRequest = request
     // Match browser behavior for ordinary loads while preserving method/body/headers.
@@ -595,7 +441,7 @@ private func browserOpenExternalNavigationURL(
 #if DEBUG
     cmuxDebugLog(
         "browser.navigation.external source=\(source) opened=\(opened ? 1 : 0) " +
-        "url=\(browserNavigationDebugURL(url))"
+        "url=\(BrowserPopupNavigationPolicy().debugURL(url))"
     )
 #endif
     return opened
@@ -618,7 +464,7 @@ func browserHandleExternalNavigation(
 #if DEBUG
         cmuxDebugLog(
             "browser.navigation.external source=\(source) opened=1 fallback=1 " +
-            "fallbackURL=\(browserNavigationDebugURL(fallbackURL)) url=\(browserNavigationDebugURL(url))"
+            "fallbackURL=\(BrowserPopupNavigationPolicy().debugURL(fallbackURL)) url=\(BrowserPopupNavigationPolicy().debugURL(url))"
         )
 #endif
         return true
@@ -632,7 +478,7 @@ func browserHandleExternalNavigation(
 #if DEBUG
                     cmuxDebugLog(
                         "browser.navigation.external source=\(source) opened=0 prompt=1 allowed=0 " +
-                        "url=\(browserNavigationDebugURL(externalURL))"
+                        "url=\(BrowserPopupNavigationPolicy().debugURL(externalURL))"
                     )
 #endif
                     return
@@ -4575,7 +4421,7 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     func resolveNavigableURL(from input: String) -> URL? {
-        resolveBrowserNavigableURL(input)
+        BrowserNavigableURLResolver().resolve(input)
     }
 
     private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
@@ -4870,68 +4716,6 @@ extension BrowserPanel {
     }
 }
 
-private func browserBareHostCandidate(_ lowercasedInput: String) -> String {
-    let end = lowercasedInput.firstIndex { character in
-        character == ":" || character == "/" || character == "?" || character == "#"
-    } ?? lowercasedInput.endIndex
-    return String(lowercasedInput[..<end])
-}
-
-func resolveBrowserNavigableURL(_ input: String) -> URL? {
-    let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !trimmed.isEmpty else { return nil }
-    guard !trimmed.contains(" ") else { return nil }
-
-    // Check localhost/loopback before generic URL parsing because
-    // URL(string: "localhost:3777") treats "localhost" as a scheme.
-    let lower = trimmed.lowercased()
-    let bareHost = browserBareHostCandidate(lower)
-    if lower.hasPrefix("localhost") ||
-        lower.hasPrefix("127.0.0.1") ||
-        lower.hasPrefix("[::1]") ||
-        (bareHost != ".localhost" && bareHost.hasSuffix(".localhost")) {
-        return URL(string: "http://\(trimmed)")
-    }
-
-    if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
-        if scheme == "http" || scheme == "https" {
-            return url
-        }
-        if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
-            return url
-        }
-        // URL(string: "example.com:8443") parses "example.com" as the scheme.
-        // No real scheme contains a dot, so a dotted "scheme" followed by a
-        // numeric port is a bare host:port that must navigate, not search.
-        if browserDottedHostWithPortCandidate(trimmed, schemeCandidate: scheme) {
-            return URL(string: "https://\(trimmed)")
-        }
-        return nil
-    }
-
-    if trimmed.contains(":") || trimmed.contains("/") {
-        return URL(string: "https://\(trimmed)")
-    }
-
-    if trimmed.contains(".") {
-        return URL(string: "https://\(trimmed)")
-    }
-
-    return nil
-}
-
-private func browserDottedHostWithPortCandidate(_ input: String, schemeCandidate: String) -> Bool {
-    guard schemeCandidate.contains(".") else { return false }
-    guard input.count > schemeCandidate.count else { return false }
-    let afterScheme = input.dropFirst(schemeCandidate.count)
-    guard afterScheme.first == ":" else { return false }
-    let portAndRest = afterScheme.dropFirst()
-    let port = portAndRest.prefix(while: { $0.isNumber })
-    guard !port.isEmpty, UInt16(port) != nil else { return false }
-    let rest = portAndRest.dropFirst(port.count)
-    return rest.isEmpty || rest.first == "/" || rest.first == "?" || rest.first == "#"
-}
-
 extension BrowserPanel {
     private func cancelInFlightNavigationBeforeHistoryTraversal() {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
@@ -5035,7 +4819,7 @@ extension BrowserPanel {
 #if DEBUG
         cmuxDebugLog(
             "browser.newTab.open.begin panel=\(id.uuidString.prefix(5)) " +
-            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(browserNavigationDebugURL(seed.url)) " +
+            "workspace=\(workspaceId.uuidString.prefix(5)) url=\(BrowserPopupNavigationPolicy().debugURL(seed.url)) " +
             "bypass=\(seed.bypassInsecureHTTPHostOnce ?? "nil")"
         )
 #endif
@@ -7139,213 +6923,8 @@ class BrowserDownloadDelegate: NSObject, WKDownloadDelegate {
 
 // MARK: - Navigation Delegate
 
-func browserNavigationShouldOpenInNewTab(
-    navigationType: WKNavigationType,
-    modifierFlags: NSEvent.ModifierFlags,
-    buttonNumber: Int,
-    hasRecentMiddleClickIntent: Bool = false,
-    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
-    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
-) -> Bool {
-    guard navigationType == .linkActivated || navigationType == .other else {
-        return false
-    }
-
-    if modifierFlags.contains(.command) {
-        return true
-    }
-    if buttonNumber == 2 {
-        return true
-    }
-    // In some WebKit paths, middle-click arrives as buttonNumber=4.
-    // Recover intent when we just observed a local middle-click.
-    if buttonNumber == 4, hasRecentMiddleClickIntent {
-        return true
-    }
-
-    // WebKit can omit buttonNumber for middle-click link activations.
-    if let currentEventType,
-       (currentEventType == .otherMouseDown || currentEventType == .otherMouseUp),
-       currentEventButtonNumber == 2 {
-        return true
-    }
-    return false
-}
-
-func browserNavigationShouldCreatePopup(
-    navigationType: WKNavigationType,
-    modifierFlags: NSEvent.ModifierFlags,
-    buttonNumber: Int,
-    popupFeaturesWereSpecified: Bool = false,
-    hasRecentMiddleClickIntent: Bool = false,
-    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
-    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber
-) -> Bool {
-    let isUserNewTab = browserNavigationShouldOpenInNewTab(
-        navigationType: navigationType,
-        modifierFlags: modifierFlags,
-        buttonNumber: buttonNumber,
-        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
-        currentEventType: currentEventType,
-        currentEventButtonNumber: currentEventButtonNumber
-    )
-    return navigationType == .other && popupFeaturesWereSpecified && !isUserNewTab
-}
-
-func browserNavigationShouldFallbackNilTargetToNewTab(
-    navigationType: WKNavigationType
-) -> Bool {
-    // Scripted popups rely on WKUIDelegate.createWebViewWith returning a live
-    // web view so window.opener/postMessage remain intact across OAuth flows.
-    navigationType != .other
-}
-
-func browserNavigationHasSimpleUserActivation(
-    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
-) -> Bool {
-    switch currentEventType {
-    case .keyDown, .keyUp, .leftMouseDown, .leftMouseUp:
-        return true
-    default:
-        return false
-    }
-}
-
-func browserNavigationPopupFeaturesWereSpecified(
-    x: NSNumber?,
-    y: NSNumber?,
-    width: NSNumber?,
-    height: NSNumber?,
-    menuBarVisibility: NSNumber?,
-    statusBarVisibility: NSNumber?,
-    toolbarsVisibility: NSNumber?,
-    allowsResizing: NSNumber?
-) -> Bool {
-    x != nil ||
-        y != nil ||
-        width != nil ||
-        height != nil ||
-        menuBarVisibility != nil ||
-        statusBarVisibility != nil ||
-        toolbarsVisibility != nil ||
-        allowsResizing != nil
-}
-
-func browserNavigationPopupFeaturesWereSpecified(windowFeatures: WKWindowFeatures) -> Bool {
-    browserNavigationPopupFeaturesWereSpecified(
-        x: windowFeatures.x,
-        y: windowFeatures.y,
-        width: windowFeatures.width,
-        height: windowFeatures.height,
-        menuBarVisibility: windowFeatures.menuBarVisibility,
-        statusBarVisibility: windowFeatures.statusBarVisibility,
-        toolbarsVisibility: windowFeatures.toolbarsVisibility,
-        allowsResizing: windowFeatures.allowsResizing
-    )
-}
-// Keep popup retargeting intentionally narrow. Explicit cross-host alias groups
-// preserve known first-party search flows without guessing at the public suffix
-// list for arbitrary hosted tenants, while same-host scripted popups stay on
-// the popup path so opener-dependent browser flows keep working.
-private let browserNavigationSimpleUserGesturePopupRetargetHostAliases: [Set<String>] = [
-    [
-        "bilibili.com",
-        "search.bilibili.com",
-        "www.bilibili.com",
-    ],
-]
-
-private func browserNavigationDefaultPort(for scheme: String) -> Int? {
-    switch scheme {
-    case "http":
-        return 80
-    case "https":
-        return 443
-    default:
-        return nil
-    }
-}
-
-private func browserNavigationShouldRetargetSimpleUserGesturePopup(
-    requestURL: URL?,
-    openerURL: URL?
-) -> Bool {
-    guard let requestURL,
-          let openerURL,
-          let requestScheme = requestURL.scheme?.lowercased(), !requestScheme.isEmpty,
-          let openerScheme = openerURL.scheme?.lowercased(), !openerScheme.isEmpty,
-          requestScheme == openerScheme,
-          (requestURL.port ?? browserNavigationDefaultPort(for: requestScheme))
-            == (openerURL.port ?? browserNavigationDefaultPort(for: openerScheme)),
-          let requestHost = RemoteLoopbackProxyAlias.normalizeHost(requestURL.host ?? ""),
-          let openerHost = RemoteLoopbackProxyAlias.normalizeHost(openerURL.host ?? "") else {
-        return false
-    }
-    for aliases in browserNavigationSimpleUserGesturePopupRetargetHostAliases {
-        if requestHost != openerHost,
-           aliases.contains(requestHost),
-           aliases.contains(openerHost) {
-            return true
-        }
-    }
-    return false
-}
-
-private func browserNavigationDebugURL(_ url: URL?) -> String {
-    guard let url,
-          var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-        return "nil"
-    }
-    components.query = nil
-    components.fragment = nil
-    return components.string ?? "\(url.scheme ?? "unknown")://\(url.host ?? "")"
-}
-
-func browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
-    navigationType: WKNavigationType,
-    requestMethod: String?,
-    requestURL: URL?,
-    openerURL: URL?,
-    modifierFlags: NSEvent.ModifierFlags = [],
-    buttonNumber: Int = 0,
-    hasRecentMiddleClickIntent: Bool = false,
-    currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type,
-    currentEventButtonNumber: Int? = NSApp.currentEvent?.buttonNumber,
-    popupFeaturesWereSpecified: Bool
-) -> Bool {
-    guard navigationType == .other else {
-        return false
-    }
-    // Some sites use `window.open()` for plain same-site searches triggered by a
-    // direct keyboard submit or left-click, without requesting popup chrome or
-    // opener-style geometry. Route those to a normal tab while keeping
-    // cross-site/OAuth-style popups on the popup path.
-    guard browserNavigationHasSimpleUserActivation(currentEventType: currentEventType) else {
-        return false
-    }
-    guard !browserNavigationShouldOpenInNewTab(
-        navigationType: navigationType,
-        modifierFlags: modifierFlags,
-        buttonNumber: buttonNumber,
-        hasRecentMiddleClickIntent: hasRecentMiddleClickIntent,
-        currentEventType: currentEventType,
-        currentEventButtonNumber: currentEventButtonNumber
-    ) else {
-        return false
-    }
-    guard (requestMethod ?? "GET").uppercased() == "GET" else {
-        return false
-    }
-    guard !popupFeaturesWereSpecified else {
-        return false
-    }
-    return browserNavigationShouldRetargetSimpleUserGesturePopup(
-        requestURL: requestURL,
-        openerURL: openerURL
-    )
-}
-
 private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+    let navigationPolicy = BrowserPopupNavigationPolicy()
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?
@@ -7537,7 +7116,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
             }
         }
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let shouldOpenInNewTab = browserNavigationShouldOpenInNewTab(
+        let shouldOpenInNewTab = navigationPolicy.shouldOpenInNewTab(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
@@ -7548,7 +7127,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         let currentEventButton = NSApp.currentEvent.map { String($0.buttonNumber) } ?? "nil"
         let navType = String(describing: navigationAction.navigationType)
         let requestMethod = navigationAction.request.httpMethod ?? "nil"
-        let requestURL = browserNavigationDebugURL(navigationAction.request.url)
+        let requestURL = navigationPolicy.debugURL(navigationAction.request.url)
         let targetMainFrame = navigationAction.targetFrame.map { $0.isMainFrame ? "1" : "0" } ?? "nil"
         cmuxDebugLog(
             "browser.nav.decidePolicy navType=\(navType) button=\(navigationAction.buttonNumber) " +
@@ -7619,7 +7198,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // Scripted popups (navigationType == .other) are handled in
         // WKUIDelegate.createWebViewWith so OAuth opener linkage survives.
         if navigationAction.targetFrame == nil,
-           browserNavigationShouldFallbackNilTargetToNewTab(
+           navigationPolicy.shouldFallbackNilTargetToNewTab(
                navigationType: navigationAction.navigationType
            ),
            let requestURL = navigationAction.request.url {
@@ -7706,6 +7285,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
 // MARK: - UI Delegate
 
 private class BrowserUIDelegate: NSObject, WKUIDelegate {
+    let navigationPolicy = BrowserPopupNavigationPolicy()
     var openInNewTab: ((URL) -> Void)?
     var requestNavigation: ((URLRequest, BrowserInsecureHTTPNavigationIntent) -> Void)?
     var presentAlert: BrowserAlertPresenter = browserPresentAlert
@@ -7784,8 +7364,8 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         }
 
         let hasRecentMiddleClickIntent = CmuxWebView.hasRecentMiddleClickIntent(for: webView)
-        let popupFeaturesWereSpecified = browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures)
-        let shouldOpenSimpleUserGesturePopupInCurrentTab = browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
+        let popupFeaturesWereSpecified = navigationPolicy.popupFeaturesWereSpecified(windowFeatures: windowFeatures)
+        let shouldOpenSimpleUserGesturePopupInCurrentTab = navigationPolicy.shouldOpenSimpleUserGesturePopupInCurrentTab(
             navigationType: navigationAction.navigationType,
             requestMethod: navigationAction.request.httpMethod,
             requestURL: navigationAction.request.url,
@@ -7801,7 +7381,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.nav.createWebView.action kind=requestNavigationSimpleUserGesture intent=currentTab " +
-                    "url=\(browserNavigationDebugURL(url))"
+                    "url=\(navigationPolicy.debugURL(url))"
                 )
 #endif
                 if let requestNavigation {
@@ -7815,7 +7395,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 
         // Only treat scripted `.other` requests as popups when WebKit surfaced
         // explicit window features; bare `_blank` falls through to tabs.
-        let isScriptedPopup = browserNavigationShouldCreatePopup(
+        let isScriptedPopup = navigationPolicy.shouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
@@ -7837,7 +7417,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.nav.createWebView.action kind=requestNavigation intent=newTab " +
-                    "url=\(browserNavigationDebugURL(url))"
+                    "url=\(navigationPolicy.debugURL(url))"
                 )
 #endif
                 requestNavigation(navigationAction.request, intent)

@@ -224,11 +224,11 @@ enum SidebarSettingsFileMapping {
         ),
         .init(
             jsonKey: "openPullRequestLinksInCmuxBrowser",
-            defaultsKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey
+            defaultsKey: BrowserLinkOpenRepository.openSidebarPullRequestLinksInCmuxBrowserKey
         ),
         .init(
             jsonKey: "openPortLinksInCmuxBrowser",
-            defaultsKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey
+            defaultsKey: BrowserLinkOpenRepository.openSidebarPortLinksInCmuxBrowserKey
         ),
         .init(jsonKey: "showSSH", defaultsKey: SidebarWorkspaceDetailDefaults.showSSHKey),
         .init(jsonKey: "showPorts", defaultsKey: SidebarWorkspaceDetailDefaults.showPortsKey),
@@ -284,11 +284,11 @@ enum BrowserSettingsFileMapping {
         .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
         .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",
-            defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
+            defaultsKey: BrowserLinkOpenRepository.openTerminalLinksInCmuxBrowserKey
         ),
         .init(
             jsonKey: "interceptTerminalOpenCommandInCmuxBrowser",
-            defaultsKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey
+            defaultsKey: BrowserLinkOpenRepository.interceptTerminalOpenCommandInCmuxBrowserKey
         ),
         .init(jsonKey: "showImportHintOnBlankTabs", defaultsKey: BrowserImportHintRepository.showOnBlankTabsKey),
     ]
@@ -300,12 +300,12 @@ enum BrowserSettingsFileMapping {
     static let stringArraySettings: [SettingsFileStringArrayMapping] = [
         .init(
             jsonKey: "hostsToOpenInEmbeddedBrowser",
-            defaultsKey: BrowserLinkOpenSettings.browserHostWhitelistKey,
+            defaultsKey: BrowserLinkOpenRepository.browserHostWhitelistKey,
             invalidPath: "browser.hostsToOpenInEmbeddedBrowser"
         ),
         .init(
             jsonKey: "urlsToAlwaysOpenExternally",
-            defaultsKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
+            defaultsKey: BrowserLinkOpenRepository.browserExternalOpenPatternsKey,
             invalidPath: "browser.urlsToAlwaysOpenExternally"
         ),
         .init(

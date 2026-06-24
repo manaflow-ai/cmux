@@ -648,8 +648,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: sidebar,
                 keywords: ["sidebar.openPullRequestLinksInCmuxBrowser", "sidebar", "pull", "request", "pr", "browser", "link"],
-                defaultValue: BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
-                defaultsKey: BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowserKey,
+                defaultValue: BrowserLinkOpenRepository.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
+                defaultsKey: BrowserLinkOpenRepository.openSidebarPullRequestLinksInCmuxBrowserKey,
                 isAvailable: sidebarPullRequestLinksAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -663,8 +663,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: sidebar,
                 keywords: ["sidebar.openPortLinksInCmuxBrowser", "sidebar", "port", "localhost", "browser", "link"],
-                defaultValue: BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
-                defaultsKey: BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowserKey,
+                defaultValue: BrowserLinkOpenRepository.defaultOpenSidebarPortLinksInCmuxBrowser,
+                defaultsKey: BrowserLinkOpenRepository.openSidebarPortLinksInCmuxBrowserKey,
                 isAvailable: sidebarPortLinksAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
@@ -838,8 +838,8 @@ enum CommandPaletteSettingsToggleCommands {
                 },
                 sectionTitle: browser,
                 keywords: ["browser.openTerminalLinksInCmuxBrowser", "browser", "terminal", "links", "url", "click"],
-                defaultValue: BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser,
-                defaultsKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey
+                defaultValue: BrowserLinkOpenRepository.defaultOpenTerminalLinksInCmuxBrowser,
+                defaultsKey: BrowserLinkOpenRepository.openTerminalLinksInCmuxBrowserKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "interceptTerminalOpenCommandInCmuxBrowser",
@@ -850,16 +850,16 @@ enum CommandPaletteSettingsToggleCommands {
                 sectionTitle: browser,
                 keywords: ["browser.interceptTerminalOpenCommandInCmuxBrowser", "browser", "terminal", "open", "http", "https", "intercept"],
                 isOn: { defaults in
-                    if defaults.object(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
-                        return defaults.bool(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+                    if defaults.object(forKey: BrowserLinkOpenRepository.interceptTerminalOpenCommandInCmuxBrowserKey) != nil {
+                        return defaults.bool(forKey: BrowserLinkOpenRepository.interceptTerminalOpenCommandInCmuxBrowserKey)
                     }
-                    if defaults.object(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey) != nil {
-                        return defaults.bool(forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
+                    if defaults.object(forKey: BrowserLinkOpenRepository.openTerminalLinksInCmuxBrowserKey) != nil {
+                        return defaults.bool(forKey: BrowserLinkOpenRepository.openTerminalLinksInCmuxBrowserKey)
                     }
-                    return BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
+                    return BrowserLinkOpenRepository.defaultInterceptTerminalOpenCommandInCmuxBrowser
                 },
                 setOn: { newValue, defaults, _ in
-                    defaults.set(newValue, forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey)
+                    defaults.set(newValue, forKey: BrowserLinkOpenRepository.interceptTerminalOpenCommandInCmuxBrowserKey)
                 }
             ),
             CommandPaletteSettingToggleDescriptor(

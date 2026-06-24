@@ -402,6 +402,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 // MARK: - PopupUIDelegate
 
 private class PopupUIDelegate: NSObject, WKUIDelegate {
+    let navigationPolicy = BrowserPopupNavigationPolicy()
     weak var controller: BrowserPopupWindowController?
 
     func webViewDidClose(_ webView: WKWebView) {
@@ -430,11 +431,11 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
             return nil
         }
 
-        let isScriptedPopup = browserNavigationShouldCreatePopup(
+        let isScriptedPopup = navigationPolicy.shouldCreatePopup(
             navigationType: navigationAction.navigationType,
             modifierFlags: navigationAction.modifierFlags,
             buttonNumber: navigationAction.buttonNumber,
-            popupFeaturesWereSpecified: browserNavigationPopupFeaturesWereSpecified(windowFeatures: windowFeatures),
+            popupFeaturesWereSpecified: navigationPolicy.popupFeaturesWereSpecified(windowFeatures: windowFeatures),
             hasRecentMiddleClickIntent: CmuxWebView.hasRecentMiddleClickIntent(for: webView)
         )
 
