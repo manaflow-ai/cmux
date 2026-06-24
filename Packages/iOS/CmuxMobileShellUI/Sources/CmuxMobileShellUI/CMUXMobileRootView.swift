@@ -30,8 +30,6 @@ struct CMUXMobileRootView: View {
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
     #endif
-    /// Shared tailnet detector for pairing/disconnected setup guidance. `nil`
-    /// when unwired (previews), which shows no Tailscale guidance.
     @Environment(\.tailscaleStatusMonitor) private var tailscaleStatusMonitor
 
     #if os(iOS)
@@ -99,8 +97,6 @@ struct CMUXMobileRootView: View {
         }
         #endif
         .onChange(of: authManager.selectedTeamID) { _, _ in
-            // Team changes lazily re-scope team-bound state without dropping
-            // the live terminal.
             store.currentTeamDidChange()
             reconnectStoredMacIfNeeded()
         }
@@ -110,11 +106,7 @@ struct CMUXMobileRootView: View {
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             store.resumeForegroundRefresh()
-            // The user may have toggled Tailscale while we were backgrounded.
             tailscaleStatusMonitor?.refresh()
-            // Re-check the Stack session on resume so one that died while
-            // backgrounded routes to the sign-in page instead of waiting for a
-            // failed connect to surface a confusing host-side message.
             Task { await authManager.revalidateSession() }
         }
         .onOpenURL { url in
@@ -172,6 +164,11 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if !isAuthenticated {
             SignInView()
+        } else if didTimeoutAuthenticatedUserScopeWait {
+            AuthenticatedUserScopeUnavailableView(
+                retry: retryAuthenticatedUserScope,
+                signOut: signOut
+            )
         } else if shouldWaitForAuthenticatedUserScope {
             MobilePairedMacDeterminingView()
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
@@ -182,15 +179,8 @@ struct CMUXMobileRootView: View {
                 reconnectStoredMac: reconnectStoredMacIfNeeded
             )
         } else if shouldShowOnboarding {
-            // Placed after the reconnect-determining branch so `hasKnownPairedMac`
-            // has resolved: a genuine first run (never onboarded, never paired)
-            // sees the one-time explainer before the add-device flow; a returning
-            // paired-but-offline user (who can reach here after a failed
-            // reconnect) is excluded by the gate and falls through to pairing.
             onboardingFlow
         } else if store.connectionState != .connected && !store.hasKnownPairedMac {
-            // ONLY when there are no saved Macs at all: the add-device flow (it
-            // auto-presents the pairing sheet since there is nothing to list).
             DisconnectedWorkspaceShellView(
                 hasKnownPairedMac: store.hasKnownPairedMac,
                 showAddDevice: showAddDevice,
@@ -199,12 +189,6 @@ struct CMUXMobileRootView: View {
                 store: store
             )
         } else {
-            // Connected, OR we have saved Macs and are auto-connecting in the
-            // background: always show the integrated cross-Mac workspace list, so
-            // the user never sees a "Your Macs" picker screen. The list renders
-            // whatever workspaces have aggregated (foreground + live secondary
-            // subscriptions); the foreground connection is established without any
-            // tap. Opening a workspace attaches its Mac on demand.
             WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
         }
     }
@@ -342,7 +326,6 @@ struct CMUXMobileRootView: View {
             return
         }
         guard shouldWaitForAuthenticatedUserScopeBase else { return }
-        store.finishStoredMacReconnectScopeUnavailable()
         didTimeoutAuthenticatedUserScopeWait = true
     }
 
@@ -361,7 +344,6 @@ struct CMUXMobileRootView: View {
         )
     }
 
-    /// Starts the stored-Mac reconnect once authenticated and account-scoped.
     private func reconnectStoredMacIfNeeded() {
         guard isAuthenticated else { return }
         let startedUITestAttachURL = connectUITestAttachURLIfNeeded()
@@ -375,6 +357,15 @@ struct CMUXMobileRootView: View {
               let stackUserID = authManager.currentUser?.id else { return }
         Task {
             await store.reconnectActiveMacIfAvailable(stackUserID: stackUserID)
+        }
+    }
+
+    private func retryAuthenticatedUserScope() {
+        didTimeoutAuthenticatedUserScopeWait = false
+        store.resumeForegroundRefresh()
+        Task {
+            await authManager.revalidateSession()
+            reconnectStoredMacIfNeeded()
         }
     }
 
