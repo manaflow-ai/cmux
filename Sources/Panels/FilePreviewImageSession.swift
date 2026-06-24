@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 
 @MainActor
 final class FilePreviewImageSession {
@@ -59,7 +60,7 @@ final class FilePreviewImageSession {
     ) {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
-        view.setPanel(panel)
+        view.setFocusSeam(panel)
         view.setURL(panel.fileURL)
     }
 }

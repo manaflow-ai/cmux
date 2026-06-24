@@ -1064,10 +1064,10 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         ]
 
         for commandId in forkCommandIds {
-            XCTAssertTrue(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: commandId))
+            XCTAssertTrue(CommandPaletteCommandRunPolicy().shouldDismissBeforeRun(forCommandId: commandId))
         }
-        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
-        XCTAssertFalse(ContentView.commandPaletteShouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
+        XCTAssertFalse(CommandPaletteCommandRunPolicy().shouldDismissBeforeRun(forCommandId: "palette.terminalSplitRight"))
+        XCTAssertFalse(CommandPaletteCommandRunPolicy().shouldDismissBeforeRun(forCommandId: "palette.terminalFocusTextBoxInput"))
     }
 
     func testForkableAgentCacheKeepsVerifiedOpenCodeVisible() {

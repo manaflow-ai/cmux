@@ -49,11 +49,11 @@ enum SessionEntryResumeCoordinator {
 }
 
 struct SessionIndexView: View {
-    @ObservedObject var store: SessionIndexStore
+    @Bindable var store: SessionIndexStore
     /// Lives alongside the store but is owned by this view so drag-state
     /// transitions don't invalidate data-subscribed views elsewhere in the
     /// sidebar.
-    @StateObject private var dragCoordinator = SessionDragCoordinator()
+    @State private var dragCoordinator = SessionDragCoordinator()
     /// Sections the user has explicitly collapsed (default is expanded).
     @State private var collapsedSections: Set<SectionKey> = []
     /// Section whose "Show more" popover is currently open.

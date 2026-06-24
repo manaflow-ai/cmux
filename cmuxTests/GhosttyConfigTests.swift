@@ -7,6 +7,7 @@ import CmuxRemoteDaemon
 import CmuxRemoteSession
 import CmuxRemoteWorkspace
 import CmuxFoundation
+import CmuxWorkspaces
 import AppKit
 import Combine
 import CoreText
@@ -2850,6 +2851,7 @@ final class WindowBackgroundSelectionGateTests: XCTestCase {
     }
 }
 
+@MainActor
 final class NotificationBurstCoalescerTests: XCTestCase {
     func testSignalsInSameBurstFlushOnce() {
         let coalescer = NotificationBurstCoalescer(delay: 0.01)

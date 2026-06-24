@@ -102,19 +102,19 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxExternalTextSyncDoesNotOverwriteActiveIMEMarkedText() {
-        #expect(!shouldSynchronizeExternalTextToTextBox(
+        #expect(!TextBoxInputView.shouldSynchronizeExternalTextToTextBox(
             inlineAttachmentCount: 0,
             plainText: "に",
             externalText: "",
             hasMarkedText: true
         ))
-        #expect(shouldSynchronizeExternalTextToTextBox(
+        #expect(TextBoxInputView.shouldSynchronizeExternalTextToTextBox(
             inlineAttachmentCount: 0,
             plainText: "に",
             externalText: "",
             hasMarkedText: false
         ))
-        #expect(!shouldSynchronizeExternalTextToTextBox(
+        #expect(!TextBoxInputView.shouldSynchronizeExternalTextToTextBox(
             inlineAttachmentCount: 1,
             plainText: "に",
             externalText: "",
@@ -124,17 +124,17 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxPlaceholderHidesDuringActiveIMEMarkedText() {
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxInputView.shouldShowTextBoxPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: true
         ))
-        #expect(shouldShowTextBoxPlaceholder(
+        #expect(TextBoxInputView.shouldShowTextBoxPlaceholder(
             text: "",
             attachmentCount: 0,
             hasMarkedText: false
         ))
-        #expect(!shouldShowTextBoxPlaceholder(
+        #expect(!TextBoxInputView.shouldShowTextBoxPlaceholder(
             text: "に",
             attachmentCount: 0,
             hasMarkedText: false
@@ -143,23 +143,23 @@ struct TextBoxMentionCompletionTests {
 
     @Test
     func testTextBoxSubmitIsDisabledDuringActiveIMEMarkedText() {
-        #expect(!shouldEnableTextBoxSubmit(
+        #expect(!TextBoxInputView.shouldEnableTextBoxSubmit(
             text: "に",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(!shouldSubmitTextBox(
+        #expect(!TextBoxInputView.shouldSubmitTextBox(
             hasPendingAttachmentUpload: false,
             hasMarkedText: true
         ))
-        #expect(shouldEnableTextBoxSubmit(
+        #expect(TextBoxInputView.shouldEnableTextBoxSubmit(
             text: "send",
             attachmentCount: 0,
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
-        #expect(shouldSubmitTextBox(
+        #expect(TextBoxInputView.shouldSubmitTextBox(
             hasPendingAttachmentUpload: false,
             hasMarkedText: false
         ))
@@ -329,7 +329,7 @@ struct TextBoxMentionCompletionTests {
         var translatedKeyCode: UInt16?
         var translatedFlags: NSEvent.ModifierFlags?
 
-        let shortcutKey = textBoxCommandShortcutKey(
+        let shortcutKey = TextBoxInputTextView.textBoxCommandShortcutKey(
             for: event,
             translateKey: { keyCode, flags in
                 translatedKeyCode = keyCode
@@ -359,7 +359,7 @@ struct TextBoxMentionCompletionTests {
         var translatedKeyCode: UInt16?
         var translatedFlags: NSEvent.ModifierFlags?
 
-        let shortcutKey = textBoxCommandShortcutKey(
+        let shortcutKey = TextBoxInputTextView.textBoxCommandShortcutKey(
             for: event,
             translateKey: { keyCode, flags in
                 translatedKeyCode = keyCode

@@ -722,7 +722,7 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
         let panelId = UUID()
         XCTAssertTrue(
-            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+            CommandPaletteCommandRunPolicy().shouldRestoreBrowserAddressBarAfterDismiss(
                 focusedPanelIsBrowser: true,
                 focusedBrowserAddressBarPanelId: panelId,
                 focusedPanelId: panelId
@@ -733,7 +733,7 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     func testDoesNotRestoreBrowserAddressBarWhenFocusedPanelIsNotBrowser() {
         let panelId = UUID()
         XCTAssertFalse(
-            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+            CommandPaletteCommandRunPolicy().shouldRestoreBrowserAddressBarAfterDismiss(
                 focusedPanelIsBrowser: false,
                 focusedBrowserAddressBarPanelId: panelId,
                 focusedPanelId: panelId
@@ -743,7 +743,7 @@ final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
 
     func testDoesNotRestoreBrowserAddressBarWhenAnotherPanelHadAddressBarFocus() {
         XCTAssertFalse(
-            ContentView.shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
+            CommandPaletteCommandRunPolicy().shouldRestoreBrowserAddressBarAfterDismiss(
                 focusedPanelIsBrowser: true,
                 focusedBrowserAddressBarPanelId: UUID(),
                 focusedPanelId: UUID()

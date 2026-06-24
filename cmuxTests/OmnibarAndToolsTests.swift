@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import CmuxBrowser
+import CmuxBrowserUI
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit

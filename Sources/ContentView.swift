@@ -228,7 +228,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
     // @StateObject by other slices, so the conversion is a cross-slice change).
     @StateObject private var fullscreenControlsViewModel = TitlebarControlsViewModel()
     @StateObject private var fileExplorerStore = FileExplorerStore()
-    @StateObject private var sessionIndexStore = SessionIndexStore()
+    @State private var sessionIndexStore = SessionIndexStore()
     @State private var selectedWorkspaceDirectoryModel = SelectedWorkspaceDirectoryModel()
     @State private var selectedWorkspaceDirectoryReading = SelectedWorkspaceDirectoryReadingAdapter()
     @State private var tmuxWorkspacePaneOverlayRegistry = TmuxWorkspacePaneOverlayRegistry(
@@ -1761,34 +1761,34 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteToggleRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             toggleCommandPalette()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteCommands()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSwitcherRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteSwitcher()
         })
 
@@ -1799,57 +1799,57 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteSubmitRequested)) { notification in
             guard isCommandPalettePresented else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             handleCommandPaletteSubmitRequest()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteDismissRequested)) { notification in
             guard isCommandPalettePresented else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             dismissCommandPalette()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameTabRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteRenameTabInput()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameWorkspaceRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             openCommandPaletteRenameWorkspaceInput()
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteEditWorkspaceDescriptionRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            let shouldHandle = Self.shouldHandleCommandPaletteRequest(
+            let shouldHandle = CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            )
+            ).shouldHandle
 #if DEBUG
             cmuxDebugLog(
                 "palette.wsDescription.request observed={\((observedWindow).commandPaletteWindowDebugSummary)} " +
@@ -1866,12 +1866,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard isCommandPalettePresented else { return }
             guard case .commands = commandPalettePresentation.mode else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             guard let delta = notification.userInfo?["delta"] as? Int, delta != 0 else { return }
             moveCommandPaletteSelection(by: delta)
         })
@@ -1880,12 +1880,12 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPalettePresentation.mode else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             handleCommandPaletteRenameInputInteraction()
         })
 
@@ -1893,23 +1893,23 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPalettePresentation.mode else { return }
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             _ = handleCommandPaletteRenameDeleteBackward(modifiers: [])
         })
 
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .feedbackComposerRequested)) { notification in
             let requestedWindow = notification.object as? NSWindow
-            guard Self.shouldHandleCommandPaletteRequest(
+            guard CommandPaletteWindowDispatchPolicy(
                 observedWindow: observedWindow,
                 requestedWindow: requestedWindow,
                 keyWindow: NSApp.keyWindow,
                 mainWindow: NSApp.mainWindow
-            ) else { return }
+            ).shouldHandle else { return }
             feedbackComposerCoordinator.present()
         })
 
@@ -4685,15 +4685,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         terminalPanel.hostedView.forwardKeyDownToSurface(event); return true
     }
 
-    static func commandPaletteShouldPopRenameInputOnDelete(
-        renameDraft: String,
-        modifiers: EventModifiers
-    ) -> Bool {
-        let blockedModifiers: EventModifiers = [.command, .control, .option, .shift]
-        guard modifiers.intersection(blockedModifiers).isEmpty else { return false }
-        return renameDraft.isEmpty
-    }
-
     private func handleCommandPaletteRenameDeleteBackward(
         modifiers: EventModifiers
     ) -> BackportKeyPressResult {
@@ -4701,7 +4692,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         let blockedModifiers: EventModifiers = [.command, .control, .option, .shift]
         guard modifiers.intersection(blockedModifiers).isEmpty else { return .ignored }
 
-        if Self.commandPaletteShouldPopRenameInputOnDelete(
+        if CommandPaletteCommandRunPolicy().shouldPopRenameInputOnDelete(
             renameDraft: commandPalettePresentation.renameDraft,
             modifiers: modifiers
         ) {
@@ -4829,7 +4820,7 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
         recordCommandPaletteUsage(command.id)
         let runPlan = CommandPaletteCommandRunPlan(
             dismissOnRun: command.dismissOnRun,
-            dismissBeforeRun: Self.commandPaletteShouldDismissBeforeRun(forCommandId: command.id),
+            dismissBeforeRun: CommandPaletteCommandRunPolicy().shouldDismissBeforeRun(forCommandId: command.id),
             hasFocusTarget: postRunFocusTarget != nil
         )
         for step in runPlan.steps {
@@ -4923,51 +4914,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
             "focusFlag=\(commandPaletteShouldFocusWorkspaceDescriptionEditor ? 1 : 0)"
         )
 #endif
-    }
-
-    static func shouldHandleCommandPaletteRequest(
-        observedWindow: NSWindow?,
-        requestedWindow: NSWindow?,
-        keyWindow: NSWindow?,
-        mainWindow: NSWindow?
-    ) -> Bool {
-        guard let observedWindow else { return false }
-        if let requestedWindow {
-            return requestedWindow === observedWindow
-        }
-        if let keyWindow {
-            return keyWindow === observedWindow
-        }
-        if let mainWindow {
-            return mainWindow === observedWindow
-        }
-        return false
-    }
-
-    static func shouldRestoreBrowserAddressBarAfterCommandPaletteDismiss(
-        focusedPanelIsBrowser: Bool,
-        focusedBrowserAddressBarPanelId: UUID?,
-        focusedPanelId: UUID?
-    ) -> Bool {
-        focusedPanelIsBrowser && focusedBrowserAddressBarPanelId == focusedPanelId
-    }
-
-    static func commandPaletteShouldDismissBeforeRun(forCommandId commandId: String) -> Bool {
-        switch commandId {
-        case "palette.forkAgentConversationRight",
-             "palette.forkAgentConversationLeft",
-             "palette.forkAgentConversationTop",
-             "palette.forkAgentConversationBottom",
-             "palette.forkAgentConversationNewTab",
-             "palette.forkAgentConversationNewWorkspace",
-             // Entering browser focus mode focuses the web view synchronously;
-             // dismiss the palette first so its makeFirstResponder(nil) doesn't
-             // clear that focus and leave focus mode active without key routing.
-             "palette.browserFocusMode":
-            return true
-        default:
-            return false
-        }
     }
 
     static func commandPalettePostRunRestoreFocusIntent(forCommandId commandId: String) -> PanelFocusIntent? {
@@ -5729,14 +5675,6 @@ struct ContentView: View, CommandPaletteWorkspaceSnapshotProviding, CommandPalet
 #endif
 }
 
-private enum SidebarFontSizeProvider {
-    static func loadFromGhosttyConfig() async -> CGFloat {
-        await Task.detached(priority: .utility) {
-            GhosttyConfig.load().sidebarFontSize
-        }.value
-    }
-}
-
 struct SidebarTabItemSettingsSnapshot: Equatable {
     let hidesAllDetails: Bool
     let wrapsWorkspaceTitles: Bool
@@ -5828,82 +5766,6 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
 
 }
 
-@MainActor
-@Observable
-private final class SidebarTabItemSettingsStore {
-    private(set) var snapshot: SidebarTabItemSettingsSnapshot
-
-    private let defaults: UserDefaults
-    private let sidebarFontSizeProvider: () async -> CGFloat
-    private var sidebarFontSize: CGFloat
-    private var sidebarFontSizeLoadTask: Task<Void, Never>?
-    private var defaultsObserver: NSObjectProtocol?
-    private var ghosttyConfigObserver: NSObjectProtocol?
-
-    init(
-        defaults: UserDefaults = .standard,
-        initialSidebarFontSize: CGFloat = GhosttyConfig.defaultSidebarFontSize,
-        sidebarFontSizeProvider: @escaping () async -> CGFloat = SidebarFontSizeProvider.loadFromGhosttyConfig
-    ) {
-        self.defaults = defaults
-        self.sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(initialSidebarFontSize)
-        self.sidebarFontSizeProvider = sidebarFontSizeProvider
-        self.snapshot = SidebarTabItemSettingsSnapshot(
-            defaults: defaults,
-            sidebarFontSize: sidebarFontSize
-        )
-        defaultsObserver = NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshSnapshot()
-            }
-        }
-        refreshSidebarFontSize()
-        ghosttyConfigObserver = NotificationCenter.default.addObserver(
-            forName: .ghosttyConfigDidReload,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.refreshSidebarFontSize()
-            }
-        }
-    }
-
-    deinit {
-        sidebarFontSizeLoadTask?.cancel()
-        if let defaultsObserver {
-            NotificationCenter.default.removeObserver(defaultsObserver)
-        }
-        if let ghosttyConfigObserver {
-            NotificationCenter.default.removeObserver(ghosttyConfigObserver)
-        }
-    }
-
-    private func refreshSnapshot() {
-        let nextSnapshot = SidebarTabItemSettingsSnapshot(
-            defaults: defaults,
-            sidebarFontSize: sidebarFontSize
-        )
-        guard nextSnapshot != snapshot else { return }
-        snapshot = nextSnapshot
-    }
-
-    private func refreshSidebarFontSize() {
-        sidebarFontSizeLoadTask?.cancel()
-        sidebarFontSizeLoadTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let loadedSidebarFontSize = await sidebarFontSizeProvider()
-            guard !Task.isCancelled else { return }
-            sidebarFontSize = GhosttyConfig.clampedSidebarFontSize(loadedSidebarFontSize)
-            refreshSnapshot()
-        }
-    }
-}
-
 // `SidebarDragState`, `SidebarWorkspaceDragRegistry`, and the DEBUG-only
 // `SidebarDragStateRegistry` now live in the `CmuxSidebar`// package. This app-side convenience keeps the `SidebarDragState()` call site
 // unchanged by injecting the process-wide cross-window registry the app owns
@@ -5960,8 +5822,30 @@ struct VerticalTabsSidebar: View {
     @State private var dragFailsafeMonitor = SidebarDragFailsafeMonitor(
         debugLog: VerticalTabsSidebar.sidebarDragFailsafeDebugLog
     )
-    @State private var tabItemSettingsStore = SidebarTabItemSettingsStore(
-        initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize
+    // Thin app-side adapter over the lifted, snapshot-generic
+    // `CmuxSidebarUI.SidebarTabItemSettingsStore`. The composition point here
+    // supplies everything the package store cannot reach: the app snapshot
+    // builder (settings catalog + defaults + resolved font size), the live
+    // Ghostty sidebar-font-size loader (formerly the caseless
+    // `SidebarFontSizeProvider`), the font-size clamp, and the two
+    // notification names to observe. Readers see `tabItemSettingsStore.snapshot`
+    // as the app `SidebarTabItemSettingsSnapshot` exactly as before.
+    @State private var tabItemSettingsStore = SidebarTabItemSettingsStore<SidebarTabItemSettingsSnapshot>(
+        initialSidebarFontSize: GhosttyConfig.load().sidebarFontSize,
+        clampFontSize: { GhosttyConfig.clampedSidebarFontSize($0) },
+        snapshotBuilder: { sidebarFontSize in
+            SidebarTabItemSettingsSnapshot(
+                defaults: .standard,
+                sidebarFontSize: sidebarFontSize
+            )
+        },
+        fontSizeProvider: {
+            await Task.detached(priority: .utility) {
+                GhosttyConfig.load().sidebarFontSize
+            }.value
+        },
+        defaultsChangedNotification: UserDefaults.didChangeNotification,
+        ghosttyConfigDidReloadNotification: .ghosttyConfigDidReload
     )
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @State var dragState = SidebarDragState()

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxWorkspaces
 import SwiftUI
 
 @MainActor
