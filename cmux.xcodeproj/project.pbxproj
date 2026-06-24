@@ -742,6 +742,8 @@
 		A5001660 /* RestorableAgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001661 /* RestorableAgentSession.swift */; };
 		F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */; };
 		C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000006 /* RestorableAgentTypes.swift */; };
+		A100000000000000000F1E00 /* RestoredNameResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1E01 /* RestoredNameResolver.swift */; };
+		A100000000000000000F1E10 /* RestoredWorkspaceNameFidelityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1E11 /* RestoredWorkspaceNameFidelityTests.swift */; };
 		A100000000000000000F1DC0 /* ResumeBreadcrumbAnchorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1DC1 /* ResumeBreadcrumbAnchorTests.swift */; };
 		2AA45B767B0C44F7D8F7E145 /* ResumeBreadcrumbBuilder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */; };
 		0EE515315475BBE141846305 /* ResumeBreadcrumbBuilderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */; };
@@ -1018,6 +1020,7 @@
 		313585583035A1E685010A97 /* WindowKeyDownReplayGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81B8CFAF8FCA4231C702D16A /* WindowKeyDownReplayGuard.swift */; };
 		8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */; };
 		6042C0056042C0056042C005 /* WindowScopedShortcutHintModifierMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */; };
+		A100000000000000000F1E20 /* WindowSessionBindingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1E21 /* WindowSessionBindingTests.swift */; };
 		606600020000000000000001 /* WindowTerminalHostViewHitTesting.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606600020000000000000002 /* WindowTerminalHostViewHitTesting.swift */; };
 		606600010000000000000001 /* WindowTerminalHostViewTitlebarHitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 606600010000000000000002 /* WindowTerminalHostViewTitlebarHitTests.swift */; };
 		604500100000000000000001 /* WindowTitleTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 604500100000000000000002 /* WindowTitleTemplate.swift */; };
@@ -1843,6 +1846,8 @@
 		A5001661 /* RestorableAgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSession.swift; sourceTree = "<group>"; };
 		F5410007A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentSessionIndexTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000006 /* RestorableAgentTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestorableAgentTypes.swift; sourceTree = "<group>"; };
+		A100000000000000000F1E01 /* RestoredNameResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RestoredNameResolver.swift; path = "Sources/CrashRecovery/RestoredNameResolver.swift"; sourceTree = SOURCE_ROOT; };
+		A100000000000000000F1E11 /* RestoredWorkspaceNameFidelityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RestoredWorkspaceNameFidelityTests.swift; path = "cmuxTests/RestoredWorkspaceNameFidelityTests.swift"; sourceTree = SOURCE_ROOT; };
 		A100000000000000000F1DC1 /* ResumeBreadcrumbAnchorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbAnchorTests.swift; path = "cmuxTests/ResumeBreadcrumbAnchorTests.swift"; sourceTree = SOURCE_ROOT; };
 		5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbBuilder.swift; path = "Sources/CrashRecovery/ResumeBreadcrumbBuilder.swift"; sourceTree = SOURCE_ROOT; };
 		21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ResumeBreadcrumbBuilderTests.swift; path = "cmuxTests/ResumeBreadcrumbBuilderTests.swift"; sourceTree = SOURCE_ROOT; };
@@ -2109,6 +2114,7 @@
 		81B8CFAF8FCA4231C702D16A /* WindowKeyDownReplayGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowKeyDownReplayGuard.swift; sourceTree = "<group>"; };
 		B79482F1ECA54E98BE5C8953 /* WindowKeyDownReplayGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowKeyDownReplayGuardTests.swift; sourceTree = "<group>"; };
 		6042D0056042D0056042D005 /* WindowScopedShortcutHintModifierMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowScopedShortcutHintModifierMonitor.swift; sourceTree = "<group>"; };
+		A100000000000000000F1E21 /* WindowSessionBindingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = WindowSessionBindingTests.swift; path = "cmuxTests/WindowSessionBindingTests.swift"; sourceTree = SOURCE_ROOT; };
 		606600020000000000000002 /* WindowTerminalHostViewHitTesting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTerminalHostViewHitTesting.swift; sourceTree = "<group>"; };
 		606600010000000000000002 /* WindowTerminalHostViewTitlebarHitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowTerminalHostViewTitlebarHitTests.swift; sourceTree = "<group>"; };
 		604500100000000000000002 /* WindowTitleTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/WindowTitleTemplate.swift; sourceTree = "<group>"; };
@@ -2456,6 +2462,7 @@
 				5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */,
 				A100000000000000000F1DA1 /* ResumeFidelityGate.swift */,
 				A100000000000000000F1DD1 /* RecoveryRouter.swift */,
+				A100000000000000000F1E01 /* RestoredNameResolver.swift */,
 				27C38528E01954A4CDF2DC04 /* UncleanShutdownSentinel.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
@@ -3109,6 +3116,8 @@
 				A100000000000000000F1DB1 /* ResumeFidelityGateTests.swift */,
 				A100000000000000000F1DC1 /* ResumeBreadcrumbAnchorTests.swift */,
 				A100000000000000000F1DE1 /* RecoveryRouterTests.swift */,
+				A100000000000000000F1E11 /* RestoredWorkspaceNameFidelityTests.swift */,
+				A100000000000000000F1E21 /* WindowSessionBindingTests.swift */,
 				2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */,
 				21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */,
 				8BD298CD20B84B435B23F97F /* UncleanShutdownSentinelTests.swift */,
@@ -4233,6 +4242,7 @@
 				D36A00060000000000000001 /* RendererRealizationPlanner.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */,
+				A100000000000000000F1E00 /* RestoredNameResolver.swift in Sources */,
 				2AA45B767B0C44F7D8F7E145 /* ResumeBreadcrumbBuilder.swift in Sources */,
 				A100000000000000000F1DA0 /* ResumeFidelityGate.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
@@ -4755,6 +4765,7 @@
 					F5410000A1B2C3D4E5F60718 /* RestorableAgentHookProviderResumeTests.swift in Sources */,
 					F5410002A1B2C3D4E5F60718 /* RestorableAgentNonInteractiveTests.swift in Sources */,
 					F5410006A1B2C3D4E5F60718 /* RestorableAgentSessionIndexTests.swift in Sources */,
+				A100000000000000000F1E10 /* RestoredWorkspaceNameFidelityTests.swift in Sources */,
 				A100000000000000000F1DC0 /* ResumeBreadcrumbAnchorTests.swift in Sources */,
 				0EE515315475BBE141846305 /* ResumeBreadcrumbBuilderTests.swift in Sources */,
 				A100000000000000000F1DB0 /* ResumeFidelityGateTests.swift in Sources */,
@@ -4832,6 +4843,7 @@
 				A59170000000000000000001 /* WindowAppearanceSnapshotPaneBackgroundTests.swift in Sources */,
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
 				8770D0F2D2BB45359D6BE5E3 /* WindowKeyDownReplayGuardTests.swift in Sources */,
+				A100000000000000000F1E20 /* WindowSessionBindingTests.swift in Sources */,
 				606600010000000000000001 /* WindowTerminalHostViewTitlebarHitTests.swift in Sources */,
 				604500100000000000000003 /* WindowTitleTemplateTests.swift in Sources */,
 				7F0A0E04A8CADC84BB4F1DF7 /* WorkspaceActionDispatcherTests.swift in Sources */,
