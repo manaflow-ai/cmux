@@ -89,8 +89,8 @@ extension MobileShellComposite {
     public func closeWorkspace(id: MobileWorkspacePreview.ID) async {
         guard workspaceActionCapabilities(for: id).supportsCloseActions else { return }
         let params = workspaceMutationParams(id: id)
-        let removed = applyOptimisticWorkspaceClose(id: id)
         let target = workspaceMutationTarget(for: id)
+        let removed = applyOptimisticWorkspaceClose(id: id)
         guard let client = target.client else {
             if removed { rollbackOptimisticWorkspaceClose(id: id) }
             await refreshWorkspaces()

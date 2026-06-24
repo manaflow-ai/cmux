@@ -8,7 +8,7 @@ import UIKit
 /// Text" capture live in one cohesive file. Everything here is `internal`
 /// (not `private`) only so the main class file's lifecycle/snapshot paths can
 /// keep using the registry across the file boundary; nothing is exported
-/// beyond the module except `copyableTerminalText(surfaceID:)`.
+/// beyond the module except the "View as Text" capture helpers.
 final class WeakGhosttySurfaceViewBox {
     weak var value: GhosttySurfaceView?
 
@@ -46,7 +46,7 @@ extension GhosttySurfaceView {
         UInt(bitPattern: UnsafeRawPointer(surface))
     }
 
-    /// Full-content capture for the "View as Text" copy sheet: the SCREEN
+    /// Arm a full-content capture for the "View as Text" copy sheet: the SCREEN
     /// range (scrollback history plus every written row) of the on-screen
     /// terminal surface, read entirely on the phone's own libghostty surface —
     /// no Mac round-trip, works offline.
@@ -55,14 +55,14 @@ extension GhosttySurfaceView {
     /// on the serial `outputQueue` because `ghostty_surface_read_text` takes
     /// the surface lock that `process_output` holds during a render storm, so
     /// a main-thread read would stall the present and blank the terminal.
-    /// Unlike that synchronous DEV path there is no bounded semaphore wait
-    /// here — the caller awaits, so a busy queue just resumes the continuation
-    /// late while the sheet shows its loading state.
+    /// Unlike that synchronous DEV path there is no bounded semaphore wait here:
+    /// this method performs the registry pick and `outputQueue.async` enqueue
+    /// synchronously, then returns a task the sheet can await while showing its
+    /// loading state.
     ///
-    /// The continuation body enqueues on `outputQueue` synchronously while
-    /// still on the main actor, so the read is FIFO-ordered before any
-    /// later-enqueued `disposeSurface` free of the same pointer — the same
-    /// lifetime argument `visibleTerminalSnapshot()` relies on.
+    /// The enqueue happens while still on the main actor at tap time, so the read
+    /// is FIFO-ordered before any later-enqueued `disposeSurface` free of the same
+    /// pointer — the same lifetime argument `visibleTerminalSnapshot()` relies on.
     ///
     /// The read is bounded at the source: iOS surfaces are created with
     /// `scrollback-limit = 2000000` (see `GhosttyRuntime.applyiOSDefaults`),
@@ -77,7 +77,8 @@ extension GhosttySurfaceView {
     ///   can never leak a different workspace's terminal into the capture.
     /// - Returns: The surface's screen text, or nil when that terminal has no
     ///   mounted surface or the read fails.
-    public static func copyableTerminalText(surfaceID: String) async -> String? {
+    @MainActor
+    public static func copyableTerminalTextCapture(surfaceID: String) -> Task<String?, Never> {
         registeredSurfaceViews = registeredSurfaceViews.filter { $0.value.value != nil }
         // Scoped pick: only views stamped with the requested id qualify, and
         // only while actually on screen (same visibility filter as
@@ -120,9 +121,9 @@ extension GhosttySurfaceView {
         )
         #endif
 
-        guard let surface = chosen?.surface else { return nil }
+        guard let surface = chosen?.surface else { return Task { nil } }
         let handle = CopyableTextSurfaceHandle(surface: surface)
-        return await withCheckedContinuation { continuation in
+        let stream = AsyncStream<String?> { continuation in
             outputQueue.async {
                 // SCREEN = scrollback + all written rows. `surfaceText` returns a
                 // non-nil empty string for a zero-byte range, so a plain `??`
@@ -141,9 +142,22 @@ extension GhosttySurfaceView {
                     "viewAsText.read screen=\(describe(screen)) viewport=\(describe(viewport)) resolved=\(describe(text))"
                 )
                 #endif
-                continuation.resume(returning: text)
+                continuation.yield(text)
+                continuation.finish()
             }
         }
+        return Task {
+            for await text in stream {
+                return text
+            }
+            return nil
+        }
+    }
+
+    /// Async convenience for callers that cannot arm a capture separately.
+    @MainActor
+    public static func copyableTerminalText(surfaceID: String) async -> String? {
+        await copyableTerminalTextCapture(surfaceID: surfaceID).value
     }
 }
 

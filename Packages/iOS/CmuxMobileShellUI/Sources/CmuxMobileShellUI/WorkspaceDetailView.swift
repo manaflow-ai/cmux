@@ -657,16 +657,18 @@ struct WorkspaceDetailView: View {
 
     /// Opens the "View as Text" sheet: the terminal's content as selectable
     /// plain text, because the render surface itself has no copy affordance.
+    @MainActor
     private func openTextSheetFromMenu() {
         let surfaceID = selectedTerminal?.id.rawValue
         textSheetSurfaceID = surfaceID
         // Resolve + read NOW, on the main actor, while the terminal surface is
-        // still fully on screen. `copyableTerminalText` does its visibility-scoped
-        // registry pick and FIFO-enqueues the off-main read synchronously before
-        // returning the awaitable, so the surface can never be filtered out by a
-        // window/alpha drop that the sheet's own presentation would cause.
+        // still fully on screen. `copyableTerminalTextCapture` does its
+        // visibility-scoped registry pick and FIFO-enqueues the off-main read
+        // synchronously before returning the awaitable, so the surface can never
+        // be filtered out by a window/alpha drop that the sheet's own presentation
+        // would cause.
         textSheetCapture = surfaceID.map { id in
-            Task { await GhosttySurfaceView.copyableTerminalText(surfaceID: id) }
+            GhosttySurfaceView.copyableTerminalTextCapture(surfaceID: id)
         }
         isTextSheetPresented = true
     }
