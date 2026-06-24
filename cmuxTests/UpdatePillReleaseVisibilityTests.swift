@@ -370,9 +370,14 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             XCTAssertEqual(ranges.count, MinimalModeSidebarControlActionSlot.allCases.count)
             for (index, range) in ranges.enumerated() {
                 let slot = MinimalModeSidebarControlActionSlot(rawValue: index)
-                let expectedWidth = slot == .cloudVM
-                    ? TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
-                    : config.buttonSize
+                let expectedWidth: CGFloat = switch slot {
+                case .some(.newTab):
+                    TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+                case .some(.cloudVM):
+                    TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+                case .some(.toggleSidebar), .some(.showNotifications), .some(.focusHistoryBack), .some(.focusHistoryForward), nil:
+                    config.buttonSize
+                }
                 XCTAssertEqual(
                     range.upperBound - range.lowerBound,
                     expectedWidth,

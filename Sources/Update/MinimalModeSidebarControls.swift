@@ -45,7 +45,8 @@ enum TitlebarControlsHitRegions {
         let sidebarX = startX
         let notificationsX = sidebarX + config.buttonSize + config.spacing
         let newTabX = notificationsX + config.buttonSize + config.spacing
-        let cloudMenuX = newTabX + config.buttonSize
+        let newTabWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
+        let cloudMenuX = newTabX + newTabWidth
         let cloudMenuWidth = TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
         let focusBackX = cloudMenuX + cloudMenuWidth + config.spacing
         let focusForwardX = focusBackX + config.buttonSize + config.spacing
@@ -64,7 +65,14 @@ enum TitlebarControlsHitRegions {
         case .focusHistoryForward:
             focusForwardX
         }
-        let width = slot == .cloudVM ? cloudMenuWidth : config.buttonSize
+        let width: CGFloat = switch slot {
+        case .newTab:
+            newTabWidth
+        case .cloudVM:
+            cloudMenuWidth
+        case .toggleSidebar, .showNotifications, .focusHistoryBack, .focusHistoryForward:
+            config.buttonSize
+        }
         return minX...(minX + width)
     }
 

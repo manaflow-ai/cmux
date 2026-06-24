@@ -913,6 +913,11 @@ final class WindowDragHandleHitTests: XCTestCase {
             accuracy: 0.001,
             "The hidden Cloud menu lane should match the visible split-button dropdown width."
         )
+        XCTAssertLessThan(
+            TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config),
+            config.iconSize - 2,
+            "The Cloud dropdown glyph should stay visibly smaller than the primary titlebar icons."
+        )
         XCTAssertTrue(
             TitlebarControlsHitRegions.pointFallsInButtonColumn(
                 NSPoint(
@@ -925,6 +930,20 @@ final class WindowDragHandleHitTests: XCTestCase {
                 config: config
             ),
             "The padded Cloud dropdown lane should receive left clicks."
+        )
+        XCTAssertTrue(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                NSPoint(x: ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].lowerBound + 1, y: 14),
+                config: config
+            ),
+            "The leading padding inside the Cloud dropdown lane should receive left clicks."
+        )
+        XCTAssertTrue(
+            TitlebarControlsHitRegions.pointFallsInButtonColumn(
+                NSPoint(x: ranges[MinimalModeSidebarControlActionSlot.cloudVM.rawValue].upperBound - 1, y: 14),
+                config: config
+            ),
+            "The trailing padding inside the Cloud dropdown lane should receive left clicks."
         )
 
         let firstGapX = (ranges[0].upperBound + ranges[1].lowerBound) / 2

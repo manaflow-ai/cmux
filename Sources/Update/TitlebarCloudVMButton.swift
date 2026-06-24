@@ -3,12 +3,20 @@ import AppKit
 import CmuxSettings
 
 enum TitlebarNewWorkspaceCloudSplitButtonMetrics {
+    static func primaryWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
+        max(config.iconSize + 4, config.buttonSize - 3)
+    }
+
     static func dropdownWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
         max(14, floor(config.buttonSize * 0.70))
     }
 
+    static func dropdownIconSize(config: TitlebarControlsStyleConfig) -> CGFloat {
+        max(6, config.iconSize - 6)
+    }
+
     static func totalWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
-        config.buttonSize + dropdownWidth(config: config)
+        primaryWidth(config: config) + dropdownWidth(config: config)
     }
 }
 
@@ -21,6 +29,10 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
 
     private var dropdownWidth: CGFloat {
         TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownWidth(config: config)
+    }
+
+    private var primaryWidth: CGFloat {
+        TitlebarNewWorkspaceCloudSplitButtonMetrics.primaryWidth(config: config)
     }
 
     private var isHovering: Bool {
@@ -40,10 +52,10 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
             Button(action: onNewTab) {
                 Image(systemName: "plus")
                     .font(.system(size: config.iconSize, weight: .medium))
-                    .frame(width: config.buttonSize, height: config.buttonSize)
+                    .frame(width: primaryWidth, height: config.buttonSize)
             }
             .buttonStyle(.plain)
-            .frame(width: config.buttonSize, height: config.buttonSize)
+            .frame(width: primaryWidth, height: config.buttonSize)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("titlebarControl.newTab")
@@ -68,9 +80,17 @@ struct TitlebarNewWorkspaceCloudSplitButton: View {
                     }
                 }
             ) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: max(8, config.iconSize - 3), weight: .semibold))
-                    .frame(width: dropdownWidth, height: config.buttonSize)
+                ZStack {
+                    Rectangle()
+                        .fill(Color.clear)
+                    Image(systemName: "chevron.down")
+                        .font(.system(
+                            size: TitlebarNewWorkspaceCloudSplitButtonMetrics.dropdownIconSize(config: config),
+                            weight: .semibold
+                        ))
+                }
+                .frame(width: dropdownWidth, height: config.buttonSize)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .frame(width: dropdownWidth, height: config.buttonSize)
