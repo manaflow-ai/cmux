@@ -50,7 +50,6 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private static let hasKnownPairedMacDefaultsKey = "cmux.mobile.hasKnownPairedMac"
 
     private static let storedMacReconnectRestoringDeadlineSeconds: Double = 6
-    private static let storedMacRegistryRefreshDeadline: Duration = .milliseconds(750)
 
     private static let terminalRenderGridCapability = "terminal.render_grid.v1"
     private static let workspaceActionsCapability = "workspace.actions.v1"
@@ -1602,9 +1601,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // blocks the others.
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
-                  await isScopeCurrent(scope) else { break }
-            let mac = await reconnectMacAfterRegistryRefresh(mac, scope: scope) ?? mac
-            guard let (host, port) = reachableRoute(mac) else { continue }
+                  await isScopeCurrent(scope),
+                  let (host, port) = reachableRoute(mac) else { break }
+            refreshRoutesFromRegistry(for: mac, scope: scope)
             await connectStoredMacHost(
                 name: mac.displayName ?? host, host: host, port: port,
                 pairedMacDeviceID: mac.macDeviceID)
@@ -1646,58 +1645,51 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = true
     }
 
-    private func reconnectMacAfterRegistryRefresh(
-        _ mac: MobilePairedMac,
-        scope: MobileShellScopeSnapshot
-    ) async -> MobilePairedMac? {
-        guard let deviceRegistry, let pairedMacStore else { return nil }
-        let registryRoutes = await Self.registryRoutesWithDeadline(
-            for: mac.macDeviceID,
-            deviceRegistry: deviceRegistry
-        )
-        guard let routes = DeviceRegistryService.selectReconnectRoutes(
-            local: mac.routes,
-            registry: registryRoutes
-        ), await isScopeCurrent(scope) else { return nil }
-        let currentMac: MobilePairedMac?
-        do {
-            currentMac = try await pairedMacStore.loadAll(
-                stackUserID: scope.userID,
-                teamID: scope.teamID
-            ).first { $0.macDeviceID == mac.macDeviceID }
-        } catch {
-            mobileShellLog.debug("registry route refresh paired-mac recheck failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-        guard let currentMac, await isScopeCurrent(scope) else { return nil }
-        return MobilePairedMac(
-            macDeviceID: currentMac.macDeviceID,
-            displayName: currentMac.displayName,
-            routes: routes,
-            createdAt: currentMac.createdAt,
-            lastSeenAt: currentMac.lastSeenAt,
-            isActive: currentMac.isActive,
-            stackUserID: currentMac.stackUserID,
-            teamID: currentMac.teamID,
-            customName: currentMac.customName,
-            customColor: currentMac.customColor,
-            customIcon: currentMac.customIcon
-        )
-    }
-
-    nonisolated private static func registryRoutesWithDeadline(
-        for macDeviceID: String,
-        deviceRegistry: any DeviceRegistryRefreshing
-    ) async -> [CmxAttachRoute]? {
-        await withTaskGroup(of: [CmxAttachRoute]?.self) { group in
-            group.addTask { await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID) }
-            group.addTask {
-                try? await ContinuousClock().sleep(for: storedMacRegistryRefreshDeadline)
-                return nil
+    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) {
+        guard let deviceRegistry, let pairedMacStore else { return }
+        let macDeviceID = mac.macDeviceID
+        let localRoutes = mac.routes
+        let displayName = mac.displayName
+        Task { [weak self] in
+            let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID)
+            guard let updated = DeviceRegistryService.selectReconnectRoutes(
+                local: localRoutes,
+                registry: registryRoutes
+            ) else { return }
+            guard let self, await self.isScopeCurrent(scope) else { return }
+            let activeMacID: String?
+            do {
+                activeMacID = try await pairedMacStore.activeMac(
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID
+                )?.macDeviceID
+            } catch {
+                mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
+                return
             }
-            let result = await group.next() ?? nil
-            group.cancelAll()
-            return result
+            guard await self.isScopeCurrent(scope) else { return }
+            guard DeviceRegistryService.shouldApplyRegistryRefresh(
+                isSignedIn: self.isSignedIn,
+                capturedUserID: scope.userID,
+                currentUserID: self.identityProvider?.currentUserID ?? scope.userID,
+                activeMacID: activeMacID,
+                targetMacID: macDeviceID
+            ) else { return }
+            do {
+                try await pairedMacStore.upsert(
+                    macDeviceID: macDeviceID,
+                    displayName: displayName,
+                    routes: updated,
+                    markActive: true,
+                    stackUserID: scope.userID,
+                    teamID: scope.teamID,
+                    now: Date()
+                )
+            } catch {
+                mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
+                return
+            }
+            if await self.isScopeCurrent(scope) { await self.loadPairedMacs() }
         }
     }
 
