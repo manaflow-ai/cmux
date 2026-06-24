@@ -54,15 +54,9 @@ final class SessionDragCoordinator {
     var draggedKey: SectionKey? = nil
 }
 
-/// Immutable per-directory snapshot consumed by `SectionPopoverView` for
-/// empty-query scrolling. All entries are merged across the three agent
-/// sources and sorted by `modified` desc. The popover slices this array
-/// in-memory to page, so scrolling fires zero store/disk calls.
-struct DirectorySnapshot: Sendable {
-    let cwd: String  // "" represents the unknown-folder bucket
-    let entries: [SessionEntry]
-    let errors: [String]
-}
+// `DirectorySnapshot` moved to CmuxSessionIndex (Models/DirectorySnapshot.swift) so the
+// package-side "Show more" popover (`SectionPopoverView` in CmuxSessionIndexUI) can consume
+// it as a package type. Still produced here by `loadDirectorySnapshot(cwd:)`.
 
 @MainActor
 @Observable

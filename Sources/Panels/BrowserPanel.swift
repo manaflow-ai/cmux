@@ -2688,7 +2688,9 @@ final class BrowserPanel: Panel, ObservableObject {
             let data: Data
             let response: URLResponse
             do {
-                let remoteSession = remoteProxyURLSession()
+                let remoteSession = remoteProxyEndpoint.flatMap {
+                    BrowserRemoteProxyURLResolver().urlSession(for: $0)
+                }
                 defer { remoteSession?.finishTasksAndInvalidate() }
                 if let remoteSession {
 #if DEBUG
@@ -2955,7 +2957,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private func remoteProxyPreparedRequest(from request: URLRequest, logScope: String) -> URLRequest {
         guard remoteProxyEndpoint != nil else { return request }
         guard let url = request.url else { return request }
-        guard let rewrittenURL = Self.remoteProxyLoopbackAliasURL(for: url) else { return request }
+        guard let rewrittenURL = BrowserRemoteProxyURLResolver().loopbackAliasURL(for: url) else { return request }
 
         var rewrittenRequest = request
         rewrittenRequest.url = rewrittenURL
@@ -2970,41 +2972,11 @@ final class BrowserPanel: Panel, ObservableObject {
         return rewrittenRequest
     }
 
-    private func remoteProxyURLSession() -> URLSession? {
-        guard let endpoint = remoteProxyEndpoint else { return nil }
-        let host = endpoint.host.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !host.isEmpty, endpoint.port > 0, endpoint.port <= 65535 else { return nil }
-
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.requestCachePolicy = .returnCacheDataElseLoad
-        configuration.timeoutIntervalForRequest = 2.0
-        configuration.timeoutIntervalForResource = 4.0
-        configuration.connectionProxyDictionary = [
-            kCFNetworkProxiesSOCKSEnable as String: 1,
-            kCFNetworkProxiesSOCKSProxy as String: host,
-            kCFNetworkProxiesSOCKSPort as String: endpoint.port,
-        ]
-        return URLSession(configuration: configuration)
-    }
-
     /// Thin forwarder to ``BrowserRemoteProxyURLResolver/displayURL(for:)`` (moved
     /// into CmuxBrowser/Navigation). Keeps the existing `Self.remoteProxyDisplayURL(_:)`
     /// call sites stable.
     private static func remoteProxyDisplayURL(for url: URL?) -> URL? {
         BrowserRemoteProxyURLResolver().displayURL(for: url)
-    }
-
-    private static func remoteProxyLoopbackAliasURL(for url: URL) -> URL? {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" else { return nil }
-        guard let host = RemoteLoopbackProxyAlias.normalizeHost(url.host ?? "") else { return nil }
-        guard RemoteLoopbackProxyAlias.isLoopbackHost(host) else { return nil }
-
-        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-        components?.host = RemoteLoopbackProxyAlias.browserAliasHost(
-            forLoopbackHost: host,
-            aliasHost: RemoteLoopbackProxyAlias.aliasHost
-        )
-        return components?.url
     }
 
     /// Navigate with smart URL/search detection

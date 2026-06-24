@@ -1201,7 +1201,7 @@ enum TextBoxSubmit {
     }
 #endif
 
-    private static let visibleTextWaitMaxCharacters = 160
+    private static let visibleTextMatcher = TextBoxVisibleTextMatcher()
 
     enum DispatchEvent: Equatable {
         case keyText(String)
@@ -1218,9 +1218,7 @@ enum TextBoxSubmit {
     }
 
     static func submittedPasteText(for text: String) -> String? {
-        let trimmedForEnabledState = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedForEnabledState.isEmpty else { return nil }
-        return text.trimmingCharacters(in: .newlines)
+        visibleTextMatcher.submittedPasteText(for: text)
     }
 
     static func submittedParts(_ parts: [TextBoxSubmissionPart]) -> [TextBoxSubmissionPart]? {
@@ -1335,7 +1333,7 @@ enum TextBoxSubmit {
             }
             events.append(.captureVisibleTextBaseline)
             events.append(.pasteText(text))
-            if let waitNeedle = visibleTextWaitNeedle(for: text) {
+            if let waitNeedle = visibleTextMatcher.visibleTextWaitNeedle(for: text) {
                 events.append(.waitForVisibleText(waitNeedle))
             }
         }
@@ -1382,27 +1380,6 @@ enum TextBoxSubmit {
         return events
     }
 
-    private static func visibleTextWaitNeedle(for text: String) -> String? {
-        let nonNewlineTrimmed = text.trimmingCharacters(in: .newlines)
-        guard !nonNewlineTrimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
-        guard nonNewlineTrimmed.count > visibleTextWaitMaxCharacters else {
-            return text
-        }
-
-        let lastLine = nonNewlineTrimmed
-            .split(omittingEmptySubsequences: false) { character in
-                character == "\n" || character == "\r"
-            }
-            .last
-            .map(String.init) ?? nonNewlineTrimmed
-        let visibleLine = lastLine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? nonNewlineTrimmed
-            : lastLine
-        return String(visibleLine.suffix(visibleTextWaitMaxCharacters))
-    }
-
     private static func claudeImagePastePath(for attachment: TextBoxAttachment) -> String? {
         guard attachment.isImage else { return nil }
         guard let localPath = attachment.localURL?.standardizedFileURL.path else { return nil }
@@ -1414,7 +1391,7 @@ enum TextBoxSubmit {
 
         while let first = result.first {
             guard case .text(let text) = first else { break }
-            let trimmed = trimmingLeadingNewlines(text)
+            let trimmed = visibleTextMatcher.trimmingLeadingNewlines(text)
             if trimmed.isEmpty {
                 result.removeFirst()
             } else {
@@ -1425,7 +1402,7 @@ enum TextBoxSubmit {
 
         while let last = result.last {
             guard case .text(let text) = last else { break }
-            let trimmed = trimmingTrailingNewlines(text)
+            let trimmed = visibleTextMatcher.trimmingTrailingNewlines(text)
             if trimmed.isEmpty {
                 result.removeLast()
             } else {
@@ -1437,57 +1414,16 @@ enum TextBoxSubmit {
         return result
     }
 
-    private static func trimmingLeadingNewlines(_ text: String) -> String {
-        String(text.drop { character in
-            character == "\n" || character == "\r"
-        })
-    }
-
-    private static func trimmingTrailingNewlines(_ text: String) -> String {
-        var result = text
-        while let last = result.last,
-              last == "\n" || last == "\r" {
-            result.removeLast()
-        }
-        return result
-    }
-
     static func visibleTextReady(
         expectedText: String,
         visibleText: String,
         baseline: String
     ) -> Bool {
-        let trimmedExpectedText = expectedText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedExpectedText.isEmpty else {
-            return visibleText != baseline
-        }
-        if occurrenceCount(of: expectedText, in: visibleText) >
-            occurrenceCount(of: expectedText, in: baseline) {
-            return true
-        }
-
-        let normalizedExpected = normalizedVisibleText(trimmedExpectedText)
-        guard !normalizedExpected.isEmpty,
-              normalizedExpected != expectedText else {
-            return false
-        }
-        return occurrenceCount(of: normalizedExpected, in: normalizedVisibleText(visibleText)) >
-            occurrenceCount(of: normalizedExpected, in: normalizedVisibleText(baseline))
-    }
-
-    private static func occurrenceCount(of needle: String, in haystack: String) -> Int {
-        guard !needle.isEmpty else { return 0 }
-        var count = 0
-        var searchRange = haystack.startIndex..<haystack.endIndex
-        while let range = haystack.range(of: needle, range: searchRange) {
-            count += 1
-            searchRange = range.upperBound..<haystack.endIndex
-        }
-        return count
-    }
-
-    private static func normalizedVisibleText(_ text: String) -> String {
-        text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        visibleTextMatcher.visibleTextReady(
+            expectedText: expectedText,
+            visibleText: visibleText,
+            baseline: baseline
+        )
     }
 }
 

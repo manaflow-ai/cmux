@@ -279,10 +279,11 @@ struct RightSidebarToolPanelView: View {
                 onContainerChange: panel.attachFileExplorerContainer
             )
         case .sessions:
+            let resumeCoordinator = SessionResumeCoordinator(tabManager: tabManager)
             SessionIndexView(
                 store: panel.sessionIndexStore,
                 onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                    resumeCoordinator.resume(entry)
                 }
             )
             .background(

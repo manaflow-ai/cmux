@@ -8,47 +8,6 @@ import CmuxSessionIndexUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-@MainActor
-enum SessionEntryResumeCoordinator {
-    static func resume(_ entry: SessionEntry, tabManager: TabManager) {
-        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
-        let inputWithReturn = resumeCommand + "\n"
-        let targetCwd = entry.resumeWorkingDirectory
-
-        let selected = tabManager.selectedWorkspace
-        let selectedTab = tabManager.selectedTabId.flatMap { id in
-            tabManager.tabs.first(where: { $0.id == id })
-        }
-        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
-        let workspaceCwd = selected?.currentDirectory
-        let pwdMatches: Bool = {
-            guard !isRemoteSelection,
-                  let targetCwd, !targetCwd.isEmpty,
-                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
-            let lhs = (targetCwd as NSString).standardizingPath
-            let rhs = (workspaceCwd as NSString).standardizingPath
-            return lhs == rhs
-        }()
-
-        if pwdMatches,
-           let workspace = selected,
-           let paneId = workspace.bonsplitController.focusedPaneId {
-            workspace.newTerminalSurface(
-                inPane: paneId,
-                focus: true,
-                workingDirectory: targetCwd,
-                initialInput: inputWithReturn
-            )
-            return
-        }
-
-        tabManager.addWorkspace(
-            workingDirectory: targetCwd,
-            initialTerminalInput: inputWithReturn
-        )
-    }
-}
-
 struct SessionIndexView: View {
     @Bindable var store: SessionIndexStore
     /// Lives alongside the store but is owned by this view so drag-state
@@ -285,20 +244,10 @@ private struct GroupingButton: View {
     }
 }
 
-/// Closure type for paginated session search. Handed down into the popover
-/// instead of a `SessionIndexStore` reference so views inside the lazy list
-/// subtree cannot observe the store by accident.
-typealias SessionSearchFn = @MainActor (
-    _ query: String,
-    _ scope: SessionIndexStore.SearchScope,
-    _ offset: Int,
-    _ limit: Int
-) async -> SessionIndexStore.SearchOutcome
-
-/// Closure type for fetching the full merged snapshot of a directory.
-/// The popover uses this on the empty-query scroll path so pagination
-/// becomes an in-memory slice instead of repeated store round-trips.
-typealias DirectorySnapshotFn = @MainActor (_ cwd: String?) async -> DirectorySnapshot
+// `SessionSearchFn` and `DirectorySnapshotFn` moved to CmuxSessionIndexUI
+// (Popover/SessionPopoverSearchSeam.swift), spelled in package terms
+// (`SearchScope`/`SearchOutcome`/`DirectorySnapshot`). The app builds the closures
+// from `SessionIndexStore` and injects them through `SectionPopoverHost`.
 
 /// Callback bundle handed to `IndexSectionView` in place of a store reference.
 /// Every capability the row needs is expressed as a closure so no child view
@@ -312,13 +261,6 @@ struct IndexSectionActions {
     let onResume: ((SessionEntry) -> Void)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
-}
-
-/// Callback bundle for `SectionReorderGap` / `SectionGapDropDelegate`.
-struct SectionGapActions {
-    let currentDraggedKey: @MainActor () -> SectionKey?
-    let moveSection: @MainActor (SectionKey, SectionKey?) -> Void
-    let clearDraggedKey: @MainActor () -> Void
 }
 
 private struct IndexSectionView: View, Equatable {
@@ -477,79 +419,6 @@ private struct IndexSectionView: View, Equatable {
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
-    }
-}
-
-private struct SectionReorderGap: View, Equatable {
-    /// Section the dragged item should land BEFORE if dropped here. `nil` for
-    /// the trailing gap (drop appends to the end of persisted order).
-    let beforeKey: SectionKey?
-    /// Precomputed in the parent from the single draggedKey snapshot. Keeps
-    /// the gap from reading drag state itself.
-    let isValidDrop: Bool
-    /// Closure bundle — the gap never sees `SessionIndexStore` or
-    /// `SessionDragCoordinator` directly, so it cannot `@ObservedObject` them.
-    let actions: SectionGapActions
-    @State private var isDropTarget: Bool = false
-
-    static func == (lhs: SectionReorderGap, rhs: SectionReorderGap) -> Bool {
-        lhs.beforeKey == rhs.beforeKey && lhs.isValidDrop == rhs.isValidDrop
-    }
-
-    var body: some View {
-        Rectangle()
-            .fill(Color.clear)
-            .frame(height: 4)
-            .overlay(alignment: .center) {
-                if isDropTarget && isValidDrop {
-                    Capsule()
-                        .fill(Color.accentColor)
-                        .frame(height: 3)
-                        .padding(.horizontal, 10)
-                }
-            }
-            .onDrop(
-                of: [.text],
-                delegate: SectionGapDropDelegate(
-                    beforeKey: beforeKey,
-                    actions: actions,
-                    isDropTarget: $isDropTarget
-                )
-            )
-    }
-}
-
-private struct SectionGapDropDelegate: DropDelegate {
-    let beforeKey: SectionKey?
-    let actions: SectionGapActions
-    @Binding var isDropTarget: Bool
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard info.hasItemsConforming(to: [.text]) else { return false }
-        guard let dragged = actions.currentDraggedKey() else { return true }
-        return dragged != beforeKey
-    }
-
-    func dropEntered(info: DropInfo) { isDropTarget = true }
-    func dropExited(info: DropInfo) { isDropTarget = false }
-
-    func performDrop(info: DropInfo) -> Bool {
-        isDropTarget = false
-        guard let provider = info.itemProviders(for: [.text]).first else {
-            actions.clearDraggedKey()
-            return false
-        }
-        let beforeKey = self.beforeKey
-        let actions = self.actions
-        provider.loadObject(ofClass: NSString.self) { object, _ in
-            DispatchQueue.main.async {
-                defer { actions.clearDraggedKey() }
-                guard let raw = object as? String else { return }
-                let key = SectionKey(raw: raw)
-                actions.moveSection(key, beforeKey)
-            }
-        }
-        return true
     }
 }
 
@@ -801,362 +670,13 @@ private final class PopoverAnchorView: NSView {
 }
 
 // MARK: - "Show more" popover with search
-
-private struct SectionPopoverView: View {
-    let section: IndexSection
-    /// Closure-typed search handle. The popover never holds a reference to
-    /// `SessionIndexStore`; the parent view is the only owner.
-    let search: SessionSearchFn
-    /// Closure that returns the full merged snapshot for a directory.
-    /// Used on the empty-query directory-scope scroll path so pagination
-    /// is an in-memory array slice, not repeated store round-trips.
-    let loadSnapshot: DirectorySnapshotFn
-    let onResume: ((SessionEntry) -> Void)?
-    let onDismiss: () -> Void
-
-    @State private var query: String = ""
-    @FocusState private var searchFieldFocused: Bool
-
-    /// Rows currently rendered in the popover. In snapshot mode this is a
-    /// prefix of `fullSnapshot`; in typed-query mode it's the accumulated
-    /// pages from the store.
-    @State private var loaded: [SessionEntry] = []
-    @State private var hasMore: Bool = true
-    @State private var isLoading: Bool = false
-    @State private var activeQuery: String = ""
-    /// In-flight pagination task for the typed-query path. Reassigned by
-    /// `loadMore()`; the previous task is cancelled implicitly. The initial /
-    /// query-change load is owned by SwiftUI via `.task(id: query)` and
-    /// doesn't use this slot.
-    @State private var loadTask: Task<Void, Never>?
-    @State private var errorMessages: [String] = []
-    /// Full merged snapshot of the directory (empty-query directory scope
-    /// only). When non-nil, `loadMore()` slices this array in memory
-    /// instead of hitting the store.
-    @State private var fullSnapshot: [SessionEntry]?
-
-    private static let pageSize = 100
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                sectionIconView
-                Text(section.title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 10)
-            .padding(.bottom, 6)
-
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.secondary)
-                TextField(
-                    String(localized: "sessionIndex.popover.searchPlaceholder",
-                           defaultValue: "Search Vault"),
-                    text: $query
-                )
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .focused($searchFieldFocused)
-                if !query.isEmpty {
-                    Button {
-                        query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.primary.opacity(0.06))
-            )
-            .padding(.horizontal, 10)
-            .padding(.bottom, 8)
-
-            Divider()
-
-            if !errorMessages.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(errorMessages, id: \.self) { msg in
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.orange)
-                            Text(msg)
-                                .font(.system(size: 11))
-                                .foregroundColor(.primary.opacity(0.85))
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.10))
-            }
-            ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if isLoading && loaded.isEmpty {
-                        loadingRow
-                    } else if loaded.isEmpty {
-                        Text(String(localized: "sessionIndex.popover.noMatches",
-                                    defaultValue: "No matches"))
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        ForEach(loaded) { entry in
-                            PopoverRow(
-                                entry: entry,
-                                displayTitle: entry.displayTitle,
-                                agentAssetName: entry.agent.assetName,
-                                agentSystemImageName: entry.agent.systemImageName,
-                                onActivate: {
-                                    onResume?(entry)
-                                    onDismiss()
-                                },
-                                dragItemProvider: { sessionDragItemProvider(for: entry) },
-                                menuContent: {
-                                    SessionRowMenu(entry: entry, onResume: { _ in
-                                        onResume?(entry)
-                                        onDismiss()
-                                    })
-                                }
-                            )
-                            .equatable()
-                        }
-                        if hasMore {
-                            // Always visible while more pages exist. Serves
-                            // as both the "Loading..." indicator and the
-                            // pagination sentinel; its .onAppear fires
-                            // loadMore() when it scrolls into view.
-                            loadingRow
-                                .onAppear { loadMore() }
-                        } else {
-                            Text(String(localized: "sessionIndex.popover.endOfList",
-                                        defaultValue: "You've reached the end"))
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary.opacity(0.5))
-                                .frame(maxWidth: .infinity, alignment: .center)
-                                .padding(.vertical, 8)
-                        }
-                    }
-                }
-                .padding(.top, 4)
-                .padding(.bottom, 10)
-            }
-            .frame(height: 420)
-        }
-        // ScrollView is pinned at fixed 420; the outer VStack's natural
-        // height (chrome + 420) then drives NSHostingController's
-        // preferred content size via sizingOptions. Do NOT pin an outer
-        // fixed height; it made SwiftUI center-distribute slack space
-        // and squashed the top header padding.
-        .frame(width: 360)
-        .background(
-            EscapeKeyCatcher { onDismiss() }
-        )
-        // Single SwiftUI-owned lifecycle for the initial load and every
-        // query change. `.task(id: query)` auto-cancels on view disappear
-        // AND on any `query` change, so we don't need onAppear +
-        // onChange + onDisappear + a manual generation counter to
-        // discard superseded fetches. The 200ms pause doubles as a
-        // debounce: rapid keystrokes bump `id:` which cancels this task
-        // before the sleep completes, preventing an unnecessary search.
-        .task(id: query) {
-            // Any pagination task from the previous query lifecycle is now
-            // superseded. Cancel explicitly; reassigning `loadTask =
-            // Task { ... }` later doesn't cancel the previous handle on its
-            // own, so without this a stale page could still land and
-            // append rows that don't match the new query.
-            loadTask?.cancel()
-            loadTask = nil
-
-            if !searchFieldFocused {
-                searchFieldFocused = true
-            }
-
-            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            activeQuery = trimmed
-            errorMessages = []
-
-            if trimmed.isEmpty {
-                // Fast first frame: render the scan-time top-N we already
-                // have while the full snapshot builds in parallel. On
-                // warm cache the snapshot returns immediately and the
-                // fast-path rows are replaced in the same tick.
-                loaded = section.entries
-                hasMore = !section.entries.isEmpty
-
-                // Build-or-return the full directory snapshot. For
-                // directory scope scrolling this replaces per-page store
-                // fetches with a single merged array + in-memory slice.
-                // Agent-scope popovers keep the old paged flow (no
-                // snapshot needed, store.entries already top-N per agent).
-                if case .directory(let path) = sectionSearchScope {
-                    // Keep isLoading=true while the snapshot builds so the
-                    // sentinel's onAppear can't race and fire a paged
-                    // loadMore() against the store — otherwise we end up
-                    // running both the snapshot path AND a paged search in
-                    // parallel for the same open (observed in logs as
-                    // duplicate session.search.agent lines for the same
-                    // cwd, followed by session.search.total offset=N).
-                    isLoading = true
-                    let snapshot = await loadSnapshot(path)
-                    guard !Task.isCancelled else { return }
-                    fullSnapshot = snapshot.entries
-                    // Show the first page's worth immediately; loadMore
-                    // grows `loaded` from the snapshot on scroll.
-                    let initialWindow = min(Self.pageSize, snapshot.entries.count)
-                    loaded = Array(snapshot.entries.prefix(initialWindow))
-                    hasMore = initialWindow < snapshot.entries.count
-                    errorMessages = snapshot.errors
-                    isLoading = false
-                } else {
-                    fullSnapshot = nil
-                    isLoading = false
-                }
-                return
-            }
-
-            // Typed query — drop any prior snapshot and run a paged
-            // search instead. Cancellation-sensitive debounce: rapid
-            // keystrokes bump id: and SwiftUI cancels before the search
-            // fires.
-            fullSnapshot = nil
-            loaded = []
-            hasMore = true
-            isLoading = true
-
-            do {
-                try await Task.sleep(for: .milliseconds(200))
-            } catch {
-                return
-            }
-
-            let outcome = await search(trimmed, sectionSearchScope, 0, Self.pageSize)
-            guard !Task.isCancelled else { return }
-            applyOutcome(outcome, append: false)
-        }
-        .onDisappear {
-            // .task(id: query) auto-cancels on disappear, but the
-            // separate loadTask slot (used by loadMore) is ours to
-            // manage. Cancel it so a fetch in flight when the popover
-            // closes doesn't keep running to completion.
-            loadTask?.cancel()
-            loadTask = nil
-            isLoading = false
-        }
-    }
-
-    private var loadingRow: some View {
-        HStack(spacing: 6) {
-            ProgressView().controlSize(.small)
-            Text(String(localized: "sessionIndex.popover.loading", defaultValue: "Loading…"))
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// Append the next page to `loaded`. Triggered by the sentinel row's
-    /// onAppear. In snapshot mode (empty-query directory scope) this is a
-    /// pure in-memory array slice with zero store calls. In typed-query mode
-    /// it fires a paged search. Explicitly cancels any earlier load-more
-    /// still in flight so a superseded page can't append stale rows after
-    /// a query change.
-    private func loadMore() {
-        guard !isLoading, hasMore else { return }
-
-        if let snapshot = fullSnapshot {
-            let next = min(loaded.count + Self.pageSize, snapshot.count)
-            loaded = Array(snapshot.prefix(next))
-            hasMore = next < snapshot.count
-            return
-        }
-
-        isLoading = true
-        let scope = sectionSearchScope
-        let search = self.search
-        let query = activeQuery
-        let offset = loaded.count
-        loadTask?.cancel()
-        loadTask = Task { @MainActor in
-            let outcome = await search(query, scope, offset, Self.pageSize)
-            guard !Task.isCancelled else { return }
-            applyOutcome(outcome, append: true)
-        }
-    }
-
-    /// Merge a fetch result into the popover's display state. Both the
-    /// initial-page and load-more paths converge here so the count/hasMore/
-    /// error/loading bookkeeping lives in one place.
-    @MainActor
-    private func applyOutcome(_ outcome: SessionIndexStore.SearchOutcome, append: Bool) {
-        // `append` is only reached from the paged path (typed query or
-        // agent scope). In both cases `offset = loaded.count` is
-        // monotonic against the store's ordering, so raw-append is
-        // correct. The empty-query directory case uses the snapshot
-        // path and never reaches here.
-        //
-        // Earlier revisions of this method dedup-filtered outcome.entries
-        // on entry.id; with `hasMore = outcome.entries.count >=
-        // pageSize` and `offset = loaded.count`, filtering caused
-        // loaded.count to advance more slowly than the raw page size,
-        // which kept hasMore perpetually true and re-requested the
-        // same window. Removing the dedup makes the cursor match the
-        // page boundaries the store actually returns.
-        if append {
-            loaded.append(contentsOf: outcome.entries)
-        } else {
-            loaded = outcome.entries
-        }
-        hasMore = outcome.entries.count >= Self.pageSize
-        errorMessages = outcome.errors
-        isLoading = false
-    }
-
-    private var sectionSearchScope: SessionIndexStore.SearchScope {
-        let raw = section.key.raw
-        if raw.hasPrefix("agent:"),
-           let agent = SessionAgent(rawValue: String(raw.dropFirst("agent:".count))) {
-            return .agent(agent)
-        }
-        if raw.hasPrefix("dir:") {
-            let path = String(raw.dropFirst("dir:".count))
-            return .directory(path.isEmpty ? nil : path)
-        }
-        return .directory(nil)
-    }
-
-    @ViewBuilder
-    private var sectionIconView: some View {
-        switch section.icon {
-        case .agent(let agent):
-            AgentIconImage(assetName: agent.assetName, systemImageName: agent.systemImageName, size: 14)
-        case .folder:
-            Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
-        }
-    }
-}
+//
+// `SectionPopoverView`, `SessionSearchFn`, and `DirectorySnapshotFn` moved to
+// CmuxSessionIndexUI (Popover/). The app-side `SectionPopoverHost` (below) hosts the
+// package view in a real NSPopover and injects the app-only seams: the resolved
+// row title (`SessionEntry.displayTitle`), the resolved agent icon names
+// (`SessionAgent` presentation extension), the drag payload factory
+// (`sessionDragItemProvider`), and the shared right-click menu (`SessionRowMenu`).
 
 // `SessionRow`, `PopoverRow`, and `RelativeTimestampSchedule` were moved to
 // `CmuxSessionIndexUI` (Rows/SessionRow.swift + Rows/PopoverRow.swift +
@@ -1346,10 +866,50 @@ struct SectionPopoverHost: NSViewRepresentable {
                     section: section,
                     search: search,
                     loadSnapshot: loadSnapshot,
-                    onResume: onResume
-                ) { [weak self] in
-                    self?.closeFromContent()
-                }
+                    onResume: onResume,
+                    // App-resolved seams: the package popover reaches no app-side
+                    // presentation/registry. The chrome strings, `displayTitle`, and the
+                    // agent icon names bind against the app bundle / asset catalog; the
+                    // drag factory and the shared right-click menu reach NSWorkspace/NSPasteboard.
+                    strings: SectionPopoverStrings(
+                        searchPlaceholder: String(
+                            localized: "sessionIndex.popover.searchPlaceholder",
+                            defaultValue: "Search Vault"
+                        ),
+                        noMatches: String(
+                            localized: "sessionIndex.popover.noMatches",
+                            defaultValue: "No matches"
+                        ),
+                        endOfList: String(
+                            localized: "sessionIndex.popover.endOfList",
+                            defaultValue: "You've reached the end"
+                        ),
+                        loading: String(
+                            localized: "sessionIndex.popover.loading",
+                            defaultValue: "Loading…"
+                        )
+                    ),
+                    displayTitle: { entry in entry.displayTitle },
+                    agentIcon: { agent in
+                        AgentIconPresentation(
+                            assetName: agent.assetName,
+                            systemImageName: agent.systemImageName
+                        )
+                    },
+                    dragItemProvider: { entry in sessionDragItemProvider(for: entry) },
+                    menuContent: { [weak self] entry in
+                        SessionRowMenu(
+                            entry: entry,
+                            onResume: { resumed in
+                                onResume?(resumed)
+                                self?.closeFromContent()
+                            }
+                        )
+                    },
+                    onDismiss: { [weak self] in
+                        self?.closeFromContent()
+                    }
+                )
                 // Tied to presentationCount so reopening the popover discards
                 // the prior open's view-local search and scroll state.
                 .id(identity)
