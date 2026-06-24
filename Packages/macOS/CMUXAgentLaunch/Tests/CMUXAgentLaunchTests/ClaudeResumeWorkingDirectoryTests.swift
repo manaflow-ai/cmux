@@ -4,13 +4,15 @@ import Testing
 
 @Suite("ClaudeResumeWorkingDirectory")
 struct ClaudeResumeWorkingDirectoryTests {
-    /// Lays down `<home>/.claude/projects/<encoded launchCwd>/<sessionId>.jsonl` and returns the home.
-    /// When `recordCwd` is non-nil, the transcript carries a Claude record whose top-level `cwd` is
-    /// that value (mirroring real transcripts); otherwise it writes an empty record.
+    /// Lays down a transcript under `<home>/.claude/projects/<encoded launchCwd>/` and returns the
+    /// home. The `direct` layout writes `<project>/<sessionId>.jsonl`; the nested layout writes
+    /// `<project>/<sessionId>/messages/<sessionId>.jsonl` (both shapes Claude uses). When `recordCwd`
+    /// is non-nil the record carries a top-level `cwd` (mirroring real transcripts).
     private func makeConfigWithTranscript(
         launchCwd: String,
         sessionId: String,
-        recordCwd: String? = nil
+        recordCwd: String? = nil,
+        nested: Bool = false
     ) throws -> (home: String, transcriptPath: String) {
         let home = (NSTemporaryDirectory() as NSString)
             .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)")
@@ -18,10 +20,14 @@ struct ClaudeResumeWorkingDirectoryTests {
             .appendingPathComponent(".claude") as NSString)
             .appendingPathComponent("projects") as NSString)
             .appendingPathComponent(ClaudeProjectDirEncoding.projectDirName(forPath: launchCwd)))
+        let transcriptDir = nested
+            ? (((projectDir as NSString).appendingPathComponent(sessionId) as NSString)
+                .appendingPathComponent("messages"))
+            : projectDir
         try FileManager.default.createDirectory(
-            atPath: projectDir, withIntermediateDirectories: true
+            atPath: transcriptDir, withIntermediateDirectories: true
         )
-        let transcriptPath = (projectDir as NSString).appendingPathComponent("\(sessionId).jsonl")
+        let transcriptPath = (transcriptDir as NSString).appendingPathComponent("\(sessionId).jsonl")
         let line: String
         if let recordCwd {
             line = #"{"type":"user","sessionId":"\#(sessionId)","cwd":"\#(recordCwd)","message":{"role":"user","content":"hello"}}"# + "\n"
@@ -101,6 +107,25 @@ struct ClaudeResumeWorkingDirectoryTests {
         let driftedCwd = "/Users/x/repo/worktrees/feature"
         let (home, transcriptPath) = try makeConfigWithTranscript(
             launchCwd: launchCwd, sessionId: sessionId, recordCwd: launchCwd
+        )
+        defer { try? FileManager.default.removeItem(atPath: home) }
+
+        let resolved = ClaudeResumeWorkingDirectory(homeDirectory: home).verifiedWorkingDirectory(
+            sessionId: sessionId,
+            transcriptPath: transcriptPath,
+            claudeConfigDir: nil,
+            candidateWorkingDirectories: [driftedCwd, driftedCwd]
+        )
+        #expect(resolved == launchCwd)
+    }
+
+    @Test("Recovers via the nested <id>/messages/<id>.jsonl layout when candidates miss")
+    func recoversFromNestedTranscriptLayout() throws {
+        let sessionId = UUID().uuidString
+        let launchCwd = "/Users/x/repo"
+        let driftedCwd = "/Users/x/repo/worktrees/feature"
+        let (home, transcriptPath) = try makeConfigWithTranscript(
+            launchCwd: launchCwd, sessionId: sessionId, recordCwd: launchCwd, nested: true
         )
         defer { try? FileManager.default.removeItem(atPath: home) }
 

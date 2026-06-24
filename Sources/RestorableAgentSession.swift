@@ -1079,6 +1079,12 @@ struct RestorableAgentSessionIndex: Sendable {
             homeDirectory: homeDirectory,
             fileManager: fileManager
         )
+        // One resolver for the whole load pass so its config-root scan and transcript probes are
+        // shared across every session record instead of rebuilt per record.
+        let claudeResumeResolver = ClaudeResumeWorkingDirectory(
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
         let builtInKindIDs = Set(RestorableAgentKind.allCases.map(\.rawValue))
         let hookKinds: [(kind: RestorableAgentKind, registration: CmuxVaultAgentRegistration?)] =
             RestorableAgentKind.allCases.map { (kind: $0, registration: nil) }
@@ -1133,8 +1139,7 @@ struct RestorableAgentSessionIndex: Sendable {
                         for: effectiveRecord,
                         kind: kind,
                         registration: registration,
-                        fileManager: fileManager,
-                        homeDirectory: homeDirectory
+                        resumeResolver: claudeResumeResolver
                     ),
                     launchCommand: effectiveRecord.launchCommand,
                     registration: registration
@@ -1457,8 +1462,7 @@ struct RestorableAgentSessionIndex: Sendable {
         for record: RestorableAgentHookSessionRecord,
         kind: RestorableAgentKind,
         registration: CmuxVaultAgentRegistration?,
-        fileManager: FileManager,
-        homeDirectory: String
+        resumeResolver: ClaudeResumeWorkingDirectory
     ) -> String? {
         let recordedCwd = normalizedWorkingDirectory(record.cwd)
         let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
@@ -1479,12 +1483,11 @@ struct RestorableAgentSessionIndex: Sendable {
             return recordedCwd ?? launchCwd
         case .byDirectory:
             if kind == .claude,
-               let verified = claudeVerifiedRestorableWorkingDirectory(
-                   record: record,
-                   recordedCwd: recordedCwd,
-                   launchCwd: launchCwd,
-                   fileManager: fileManager,
-                   homeDirectory: homeDirectory
+               let verified = resumeResolver.verifiedWorkingDirectory(
+                   sessionId: record.sessionId,
+                   transcriptPath: record.transcriptPath,
+                   claudeConfigDir: record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
+                   candidateWorkingDirectories: [launchCwd, recordedCwd].compactMap { $0 }
                ) {
                 return verified
             }
@@ -1494,50 +1497,10 @@ struct RestorableAgentSessionIndex: Sendable {
         }
     }
 
-    /// For Claude, returns the candidate directory whose project folder actually holds the
-    /// transcript — matched first against the transcript's known storage path, then against the
-    /// config directory on disk — or `nil` when neither can be verified (so the caller prefers the
-    /// launch cwd instead of the drift-prone recorded cwd).
-    ///
-    /// Delegates to the shared `ClaudeResumeWorkingDirectory` in `CMUXAgentLaunch`, which is the
-    /// single source of truth used by both this snapshot path and the CLI auto-resume binding path.
-    private static func claudeVerifiedRestorableWorkingDirectory(
-        record: RestorableAgentHookSessionRecord,
-        recordedCwd: String?,
-        launchCwd: String?,
-        fileManager: FileManager,
-        homeDirectory: String
-    ) -> String? {
-        ClaudeResumeWorkingDirectory(fileManager: fileManager, homeDirectory: homeDirectory)
-            .verifiedWorkingDirectory(
-                sessionId: record.sessionId ?? "",
-                transcriptPath: record.transcriptPath,
-                claudeConfigDir: record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"],
-                candidateWorkingDirectories: [launchCwd, recordedCwd].compactMap { $0 }
-            )
-    }
-
     static func encodeClaudeProjectDir(_ path: String) -> String {
         // Thin shim over the shared encoder so the app and CLI agree on Claude's project-dir naming
         // (both "/" and "." map to "-", e.g. "/Users/x/repo/.claude" -> "-Users-x-repo--claude").
         ClaudeProjectDirEncoding.projectDirName(forPath: path)
-    }
-
-    private static func claudeProjectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
-        let standardizedPath = (path as NSString).standardizingPath
-        for root in configRoots {
-            let projectsRoot = ((root as NSString).appendingPathComponent("projects") as NSString)
-                .standardizingPath
-            let prefix = projectsRoot.hasSuffix("/") ? projectsRoot : projectsRoot + "/"
-            guard standardizedPath.hasPrefix(prefix) else { continue }
-            let relativePath = String(standardizedPath.dropFirst(prefix.count))
-            guard let projectDirName = relativePath.split(separator: "/", maxSplits: 1).first,
-                  !projectDirName.isEmpty else {
-                continue
-            }
-            return String(projectDirName)
-        }
-        return nil
     }
 
     private static func claudeTranscriptPath(

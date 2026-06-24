@@ -30,10 +30,14 @@ public enum ClaudeProjectDirEncoding {
 public struct ClaudeResumeWorkingDirectory {
     private let fileManager: FileManager
     private let homeDirectory: String
+    // A reference-type cache so that reusing one instance across a session-index load loop shares the
+    // (expensive) config-root scan and per-project transcript probes instead of redoing them per call.
+    private let cache: TranscriptLookupCache
 
     public init(fileManager: FileManager = .default, homeDirectory: String = NSHomeDirectory()) {
         self.fileManager = fileManager
         self.homeDirectory = homeDirectory
+        self.cache = TranscriptLookupCache(homeDirectory: homeDirectory, fileManager: fileManager)
     }
 
     /// Returns the candidate working directory whose Claude project folder actually holds the
@@ -59,7 +63,6 @@ public struct ClaudeResumeWorkingDirectory {
         let candidates = candidateWorkingDirectories.compactMap { normalizedNonEmptyValue($0) }
         guard !candidates.isEmpty else { return nil }
 
-        let cache = TranscriptLookupCache(homeDirectory: homeDirectory, fileManager: fileManager)
         let roots = cache.configRoots(claudeConfigDir: claudeConfigDir)
 
         if let transcriptPath = normalizedNonEmptyValue(transcriptPath) {
@@ -67,27 +70,27 @@ public struct ClaudeResumeWorkingDirectory {
             // The transcript's own storage path names the project directory Claude looks in.
             let expectedProjectDirName = projectDirName(
                 containingTranscriptPath: expandedTranscriptPath,
+                sessionId: sessionId,
                 configRoots: roots
-            ) ?? (((expandedTranscriptPath as NSString).deletingLastPathComponent) as NSString)
-                .lastPathComponent
+            )
 
-            // (a) Prefer a candidate whose encoding matches that project directory.
-            if !expectedProjectDirName.isEmpty,
-               let matched = candidates.first(where: {
-                   ClaudeProjectDirEncoding.projectDirName(forPath: $0) == expectedProjectDirName
-               }) {
-                return matched
-            }
+            if let expectedProjectDirName, !expectedProjectDirName.isEmpty {
+                // (a) Prefer a candidate whose encoding matches that project directory.
+                if let matched = candidates.first(where: {
+                    ClaudeProjectDirEncoding.projectDirName(forPath: $0) == expectedProjectDirName
+                }) {
+                    return matched
+                }
 
-            // (b) No candidate matches — the true launch cwd is not among them (e.g. the launch
-            // capture itself collapsed to the drifted runtime cwd). Recover it directly from the
-            // transcript: every Claude record carries the session's launch cwd in a top-level "cwd".
-            // Only trust it when its re-encoding round-trips to the same project directory, so a
-            // lossy/foreign path can never be accepted.
-            if !expectedProjectDirName.isEmpty,
-               let recovered = recordedCwd(inTranscriptAtPath: expandedTranscriptPath),
-               ClaudeProjectDirEncoding.projectDirName(forPath: recovered) == expectedProjectDirName {
-                return recovered
+                // (b) No candidate matches — the true launch cwd is not among them (e.g. the launch
+                // capture itself collapsed to the drifted runtime cwd). Recover it directly from the
+                // transcript: every Claude record carries the session's launch cwd in a top-level
+                // "cwd". Only trust it when its re-encoding round-trips to the same project
+                // directory, so a lossy/foreign path can never be accepted.
+                if let recovered = recordedCwd(inTranscriptAtPath: expandedTranscriptPath),
+                   ClaudeProjectDirEncoding.projectDirName(forPath: recovered) == expectedProjectDirName {
+                    return recovered
+                }
             }
         }
 
@@ -135,7 +138,15 @@ public struct ClaudeResumeWorkingDirectory {
             && sessionId != ".."
     }
 
-    private func projectDirName(containingTranscriptPath path: String, configRoots: [String]) -> String? {
+    /// The project directory segment of a Claude transcript path. Resolves against a known config
+    /// root when possible; otherwise infers it from the known transcript shapes
+    /// `<project>/<id>.jsonl` and the nested `<project>/<id>/messages/<id>.jsonl`, so recovery works
+    /// even when the config root is unknown.
+    private func projectDirName(
+        containingTranscriptPath path: String,
+        sessionId: String,
+        configRoots: [String]
+    ) -> String? {
         let standardizedPath = (path as NSString).standardizingPath
         for root in configRoots {
             let projectsRoot = ((root as NSString).appendingPathComponent("projects") as NSString)
@@ -149,7 +160,18 @@ public struct ClaudeResumeWorkingDirectory {
             }
             return String(projectDirName)
         }
-        return nil
+
+        // Config root unknown — infer from the transcript shape. Walk up from the file: the nested
+        // layout puts `<id>/messages/` between the project dir and the file, so skip those segments.
+        var dir = (standardizedPath as NSString).deletingLastPathComponent
+        if (dir as NSString).lastPathComponent == "messages" {
+            dir = (dir as NSString).deletingLastPathComponent
+            if (dir as NSString).lastPathComponent == sessionId {
+                dir = (dir as NSString).deletingLastPathComponent
+            }
+        }
+        let name = (dir as NSString).lastPathComponent
+        return name.isEmpty ? nil : name
     }
 
     private func normalizedNonEmptyValue(_ value: String?) -> String? {
@@ -166,6 +188,7 @@ public struct ClaudeResumeWorkingDirectory {
         private let fileManager: FileManager
         private var transcriptPathByProjectRootAndSession: [String: String] = [:]
         private var missingTranscriptPathByProjectRootAndSession: Set<String> = []
+        private var configRootsByConfigDir: [String: [String]] = [:]
 
         init(homeDirectory: String, fileManager: FileManager) {
             self.homeDirectory = homeDirectory
@@ -173,6 +196,17 @@ public struct ClaudeResumeWorkingDirectory {
         }
 
         func configRoots(claudeConfigDir: String?) -> [String] {
+            // Memoize so reusing the cache across a load loop scans the account roots once.
+            let key = normalizedNonEmptyValue(claudeConfigDir) ?? ""
+            if let cached = configRootsByConfigDir[key] {
+                return cached
+            }
+            let resolved = computeConfigRoots(claudeConfigDir: claudeConfigDir)
+            configRootsByConfigDir[key] = resolved
+            return resolved
+        }
+
+        private func computeConfigRoots(claudeConfigDir: String?) -> [String] {
             if let configured = normalizedNonEmptyValue(claudeConfigDir) {
                 return [
                     ClaudeConfigDirectoryPath.preferredPath(

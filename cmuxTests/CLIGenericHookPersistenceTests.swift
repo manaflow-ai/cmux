@@ -3742,12 +3742,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated(["/usr/local/bin/claude"]),
         ]
 
-        _ = runClaudeHook(
+        let start = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "session-start"],
             standardInput: #"{"session_id":"\#(sessionId)","source":"clear","cwd":"\#(driftedCwd)","transcript_path":"\#(transcriptPath)","hook_event_name":"SessionStart"}"#,
             extraEnvironment: driftedLaunchEnv
         )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
         let prompt = runClaudeHook(
             context: context,
             arguments: ["hooks", "claude", "prompt-submit"],
