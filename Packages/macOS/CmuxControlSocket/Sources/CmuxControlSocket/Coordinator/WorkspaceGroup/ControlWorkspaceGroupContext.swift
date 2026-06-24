@@ -1,3 +1,4 @@
+public import CmuxSettings
 public import Foundation
 
 /// The workspace-group-domain slice of the control-command seam (a constituent
@@ -135,11 +136,15 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     ///   - routing: The routing selectors used for TabManager resolution.
     ///   - groupID: The target group.
     ///   - workspaceID: The workspace to add.
+    ///   - placement: Optional placement within the group.
+    ///   - referenceWorkspaceID: Optional in-group reference for after-current placement.
     /// - Returns: The add resolution.
     func controlAddWorkspaceToGroup(
         routing: ControlRoutingSelectors,
         groupID: UUID,
-        workspaceID: UUID
+        workspaceID: UUID,
+        placement: WorkspaceGroupNewPlacement?,
+        referenceWorkspaceID: UUID?
     ) -> ControlWorkspaceGroupAddResolution
 
     /// Removes a workspace from its group for `workspace.group.remove`.

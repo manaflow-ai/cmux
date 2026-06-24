@@ -1,3 +1,4 @@
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -14,6 +15,8 @@ public struct TerminalSection: View {
     @State private var surfaceTabBarFont: SettingsFontSize
     @State private var fontSaveFailed = false
     @State private var fontSaveTask: Task<Void, Never>?
+    @State private var scrollSpeed: DefaultsValueModel<Double>
+    @State private var activeScrollSpeedDragValue: Double?
     @State private var scrollBar: DefaultsValueModel<Bool>
     @State private var copyOnSelect: DefaultsValueModel<Bool>
     @State private var autoResume: DefaultsValueModel<Bool>
@@ -36,6 +39,7 @@ public struct TerminalSection: View {
         self.catalog = catalog
         self.hostActions = hostActions
         _surfaceTabBarFont = State(initialValue: hostActions.surfaceTabBarFontSize())
+        _scrollSpeed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.scrollSpeed))
         _scrollBar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.showScrollBar))
         _copyOnSelect = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.copyOnSelect))
         _autoResume = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.terminal.autoResumeAgentSessions))
@@ -60,6 +64,7 @@ public struct TerminalSection: View {
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
+            scrollSpeed,
             scrollBar,
             copyOnSelect,
             autoResume,
@@ -86,6 +91,15 @@ public struct TerminalSection: View {
         }
     }
 
+    private var displayedScrollSpeed: Double {
+        activeScrollSpeedDragValue ?? scrollSpeed.current
+    }
+
+    private func commitScrollSpeedDrag() {
+        scrollSpeed.set(displayedScrollSpeed)
+        activeScrollSpeedDragValue = nil
+    }
+
     @ViewBuilder
     private var resumeCommandsCard: some View {
         SettingsCard {
@@ -100,7 +114,7 @@ public struct TerminalSection: View {
             ) {
                 HStack(spacing: 8) {
                     Text(verbatim: "0")
-                        .font(.caption.monospacedDigit())
+                        .cmuxFont(.caption, monospacedDigit: true)
                         .foregroundColor(.secondary)
                     Button(String(localized: "settings.settingsJSON.openButton", defaultValue: "Open")) {
                         hostActions.openConfigInExternalEditor()
@@ -134,7 +148,7 @@ public struct TerminalSection: View {
                         .accessibilityIdentifier("SettingsTabBarFontSizeSlider")
 
                         Text(String.localizedStringWithFormat(String(localized: "settings.fontSize.valuePoints", defaultValue: "%@ pt"), hostActions.formattedFontSize(surfaceTabBarFont.points)))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .cmuxFont(size: 12, weight: .medium, design: .rounded)
                             .monospacedDigit()
                             .frame(width: 44, alignment: .trailing)
 
@@ -149,11 +163,43 @@ public struct TerminalSection: View {
 
                     if fontSaveFailed {
                         Text(String(localized: "settings.terminal.tabBarFontSize.saveFailed", defaultValue: "Couldn't save tab bar font size. Please try again."))
-                            .font(.caption)
+                            .cmuxFont(.caption)
                             .foregroundStyle(.red)
                             .multilineTextAlignment(.trailing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                }
+            }
+            SettingsCardDivider()
+            SettingsCardRow(
+                configurationReview: .json("terminal.scrollSpeed"),
+                String(localized: "settings.terminal.scrollSpeed", defaultValue: "Scroll Speed"),
+                subtitle: String(localized: "settings.terminal.scrollSpeed.subtitle", defaultValue: "Multiplier applied to terminal scroll wheel and trackpad deltas. Higher scrolls faster."),
+                controlWidth: 250
+            ) {
+                HStack(spacing: 8) {
+                    Slider(
+                        value: Binding(get: { displayedScrollSpeed }, set: { activeScrollSpeedDragValue = $0 }),
+                        in: TerminalCatalogSection.scrollSpeedMinimum...TerminalCatalogSection.scrollSpeedMaximum,
+                        step: 0.05
+                    ) { editing in
+                        if !editing { commitScrollSpeedDrag() }
+                    }
+                    .frame(width: 130)
+                    .accessibilityIdentifier("SettingsTerminalScrollSpeedSlider")
+
+                    Text(String.localizedStringWithFormat(String(localized: "settings.terminal.scrollSpeed.value", defaultValue: "%.2f×"), displayedScrollSpeed))
+                        .cmuxFont(size: 12, weight: .medium, design: .rounded)
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+
+                    Button(String(localized: "settings.terminal.scrollSpeed.reset", defaultValue: "Reset")) {
+                        activeScrollSpeedDragValue = nil
+                        scrollSpeed.set(TerminalCatalogSection.scrollSpeedDefault)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(abs(displayedScrollSpeed - TerminalCatalogSection.scrollSpeedDefault) < 0.001)
                 }
             }
             SettingsCardDivider()
@@ -174,8 +220,8 @@ public struct TerminalSection: View {
                 configurationReview: .json("terminal.copyOnSelect"),
                 String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"),
                 subtitle: copyOnSelect.current
-                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is copied to the system clipboard when the selection is committed.")
-                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "Terminal selections do not replace the system clipboard. Use Cmd+C to copy manually.")
+                    ? String(localized: "settings.terminal.copyOnSelect.subtitleOn", defaultValue: "Selected terminal text is also copied to the system clipboard when the selection is committed.")
+                    : String(localized: "settings.terminal.copyOnSelect.subtitleOff", defaultValue: "cmux does not add system-clipboard copy on selection. Ghostty config still controls Paste Selection.")
             ) {
                 Toggle("", isOn: Binding(get: { copyOnSelect.current }, set: { copyOnSelect.set($0) }))
                     .labelsHidden()

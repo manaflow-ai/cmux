@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -184,6 +185,7 @@ public final class RecorderHostButton: NSButton {
     // token is set/cleared only on the main thread (this is a main-thread
     // AppKit view), so reading it from the nonisolated deinit is safe.
     private nonisolated(unsafe) var eventMonitor: Any?
+    private var fontMagnificationObserver: GlobalFontMagnificationChangeObserver?
 
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -223,9 +225,18 @@ public final class RecorderHostButton: NSButton {
         // package recorder renders byte-for-byte like legacy regardless
         // of the surrounding SwiftUI environment.
         controlSize = .regular
-        font = NSFont.systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+        applyFont()
+        if fontMagnificationObserver == nil {
+            fontMagnificationObserver = GlobalFontMagnificationChangeObserver { [weak self] in
+                self?.applyFont()
+            }
+        }
         target = self
         action = #selector(buttonClicked)
+    }
+
+    private func applyFont() {
+        font = GlobalFontMagnification.systemFont(ofSize: NSFont.systemFontSize(for: .regular))
     }
 
     public override var acceptsFirstResponder: Bool { true }
