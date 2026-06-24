@@ -23,7 +23,7 @@ private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
     }
 }
 
-final class BrowserHTTPBasicAuthPromptCoordinator {
+@MainActor final class BrowserHTTPBasicAuthPromptCoordinator {
     typealias Completion = (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
 
     private final class Request {

@@ -8814,7 +8814,7 @@ func browserNavigationShouldOpenSimpleUserGesturePopupInCurrentTab(
     )
 }
 
-private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
+@MainActor private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     var didStartProvisionalNavigation: ((WKWebView) -> Void)?
     var didCommit: ((WKWebView) -> Void)?
     var didFinish: ((WKWebView) -> Void)?

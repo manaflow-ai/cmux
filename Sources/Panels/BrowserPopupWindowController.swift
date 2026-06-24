@@ -598,7 +598,7 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 
 // MARK: - PopupNavigationDelegate
 
-private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
+@MainActor private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
     private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()

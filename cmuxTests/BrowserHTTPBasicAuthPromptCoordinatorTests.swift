@@ -7,7 +7,7 @@ import Testing
 @testable import cmux
 #endif
 
-@Suite
+@MainActor @Suite
 struct BrowserHTTPBasicAuthPromptCoordinatorTests {
     private final class BrowserAuthChallengeSenderStub: NSObject, URLAuthenticationChallengeSender {
         func use(_ credential: URLCredential, for challenge: URLAuthenticationChallenge) {}
