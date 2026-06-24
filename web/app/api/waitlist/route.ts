@@ -30,8 +30,10 @@ const waitlistSchema = z.object({
   location: z.string().trim().max(64).optional().default(""),
   // The client calls this route twice: first to validate the email before
   // recording the signup (`notify: false`), then to fan out the Slack ping
-  // after the durable PostHog capture succeeds (`notify: true`).
-  notify: z.boolean().optional().default(false),
+  // after the durable PostHog capture succeeds (`notify: true`). Defaults to
+  // `true` so a caller that omits the flag (e.g. a stale page bundle loaded
+  // before this change) keeps the original notify-on-valid behavior.
+  notify: z.boolean().optional().default(true),
 });
 
 /**
