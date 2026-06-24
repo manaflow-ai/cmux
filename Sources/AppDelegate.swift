@@ -7248,6 +7248,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_SHOW_SETTINGS"] == "1" {
             openPreferencesWindow(debugSource: "uiTestShowSettings.\(debugSource)")
         }
+
+        // Crash recovery: after the first restore, offer to resume agents if the
+        // prior run crashed and the user opted in. Deferred so the window is
+        // visible first; the gate (crash + opt-in, default off) keeps normal and
+        // intentional-relaunch launches silent.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let manager = self.tabManagerFor(windowId: windowId)
+                    ?? self.mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
+                    ?? self.mainWindowContexts.values.first?.tabManager else { return }
+            CrashRecoveryOfferPresenter.presentOfferIfNeeded(in: manager)
+        }
         return windowId
     }
 
