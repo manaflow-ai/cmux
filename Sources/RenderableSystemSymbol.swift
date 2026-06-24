@@ -6,9 +6,12 @@ enum RenderableSystemSymbol {
     static let defaultWorkspaceGroupIcon = "folder.fill"
     static let defaultSurfaceTabIcon = "doc.text"
     private static let minimumRasterPointSize: CGFloat = 1
+    private static let renderabilityCacheLimit = 512
     private static let appKitImageCacheLimit = 256
     @MainActor
     private static var renderabilityCache: [String: Bool] = [:]
+    @MainActor
+    private static var renderabilityCacheInsertionOrder: [String] = []
     @MainActor
     private static var appKitImageCache: [AppKitImageCacheKey: NSImage] = [:]
     @MainActor
@@ -59,7 +62,7 @@ enum RenderableSystemSymbol {
             return cached
         }
         let resolved = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil
-        renderabilityCache[symbol] = resolved
+        cacheRenderability(resolved, for: symbol)
         return resolved
     }
 
@@ -102,10 +105,10 @@ enum RenderableSystemSymbol {
             return nil
         }
         guard let baseImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
-            renderabilityCache[systemName] = false
+            cacheRenderability(false, for: systemName)
             return nil
         }
-        renderabilityCache[systemName] = true
+        cacheRenderability(true, for: systemName)
         let configuration = NSImage.SymbolConfiguration(
             pointSize: rasterSize,
             weight: fontWeight
@@ -121,6 +124,18 @@ enum RenderableSystemSymbol {
             appKitImageCache.removeValue(forKey: evictedKey)
         }
         return image
+    }
+
+    @MainActor
+    private static func cacheRenderability(_ isRenderable: Bool, for symbol: String) {
+        if renderabilityCache[symbol] == nil {
+            renderabilityCacheInsertionOrder.append(symbol)
+        }
+        renderabilityCache[symbol] = isRenderable
+        while renderabilityCacheInsertionOrder.count > renderabilityCacheLimit {
+            let evictedSymbol = renderabilityCacheInsertionOrder.removeFirst()
+            renderabilityCache.removeValue(forKey: evictedSymbol)
+        }
     }
 
     static func fittedSymbolSize(_ naturalSize: NSSize, maximumDimension: CGFloat) -> NSSize {
@@ -152,6 +167,7 @@ enum RenderableSystemSymbol {
     @MainActor
     static func resetRenderabilityCacheForTesting() {
         renderabilityCache.removeAll()
+        renderabilityCacheInsertionOrder.removeAll()
         appKitImageCache.removeAll()
         appKitImageCacheInsertionOrder.removeAll()
     }
