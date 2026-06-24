@@ -383,6 +383,13 @@ final class MobileHostService {
     private var irohListener: CmxIrohByteListener?
     private var irohAcceptTask: Task<Void, Never>?
     private var irohRoute: CmxAttachRoute?
+    /// The transport mode the running lanes were bound for. Lets
+    /// ``syncToSettings()`` detect a mode switch (which needs a full restart to
+    /// swap lanes) vs an in-mode tweak. `nil` while stopped.
+    private var appliedTransportMode: MobileTransportMode?
+    /// The custom relay URL the iroh lane was bound with (ownRelay only), so a
+    /// relay-URL change is detected as needing a restart. `nil` while stopped.
+    private var appliedIrohRelayURL: String?
     /// The preferred port the active start-sequence targeted (regardless of an
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
@@ -469,13 +476,23 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
-    /// User-default key for the opt-in Mac-side iOS pairing listener.
-    nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
+    /// User-default key for the chosen mobile transport mode.
+    nonisolated static let transportModeDefaultsKey = SettingCatalog().mobile.iOSTransportMode.userDefaultsKey
 
-    /// Whether the mobile pairing host should bind a network listener at all.
-    ///
-    /// Defaults off in every build so macOS does not ask for Local Network
-    /// permission until the user enables iOS pairing in Settings.
+    /// The Mac's current mobile transport mode. The user picks this during
+    /// pairing/onboarding; it decides which single lane the host binds and
+    /// publishes (strict single choice, never a mix).
+    nonisolated static func currentTransportMode(defaults: UserDefaults = .standard) -> MobileTransportMode {
+        let key = SettingCatalog().mobile.iOSTransportMode
+        if let raw = defaults.string(forKey: key.userDefaultsKey),
+           let mode = MobileTransportMode(rawValue: raw) {
+            return mode
+        }
+        return key.defaultValue
+    }
+
+    /// Whether the TCP/Tailscale pairing listener should bind. True only in
+    /// `.tailscale` mode; the iroh modes use ``isIrohHostEnabled`` instead.
     nonisolated static var isListeningEnabled: Bool {
         isListeningEnabled(defaults: .standard)
     }
@@ -493,10 +510,24 @@ final class MobileHostService {
     #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
-        if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
-            return override
-        }
-        return SettingCatalog().mobile.iOSPairingHost.defaultValue
+        currentTransportMode(defaults: defaults) == .tailscale
+    }
+
+    /// Persists the default transport mode if none is set yet, so the host binds
+    /// a lane. The pairing window calls this when it opens; the in-window
+    /// transport picker overwrites it with the user's explicit choice.
+    nonisolated static func seedDefaultTransportModeIfUnset(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: transportModeDefaultsKey) == nil else { return }
+        defaults.set(
+            SettingCatalog().mobile.iOSTransportMode.defaultValue.rawValue,
+            forKey: transportModeDefaultsKey
+        )
+    }
+
+    /// Persists the user's transport-mode choice (from the pairing window or
+    /// Settings). The UserDefaults observer reconciles the running lanes.
+    nonisolated static func setTransportMode(_ mode: MobileTransportMode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: transportModeDefaultsKey)
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -727,28 +758,37 @@ final class MobileHostService {
     }
 
     func start() {
-        guard Self.isListeningEnabled else {
-            #if DEBUG
-            if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
-                publishRoutesWithoutListenerForXCTest()
-                return
-            }
-            #endif
-            mobileHostLog.info("mobile host listener disabled; not binding")
+        #if DEBUG
+        if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
+            publishRoutesWithoutListenerForXCTest()
             return
         }
-        guard listener == nil else {
+        #endif
+
+        let mode = Self.currentTransportMode(defaults: .standard)
+        appliedTransportMode = mode
+        appliedIrohRelayURL = Self.irohRelayURL(defaults: .standard)
+
+        // iroh lane (cmuxRelay / ownRelay) binds independently of the TCP lane;
+        // a strict single choice means only one of these runs at a time.
+        if mode.usesIroh {
+            startIrohListener()
             return
         }
 
+        // TCP/Tailscale lane.
+        guard listener == nil else {
+            return
+        }
         startListener(usePreferredPort: true)
-        startIrohListener()
     }
 
     #if DEBUG
     nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
         guard isRunningUnderXCTest else { return false }
-        return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
+        // No explicit mode set: keep tests hermetic (publish routes without
+        // binding either lane). A test that sets a mode exercises the real lane.
+        return defaults.object(forKey: transportModeDefaultsKey) == nil
     }
 
     private func publishRoutesWithoutListenerForXCTest() {
@@ -830,6 +870,8 @@ final class MobileHostService {
         listener = nil
         listenerPort = nil
         appliedPreferredPort = nil
+        appliedTransportMode = nil
+        appliedIrohRelayURL = nil
         for connection in activeConnections.values {
             Task { await connection.close(reason: "service stopped") }
         }
@@ -899,21 +941,40 @@ final class MobileHostService {
     /// never hangs on a listener that never settles.
     func ensureListeningAndReady() async -> MobileHostServiceStatus {
         start()
+        // An iroh mode binds no TCP listener; readiness means the iroh route has
+        // been published (adoptIrohRoute drains the same waiters). The bind +
+        // relay handshake is async, so wait for it rather than the TCP listener.
+        if Self.currentTransportMode().usesIroh {
+            // Route already up, or the lane was skipped/failed so there is no
+            // listener to wait on (ownRelay without a URL, or a bind failure that
+            // cleared irohListener): return now instead of stalling to the
+            // timeout. Otherwise wait for adoptIrohRoute to drain the waiter.
+            if irohRoute != nil || irohListener == nil {
+                return statusSnapshot()
+            }
+            return await withCheckedContinuation { continuation in
+                readinessWaiters.append(continuation)
+                armReadinessTimeoutIfNeeded()
+            }
+        }
         if listener == nil || listenerPort != nil {
             return statusSnapshot()
         }
         return await withCheckedContinuation { continuation in
             readinessWaiters.append(continuation)
-            if readinessTimeoutTask == nil {
-                // Bounded, cancellable deadline: a local NWListener normally
-                // reaches `.ready` within milliseconds; this only guards a
-                // never-settling listener. Cancelled on the normal drain path.
-                readinessTimeoutTask = Task { @MainActor [weak self] in
-                    try? await ContinuousClock().sleep(for: .seconds(6))
-                    guard let self, !Task.isCancelled else { return }
-                    self.drainReadinessWaiters()
-                }
-            }
+            armReadinessTimeoutIfNeeded()
+        }
+    }
+
+    /// Arms the bounded, cancellable readiness deadline once. A local listener
+    /// (or iroh relay handshake) normally settles within milliseconds; this only
+    /// guards a never-settling bind. Cancelled on the normal drain path.
+    private func armReadinessTimeoutIfNeeded() {
+        guard readinessTimeoutTask == nil else { return }
+        readinessTimeoutTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .seconds(6))
+            guard let self, !Task.isCancelled else { return }
+            self.drainReadinessWaiters()
         }
     }
 
@@ -956,6 +1017,24 @@ final class MobileHostService {
     /// no caller-supplied store to honor here.
     func syncToSettings() {
         let defaults = UserDefaults.standard
+        let mode = Self.currentTransportMode(defaults: defaults)
+        let relay = Self.irohRelayURL(defaults: defaults)
+
+        // A mode switch (or a relay-URL change in ownRelay) swaps which single
+        // lane the host runs, so tear everything down and rebind from scratch.
+        if mode != appliedTransportMode || (mode == .ownRelay && relay != appliedIrohRelayURL) {
+            restart()
+            return
+        }
+
+        // Same mode. The iroh lane has no live-tunable knob, but recover it if a
+        // bind failure left it down (start() is idempotent when already bound).
+        guard mode == .tailscale else {
+            if mode.usesIroh, irohListener == nil {
+                start()
+            }
+            return
+        }
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -964,7 +1043,7 @@ final class MobileHostService {
             ?? appliedPreferredPort
             ?? Self.configuredPort(defaults: defaults)
         switch Self.syncDecision(
-            enabled: Self.isListeningEnabled(defaults: defaults),
+            enabled: true,
             listenerRunning: listener != nil,
             desiredPort: desiredPort,
             appliedPort: appliedPreferredPort
@@ -1143,6 +1222,7 @@ final class MobileHostService {
         let id = UUID()
         registerConnection(
             id: id,
+            transport: "tcp",
             byteConnection: NWMobileHostByteConnection(
                 connection: connection,
                 callbackQueue: DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
@@ -1153,7 +1233,14 @@ final class MobileHostService {
     /// Builds, registers, and starts a ``MobileHostConnection`` over any byte
     /// channel. The TCP accept path and the iroh accept loop share this so they
     /// run the identical authorization, RPC dispatch, and close bookkeeping.
-    private func registerConnection(id: UUID, byteConnection: any MobileHostByteConnection) {
+    /// `transport` ("tcp" / "iroh") is logged so a dogfood can confirm which
+    /// lane a phone actually dialed in on.
+    private func registerConnection(
+        id: UUID,
+        transport: String,
+        byteConnection: any MobileHostByteConnection
+    ) {
+        mobileHostLog.info("mobile host accepted \(transport, privacy: .public) connection")
         let session = MobileHostConnection(
             id: id,
             byteConnection: byteConnection,
@@ -1186,27 +1273,44 @@ final class MobileHostService {
 
     // MARK: - iroh accept lane (plans/feat-ios-iroh/DESIGN.md PR 4)
 
-    /// Whether the iroh host accept lane is enabled. Default off: the Mac binds
-    /// an iroh endpoint and advertises a dial-by-EndpointId route only when this
-    /// is explicitly turned on, so existing TCP/Tailscale behavior is untouched.
+    /// Whether the iroh host accept lane is enabled, i.e. the chosen transport
+    /// mode is an iroh mode (`cmuxRelay` or `ownRelay`). When on, the Mac binds
+    /// an iroh endpoint and advertises a dial-by-EndpointId route.
     nonisolated static func isIrohHostEnabled(defaults: UserDefaults = .standard) -> Bool {
-        let key = SettingCatalog().mobile.iOSIrohHost
-        if let override = defaults.object(forKey: key.userDefaultsKey) as? Bool {
-            return override
-        }
-        return key.defaultValue
+        currentTransportMode(defaults: defaults).usesIroh
+    }
+
+    /// The custom relay URL the iroh lane should home on. Non-nil only in
+    /// `.ownRelay` mode with a non-empty configured URL; `.cmuxRelay` returns nil
+    /// so the endpoint uses the default cmux/n0 relay fleet.
+    nonisolated static func irohRelayURL(defaults: UserDefaults = .standard) -> String? {
+        guard currentTransportMode(defaults: defaults) == .ownRelay else { return nil }
+        let url = defaults.string(forKey: SettingCatalog().mobile.iOSIrohRelayURL.userDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (url?.isEmpty == false) ? url : nil
     }
 
     /// Binds the iroh endpoint and starts accepting, merging its route into the
     /// published set. Idempotent; a no-op when disabled or already bound.
     private func startIrohListener() {
         guard Self.isIrohHostEnabled(), irohListener == nil else { return }
+        // ownRelay requires the user's relay URL. Without a valid one, don't bind
+        // against the default fleet (that would be silent cmuxRelay behavior the
+        // picker doesn't promise): leave the lane down so the pairing window
+        // surfaces "configure your relay URL" instead of a misleading code.
+        let relayURL = Self.irohRelayURL()
+        if Self.currentTransportMode() == .ownRelay, relayURL == nil {
+            mobileHostLog.error("iroh host: ownRelay selected but no valid relay URL configured; not binding")
+            return
+        }
         // A persisted Keychain key gives the Mac a stable EndpointId across
         // launches (the per-device identity client pinning relies on).
-        // enableRelay so off-LAN phones can dial.
+        // enableRelay so off-LAN phones can dial; relayURL is set only in
+        // ownRelay mode (nil keeps the default cmux/n0 fleet).
         let listener = CmxIrohByteListener(
             secretKey: Self.loadOrCreateIrohSecretKey(),
-            enableRelay: true
+            enableRelay: true,
+            relayURL: relayURL
         )
         irohListener = listener
         irohAcceptTask = Task { @MainActor [weak self] in
@@ -1214,10 +1318,18 @@ final class MobileHostService {
                 try await listener.start()
             } catch {
                 mobileHostLog.error("iroh host listener failed to bind: \(String(describing: error), privacy: .public)")
+                // Clear the wedged listener so a later start() can retry, and
+                // release any pairing-readiness waiter instead of stalling it for
+                // the full timeout.
+                self?.irohListener = nil
+                self?.drainReadinessWaiters()
                 return
             }
             if let json = await listener.routeJSON() {
+                mobileHostLog.info("iroh host listener ready; publishing dial-by-EndpointId route \(json, privacy: .public)")
                 self?.adoptIrohRoute(from: json)
+            } else {
+                mobileHostLog.error("iroh host listener bound but produced no route")
             }
             while !Task.isCancelled {
                 do {
@@ -1246,9 +1358,12 @@ final class MobileHostService {
             endpoint: route.endpoint,
             priority: -1
         )) ?? route
-        if let listenerPort {
-            MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: listenerPort))
-        }
+        // In an iroh mode no TCP listener is bound, so `listenerPort` is nil;
+        // `resolvedRoutes` ignores the port for iroh, so 0 is a safe placeholder.
+        // Publishing here is what makes the iroh route reachable to tickets/QR,
+        // and it releases any pairing-readiness waiter (see ensureListeningAndReady).
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: listenerPort ?? 0))
+        drainReadinessWaiters()
     }
 
     private func acceptIrohStream(_ stream: CmxIrohByteStream) {
@@ -1257,7 +1372,11 @@ final class MobileHostService {
             Task { await stream.close() }
             return
         }
-        registerConnection(id: UUID(), byteConnection: MobileHostIrohByteConnection(stream: stream))
+        registerConnection(
+            id: UUID(),
+            transport: "iroh",
+            byteConnection: MobileHostIrohByteConnection(stream: stream)
+        )
     }
 
     private func stopIrohListener() {
@@ -1274,11 +1393,14 @@ final class MobileHostService {
     /// plus the iroh route when the accept lane is bound (nil otherwise, so this
     /// is identical to the resolver's routes whenever iroh is off).
     private func resolvedRoutes(port: Int) -> [CmxAttachRoute] {
-        var routes = routeResolver.routes(port: port).routes
-        if let irohRoute {
-            routes.append(irohRoute)
+        // Strict single choice: publish only the active mode's lane. An iroh
+        // mode advertises just the dial-by-EndpointId route; tailscale mode just
+        // the TCP/Tailscale (and DEBUG loopback) routes. Never a mix, so a phone
+        // can't silently fall back to a lane the user didn't choose.
+        if Self.currentTransportMode().usesIroh {
+            return irohRoute.map { [$0] } ?? []
         }
-        return routes
+        return routeResolver.routes(port: port).routes
     }
 
     private nonisolated static let irohSecretKeyKeychainService = "dev.cmux.iroh.host-secret-key"

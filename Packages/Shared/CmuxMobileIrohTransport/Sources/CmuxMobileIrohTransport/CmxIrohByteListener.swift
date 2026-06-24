@@ -18,6 +18,7 @@ public actor CmxIrohByteListener {
 
     private let secretKey: [UInt8]?
     private let enableRelay: Bool
+    private let relayURL: String?
     private let maximumReceiveLength: Int
 
     private var endpoint: OpaquePointer?
@@ -32,15 +33,20 @@ public actor CmxIrohByteListener {
     ///   - secretKey: The Mac's 32-byte iroh secret key. When nil a fresh
     ///     ephemeral key is generated on ``start()``; the host supplies a stable
     ///     Keychain key so the Mac keeps one EndpointId across launches.
-    ///   - enableRelay: Whether the endpoint enables n0 relays/discovery.
+    ///   - enableRelay: Whether the endpoint enables relays/discovery.
     ///     Defaults to true; tests pass false for hermetic loopback.
+    ///   - relayURL: When set (and `enableRelay` is true), the endpoint homes on
+    ///     this custom relay (the user's own `iroh-relay`) instead of the default
+    ///     n0 fleet. nil/empty keeps the default fleet (cmux-hosted iroh).
     public init(
         secretKey: [UInt8]? = nil,
         enableRelay: Bool = true,
+        relayURL: String? = nil,
         maximumReceiveLength: Int = CmxIrohByteTransport.defaultMaximumReceiveLength
     ) {
         self.secretKey = secretKey
         self.enableRelay = enableRelay
+        self.relayURL = relayURL
         self.maximumReceiveLength = maximumReceiveLength
     }
 
@@ -62,19 +68,23 @@ public actor CmxIrohByteListener {
             key = generated
         }
         let relayEnabled = enableRelay
+        let relay = relayURL
 
         let result = await runBlocking { () -> Result<CmxIrohUnsafeBox<OpaquePointer>, CmxIrohByteTransportError> in
             let bind = CmxIrohByteTransport.withErrorBuffer { kindPtr, errBuf, cap in
-                key.withUnsafeBufferPointer { keyBuffer in
-                    cmux_iroh_endpoint_bind(
-                        keyBuffer.baseAddress,
-                        keyBuffer.count,
-                        relayEnabled,
-                        true,
-                        kindPtr,
-                        errBuf,
-                        cap
-                    )
+                CmxIrohByteTransport.withOptionalCString(relay) { relayC in
+                    key.withUnsafeBufferPointer { keyBuffer in
+                        cmux_iroh_endpoint_bind(
+                            keyBuffer.baseAddress,
+                            keyBuffer.count,
+                            relayEnabled,
+                            relayC,
+                            true,
+                            kindPtr,
+                            errBuf,
+                            cap
+                        )
+                    }
                 }
             }
             guard let endpoint = bind.result else {

@@ -128,6 +128,11 @@ public actor CmxIrohByteTransport: CmxByteTransport {
                         keyBuffer.baseAddress,
                         keyBuffer.count,
                         relayEnabled,
+                        // The dialer homes on the default relay fleet; the
+                        // peer's relay (custom or default) is supplied as a dial
+                        // hint in `dialConnection` below, so cross-relay dials
+                        // still work.
+                        nil,
                         false,
                         kindPtr,
                         errBuf,

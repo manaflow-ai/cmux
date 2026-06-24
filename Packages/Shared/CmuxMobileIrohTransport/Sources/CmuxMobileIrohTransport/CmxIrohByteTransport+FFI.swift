@@ -72,7 +72,9 @@ extension CmxIrohByteTransport {
     }
 
     /// Calls `body` with `string` as a C string, or nil when `string` is nil.
-    private static func withOptionalCString<R>(
+    /// Internal so the host listener's bind path can reuse the same optional
+    /// relay-URL bridging the dialer uses.
+    static func withOptionalCString<R>(
         _ string: String?,
         _ body: (UnsafePointer<CChar>?) -> R
     ) -> R {

@@ -52,13 +52,20 @@ char *cmux_iroh_secret_key_endpoint_id(
     const uint8_t *secret_key,
     size_t secret_key_len);
 
-// Binds an iroh endpoint with the caller-provided 32-byte secret key using
-// the default n0 preset (relays + discovery). Returns null on failure with
-// the cause in the error out-params.
+// Binds an iroh endpoint with the caller-provided 32-byte secret key and a
+// choice of relay map:
+//   - enable_relay == false: no relay (LAN/direct only).
+//   - enable_relay == true, relay_url null/empty: the default n0 relay fleet
+//     (cmux-hosted iroh).
+//   - enable_relay == true, relay_url set: a custom single-relay map (the
+//     user's own iroh-relay). A malformed relay_url fails with InvalidArgument.
+// relay_url, when non-null, must be a NUL-terminated C string. Returns null on
+// failure with the cause in the error out-params.
 CmuxIrohEndpoint *cmux_iroh_endpoint_bind(
     const uint8_t *secret_key,
     size_t secret_key_len,
     bool enable_relay,
+    const char *relay_url,
     bool accept_connections,
     int32_t *err_kind,
     char *err_buf,

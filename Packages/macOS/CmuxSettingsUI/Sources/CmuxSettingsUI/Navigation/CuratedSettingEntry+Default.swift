@@ -141,7 +141,7 @@ extension Array where Element == CuratedSettingEntry {
 
             // Mobile
             .init(section: .mobile, id: "pairDevice", title: "Pair a Device", synonyms: "pair pairing add device qr qr code scan iphone ipad ios mobile tailscale connect onboarding sign in"),
-            .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
+            .init(section: .mobile, id: "transportMode", title: "Mobile Connection", synonyms: "mobile.iOSTransportMode mobile.iOSIrohRelayURL ios iphone ipad mobile transport mode connection pairing iroh relay tailscale cmux hosted own relay url direct connect encrypted endpoint local network cellular attach"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),
 

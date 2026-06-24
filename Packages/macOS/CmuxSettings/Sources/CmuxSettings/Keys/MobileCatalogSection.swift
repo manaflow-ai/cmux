@@ -2,23 +2,25 @@ import Foundation
 
 /// Mobile integration settings for pairing and syncing with cmux on iOS.
 public struct MobileCatalogSection: SettingCatalogSection {
-    /// Mac-side iOS pairing host. Defaults off so macOS never asks for Local
-    /// Network permission until the user opts in from Settings.
-    public let iOSPairingHost = DefaultsKey<Bool>(
-        id: "mobile.iOSPairingHost.enabled",
-        defaultValue: false,
-        userDefaultsKey: "mobile.iOSPairingHost.enabled"
+    /// How this Mac advertises itself to paired iOS devices: cmux-hosted iroh
+    /// (default), the user's own iroh relay, or Tailscale. A strict single
+    /// choice; the Mac publishes only the chosen lane's routes. The user picks
+    /// this during pairing/onboarding (and when adding a new Mac). Replaces the
+    /// legacy `mobile.iOSPairingHost.enabled` / `mobile.iOSIrohHost.enabled`
+    /// booleans, which ``MobileTransportModeMigration`` derives this from once.
+    public let iOSTransportMode = DefaultsKey<MobileTransportMode>(
+        id: "mobile.iOSTransportMode",
+        defaultValue: .cmuxRelay,
+        userDefaultsKey: "mobile.iOSTransportMode"
     )
 
-    /// Mac-side iroh accept lane (plans/feat-ios-iroh/DESIGN.md). When on, the
-    /// Mac binds an iroh endpoint and advertises a dial-by-EndpointId route, so
-    /// signed-in phones attach without Tailscale or a LAN. Defaults off until the
-    /// on-device cellular attach is validated; the design flips this on by
-    /// default as the post-dogfood step.
-    public let iOSIrohHost = DefaultsKey<Bool>(
-        id: "mobile.iOSIrohHost.enabled",
-        defaultValue: false,
-        userDefaultsKey: "mobile.iOSIrohHost.enabled"
+    /// Relay URL for ``MobileTransportMode/ownRelay``: the `https://` address of
+    /// an `iroh-relay` the user runs themselves. Ignored in the other modes.
+    /// Empty until the user sets one.
+    public let iOSIrohRelayURL = DefaultsKey<String>(
+        id: "mobile.iOSIrohRelayURL",
+        defaultValue: "",
+        userDefaultsKey: "mobile.iOSIrohRelayURL"
     )
 
     /// TCP port the Mac-side iOS pairing listener prefers to bind.

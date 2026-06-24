@@ -89,7 +89,7 @@ struct SettingCatalogTests {
         // `automation.socketPassword` must appear in `all`.
         let ids = Set(SettingCatalog().all.map(\.id))
         #expect(ids.contains("app.appearance"))
-        #expect(ids.contains("mobile.iOSPairingHost.enabled"))
+        #expect(ids.contains("mobile.iOSTransportMode"))
         #expect(ids.contains("automation.socketControlMode"))
         #expect(ids.contains("automation.socketPassword"))
     }
