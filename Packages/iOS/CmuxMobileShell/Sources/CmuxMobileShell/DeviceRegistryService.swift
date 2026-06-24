@@ -113,6 +113,15 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
         return registry
     }
 
+    /// Routes to evaluate for reconnect after applying the registry's fresher
+    /// view when it has one, otherwise the locally persisted routes.
+    public static func resolvedReconnectRoutes(
+        local: [CmxAttachRoute],
+        registry: [CmxAttachRoute]?
+    ) -> [CmxAttachRoute] {
+        selectReconnectRoutes(local: local, registry: registry) ?? local
+    }
+
     /// Whether a background registry refresh may write back into the paired-Mac
     /// store, re-evaluated *after* the network call.
     ///

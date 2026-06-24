@@ -41,6 +41,32 @@ import Testing
         #expect(selected == registry)
     }
 
+    @MainActor
+    @Test func registryRoutesRescueUnsupportedLocalReconnectRoute() throws {
+        let local = [
+            try CmxAttachRoute(
+                id: "loopback",
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: 51000),
+                priority: 0
+            ),
+        ]
+        let registry = [try route(host: "100.9.9.9", port: 51999)]
+
+        let resolved = DeviceRegistryService.resolvedReconnectRoutes(
+            local: local,
+            registry: registry
+        )
+        let reachable = MobileShellComposite.firstReconnectHostPortRoute(
+            resolved,
+            supportedKinds: [.tailscale],
+            preferNonLoopback: true
+        )
+
+        #expect(reachable?.0 == "100.9.9.9")
+        #expect(reachable?.1 == 51999)
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {

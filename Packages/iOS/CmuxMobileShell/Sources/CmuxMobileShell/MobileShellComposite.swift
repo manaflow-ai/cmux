@@ -1548,29 +1548,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
-        // Auto-connect target: the explicitly active Mac when it is reachable,
-        // otherwise the FIRST saved Mac with a usable route. Picking the first
-        // reachable Mac instead of bailing when nothing is marked active is what
-        // lets the home come up connected without the user choosing a Mac; the
-        // other Macs are then aggregated read-only into one integrated list.
-        // Candidate Macs in priority order: the active Mac first (when it has a
-        // usable route), then every OTHER saved Mac with a usable route. A
-        // down/unreachable Mac has a route but fails the connect, so we fall
-        // through to the next candidate instead of stranding the user on "Mac
-        // offline" just because their active Mac happens to be off.
-        var candidates: [MobilePairedMac] = []
-        if let activeMac, reachableRoute(activeMac) != nil {
-            candidates.append(activeMac)
-        }
+        // Candidate Macs in priority order: the active Mac first, then every
+        // other saved Mac. Do not pre-filter by the locally persisted route: a
+        // stale `self`/loopback route is exactly what the foreground registry
+        // refresh below is meant to rescue on the first launch attempt.
+        var candidates = activeMac.map { [$0] } ?? []
         candidates.append(contentsOf: allMacs.filter { mac in
-            mac.macDeviceID != activeMac?.macDeviceID && reachableRoute(mac) != nil
+            mac.macDeviceID != activeMac?.macDeviceID
         })
         guard !candidates.isEmpty else {
-            // No saved Mac has a usable route right now (none paired, or all
-            // offline). Clear the hint only when there are truly no saved Macs, so
-            // the add-device sheet comes up cleanly; otherwise keep it so a Retry
-            // or network change can reconnect once a Mac comes back.
-            setHasKnownPairedMac(!allMacs.isEmpty, generation: generation)
+            setHasKnownPairedMac(false, generation: generation)
             finishStoredMacReconnectAttempt(generation: generation)
             return false
         }
@@ -1601,12 +1588,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // blocks the others.
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
+                  await isScopeCurrent(scope) else { break }
+            let refreshedMac = await refreshedMacForReconnect(mac, scope: scope)
+            guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope),
-                  let (host, port) = reachableRoute(mac) else { break }
-            refreshRoutesFromRegistry(for: mac, scope: scope)
+                  let (host, port) = reachableRoute(refreshedMac) else { continue }
             await connectStoredMacHost(
-                name: mac.displayName ?? host, host: host, port: port,
-                pairedMacDeviceID: mac.macDeviceID)
+                name: refreshedMac.displayName ?? host, host: host, port: port,
+                pairedMacDeviceID: refreshedMac.macDeviceID)
             if connectionState == .connected { break }
         }
         restoringDeadline.cancel()
@@ -1639,51 +1628,58 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         didFinishStoredMacReconnectAttempt = true
     }
 
-    private func refreshRoutesFromRegistry(for mac: MobilePairedMac, scope: MobileShellScopeSnapshot) {
-        guard let deviceRegistry, let pairedMacStore else { return }
-        let macDeviceID = mac.macDeviceID
-        let localRoutes = mac.routes
-        let displayName = mac.displayName
-        Task { [weak self] in
-            let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: macDeviceID)
-            guard let updated = DeviceRegistryService.selectReconnectRoutes(
-                local: localRoutes,
-                registry: registryRoutes
-            ) else { return }
-            guard let self, await self.isScopeCurrent(scope) else { return }
-            let activeMacID: String?
-            do {
-                activeMacID = try await pairedMacStore.activeMac(
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID
-                )?.macDeviceID
-            } catch {
-                mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
-                return
-            }
-            guard await self.isScopeCurrent(scope) else { return }
-            guard DeviceRegistryService.shouldApplyRegistryRefresh(
-                isSignedIn: self.isSignedIn,
+    private func refreshedMacForReconnect(
+        _ mac: MobilePairedMac,
+        scope: MobileShellScopeSnapshot
+    ) async -> MobilePairedMac {
+        guard let deviceRegistry else { return mac }
+        let registryRoutes = await deviceRegistry.freshRoutes(forMacDeviceID: mac.macDeviceID)
+        let routes = DeviceRegistryService.resolvedReconnectRoutes(
+            local: mac.routes,
+            registry: registryRoutes
+        )
+        guard routes != mac.routes, await isScopeCurrent(scope) else { return mac }
+        var refreshed = mac
+        refreshed.routes = routes
+        await persistRegistryRoutesForReconnect(refreshed, scope: scope)
+        return refreshed
+    }
+
+    private func persistRegistryRoutesForReconnect(
+        _ mac: MobilePairedMac,
+        scope: MobileShellScopeSnapshot
+    ) async {
+        guard let pairedMacStore else { return }
+        let activeMacID: String?
+        do {
+            activeMacID = try await pairedMacStore.activeMac(
+                stackUserID: scope.userID,
+                teamID: scope.teamID
+            )?.macDeviceID
+        } catch {
+            mobileShellLog.debug("registry refresh active-mac recheck failed: \(String(describing: error), privacy: .public)")
+            return
+        }
+        guard await isScopeCurrent(scope),
+              DeviceRegistryService.shouldApplyRegistryRefresh(
+                isSignedIn: isSignedIn,
                 capturedUserID: scope.userID,
-                currentUserID: self.identityProvider?.currentUserID ?? scope.userID,
+                currentUserID: identityProvider?.currentUserID ?? scope.userID,
                 activeMacID: activeMacID,
-                targetMacID: macDeviceID
-            ) else { return }
-            do {
-                try await pairedMacStore.upsert(
-                    macDeviceID: macDeviceID,
-                    displayName: displayName,
-                    routes: updated,
-                    markActive: true,
-                    stackUserID: scope.userID,
-                    teamID: scope.teamID,
-                    now: Date()
-                )
-            } catch {
-                mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
-                return
-            }
-            if await self.isScopeCurrent(scope) { await self.loadPairedMacs() }
+                targetMacID: mac.macDeviceID
+              ) else { return }
+        do {
+            try await pairedMacStore.upsert(
+                macDeviceID: mac.macDeviceID,
+                displayName: mac.displayName,
+                routes: mac.routes,
+                markActive: true,
+                stackUserID: scope.userID,
+                teamID: scope.teamID,
+                now: Date()
+            )
+        } catch {
+            mobileShellLog.debug("registry route refresh upsert failed: \(String(describing: error), privacy: .public)")
         }
     }
 
