@@ -111,6 +111,23 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func webAuthnNativeBridgeDoesNotAcceptParentDomainRelyingPartyIDs() throws {
+        let githubPagesOrigin = try #require(
+            BrowserWebAuthnSecurityOrigin(url: URL(string: "https://tenant.github.io")!)
+        )
+        #expect(githubPagesOrigin.isWithinRelyingPartyScope("github.io"))
+        #expect(githubPagesOrigin.permits(relyingPartyIdentifier: "tenant.github.io"))
+        #expect(!githubPagesOrigin.permits(relyingPartyIdentifier: "github.io"))
+
+        let appspotOrigin = try #require(
+            BrowserWebAuthnSecurityOrigin(url: URL(string: "https://foo.appspot.com")!)
+        )
+        #expect(appspotOrigin.isWithinRelyingPartyScope("appspot.com"))
+        #expect(appspotOrigin.permits(relyingPartyIdentifier: "foo.appspot.com"))
+        #expect(!appspotOrigin.permits(relyingPartyIdentifier: "appspot.com"))
+    }
+
+    @Test
     func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
         let panel = BrowserPanel(
             workspaceId: UUID(),

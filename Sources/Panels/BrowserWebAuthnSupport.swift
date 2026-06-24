@@ -762,17 +762,27 @@ private struct BrowserWebAuthnClientDataContext {
         )
     }
 
-    func resolveRelyingPartyIdentifier(_ explicitIdentifier: String?) throws -> String {
+    func resolveRelyingPartyIdentifier(_ explicitIdentifier: String?) throws -> String? {
         let requestedIdentifier =
             explicitIdentifier?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .lowercased() ?? callerOrigin.host
 
         #if DEBUG
-        cmuxDebugLog("webauthn.resolveRP explicit=\(explicitIdentifier ?? "(nil)") resolved=\(requestedIdentifier) callerHost=\(callerOrigin.host) permitted=\(callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier))")
+        cmuxDebugLog(
+            "webauthn.resolveRP explicit=\(explicitIdentifier ?? "(nil)") " +
+            "resolved=\(requestedIdentifier) callerHost=\(callerOrigin.host) " +
+            "scopeOK=\(callerOrigin.isWithinRelyingPartyScope(requestedIdentifier)) " +
+            "nativeOK=\(callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier))"
+        )
         #endif
-        guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
+        guard callerOrigin.isWithinRelyingPartyScope(requestedIdentifier) else {
             throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
+        }
+        guard callerOrigin.permits(relyingPartyIdentifier: requestedIdentifier) else {
+            // Broader parent-domain RP IDs require full public-suffix validation.
+            // Let WebKit's native WebAuthn implementation own those cases.
+            return nil
         }
 
         return requestedIdentifier
@@ -1466,9 +1476,9 @@ private extension BrowserWebAuthnCoordinator {
             throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
         }
 
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
+        guard let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
             request.publicKey.rp?.id
-        )
+        ) else { return nil }
         let clientData = try clientDataContext.clientData(challenge: request.publicKey.challenge.data)
         let selection = request.publicKey.authenticatorSelection
         let attachment = selection?.attachment
@@ -1565,9 +1575,9 @@ private extension BrowserWebAuthnCoordinator {
         _ request: BrowserWebAuthnAssertionRequest,
         clientDataContext: BrowserWebAuthnClientDataContext
     ) throws -> BrowserWebAuthnNativeRequestPlan? {
-        let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
+        guard let relyingPartyIdentifier = try clientDataContext.resolveRelyingPartyIdentifier(
             request.publicKey.rpId
-        )
+        ) else { return nil }
         let clientData = try clientDataContext.clientData(challenge: request.publicKey.challenge.data)
         let allowCredentials = (request.publicKey.allowCredentials ?? []).filter(\.isPublicKeyCredential)
         let transportSummary = BrowserWebAuthnTransportSummary(descriptors: allowCredentials)

@@ -40,6 +40,12 @@ struct BrowserWebAuthnSecurityOrigin {
     func permits(relyingPartyIdentifier: String) -> Bool {
         let normalizedIdentifier = relyingPartyIdentifier.lowercased()
         guard !normalizedIdentifier.isEmpty else { return false }
+        return host == normalizedIdentifier
+    }
+
+    func isWithinRelyingPartyScope(_ relyingPartyIdentifier: String) -> Bool {
+        let normalizedIdentifier = relyingPartyIdentifier.lowercased()
+        guard !normalizedIdentifier.isEmpty else { return false }
         return host == normalizedIdentifier || host.hasSuffix(".\(normalizedIdentifier)")
     }
 
