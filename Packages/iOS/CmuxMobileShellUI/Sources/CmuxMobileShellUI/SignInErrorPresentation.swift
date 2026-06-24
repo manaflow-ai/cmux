@@ -4,11 +4,9 @@ import Foundation
 import StackAuth
 
 struct SignInErrorPresentation {
-    private init() {}
-
     /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
     /// (enums only, never the error text or the user's email).
-    static func failureReason(for error: Error) -> String {
+    func failureReason(for error: Error) -> String {
         if let authError = error as? AuthError {
             switch authError {
             case .timedOut:
@@ -40,7 +38,7 @@ struct SignInErrorPresentation {
         return "other"
     }
 
-    static func message(for error: Error) -> String {
+    func message(for error: Error) -> String {
         let displayError = AuthError(displaySafe: error) ?? error
         if let stackError = displayError as? StackAuthErrorProtocol {
             switch stackError.code.uppercased() {
@@ -77,8 +75,6 @@ struct SignInErrorPresentation {
                 return L10n.string("auth.error.apple_config", defaultValue: "Apple Sign In is not available yet. Please use another sign-in method.")
             case "OAUTH_ERROR", "MISSING_CODE", "PARSE_ERROR", "INVALID_RESPONSE":
                 return L10n.string("auth.error.browser_sign_in_failed", defaultValue: "Could not complete browser sign-in. Try again or open sign-in in your browser.")
-            case "OAUTH_CANCELLED":
-                return ""
             default:
                 break
             }

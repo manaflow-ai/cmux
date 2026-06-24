@@ -4,16 +4,18 @@ import Testing
 
 @Suite struct SignInErrorPresentationTests {
     @Test func rateLimitedStackCodeUsesRateLimitMessageAndReason() {
+        let presentation = SignInErrorPresentation()
         let error = StackAuthError(code: "RATE_LIMITED", message: "too many requests")
 
-        #expect(SignInErrorPresentation.failureReason(for: error) == "rate_limit")
+        #expect(presentation.failureReason(for: error) == "rate_limit")
         #expect(
-            SignInErrorPresentation.message(for: error)
+            presentation.message(for: error)
                 == "Too many attempts. Please wait a moment and try again."
         )
     }
 
     @Test func appleSignInSdkCodesUseAppleUnavailableMessage() {
+        let presentation = SignInErrorPresentation()
         let codes = [
             "apple_signin_not_configured",
             "apple_signin_not_handled",
@@ -25,9 +27,9 @@ import Testing
 
         for code in codes {
             let error = StackAuthError(code: code, message: "apple failed")
-            #expect(SignInErrorPresentation.failureReason(for: error) == "oauth_error")
+            #expect(presentation.failureReason(for: error) == "oauth_error")
             #expect(
-                SignInErrorPresentation.message(for: error)
+                presentation.message(for: error)
                     == "Apple Sign In is not available yet. Please use another sign-in method."
             )
         }

@@ -22,6 +22,7 @@ struct SignInView: View {
     @State private var shouldAutofocusCode = false
     @State private var shouldAutofocusEmail = false
     @State private var signInTask: Task<Void, Never>?
+    private let errorPresentation = SignInErrorPresentation()
     @FocusState private var isEmailFocused: Bool
     @FocusState private var isCodeFocused: Bool
     var body: some View {
@@ -289,7 +290,7 @@ struct SignInView: View {
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
@@ -307,7 +308,7 @@ struct SignInView: View {
             code = ""
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("email_code"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
@@ -331,7 +332,7 @@ struct SignInView: View {
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("apple"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
@@ -355,15 +356,15 @@ struct SignInView: View {
             self.error = detailedErrorMessage(error)
             analytics.capture("ios_sign_in_failed", [
                 "method": .string("google"),
-                "failure_reason": .string(Self.signInFailureReason(error)),
+                "failure_reason": .string(signInFailureReason(error)),
             ])
         }
     }
 
     /// Maps a sign-in error to the `ios_sign_in_failed` `failure_reason` enum
     /// (enums only, never the error text or the user's email).
-    private static func signInFailureReason(_ error: Error) -> String {
-        SignInErrorPresentation.failureReason(for: error)
+    private func signInFailureReason(_ error: Error) -> String {
+        errorPresentation.failureReason(for: error)
     }
 
     private func errorText(_ message: String) -> some View {
@@ -377,7 +378,7 @@ struct SignInView: View {
     }
 
     private func detailedErrorMessage(_ error: Error) -> String {
-        SignInErrorPresentation.message(for: error)
+        errorPresentation.message(for: error)
     }
 
     private func authCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
