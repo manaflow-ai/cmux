@@ -116,7 +116,7 @@ final class CmuxConfigContextMenuTests: XCTestCase {
             return XCTFail("Expected default context menu actions.")
         }
         XCTAssertEqual(first.action.id, CmuxSurfaceTabBarBuiltInAction.newWorkspace.configID)
-        XCTAssertEqual(store.newWorkspaceMenuSectionOrder, .customFirst)
+        XCTAssertEqual(store.newWorkspaceMenuSectionOrder, .cloudFirst)
         XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 

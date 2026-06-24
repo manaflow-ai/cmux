@@ -260,43 +260,56 @@ struct TitlebarCloudVMButton: View {
         ))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.fork.title", defaultValue: "Fork Current Cloud VM"),
+            title: String(localized: "command.cloudVM.fork.title", defaultValue: "Fork Cloud VM"),
             action: #selector(CloudVMMenuTarget.fork)
         ))
         menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.snapshot.title", defaultValue: "Checkpoint Current Cloud VM"),
+            title: String(localized: "command.cloudVM.snapshot.title", defaultValue: "Checkpoint Cloud VM"),
             action: #selector(CloudVMMenuTarget.snapshot)
         ))
         menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.restore.title", defaultValue: "Restore Cloud VM From Checkpoint"),
+            title: String(localized: "command.cloudVM.restore.title", defaultValue: "Restore Checkpoint..."),
             action: #selector(CloudVMMenuTarget.restore)
         ))
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.promoteTemplate.title", defaultValue: "Promote Current VM to Template"),
-            action: #selector(CloudVMMenuTarget.promoteTemplate)
-        ))
         menu.addItem(NSMenuItem.separator())
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.status.title", defaultValue: "Show Cloud VM Status"),
-            action: #selector(CloudVMMenuTarget.status)
-        ))
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.ports.title", defaultValue: "Show Cloud VM Ports"),
-            action: #selector(CloudVMMenuTarget.ports)
-        ))
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.tools.title", defaultValue: "Inspect Cloud VM Tools"),
-            action: #selector(CloudVMMenuTarget.tools)
-        ))
-        menu.addItem(menuItem(
-            title: String(localized: "command.cloudVM.handoff.title", defaultValue: "Show Agent Handoff"),
-            action: #selector(CloudVMMenuTarget.handoff)
-        ))
+        menu.addItem(advancedMenuItem())
     }
 
     private static func menuItem(title: String, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = CloudVMMenuTarget.shared
+        return item
+    }
+
+    private static func advancedMenuItem() -> NSMenuItem {
+        let item = NSMenuItem(
+            title: String(localized: "command.cloudVM.advanced.title", defaultValue: "Advanced"),
+            action: nil,
+            keyEquivalent: ""
+        )
+        let submenu = NSMenu()
+        submenu.addItem(menuItem(
+            title: String(localized: "command.cloudVM.status.title", defaultValue: "Status"),
+            action: #selector(CloudVMMenuTarget.status)
+        ))
+        submenu.addItem(menuItem(
+            title: String(localized: "command.cloudVM.ports.title", defaultValue: "Ports"),
+            action: #selector(CloudVMMenuTarget.ports)
+        ))
+        submenu.addItem(NSMenuItem.separator())
+        submenu.addItem(menuItem(
+            title: String(localized: "command.cloudVM.promoteTemplate.title", defaultValue: "Promote to Template"),
+            action: #selector(CloudVMMenuTarget.promoteTemplate)
+        ))
+        submenu.addItem(menuItem(
+            title: String(localized: "command.cloudVM.tools.title", defaultValue: "Inspect Tools"),
+            action: #selector(CloudVMMenuTarget.tools)
+        ))
+        submenu.addItem(menuItem(
+            title: String(localized: "command.cloudVM.handoff.title", defaultValue: "Agent Handoff"),
+            action: #selector(CloudVMMenuTarget.handoff)
+        ))
+        item.submenu = submenu
         return item
     }
 }

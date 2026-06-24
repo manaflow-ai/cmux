@@ -47,17 +47,17 @@ Default: `right`.
 
 ## `ui.newWorkspace.menuSectionOrder`
 
-Controls the section order in the titlebar `+` button menu. The custom section comes from `ui.newWorkspace.contextMenu`; the Cloud VM section is built in.
+Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
 
 Values: `customFirst`, `cloudFirst`.
 
-Default: `customFirst`.
+Default: `cloudFirst`.
 
 ```json
 {
   "ui": {
     "newWorkspace": {
-      "menuSectionOrder": "cloudFirst",
+      "menuSectionOrder": "customFirst",
       "contextMenu": [
         "newWorkspace"
       ]

@@ -86,7 +86,7 @@ enum CmuxNewWorkspaceMenuSectionOrder: String, Codable, Sendable, Hashable {
     case customFirst
     case cloudFirst
 
-    static let `default`: Self = .customFirst
+    static let `default`: Self = .cloudFirst
 
     init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
