@@ -127,6 +127,8 @@ public final class GhosttyRuntime {
         log.debug("font-size config get=\(hasFont, privacy: .public) value=\(fontSize, privacy: .public)")
         #endif
 
+        self.theme = resolvedTheme
+
         var runtimeConfig = ghostty_runtime_config_s()
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = false
@@ -158,7 +160,6 @@ public final class GhosttyRuntime {
             throw RuntimeError.appCreationFailed
         }
 
-        self.theme = resolvedTheme
         self.config = config
         self.app = app
     }
