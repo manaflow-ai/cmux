@@ -58,6 +58,22 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.isEmpty)
     }
 
+    /// If the Mac rejects closing the last remaining selected workspace, rollback
+    /// must restore selection too so the detail view does not stay blank.
+    @Test func rollbackRestoresSelectionWhenLastWorkspaceCloseIsRejected() {
+        let store = MobileShellComposite.preview()
+        store.applyOptimisticWorkspaceClose(id: "workspace-docs")
+        store.selectedWorkspaceID = "workspace-main"
+        store.applyOptimisticWorkspaceClose(id: "workspace-main")
+
+        #expect(store.selectedWorkspaceID == nil)
+
+        store.rollbackOptimisticWorkspaceClose(id: "workspace-main")
+
+        #expect(store.selectedWorkspaceID == "workspace-main")
+        #expect(store.workspaces.map(\.id.rawValue) == ["workspace-main"])
+    }
+
     /// While a close is unconfirmed, a stale authoritative snapshot that still
     /// lists the workspace must not resurrect the row.
     @Test func staleSnapshotDoesNotResurrectPendingClose() throws {

@@ -1,17 +1,18 @@
 import CMUXMobileCore
+import CmuxMobileTerminal
 import SwiftUI
 
 /// Colors derived from the active terminal theme for the SwiftUI chrome around
 /// the mobile terminal surface (toolbars, letterbox fill).
 ///
-/// These follow ``TerminalThemeStore/current`` so the chrome blends with the
+/// These follow ``GhosttyRuntime/currentTheme`` so the chrome blends with the
 /// live terminal under any theme instead of flashing a hardcoded color. They
 /// fall back to Monokai when no theme has been supplied.
 enum TerminalPalette {
     /// Terminal background, from the active theme.
-    static var background: Color { color(TerminalThemeStore.current.background) }
+    static var background: Color { color(GhosttyRuntime.currentTheme.background) }
     /// Terminal foreground, from the active theme.
-    static var foreground: Color { color(TerminalThemeStore.current.foreground) }
+    static var foreground: Color { color(GhosttyRuntime.currentTheme.foreground) }
     /// Dimmed terminal foreground, from the active theme.
     static var dimForeground: Color { foreground.opacity(0.78) }
 

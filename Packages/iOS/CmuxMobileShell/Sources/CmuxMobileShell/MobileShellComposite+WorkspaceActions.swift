@@ -154,6 +154,9 @@ extension MobileShellComposite {
             return
         }
         recomputeDerivedWorkspaceState()
+        if selectedWorkspaceID == nil, workspaces.contains(where: { $0.id == id }) {
+            selectedWorkspaceID = id
+        }
     }
 
     private func workspaceActionCapabilities(for id: MobileWorkspacePreview.ID) -> MobileWorkspaceActionCapabilities {

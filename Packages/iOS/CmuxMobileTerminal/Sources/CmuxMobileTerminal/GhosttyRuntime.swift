@@ -45,6 +45,7 @@ public final class GhosttyRuntime {
 
     private static var backendInitialized = false
     private static var sharedResult: Result<GhosttyRuntime, Error>?
+    private static var configuredTheme: TerminalTheme = .monokai
     private static var clipboardReader: @MainActor () -> String? = { UIPasteboard.general.string }
     private static var clipboardWriter: @MainActor (String?) -> Void = { UIPasteboard.general.string = $0 }
 
@@ -54,11 +55,21 @@ public final class GhosttyRuntime {
     /// is first invoked, since the runtime reads the theme once while building
     /// its config; setting it afterward has no effect on the live runtime.
     public static func setTheme(_ theme: TerminalTheme?) {
-        TerminalThemeStore.set(theme)
+        guard sharedResult == nil else {
+            log.debug("Ignoring theme update after GhosttyRuntime initialization")
+            return
+        }
+        configuredTheme = theme?.validatedOrDefault() ?? .monokai
     }
 
-    /// The theme the runtime will apply (or has applied) to its config.
-    public static var currentTheme: TerminalTheme { TerminalThemeStore.current }
+    /// The effective theme for the live runtime, or the theme that will be used
+    /// when the runtime is first initialized.
+    public static var currentTheme: TerminalTheme {
+        if case .success(let runtime) = sharedResult {
+            return runtime.theme
+        }
+        return configuredTheme
+    }
 
     // libghostty handles are opaque C pointers (typedef `void *`). They
     // aren't Sendable in Swift's type system, but `GhosttyRuntime` is a
@@ -68,6 +79,7 @@ public final class GhosttyRuntime {
     // can free them without a synchronous main-actor hop.
     nonisolated(unsafe) private(set) var app: ghostty_app_t?
     nonisolated(unsafe) private(set) var config: ghostty_config_t?
+    public let theme: TerminalTheme
 
     public static func shared() throws -> GhosttyRuntime {
         if let sharedResult {
@@ -76,7 +88,7 @@ public final class GhosttyRuntime {
 
         let result: Result<GhosttyRuntime, Error>
         do {
-            result = .success(try GhosttyRuntime())
+            result = .success(try GhosttyRuntime(theme: configuredTheme))
         } catch {
             result = .failure(error)
         }
@@ -84,11 +96,12 @@ public final class GhosttyRuntime {
         return try result.get()
     }
 
-    init() throws {
+    init(theme: TerminalTheme = .monokai) throws {
+        let resolvedTheme = theme.validatedOrDefault()
         try Self.initializeBackendIfNeeded()
 
         let config = ghostty_config_new()
-        Self.loadConfig(config)
+        Self.loadConfig(config, theme: resolvedTheme)
         ghostty_config_finalize(config)
 
         #if DEBUG
@@ -144,6 +157,7 @@ public final class GhosttyRuntime {
             throw RuntimeError.appCreationFailed
         }
 
+        self.theme = resolvedTheme
         self.config = config
         self.app = app
     }
@@ -172,13 +186,13 @@ public final class GhosttyRuntime {
         backendInitialized = true
     }
 
-    private static func loadConfig(_ config: ghostty_config_t?) {
+    private static func loadConfig(_ config: ghostty_config_t?, theme: TerminalTheme) {
         guard let config else { return }
         #if os(iOS)
         Self.setupiOSConfigEnvironment()
-        Self.ensureDefaultiOSConfig()
+        Self.ensureDefaultiOSConfig(theme: theme)
         ghostty_config_load_default_files(config)
-        Self.applyiOSDefaults(config)
+        Self.applyiOSDefaults(config, theme: theme)
         #else
         ghostty_config_load_default_files(config)
         #endif
@@ -193,7 +207,7 @@ public final class GhosttyRuntime {
         }
     }
 
-    private static func applyiOSDefaults(_ config: ghostty_config_t) {
+    private static func applyiOSDefaults(_ config: ghostty_config_t, theme: TerminalTheme) {
         // scrollback-limit: bound the mirror surface's local scrollback page
         // memory (ghostty defaults to 10MB per surface). On iOS the user-facing
         // scroll path forwards to the Mac's real surface, so local scrollback
@@ -209,7 +223,7 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        \(TerminalThemeStore.current.ghosttyColorDirectives)
+        \(theme.ghosttyColorDirectives)
         """
         let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-ios-config-\(ProcessInfo.processInfo.processIdentifier)")
         do {
@@ -228,7 +242,7 @@ public final class GhosttyRuntime {
         log.debug("applyiOSDefaults: bg get=\(hasBg, privacy: .public) r=\(bgColor.r, privacy: .public) g=\(bgColor.g, privacy: .public) b=\(bgColor.b, privacy: .public)")
     }
 
-    private static func ensureDefaultiOSConfig() {
+    private static func ensureDefaultiOSConfig(theme: TerminalTheme) {
         guard let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return }
         let configDir = appSupport.appendingPathComponent("ghostty", isDirectory: true)
         let configFile = configDir.appendingPathComponent("config", isDirectory: false)
@@ -241,7 +255,7 @@ public final class GhosttyRuntime {
         window-padding-y = 0
         cursor-style = bar
         cursor-style-blink = true
-        \(TerminalThemeStore.current.ghosttyColorDirectives)
+        \(theme.ghosttyColorDirectives)
         """
 
         do {

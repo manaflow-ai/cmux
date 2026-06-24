@@ -226,7 +226,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// The input accessory bar fill, taken from the active terminal theme's
     /// background so the bar blends with the live terminal under any theme.
     private static var themeBarColor: UIColor {
-        guard let rgb = TerminalTheme.rgbComponents(TerminalThemeStore.current.background) else {
+        guard let rgb = TerminalTheme.rgbComponents(GhosttyRuntime.currentTheme.background) else {
             return UIColor(red: 0x27 / 255.0, green: 0x28 / 255.0, blue: 0x22 / 255.0, alpha: 1)
         }
         return UIColor(
