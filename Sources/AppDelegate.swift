@@ -7694,7 +7694,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         VSCodeServeWebController.shared.ensureServeWebURL(vscodeApplicationURL: vscodeApplicationURL) { serveWebURL in
             guard let serveWebURL,
-                  let openFolderURL = VSCodeServeWebURLBuilder.openFolderURL(
+                  let openFolderURL = VSCodeServeWebURLBuilder().openFolderURL(
                       baseWebUIURL: serveWebURL,
                       directoryPath: normalizedDirectoryURL.path
                   ) else {
