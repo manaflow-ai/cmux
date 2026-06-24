@@ -122,7 +122,8 @@ enum BrowserWebAuthnBridgeContract {
                 makeError("NotSupportedError", "Native passkey support is unavailable.")
               );
             }
-            return handler.postMessage({ kind, payload }).then(ensureReplySuccess);
+            const message = payload === undefined ? { kind } : { kind, payload };
+            return handler.postMessage(message).then(ensureReplySuccess);
           };
 
           const serializeCredentialDescriptor = (descriptor) => {

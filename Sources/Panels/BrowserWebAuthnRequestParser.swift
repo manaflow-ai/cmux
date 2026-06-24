@@ -81,7 +81,7 @@ enum BrowserWebAuthnRequestParser {
         }
 
         let payloadJSON: String?
-        if let rawPayload = root["payload"] {
+        if let rawPayload = root["payload"], !(rawPayload is NSNull) {
             guard let payload = rawPayload as? String,
                   payload.utf8.count <= maximumPayloadJSONUTF8Bytes else {
                 throw BrowserWebAuthnBridgeError.type("Malformed browser passkey request.")
