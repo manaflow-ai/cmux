@@ -25,7 +25,10 @@ struct MacComputerDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var pendingRemoval = false
-    /// Per-route reachability probe results, keyed by `CmxAttachRoute.id`.
+    /// Per-route reachability probe results, keyed by ``routeSignature(_:)``
+    /// (kind + endpoint), not `route.id`: a stable id like `tailscale` can keep
+    /// its id while its host/port is refreshed, so id-keying would show a stale
+    /// result under a changed endpoint. Signature-keying drops the stale row.
     @State private var pingResults: [String: CmxRoutePingResult] = [:]
     /// True while a ping pass is in flight (drives the spinner + disables Ping).
     @State private var isPinging = false
@@ -344,9 +347,16 @@ struct MacComputerDetailView: View {
 
     /// The per-route ping status sub-line: nothing before the first ping, a
     /// spinner while in flight, then the classified result with a tinted icon.
+    /// A stable per-endpoint key: route kind + the host/port it dials. Used to
+    /// match a ping result to the row it was measured for, so a refreshed
+    /// endpoint (same id, new host/port) does not inherit a stale result.
+    private func routeSignature(_ route: CmxAttachRoute) -> String {
+        "\(route.kind.rawValue)|\(endpointText(route.endpoint))"
+    }
+
     @ViewBuilder
     private func pingStatusLine(for route: CmxAttachRoute) -> some View {
-        if let result = pingResults[route.id] {
+        if let result = pingResults[routeSignature(route)] {
             Label {
                 Text(result.pingLabel)
                     .font(.caption)
@@ -375,13 +385,17 @@ struct MacComputerDetailView: View {
         isPinging = true
         pingResults = [:]
         let pinger = pinger
+        let signatures = Dictionary(
+            routes.map { (routeSignature($0), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         Task {
             await withTaskGroup(of: (String, CmxRoutePingResult).self) { group in
-                for route in routes {
-                    group.addTask { (route.id, await pinger.ping(route)) }
+                for (signature, route) in signatures {
+                    group.addTask { (signature, await pinger.ping(route)) }
                 }
-                for await (routeID, result) in group {
-                    pingResults[routeID] = result
+                for await (signature, result) in group {
+                    pingResults[signature] = result
                 }
             }
             isPinging = false
