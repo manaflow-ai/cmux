@@ -309,6 +309,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
         WebViewInspectorTeardown.closeInspector(for: webView)
         closeAllChildPopups()
+        popupNavigationDelegate.cancelPendingHTTPBasicAuthPrompts()
 
         // Invalidate observations
         titleObservation?.invalidate()
@@ -600,6 +601,11 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
 private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
     weak var controller: BrowserPopupWindowController?
     var downloadDelegate: WKDownloadDelegate?
+    private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+
+    func cancelPendingHTTPBasicAuthPrompts() {
+        basicAuthPromptCoordinator.cancelAll()
+    }
 
     func webView(
         _ webView: WKWebView,
@@ -680,9 +686,15 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        if browserHandleHTTPBasicAuthenticationChallenge(
-            in: webView,
+        if basicAuthPromptCoordinator.handle(
             challenge: challenge,
+            startPrompt: { finishPrompt in
+                browserHandleHTTPBasicAuthenticationChallenge(
+                    in: webView,
+                    challenge: challenge,
+                    completionHandler: finishPrompt
+                )
+            },
             completionHandler: completionHandler
         ) {
             return

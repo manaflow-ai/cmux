@@ -5150,6 +5150,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+        navigationDelegate?.cancelPendingHTTPBasicAuthPrompts()
         cancelPendingInteractiveBrowserPrompts(reason: "close")
         closeBackgroundPreloadHost(reason: "close")
 
@@ -8605,6 +8606,165 @@ func browserHandleHTTPBasicAuthenticationChallenge(
     return true
 }
 
+private struct BrowserHTTPBasicAuthProtectionSpaceKey: Hashable {
+    let host: String
+    let port: Int
+    let realm: String?
+    let authenticationMethod: String
+
+    init(_ protectionSpace: URLProtectionSpace) {
+        host = protectionSpace.host
+        port = protectionSpace.port
+        realm = protectionSpace.realm
+        authenticationMethod = protectionSpace.authenticationMethod
+    }
+}
+
+final class BrowserHTTPBasicAuthPromptCoordinator {
+    typealias Completion = (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+
+    private final class Request {
+        let key: BrowserHTTPBasicAuthProtectionSpaceKey
+        let startPrompt: (@escaping Completion) -> Bool
+        private var completions: [Completion]
+
+        init(
+            key: BrowserHTTPBasicAuthProtectionSpaceKey,
+            startPrompt: @escaping (@escaping Completion) -> Bool,
+            completion: @escaping Completion
+        ) {
+            self.key = key
+            self.startPrompt = startPrompt
+            self.completions = [completion]
+        }
+
+        var completionCount: Int {
+            completions.count
+        }
+
+        func appendCompletion(_ completion: @escaping Completion) {
+            completions.append(completion)
+        }
+
+        func complete(
+            disposition: URLSession.AuthChallengeDisposition,
+            credential: URLCredential?
+        ) {
+            let callbacks = completions
+            completions.removeAll()
+            callbacks.forEach { $0(disposition, credential) }
+        }
+    }
+
+    private static let maxQueuedProtectionSpaces = 4
+    private static let maxCompletionsPerProtectionSpace = 8
+
+    private var activeRequest: Request?
+    private var queuedRequests: [Request] = []
+    private var isCancelling = false
+
+    @discardableResult
+    func handle(
+        challenge: URLAuthenticationChallenge,
+        startPrompt: @escaping (@escaping Completion) -> Bool,
+        completionHandler: @escaping Completion
+    ) -> Bool {
+        guard browserShouldPromptForHTTPBasicAuth(challenge: challenge) else {
+            return false
+        }
+
+        guard !isCancelling else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+            return true
+        }
+
+        let key = BrowserHTTPBasicAuthProtectionSpaceKey(challenge.protectionSpace)
+        if let activeRequest, activeRequest.key == key {
+            append(completionHandler, to: activeRequest)
+            return true
+        }
+
+        if let queuedRequest = queuedRequests.first(where: { $0.key == key }) {
+            append(completionHandler, to: queuedRequest)
+            return true
+        }
+
+        let request = Request(
+            key: key,
+            startPrompt: startPrompt,
+            completion: completionHandler
+        )
+        if activeRequest == nil {
+            start(request)
+        } else if queuedRequests.count < Self.maxQueuedProtectionSpaces {
+            queuedRequests.append(request)
+        } else {
+            completionHandler(.cancelAuthenticationChallenge, nil)
+        }
+        return true
+    }
+
+    func cancelAll() {
+        isCancelling = true
+        let active = activeRequest
+        activeRequest = nil
+        let queued = queuedRequests
+        queuedRequests.removeAll()
+        active?.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
+        queued.forEach {
+            $0.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
+        }
+    }
+
+    private func append(_ completion: @escaping Completion, to request: Request) {
+        guard request.completionCount < Self.maxCompletionsPerProtectionSpace else {
+            completion(.cancelAuthenticationChallenge, nil)
+            return
+        }
+        request.appendCompletion(completion)
+    }
+
+    private func start(_ request: Request) {
+        guard !isCancelling else {
+            request.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
+            return
+        }
+
+        activeRequest = request
+        let started = request.startPrompt { [weak self, weak request] disposition, credential in
+            guard let request else { return }
+            request.complete(disposition: disposition, credential: credential)
+            guard let self else { return }
+            if self.activeRequest === request {
+                self.activeRequest = nil
+            }
+            self.startNext()
+        }
+
+        if !started {
+            request.complete(disposition: .performDefaultHandling, credential: nil)
+            if activeRequest === request {
+                activeRequest = nil
+            }
+            startNext()
+        }
+    }
+
+    private func startNext() {
+        guard activeRequest == nil else { return }
+        guard !isCancelling else {
+            let queued = queuedRequests
+            queuedRequests.removeAll()
+            queued.forEach {
+                $0.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
+            }
+            return
+        }
+        guard !queuedRequests.isEmpty else { return }
+        start(queuedRequests.removeFirst())
+    }
+}
+
 func browserNavigationHasSimpleUserActivation(
     currentEventType: NSEvent.EventType? = NSApp.currentEvent?.type
 ) -> Bool {
@@ -8767,7 +8927,11 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
     /// The URL of the last navigation that was attempted. Used to preserve the omnibar URL
     /// when a provisional navigation fails (e.g. connection refused on localhost:3000).
     var lastAttemptedURL: URL?
-    private var isHTTPBasicAuthPromptPending = false
+    private let basicAuthPromptCoordinator = BrowserHTTPBasicAuthPromptCoordinator()
+
+    func cancelPendingHTTPBasicAuthPrompts() {
+        basicAuthPromptCoordinator.cancelAll()
+    }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         lastAttemptedURL = lastAttemptedURL ?? webView.url
@@ -8820,28 +8984,19 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         didReceive challenge: URLAuthenticationChallenge,
         completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
     ) {
-        if browserShouldPromptForHTTPBasicAuth(challenge: challenge) {
-            guard !isHTTPBasicAuthPromptPending else {
-                completionHandler(.cancelAuthenticationChallenge, nil)
-                return
-            }
-
-            isHTTPBasicAuthPromptPending = true
-            let finishPrompt: (URLSession.AuthChallengeDisposition, URLCredential?) -> Void = { [weak self] disposition, credential in
-                self?.isHTTPBasicAuthPromptPending = false
-                completionHandler(disposition, credential)
-            }
-
-            if browserHandleHTTPBasicAuthenticationChallenge(
-                in: webView,
-                challenge: challenge,
-                presentAlert: presentAlert,
-                completionHandler: finishPrompt
-            ) {
-                return
-            }
-
-            isHTTPBasicAuthPromptPending = false
+        if basicAuthPromptCoordinator.handle(
+            challenge: challenge,
+            startPrompt: { [presentAlert] finishPrompt in
+                browserHandleHTTPBasicAuthenticationChallenge(
+                    in: webView,
+                    challenge: challenge,
+                    presentAlert: presentAlert,
+                    completionHandler: finishPrompt
+                )
+            },
+            completionHandler: completionHandler
+        ) {
+            return
         }
 
         // WKWebView rejects all authentication challenges by default when this

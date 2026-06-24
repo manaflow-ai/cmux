@@ -2228,14 +2228,19 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         XCTAssertNil(credential)
     }
 
-    func testMainBrowserCancelsAdditionalBasicAuthChallengesWhilePreloadPromptIsPending() throws {
+    func testMainBrowserCoalescesDuplicateBasicAuthChallengesWhilePreloadPromptIsPending() throws {
         let panel = BrowserPanel(
             workspaceId: UUID(),
             initialURL: URL(string: "about:blank")!,
             preloadInitialNavigationInBackground: true,
             isRemoteWorkspace: false
         )
-        defer { panel.close() }
+        var didClosePanel = false
+        defer {
+            if !didClosePanel {
+                panel.close()
+            }
+        }
 
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
         XCTAssertNil(browserInteractiveModalHostWindow(for: panel.webView))
@@ -2243,15 +2248,15 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         let delegate = try XCTUnwrap(panel.webView.navigationDelegate)
         let firstChallenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
         let secondChallenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
-        var firstCompletionCalled = false
+        var firstDisposition: URLSession.AuthChallengeDisposition?
         var secondDisposition: URLSession.AuthChallengeDisposition?
         var secondCredential: URLCredential?
 
         delegate.webView?(
             panel.webView,
             didReceive: firstChallenge
-        ) { _, _ in
-            firstCompletionCalled = true
+        ) { disposition, _ in
+            firstDisposition = disposition
         }
 
         delegate.webView?(
@@ -2262,7 +2267,13 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
             secondCredential = credential
         }
 
-        XCTAssertFalse(firstCompletionCalled)
+        XCTAssertNil(firstDisposition)
+        XCTAssertNil(secondDisposition)
+
+        panel.close()
+        didClosePanel = true
+
+        XCTAssertEqual(firstDisposition, .cancelAuthenticationChallenge)
         XCTAssertEqual(secondDisposition, .cancelAuthenticationChallenge)
         XCTAssertNil(secondCredential)
     }
