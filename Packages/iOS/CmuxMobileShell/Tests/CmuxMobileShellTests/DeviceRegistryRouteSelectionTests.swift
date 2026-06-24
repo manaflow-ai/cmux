@@ -91,6 +91,35 @@ import Testing
         #expect(resolved == local)
     }
 
+    @MainActor
+    @Test func loopbackOnlyLocalRouteRefreshesBeforePhysicalDial() throws {
+        let loopback = [
+            try CmxAttachRoute(
+                id: "loopback",
+                kind: .debugLoopback,
+                endpoint: .hostPort(host: "127.0.0.1", port: 51000),
+                priority: 0
+            ),
+        ]
+        let realRoute = [try route(host: "100.0.0.1", port: 51000)]
+
+        #expect(MobileShellComposite.shouldRefreshReconnectRoutesBeforeDial(
+            local: loopback,
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        ))
+        #expect(!MobileShellComposite.shouldRefreshReconnectRoutesBeforeDial(
+            local: loopback,
+            supportedKinds: [.debugLoopback],
+            preferNonLoopback: false
+        ))
+        #expect(!MobileShellComposite.shouldRefreshReconnectRoutesBeforeDial(
+            local: realRoute,
+            supportedKinds: [.debugLoopback, .tailscale],
+            preferNonLoopback: true
+        ))
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {

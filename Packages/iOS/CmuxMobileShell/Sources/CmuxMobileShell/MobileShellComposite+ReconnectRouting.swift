@@ -23,6 +23,23 @@ extension MobileShellComposite {
         return routes
     }
 
+    static func shouldRefreshReconnectRoutesBeforeDial(
+        local: [CmxAttachRoute],
+        supportedKinds: [CmxAttachTransportKind],
+        preferNonLoopback: Bool
+    ) -> Bool {
+        guard firstReconnectHostPortRoute(
+            local,
+            supportedKinds: supportedKinds,
+            preferNonLoopback: preferNonLoopback
+        ) != nil else { return true }
+        guard preferNonLoopback else { return false }
+        return firstReconnectHostPortRoute(
+            local.filter { $0.kind != .debugLoopback },
+            supportedKinds: supportedKinds
+        ) == nil
+    }
+
     static func secondaryAggregationCandidates(
         from macs: [MobilePairedMac],
         foregroundMacDeviceID: String?
