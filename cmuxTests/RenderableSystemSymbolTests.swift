@@ -86,10 +86,12 @@ struct RenderableSystemSymbolTests {
     }
 
     @Test @MainActor func configuredAppKitImageRejectsUnknownSymbols() {
+        RenderableSystemSymbol.resetRenderabilityCacheForTesting()
         #expect(RenderableSystemSymbol.configuredAppKitImage(
             systemName: "not.an.sf.symbol",
             pointSize: 11,
             weight: .regular
         ) == nil)
+        #expect(RenderableSystemSymbol.isRenderable("not.an.sf.symbol") == false)
     }
 }

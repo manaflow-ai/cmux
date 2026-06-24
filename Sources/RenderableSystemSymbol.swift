@@ -98,9 +98,14 @@ enum RenderableSystemSymbol {
         if let cached = appKitImageCache[cacheKey] {
             return cached
         }
-        guard let baseImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
+        if renderabilityCache[systemName] == false {
             return nil
         }
+        guard let baseImage = NSImage(systemSymbolName: systemName, accessibilityDescription: nil) else {
+            renderabilityCache[systemName] = false
+            return nil
+        }
+        renderabilityCache[systemName] = true
         let configuration = NSImage.SymbolConfiguration(
             pointSize: rasterSize,
             weight: fontWeight
