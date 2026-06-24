@@ -27,6 +27,7 @@ Review production Swift and runtime changes for:
 - Ambient global state: top-level free functions, global mutable vars, static-only namespace types, and new singletons that should be owned by a scoped type and injected.
 - Per-call allocating formatting (`String(format:)`, per-call formatters) on hot or concurrent paths instead of preallocated buffers or reused formatters.
 - Correctness-critical detection/identity derived from title/name heuristics or unreliable fallbacks instead of a single reliable source of truth.
+- Custom React composite UI built from raw elements when Base UI or an existing local component should own accessibility, focus, and keyboard behavior.
 
 ## Runtime No Hacky Sleeps
 
@@ -127,6 +128,14 @@ For production code that detects, identifies, or tracks correctness-critical sta
 Flag a correctness-critical value derived from a string/title/name heuristic (terminal title, window title, pane label, process-argv substring, display name) to decide agent type, session identity, liveness, or which conversation to show. Flag an "unreliable but better than nothing" fallback branch (a guess, a default, a best-effort branch) for state where a wrong value is a correctness bug. Flag more than one disagreeing source of truth for the same fact without one designated authority. Flag a throttle or polling interval placed on a correctness-critical read that introduces a visible staleness window when the consumer must reflect the change promptly.
 
 Pass for detection that uses a reliable structured source (explicit session id, registered agent descriptor, typed lifecycle event), a missing reliable signal that fails closed (no detection, control disabled, empty state) rather than guessing, a heuristic used only for a genuinely cosmetic non-authoritative hint, and coalescing/debouncing that does not delay the observable correctness-critical value.
+
+## React Base UI Accessibility
+
+For React UI changes under `web/**/*.tsx` and `web/**/*.jsx`, prefer `@base-ui-components/react` or an existing local component when building custom composite widgets.
+
+Flag custom dialogs, popovers, menus, context menus, checkboxes, selects, switches, tabs, tooltips, comboboxes, command menus, or similar interactive controls built from raw `div`/`span` elements, ad hoc ARIA, `tabIndex`, or hand-rolled keyboard handlers when Base UI or a shared component already provides the relevant primitive. Also flag wrappers around Base UI primitives that drop labels, focus restoration, controlled/uncontrolled state, keyboard support, or disabled/loading semantics.
+
+Pass for native semantic elements (`button`, `a`, `input`, `select`, `textarea`, `details`, `summary`) when they satisfy the behavior, cases with no relevant primitive where the PR owns complete semantics and keyboard/focus behavior, and existing custom UI not worsened by the PR.
 
 ## Landing Page Registry Parity
 
