@@ -3712,6 +3712,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            let macDeviceID = ownerMacDeviceID,
            !macDeviceID.isEmpty,
            macDeviceID != foregroundMacDeviceID {
+            if workspace?.macConnectionStatus == .unavailable {
+                mobileShellLog.info("openWorkspace: ignoring unavailable secondary mac=\(macDeviceID, privacy: .public)")
+                if selectedWorkspaceID == id {
+                    setSelectedWorkspaceID(nil)
+                }
+                return
+            }
             // Only proceed if that Mac actually became the foreground connection.
             // The tap already selected this workspace and pushed its detail
             // synchronously (this runs from the detail's task), so on a failed
