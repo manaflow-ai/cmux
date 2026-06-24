@@ -27,18 +27,10 @@ enum BrowserWebAuthnBridgeContract {
               return true;
             }
             try {
-              if (window.top.location.origin === window.location.origin) {
-                return true;
-              }
-            } catch (_) {}
-            const permissionsPolicy = document.permissionsPolicy || document.featurePolicy;
-            if (!permissionsPolicy || typeof permissionsPolicy.allowsFeature !== "function") {
+              return window.top.location.origin === window.location.origin;
+            } catch (_) {
               return false;
             }
-            return (
-              permissionsPolicy.allowsFeature("publickey-credentials-create") ||
-              permissionsPolicy.allowsFeature("publickey-credentials-get")
-            );
           };
 
           if (!currentFrameMayUseWebAuthn()) {
@@ -707,91 +699,6 @@ private struct BrowserWebAuthnTransportSummary {
     }
 }
 
-private struct BrowserWebAuthnSecurityOrigin {
-    let scheme: String
-    let host: String
-    let port: Int
-
-    init(origin: WKSecurityOrigin) {
-        scheme = origin.protocol.lowercased()
-        host = origin.host.lowercased()
-        port = Self.normalizedPort(scheme: scheme, port: origin.port)
-    }
-
-    init?(url: URL) {
-        guard let scheme = url.scheme?.lowercased(),
-              let host = url.host?.lowercased() else {
-            return nil
-        }
-
-        self.scheme = scheme
-        self.host = host
-        port = Self.normalizedPort(scheme: scheme, port: url.port)
-    }
-
-    var serializedString: String {
-        let isDefaultHTTPS = scheme == "https" && port == 443
-        let isDefaultHTTP = scheme == "http" && port == 80
-        if isDefaultHTTPS || isDefaultHTTP || port < 0 {
-            return "\(scheme)://\(host)"
-        }
-        return "\(scheme)://\(host):\(port)"
-    }
-
-    func matches(_ origin: WKSecurityOrigin) -> Bool {
-        let other = Self(origin: origin)
-        return scheme == other.scheme && host == other.host && port == other.port
-    }
-
-    func permits(relyingPartyIdentifier: String) -> Bool {
-        let normalizedIdentifier = relyingPartyIdentifier.lowercased()
-        guard !normalizedIdentifier.isEmpty else { return false }
-        return host == normalizedIdentifier || host.hasSuffix(".\(normalizedIdentifier)")
-    }
-
-    var isPotentiallyTrustworthyWebAuthnOrigin: Bool {
-        if scheme == "https" {
-            return true
-        }
-        guard scheme == "http" else {
-            return false
-        }
-        return host == "localhost" ||
-            host.hasSuffix(".localhost") ||
-            host == "::1" ||
-            host == "[::1]" ||
-            isIPv4LoopbackHost
-    }
-
-    private var isIPv4LoopbackHost: Bool {
-        let octets = host.split(separator: ".", omittingEmptySubsequences: false)
-        guard octets.count == 4, octets[0] == "127" else {
-            return false
-        }
-        return octets.dropFirst().allSatisfy { octet in
-            guard let value = Int(octet) else {
-                return false
-            }
-            return (0...255).contains(value)
-        }
-    }
-
-    private static func normalizedPort(scheme: String, port: Int?) -> Int {
-        if let port, port > 0 {
-            return port
-        }
-
-        switch scheme {
-        case "http":
-            return 80
-        case "https":
-            return 443
-        default:
-            return -1
-        }
-    }
-}
-
 @MainActor
 private struct BrowserWebAuthnClientDataContext {
     let callerOrigin: BrowserWebAuthnSecurityOrigin
@@ -818,14 +725,27 @@ private struct BrowserWebAuthnClientDataContext {
         )
     }
 
-    func clientData(challenge: Data) throws -> ASPublicKeyCredentialClientData {
-        guard #available(macOS 13.5, *) else {
-            throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
-        }
+    static func resolvePermitted(for message: WKScriptMessage) throws -> Self {
+        let context = try resolve(for: message)
+        try context.validatePermitted()
+        return context
+    }
+
+    func validatePermitted() throws {
         guard callerOrigin.isPotentiallyTrustworthyWebAuthnOrigin,
               topLevelOrigin?.isPotentiallyTrustworthyWebAuthnOrigin ?? true else {
             throw BrowserWebAuthnBridgeError.security("Passkey access requires a secure origin.")
         }
+        guard crossOrigin != .crossOrigin else {
+            throw BrowserWebAuthnBridgeError.security("Passkey access is not available.")
+        }
+    }
+
+    func clientData(challenge: Data) throws -> ASPublicKeyCredentialClientData {
+        guard #available(macOS 13.5, *) else {
+            throw BrowserWebAuthnBridgeError.notSupported("Native passkey support is unavailable.")
+        }
+        try validatePermitted()
 
         let topOrigin: String?
         if let topLevelOrigin, topLevelOrigin.serializedString != callerOrigin.serializedString {
@@ -1230,6 +1150,7 @@ final class BrowserWebAuthnCoordinator: NSObject, WKScriptMessageHandlerWithRepl
                 #endif
                 switch envelope.kind {
                 case .capabilities:
+                    _ = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
                     let callerMayPrompt = callerMayPromptForPlatformAuthorization(message)
                     let capReply = capabilityReply(
                         for: BrowserPasskeyAuthorizationGate.shared.currentAuthorizationState(),
@@ -1363,7 +1284,7 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
-        let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
+        let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildCreationPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
             cmuxDebugLog("webauthn.handleCreate no plan — returning fallback")
@@ -1396,7 +1317,7 @@ private extension BrowserWebAuthnCoordinator {
             "webViewHost=\(message.webView?.url?.host ?? "(nil)") hasWebViewURL=\(message.webView?.url == nil ? 0 : 1)"
         )
         #endif
-        let clientDataContext = try BrowserWebAuthnClientDataContext.resolve(for: message)
+        let clientDataContext = try BrowserWebAuthnClientDataContext.resolvePermitted(for: message)
         guard let plan = try buildAssertionPlan(request, clientDataContext: clientDataContext) else {
             #if DEBUG
             cmuxDebugLog("webauthn.handleGet no plan — returning fallback")
