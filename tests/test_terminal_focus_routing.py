@@ -21,8 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
-FOCUS_FILE = Path("/tmp/cmux_focus_routing.txt")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+FOCUS_FILE = Path(f"/tmp/cmux_focus_routing_{os.getpid()}.txt")
 
 
 def _focused_surface_id(c: cmux) -> str:

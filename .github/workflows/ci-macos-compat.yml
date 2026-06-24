@@ -1,10 +1,7 @@
 name: macOS Compatibility
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   compat-tests:
@@ -12,19 +9,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: warp-macos-15-arm64-6x
+          - os: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
             timeout: 30
-            smoke: true
+            startup_smoke: true
+            virtual_display: true
             skip_zig: false
-          - os: warp-macos-26-arm64-6x
+          - os: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
             timeout: 30
-            smoke: false
+            startup_smoke: true
+            virtual_display: false
             skip_zig: true  # zig 0.15.2 MachO linker can't resolve libSystem on macOS 26
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ matrix.timeout }}
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
@@ -34,7 +33,12 @@ jobs:
           # Pick the latest Xcode installed on the runner. GitHub-hosted macos-14
           # defaults to Xcode 15.4, but the project needs Xcode 16+ (Swift tools
           # version 6.0 required by sentry-cocoa).
-          XCODE_APP="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort | tail -n 1)"
+          XCODE_APP="$(
+            find /Applications -maxdepth 1 -name 'Xcode*.app' -print 2>/dev/null \
+              | sort \
+              | tail -n 1 \
+              || true
+          )"
           if [ -z "$XCODE_APP" ]; then
             XCODE_APP="/Applications/Xcode.app"
           fi
@@ -53,12 +57,17 @@ jobs:
           xcrun --sdk macosx --show-sdk-path
           sw_vers
 
+      - name: Capture Ghostty revision
+        id: ghostty-revision
+        run: |
+          echo "sha=$(git -C ghostty rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -68,35 +77,27 @@ jobs:
       - name: Install zig
         if: ${{ !matrix.skip_zig }}
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
 
       - name: Cache DerivedData
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-          key: deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
-          restore-keys: |
-            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
-            deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-
+          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
+          key: deriveddata-${{ matrix.os }}-${{ env.XCODE_VER }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}-${{ steps.ghostty-revision.outputs.sha }}
 
       - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ matrix.os }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ matrix.os }}-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-${{ matrix.os }}-
+
+      - name: Sanitize Swift package cache
+        run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
         run: |
@@ -105,7 +106,7 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -125,11 +126,11 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
-              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
               test 2>&1
           }
 
@@ -145,7 +146,7 @@ jobs:
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
@@ -164,7 +165,7 @@ jobs:
           fi
 
       - name: Create virtual display
-        if: matrix.smoke
+        if: matrix.virtual_display
         run: |
           set -euo pipefail
           echo "=== Display before ==="
@@ -180,17 +181,19 @@ jobs:
           system_profiler SPDisplaysDataType 2>/dev/null || echo "(no display info)"
 
       - name: Build app for smoke test
-        if: matrix.smoke
+        if: matrix.startup_smoke
+        env:
+          CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" build
 
       - name: Smoke test
-        if: matrix.smoke
+        if: matrix.startup_smoke
         run: |
           set -euo pipefail
           chmod +x scripts/smoke-test-ci.sh

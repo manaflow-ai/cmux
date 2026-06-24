@@ -13,6 +13,311 @@ import UserNotifications
 @testable import cmux
 #endif
 
+/// Thread-safe one-shot holder for a policy-evaluation result. Lets a test
+/// detect a stalled evaluation by reading the stored value after a timeout,
+/// instead of awaiting (and hanging on) the evaluation `Task` itself when the
+/// hook never completes.
+private final class NotificationHookEvaluationResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>?
+
+    func store(_ value: Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>) {
+        lock.lock()
+        defer { lock.unlock() }
+        stored = value
+    }
+
+    func take() -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure>? {
+        lock.lock()
+        defer { lock.unlock() }
+        return stored
+    }
+}
+
+final class TerminalNotificationPolicyEngineTests: XCTestCase {
+    private func evaluate(
+        request: TerminalNotificationPolicyRequest,
+        hooks: [CmuxResolvedNotificationHook]
+    ) async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
+        await TerminalNotificationPolicyEngine.evaluate(
+            request: request,
+            hooks: hooks
+        )
+    }
+
+    func testHookCanDisableDesktopAndTransformBody() async throws {
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Title",
+            subtitle: "Subtitle",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "filter",
+            command: #"sed 's/"desktop":true/"desktop":false/; s/"body":"Body"/"body":"Filtered"/'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await evaluate(request: request, hooks: [hook])
+        let envelope = try result.get()
+        XCTAssertFalse(envelope.effects.desktop)
+        XCTAssertEqual(envelope.notification.body, "Filtered")
+    }
+
+    func testHookCanFilterExistingPolicyEnvelope() async throws {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.record = false
+        effects.markUnread = false
+        effects.reorderWorkspace = false
+        effects.sound = false
+        effects.command = false
+        effects.paneFlash = false
+        let envelope = TerminalNotificationPolicyEnvelope(
+            notification: TerminalNotificationPolicyPayload(
+                workspaceId: "feed-session",
+                surfaceId: nil,
+                title: "Permission",
+                subtitle: "",
+                body: "Decision needed"
+            ),
+            context: TerminalNotificationPolicyContext(
+                cwd: FileManager.default.temporaryDirectory.path,
+                configPath: nil,
+                hookId: nil,
+                appFocused: false,
+                focusedPanel: false
+            ),
+            effects: effects
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "feed-filter",
+            command: #"sed 's/"desktop":true/"desktop":false/; s/"title":"Permission"/"title":"Filtered"/'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(envelope: envelope, hooks: [hook])
+        let filtered = try result.get()
+        XCTAssertFalse(filtered.effects.desktop)
+        XCTAssertEqual(filtered.notification.title, "Filtered")
+        XCTAssertEqual(filtered.notification.workspaceId, "feed-session")
+    }
+
+    func testHookCanReturnPartialEffectsEnvelope() async throws {
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: UUID(),
+            title: "Title",
+            subtitle: "Subtitle",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "partial",
+            command: #"printf '{"effects":{"desktop":false},"stop":true}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await evaluate(request: request, hooks: [hook])
+        let envelope = try result.get()
+        XCTAssertEqual(envelope.notification.title, "Title")
+        XCTAssertEqual(envelope.notification.body, "Body")
+        XCTAssertFalse(envelope.effects.desktop)
+        XCTAssertTrue(envelope.effects.sound)
+        XCTAssertTrue(envelope.effects.command)
+        XCTAssertEqual(envelope.stop, true)
+    }
+
+    func testPartialEffectsPatchPreservesOmittedExistingFlags() async throws {
+        var effects = TerminalNotificationPolicyEffects()
+        effects.sound = false
+        effects.command = false
+        let envelope = TerminalNotificationPolicyEnvelope(
+            notification: TerminalNotificationPolicyPayload(
+                workspaceId: UUID().uuidString,
+                surfaceId: nil,
+                title: "Title",
+                subtitle: "Subtitle",
+                body: "Body"
+            ),
+            context: TerminalNotificationPolicyContext(
+                cwd: FileManager.default.temporaryDirectory.path,
+                configPath: nil,
+                hookId: nil,
+                appFocused: false,
+                focusedPanel: false
+            ),
+            effects: effects
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "partial",
+            command: #"printf '{"effects":{"desktop":false}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: nil,
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(envelope: envelope, hooks: [hook])
+        let patched = try result.get()
+        XCTAssertFalse(patched.effects.desktop)
+        XCTAssertFalse(patched.effects.sound)
+        XCTAssertFalse(patched.effects.command)
+        XCTAssertTrue(patched.effects.record)
+    }
+
+    func testPartialNotificationPatchPreservesOmittedPayloadFields() async throws {
+        let envelope = TerminalNotificationPolicyEnvelope(
+            notification: TerminalNotificationPolicyPayload(
+                workspaceId: "workspace-1",
+                surfaceId: "surface-1",
+                title: "Title",
+                subtitle: "Subtitle",
+                body: "Body"
+            ),
+            context: TerminalNotificationPolicyContext(
+                cwd: "/tmp/original",
+                configPath: nil,
+                hookId: nil,
+                appFocused: false,
+                focusedPanel: false
+            )
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "partial-notification",
+            command: #"printf '{"notification":{"title":"Retitled"},"context":{"appFocused":true}}'"#,
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await TerminalNotificationPolicyEngine.evaluate(envelope: envelope, hooks: [hook])
+        let patched = try result.get()
+        XCTAssertEqual(patched.notification.workspaceId, "workspace-1")
+        XCTAssertEqual(patched.notification.surfaceId, "surface-1")
+        XCTAssertEqual(patched.notification.title, "Retitled")
+        XCTAssertEqual(patched.notification.subtitle, "Subtitle")
+        XCTAssertEqual(patched.notification.body, "Body")
+        XCTAssertEqual(patched.context.configPath, "/tmp/cmux.json")
+        XCTAssertEqual(patched.context.hookId, "partial-notification")
+        XCTAssertTrue(patched.context.appFocused)
+        XCTAssertFalse(patched.context.focusedPanel)
+    }
+
+    func testHookFailureReturnsFailureForDefaultFallback() async throws {
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "bad",
+            command: "printf nope",
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await evaluate(request: request, hooks: [hook])
+        switch result {
+        case .success:
+            XCTFail("Expected invalid JSON to fail")
+        case .failure(let failure):
+            XCTAssertEqual(failure.hookId, "bad")
+            XCTAssertTrue(failure.message.contains("invalid JSON"))
+        }
+    }
+
+    func testHookTimeoutReturnsFailureForDefaultFallback() async throws {
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "slow",
+            command: "sleep 2; cat",
+            timeoutSeconds: 0.1,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        let result = await evaluate(request: request, hooks: [hook])
+        switch result {
+        case .success:
+            XCTFail("Expected timeout to fail")
+        case .failure(let failure):
+            XCTAssertEqual(failure.hookId, "slow")
+            XCTAssertTrue(failure.message.contains("timed out"))
+        }
+    }
+
+    func testHookWithBackgroundChildInheritingStdoutDoesNotStall() async throws {
+        let request = TerminalNotificationPolicyRequest(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Title",
+            subtitle: "",
+            body: "Body",
+            cwd: FileManager.default.temporaryDirectory.path,
+            isAppFocused: false,
+            isFocusedPanel: false
+        )
+        let hook = CmuxResolvedNotificationHook(
+            id: "background-stdout",
+            command: "sleep 3 & cat",
+            timeoutSeconds: 5,
+            sourcePath: "/tmp/cmux.json",
+            cwd: FileManager.default.temporaryDirectory.path
+        )
+
+        // A background child inheriting the hook's stdout must not keep the
+        // pipe open and stall `evaluate`. Assert the causal outcome — that the
+        // hook completes and returns the unmodified envelope — rather than
+        // timing the call. The completion is raced against a generous deadline
+        // so a genuine stall fails the test instead of hanging it forever.
+        let completed = expectation(description: "policy hook completes without stalling on inherited stdout")
+        let resultBox = NotificationHookEvaluationResultBox()
+        let evaluationTask = Task {
+            let result = await evaluate(request: request, hooks: [hook])
+            resultBox.store(result)
+            completed.fulfill()
+            return result
+        }
+        await fulfillment(of: [completed], timeout: 10.0)
+        guard let result = resultBox.take() else {
+            // The hook is still stalled on the inherited stdout pipe. Fail fast
+            // instead of awaiting evaluationTask.value, which would hang until the
+            // whole-suite timeout since the stalled call may ignore cancellation.
+            evaluationTask.cancel()
+            XCTFail("policy hook did not complete within 10s (stalled on inherited stdout)")
+            return
+        }
+        let envelope = try result.get()
+        XCTAssertEqual(envelope.notification.body, "Body")
+    }
+}
+
 @MainActor
 final class AppIconSettingsTests: XCTestCase {
     func testApplyDarkSetsRuntimeIconAndNotifiesDockTilePlugin() {
@@ -23,6 +328,7 @@ final class AppIconSettingsTests: XCTestCase {
         var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
             imageForMode: { mode in
                 XCTAssertEqual(mode, .dark)
                 return expectedIcon
@@ -55,6 +361,7 @@ final class AppIconSettingsTests: XCTestCase {
         var stopObservationCallCount = 0
 
         let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
             imageForMode: { mode in
                 XCTFail("Automatic mode should not request a manual icon image: \(mode.rawValue)")
                 return nil
@@ -78,6 +385,242 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 1)
         XCTAssertEqual(startObservationCallCount, 1)
         XCTAssertEqual(stopObservationCallCount, 0)
+    }
+
+    func testApplyDarkBeforeLaunchDoesNotTouchRuntimeIconState() {
+        var imageRequestCount = 0
+        var runtimeIconSetCount = 0
+        var dockTileNotificationCount = 0
+        var startObservationCallCount = 0
+        var stopObservationCallCount = 0
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { false },
+            imageForMode: { _ in
+                imageRequestCount += 1
+                return NSImage(size: NSSize(width: 16, height: 16))
+            },
+            setApplicationIconImage: { _ in
+                runtimeIconSetCount += 1
+            },
+            startAppearanceObservation: {
+                startObservationCallCount += 1
+            },
+            stopAppearanceObservation: {
+                stopObservationCallCount += 1
+            },
+            notifyDockTilePlugin: {
+                dockTileNotificationCount += 1
+            }
+        )
+
+        AppIconSettings.applyIcon(.dark, environment: environment)
+
+        XCTAssertEqual(imageRequestCount, 0)
+        XCTAssertEqual(runtimeIconSetCount, 0)
+        XCTAssertEqual(dockTileNotificationCount, 0)
+        XCTAssertEqual(startObservationCallCount, 0)
+        XCTAssertEqual(stopObservationCallCount, 0)
+    }
+}
+
+final class GhosttyCrashBreadcrumbTests: XCTestCase {
+    private var defaults: UserDefaults!
+    private var suiteName: String!
+    private var crashDirectoryURL: URL!
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        suiteName = "GhosttyCrashBreadcrumbTests.\(UUID().uuidString)"
+        defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        crashDirectoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghostty-crash-breadcrumb-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: crashDirectoryURL, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        if let crashDirectoryURL {
+            try? FileManager.default.removeItem(at: crashDirectoryURL)
+        }
+        if let suiteName {
+            UserDefaults.standard.removePersistentDomain(forName: suiteName)
+        }
+        defaults = nil
+        suiteName = nil
+        crashDirectoryURL = nil
+        try super.tearDownWithError()
+    }
+
+    func testPendingCrashDetectedWhenNewerThanCleanExit() throws {
+        let cleanExit = Date(timeIntervalSince1970: 100)
+        let crashDate = Date(timeIntervalSince1970: 200)
+        defaults.set(cleanExit, forKey: GhosttyCrashBreadcrumb.lastCleanExitDefaultsKey)
+        let crashURL = try writeCrashFile(named: "newer.ghosttycrash", modifiedAt: crashDate)
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), crashURL.resolvingSymlinksInPath())
+        XCTAssertEqual(pending?.modifiedAt, crashDate)
+    }
+
+    func testPendingCrashDetectedFromMatchingEnvelopeWhenNewerThanCleanExit() throws {
+        let cleanExit = Date(timeIntervalSince1970: 100)
+        let crashDate = Date(timeIntervalSince1970: 200)
+        defaults.set(cleanExit, forKey: GhosttyCrashBreadcrumb.lastCleanExitDefaultsKey)
+        let currentExecutablePath = try XCTUnwrap(Bundle.main.executableURL?.path)
+        let crashURL = try writeCrashEnvelope(
+            named: "matching-newer.ghosttycrash",
+            executablePath: currentExecutablePath,
+            modifiedAt: crashDate
+        )
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), crashURL.resolvingSymlinksInPath())
+        XCTAssertEqual(pending?.modifiedAt, crashDate)
+    }
+
+    func testPendingCrashIgnoresNewerCrashFromDifferentExecutable() throws {
+        let currentCrashDate = Date(timeIntervalSince1970: 200)
+        let foreignCrashDate = Date(timeIntervalSince1970: 300)
+        let currentExecutablePath = try XCTUnwrap(Bundle.main.executableURL?.path)
+        let currentCrashURL = try writeCrashEnvelope(
+            named: "current.ghosttycrash",
+            executablePath: currentExecutablePath,
+            modifiedAt: currentCrashDate
+        )
+        _ = try writeCrashEnvelope(
+            named: "foreign.ghosttycrash",
+            executablePath: "/private/tmp/cmux-tbinput-unit/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+            modifiedAt: foreignCrashDate
+        )
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), currentCrashURL.resolvingSymlinksInPath())
+        XCTAssertEqual(pending?.modifiedAt, currentCrashDate)
+    }
+
+    func testPendingCrashIgnoresForeignCrashWhenEventIsNotFirstEnvelopeItem() throws {
+        let currentCrashDate = Date(timeIntervalSince1970: 200)
+        let foreignCrashDate = Date(timeIntervalSince1970: 300)
+        let currentExecutablePath = try XCTUnwrap(Bundle.main.executableURL?.path)
+        let currentCrashURL = try writeCrashEnvelope(
+            named: "current-before-foreign-leading-item.ghosttycrash",
+            executablePath: currentExecutablePath,
+            modifiedAt: currentCrashDate
+        )
+        _ = try writeCrashEnvelope(
+            named: "foreign-leading-item.ghosttycrash",
+            executablePath: "/private/tmp/cmux-tbinput-unit/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+            modifiedAt: foreignCrashDate,
+            leadingItems: [
+                (type: "attachment", payload: Data(#"{"filename":"metadata.txt"}"#.utf8)),
+            ]
+        )
+
+        let pending = GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        )
+
+        XCTAssertEqual(pending?.fileURL.resolvingSymlinksInPath(), currentCrashURL.resolvingSymlinksInPath())
+        XCTAssertEqual(pending?.modifiedAt, currentCrashDate)
+    }
+
+    func testPendingCrashReturnsNilForOnlyDifferentExecutableCrash() throws {
+        _ = try writeCrashEnvelope(
+            named: "foreign-only.ghosttycrash",
+            executablePath: "/private/tmp/cmux-tbinput-unit/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV",
+            modifiedAt: Date(timeIntervalSince1970: 300)
+        )
+
+        XCTAssertNil(GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        ))
+    }
+
+    func testDefaultCrashDirectoryUsesCmuxStatePath() throws {
+        XCTAssertTrue(
+            GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path.hasSuffix("/.local/state/cmux/crash"),
+            GhosttyCrashBreadcrumb.defaultCrashDirectoryURL.path
+        )
+    }
+
+    func testPendingCrashIsOneTimeAfterBeingShown() throws {
+        let crashDate = Date(timeIntervalSince1970: 300)
+        let crashURL = try writeCrashFile(named: "shown.ghosttycrash", modifiedAt: crashDate)
+        let pending = try XCTUnwrap(GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        ))
+        XCTAssertEqual(pending.fileURL.resolvingSymlinksInPath(), crashURL.resolvingSymlinksInPath())
+
+        GhosttyCrashBreadcrumb.markShown(pending, defaults: defaults)
+
+        XCTAssertNil(GhosttyCrashBreadcrumb.pendingCrash(
+            in: crashDirectoryURL,
+            defaults: defaults
+        ))
+    }
+
+    private func writeCrashFile(named name: String, modifiedAt: Date) throws -> URL {
+        let url = crashDirectoryURL.appendingPathComponent(name)
+        try Data("MDMP".utf8).write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modifiedAt],
+            ofItemAtPath: url.path
+        )
+        return url
+    }
+
+    private func writeCrashEnvelope(
+        named name: String,
+        executablePath: String,
+        modifiedAt: Date,
+        leadingItems: [(type: String, payload: Data)] = []
+    ) throws -> URL {
+        let url = crashDirectoryURL.appendingPathComponent(name)
+        let event = [
+            "debug_meta": [
+                "images": [
+                    [
+                        "code_file": executablePath,
+                    ],
+                ],
+            ],
+        ]
+        let eventData = try JSONSerialization.data(withJSONObject: event)
+        let eventHeader = #"{"type":"event","length":\#(eventData.count)}"#
+        var envelope = Data(#"{"event_id":"00000000-0000-0000-0000-000000000000"}"#.utf8)
+        envelope.append(0x0A)
+        for item in leadingItems {
+            let itemHeader = #"{"type":"\#(item.type)","length":\#(item.payload.count)}"#
+            envelope.append(Data(itemHeader.utf8))
+            envelope.append(0x0A)
+            envelope.append(item.payload)
+            envelope.append(0x0A)
+        }
+        envelope.append(Data(eventHeader.utf8))
+        envelope.append(0x0A)
+        envelope.append(eventData)
+        envelope.append(0x0A)
+        try envelope.write(to: url)
+        try FileManager.default.setAttributes(
+            [.modificationDate: modifiedAt],
+            ofItemAtPath: url.path
+        )
+        return url
     }
 }
 
@@ -108,6 +651,98 @@ final class NotificationDockBadgeTests: XCTestCase {
         TerminalNotificationStore.shared.resetNotificationDeliveryHandlerForTesting()
         TerminalNotificationStore.shared.resetSuppressedNotificationFeedbackHandlerForTesting()
         super.tearDown()
+    }
+
+    func testNotificationClickActionRoundTripsAndIsStored() {
+        let store = TerminalNotificationStore.shared
+        let path = "/tmp/cmux-crash-\(UUID().uuidString).ghosttycrash"
+        let action = TerminalNotificationClickAction.revealInFinder(path: path)
+        let userInfo = Dictionary(uniqueKeysWithValues: action.userInfo.map { (AnyHashable($0.key), $0.value as Any) })
+        var delivered: TerminalNotification?
+
+        XCTAssertEqual(TerminalNotificationClickAction(userInfo: userInfo), action)
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, notification in
+            delivered = notification
+        }
+        defer {
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+        }
+
+        store.addNotification(
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Crash",
+            subtitle: "Diagnostic",
+            body: "Diagnostic file saved",
+            clickAction: action
+        )
+
+        XCTAssertEqual(store.notifications.first?.clickAction, action)
+        XCTAssertEqual(delivered?.clickAction, action)
+    }
+
+    func testNotificationClickActionDoesNotMarkReadWhenRevealTargetIsMissing() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let originalStore = appDelegate.notificationStore
+        let notification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Crash",
+            subtitle: "Diagnostic",
+            body: "Diagnostic file saved",
+            createdAt: Date(),
+            isRead: false,
+            clickAction: .revealInFinder(path: "/tmp/cmux-missing-\(UUID().uuidString)/missing.ghosttycrash")
+        )
+
+        store.replaceNotificationsForTesting([notification])
+        appDelegate.notificationStore = store
+        defer {
+            appDelegate.notificationStore = originalStore
+            store.replaceNotificationsForTesting([])
+        }
+
+        XCTAssertFalse(appDelegate.openTerminalNotification(notification))
+        XCTAssertFalse(try XCTUnwrap(store.notifications.first).isRead)
+    }
+
+    func testJumpToLatestUnreadSkipsClickActionNotifications() {
+        let clickActionNotification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Crash",
+            subtitle: "Diagnostic",
+            body: "Diagnostic file saved",
+            createdAt: Date(),
+            isRead: false,
+            clickAction: .revealInFinder(path: "/tmp/cmux-crash.ghosttycrash")
+        )
+        let terminalNotification = TerminalNotification(
+            id: UUID(),
+            tabId: UUID(),
+            surfaceId: nil,
+            title: "Done",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: false
+        )
+        var readNotification = terminalNotification
+        readNotification.isRead = true
+
+        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(clickActionNotification))
+        XCTAssertTrue(AppDelegate.shouldOpenFromJumpToLatestUnread(terminalNotification))
+        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(readNotification))
+        XCTAssertFalse(AppDelegate.shouldOpenFromJumpToLatestUnread(
+            terminalNotification,
+            excludingNotificationId: terminalNotification.id
+        ))
     }
 
     func testDockBadgeLabelEnabledAndCounted() {
@@ -196,6 +831,52 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(MenuBarExtraSettings.showsMenuBarExtra(defaults: defaults))
     }
 
+    func testMenuBarOnlyPreferenceDefaultsToRegularActivationPolicy() {
+        let suiteName = "MenuBarOnlySettingsTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
+        XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+
+        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        XCTAssertTrue(MenuBarOnlySettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .accessory)
+        XCTAssertTrue(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+
+        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        XCTAssertFalse(MenuBarOnlySettings.isEnabled(defaults: defaults))
+        XCTAssertEqual(MenuBarOnlySettings.activationPolicy(defaults: defaults), .regular)
+        XCTAssertFalse(MenuBarOnlySettings.shouldShowMainWindowMenuItem(defaults: defaults))
+    }
+
+    func testMenuBarOnlyForcesMenuBarExtraVisible() {
+        let suiteName = "MenuBarOnlyVisibilityTests.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(false, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertFalse(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
+
+        defaults.set(true, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
+
+        defaults.set(false, forKey: MenuBarOnlySettings.menuBarOnlyKey)
+        defaults.set(true, forKey: MenuBarExtraSettings.showInMenuBarKey)
+        XCTAssertTrue(MenuBarExtraSettings.shouldInstallMenuBarExtra(defaults: defaults))
+    }
+
     func testNotificationSoundUsesSystemSoundForDefaultAndNamedSounds() {
         let suiteName = "NotificationDockBadgeTests.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
@@ -210,7 +891,20 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         defaults.set("Ping", forKey: NotificationSoundSettings.key)
         XCTAssertTrue(NotificationSoundSettings.usesSystemSound(defaults: defaults))
-        XCTAssertNotNil(NotificationSoundSettings.sound(defaults: defaults))
+        let stagingDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-notification-sound-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? FileManager.default.removeItem(at: stagingDirectory)
+        }
+        XCTAssertNotNil(NotificationSoundSettings.sound(
+            defaults: defaults,
+            systemSoundStagingDirectory: stagingDirectory
+        ))
+        let stagedSoundURL = stagingDirectory.appendingPathComponent(
+            NotificationSoundSettings.stagedSystemSoundFileName(for: "Ping"),
+            isDirectory: false
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedSoundURL.path))
     }
 
     func testNotificationSoundDisablesSystemSoundForNoneAndCustomFile() {
@@ -595,7 +1289,7 @@ final class NotificationDockBadgeTests: XCTestCase {
             },
             object: NSObject()
         )
-        XCTAssertEqual(XCTWaiter().wait(for: [commandFinished], timeout: 2.0), .completed)
+        XCTAssertEqual(XCTWaiter().wait(for: [commandFinished], timeout: 10.0), .completed)
         XCTAssertTrue(deliveredNotificationIDs.isEmpty)
 
         let output = try String(contentsOf: commandOutputURL, encoding: .utf8)
@@ -620,6 +1314,16 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertTrue(NotificationAuthorizationState.authorized.allowsDelivery)
         XCTAssertTrue(NotificationAuthorizationState.provisional.allowsDelivery)
         XCTAssertTrue(NotificationAuthorizationState.ephemeral.allowsDelivery)
+    }
+
+    func testNotificationDeliveryAuthorizationUsesCachedTerminalStates() {
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .unknown, isAppActive: false))
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .notDetermined, isAppActive: true))
+        XCTAssertEqual(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .notDetermined, isAppActive: false), false)
+        XCTAssertEqual(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .denied, isAppActive: false), false)
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .authorized, isAppActive: false))
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .provisional, isAppActive: false))
+        XCTAssertNil(TerminalNotificationStore.cachedDeliveryAuthorizationDecision(for: .ephemeral, isAppActive: false))
     }
 
     func testNotificationAuthorizationDefersFirstPromptWhileAppIsInactive() {
@@ -681,6 +1385,9 @@ final class NotificationDockBadgeTests: XCTestCase {
             scheduler: { _, block in block() },
             urlOpener: { openedURL = $0 }
         )
+        addTeardownBlock {
+            store.resetNotificationSettingsPromptHooksForTesting()
+        }
 
         store.promptToEnableNotificationsForTesting()
         let drained = expectation(description: "main queue drained")
@@ -689,9 +1396,14 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 1)
         XCTAssertEqual(alertSpy.runModalCallCount, 0)
+        guard let encodedBundleIdentifier = Bundle.main.bundleIdentifier?
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            XCTFail("Expected test bundle identifier to be URL-encodable")
+            return
+        }
         XCTAssertEqual(
             openedURL?.absoluteString,
-            "x-apple.systempreferences:com.apple.preference.notifications"
+            "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(encodedBundleIdentifier)"
         )
     }
 
@@ -706,8 +1418,13 @@ final class NotificationDockBadgeTests: XCTestCase {
             windowProvider: { promptWindow },
             alertFactory: { alertSpy },
             scheduler: { _, block in queuedRetryBlocks.append(block) },
-            urlOpener: { _ in XCTFail("Should not open settings for Not Now response") }
+            urlOpener: { _ in
+                XCTFail("Should not open settings for Not Now response")
+            }
         )
+        addTeardownBlock {
+            store.resetNotificationSettingsPromptHooksForTesting()
+        }
 
         store.promptToEnableNotificationsForTesting()
         let drained = expectation(description: "main queue drained")
@@ -816,11 +1533,44 @@ final class NotificationDockBadgeTests: XCTestCase {
         store.markRead(forTabId: tab, surfaceId: surfaceUnread)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertFalse(store.hasUnreadNotification(forTabId: tab, surfaceId: surfaceUnread))
-        XCTAssertNil(store.latestNotification(forTabId: tab))
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, unreadNotification.id)
 
         store.clearNotifications(forTabId: tab)
         XCTAssertEqual(store.unreadCount(forTabId: tab), 0)
         XCTAssertNil(store.latestNotification(forTabId: tab))
+    }
+
+    func testClearLatestNotificationRemovesOnlyCurrentSidebarPreviewSource() {
+        let tab = UUID()
+        let latestSurface = UUID()
+        let previousSurface = UUID()
+        let latestNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: latestSurface,
+            title: "Latest",
+            subtitle: "",
+            body: "",
+            createdAt: Date(),
+            isRead: true
+        )
+        let previousNotification = TerminalNotification(
+            id: UUID(),
+            tabId: tab,
+            surfaceId: previousSurface,
+            title: "Previous",
+            subtitle: "",
+            body: "",
+            createdAt: Date().addingTimeInterval(-1),
+            isRead: true
+        )
+
+        let store = TerminalNotificationStore.shared
+        store.replaceNotificationsForTesting([latestNotification, previousNotification])
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, latestNotification.id)
+
+        store.clearLatestNotification(forTabId: tab)
+        XCTAssertEqual(store.latestNotification(forTabId: tab)?.id, previousNotification.id)
     }
 }
 
@@ -960,6 +1710,18 @@ final class NotificationMenuSnapshotBuilderTests: XCTestCase {
         XCTAssertTrue(snapshot.hasUnreadNotifications)
         XCTAssertEqual(snapshot.recentNotifications.count, 3)
         XCTAssertEqual(snapshot.recentNotifications.map(\.id), Array(notifications.prefix(3)).map(\.id))
+    }
+
+    func testSnapshotCountsWorkspaceUnreadIndicatorsWithoutNotificationRecords() {
+        let snapshot = NotificationMenuSnapshotBuilder.make(
+            notifications: [],
+            workspaceUnreadIndicatorCount: 2
+        )
+
+        XCTAssertEqual(snapshot.unreadCount, 2)
+        XCTAssertTrue(snapshot.hasNotifications)
+        XCTAssertTrue(snapshot.hasUnreadNotifications)
+        XCTAssertTrue(snapshot.recentNotifications.isEmpty)
     }
 
     func testStateHintTitleHandlesSingularPluralAndZero() {

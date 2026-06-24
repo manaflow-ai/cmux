@@ -28,9 +28,17 @@ const defaults: DevValues = {
   featuresPt: 12,
   featuresPb: 15,
   communityGap: 16,
-  faqPt: 0,
+  faqPt: 32,
   docsPt: 8,
 };
+
+function initialPanelPosition() {
+  if (typeof window === "undefined") {
+    return { x: 0, y: 0 };
+  }
+
+  return { x: window.innerWidth - 340, y: window.innerHeight - 320 };
+}
 
 // Tiny external store (avoids setState-during-render)
 let snapshot = { ...defaults };
@@ -95,15 +103,11 @@ function applyToDOM(v: DevValues) {
 
 export function DevPanel() {
   const [visible, setVisible] = useState(false);
-  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const [pos, setPos] = useState(initialPanelPosition);
   const [dragging, setDragging] = useState(false);
   const [copied, setCopied] = useState(false);
   const vals = useDevValues();
   const dragOffset = useRef({ x: 0, y: 0 });
-
-  useEffect(() => {
-    setPos({ x: window.innerWidth - 340, y: window.innerHeight - 320 });
-  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

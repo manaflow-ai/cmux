@@ -1,6 +1,9 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { CodeBlock } from "../../../components/code-block";
+import { DocsHeading } from "../../../components/docs-heading";
+import { buildAlternates } from "../../../../../i18n/seo";
+import { DocsSchema } from "../../docs-schema";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
@@ -8,6 +11,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/docs/agent-integrations/claude-code-teams"),
   };
 }
 
@@ -16,7 +20,8 @@ export default function ClaudeCodeTeamsPage() {
 
   return (
     <>
-      <h1>{t("title")}</h1>
+      <DocsSchema namespace="docs.claudeCodeTeams" path="/docs/agent-integrations/claude-code-teams" />
+      <DocsHeading level={1} id="title">{t("title")}</DocsHeading>
 
       <p>{t("intro")}</p>
 
@@ -31,13 +36,13 @@ export default function ClaudeCodeTeamsPage() {
         className="my-6 rounded-lg w-full h-auto"
       />
 
-      <h2>{t("usage")}</h2>
+      <DocsHeading level={2} id="usage">{t("usage")}</DocsHeading>
       <CodeBlock lang="bash">{`cmux claude-teams
 cmux claude-teams --continue
 cmux claude-teams --model sonnet`}</CodeBlock>
       <p>{t("usageDesc")}</p>
 
-      <h2>{t("howItWorks")}</h2>
+      <DocsHeading level={2} id="how-it-works">{t("howItWorks")}</DocsHeading>
       <p>{t("howItWorksDesc")}</p>
       <ul>
         <li>{t("shimStep1")}</li>
@@ -46,7 +51,7 @@ cmux claude-teams --model sonnet`}</CodeBlock>
         <li>{t("shimStep4")}</li>
       </ul>
 
-      <h2>{t("envVars")}</h2>
+      <DocsHeading level={2} id="env-vars">{t("envVars")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -62,7 +67,7 @@ cmux claude-teams --model sonnet`}</CodeBlock>
         </tbody>
       </table>
 
-      <h2>{t("directories")}</h2>
+      <DocsHeading level={2} id="directories">{t("directories")}</DocsHeading>
       <table>
         <thead>
           <tr>
@@ -76,7 +81,7 @@ cmux claude-teams --model sonnet`}</CodeBlock>
         </tbody>
       </table>
 
-      <h2>{t("tmuxCommands")}</h2>
+      <DocsHeading level={2} id="tmux-commands">{t("tmuxCommands")}</DocsHeading>
       <p>{t("tmuxCommandsDesc")}</p>
       <ul>
         <li><code>new-session</code>, <code>new-window</code> &rarr; {t("mapWorkspace")}</li>

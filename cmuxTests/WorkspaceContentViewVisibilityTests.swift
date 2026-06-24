@@ -9,27 +9,25 @@ import Bonsplit
 #endif
 
 final class WorkspaceContentViewVisibilityTests: XCTestCase {
-    func testBackgroundPrimedWorkspaceStaysMountedButNotPanelVisible() {
+    func testNonSelectedNonRetiringWorkspaceIsFullyHidden() {
         XCTAssertEqual(
-            MountedWorkspacePresentationPolicy.resolve(
+            MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
-                isRetiringWorkspace: false,
-                shouldPrimeInBackground: true
+                isRetiringWorkspace: false
             ),
             MountedWorkspacePresentation(
                 isRenderedVisible: false,
                 isPanelVisible: false,
-                renderOpacity: 0.001
+                renderOpacity: 0
             )
         )
     }
 
     func testRetiringWorkspaceStaysPanelVisibleDuringHandoff() {
         XCTAssertEqual(
-            MountedWorkspacePresentationPolicy.resolve(
+            MountedWorkspacePresentation.resolve(
                 isSelectedWorkspace: false,
-                isRetiringWorkspace: true,
-                shouldPrimeInBackground: false
+                isRetiringWorkspace: true
             ),
             MountedWorkspacePresentation(
                 isRenderedVisible: true,
@@ -100,7 +98,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
                 layoutSnapshot: snapshot,
                 paneId: paneID
             ),
-            CGRect(x: 677.5, y: 30, width: 500, height: 290)
+            CGRect(x: 677.5, y: 28, width: 500, height: 292)
         )
     }
 
@@ -155,7 +153,7 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
                 notificationStore: store,
                 layoutSnapshot: snapshot
             ),
-            [CGRect(x: 677.5, y: 30, width: 500, height: 290)]
+            [CGRect(x: 677.5, y: 28, width: 500, height: 292)]
         )
     }
 }

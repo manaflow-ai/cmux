@@ -1,6 +1,7 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
 import { buildAlternates } from "../../../../i18n/seo";
+import { BlogSchema } from "../blog-schema";
 import { Link } from "../../../../i18n/navigation";
 
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
@@ -34,6 +35,7 @@ export default function ZenOfCmuxPage() {
 
   return (
     <>
+      <BlogSchema postKey="zenOfCmux" path="/blog/zen-of-cmux" datePublished="2026-02-27T00:00:00Z" />
       <div className="mb-8">
         <Link
           href="/blog"

@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import { z } from "zod";
 
 import { env } from "@/app/env";
+import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +27,7 @@ const allowedImageTypes = new Set([
 const feedbackSchema = z.object({
   email: z.string().trim().email().max(320),
   message: z.string().trim().min(1).max(4000),
+  buildType: z.string().trim().max(20).optional().default(""),
   appVersion: z.string().trim().max(120).optional().default(""),
   appBuild: z.string().trim().max(120).optional().default(""),
   appCommit: z.string().trim().max(120).optional().default(""),
@@ -46,129 +48,153 @@ type PreparedAttachment = {
   size: number;
 };
 
+type PrepareAttachmentsResult =
+  | { attachments: PreparedAttachment[] }
+  | { errorResponse: Response };
+
 export async function POST(request: Request) {
-  const feedbackConfig = resolveFeedbackConfig();
-  if (!feedbackConfig) {
-    return jsonError("Feedback endpoint is not configured", 503);
-  }
+  return withApiRouteSpan(
+    request,
+    "/api/feedback",
+    { "cmux.subsystem": "feedback", "cmux.feedback.operation": "send" },
+    async (span): Promise<Response> => {
+      const feedbackConfig = resolveFeedbackConfig();
+      if (!feedbackConfig) {
+        return jsonError("Feedback endpoint is not configured", 503);
+      }
 
-  if (process.env.VERCEL === "1") {
-    const { error, rateLimited } = await checkRateLimit(
-      feedbackConfig.rateLimitId,
-      { request },
-    );
+      if (process.env.VERCEL === "1") {
+        const { error, rateLimited } = await checkRateLimit(
+          feedbackConfig.rateLimitId,
+          { request },
+        );
 
-    if (rateLimited || error === "blocked") {
-      return jsonError("Rate limit exceeded", 429);
-    }
+        setSpanAttributes(span, { "cmux.rate_limited": rateLimited || error === "blocked" });
+        if (rateLimited || error === "blocked") {
+          return jsonError("Rate limit exceeded", 429);
+        }
 
-    if (error === "not-found") {
-      console.error(
-        "feedback.route.rate_limit_not_found",
-        feedbackConfig.rateLimitId,
+        if (error === "not-found") {
+          console.error(
+            "feedback.route.rate_limit_not_found",
+            feedbackConfig.rateLimitId,
+          );
+        } else if (error) {
+          console.error("feedback.route.rate_limit_error", error);
+        }
+      }
+
+      let formData: FormData;
+      try {
+        formData = await request.formData();
+      } catch {
+        return jsonError("Invalid multipart payload", 400);
+      }
+
+      const parsed = feedbackSchema.safeParse({
+        email: getString(formData, "email"),
+        message: getString(formData, "message"),
+        buildType: getString(formData, "buildType"),
+        appVersion: getString(formData, "appVersion"),
+        appBuild: getString(formData, "appBuild"),
+        appCommit: getString(formData, "appCommit"),
+        bundleIdentifier: getString(formData, "bundleIdentifier"),
+        osVersion: getString(formData, "osVersion"),
+        locale: getString(formData, "locale"),
+        hardwareModel: getString(formData, "hardwareModel"),
+        chip: getString(formData, "chip"),
+        memoryGB: getString(formData, "memoryGB"),
+        architecture: getString(formData, "architecture"),
+        displayInfo: getString(formData, "displayInfo"),
+      });
+
+      if (!parsed.success) {
+        return jsonError("Invalid feedback payload", 400);
+      }
+      setSpanAttributes(span, {
+        "cmux.feedback.message_length": parsed.data.message.length,
+        "cmux.feedback.app_version_set": parsed.data.appVersion.length > 0,
+      });
+
+      const attachmentsResult = await prepareAttachments(
+        formData.getAll("attachments"),
       );
-    } else if (error) {
-      console.error("feedback.route.rate_limit_error", error);
-    }
-  }
+      if ("errorResponse" in attachmentsResult) {
+        return attachmentsResult.errorResponse;
+      }
 
-  let formData: FormData;
-  try {
-    formData = await request.formData();
-  } catch {
-    return jsonError("Invalid multipart payload", 400);
-  }
+      const {
+        appBuild, appCommit, appVersion, architecture, buildType, bundleIdentifier,
+        chip, displayInfo, email, hardwareModel, locale, memoryGB, message, osVersion,
+      } = parsed.data;
+      const subject = buildSubject(email, message, appVersion, buildType);
+      const attachments = attachmentsResult.attachments;
+      setSpanAttributes(span, {
+        "cmux.feedback.attachment_count": attachments.length,
+        "cmux.feedback.attachment_bytes": attachments.reduce((sum, attachment) => sum + attachment.size, 0),
+      });
+      const resend = new Resend(feedbackConfig.resendApiKey);
 
-  const parsed = feedbackSchema.safeParse({
-    email: getString(formData, "email"),
-    message: getString(formData, "message"),
-    appVersion: getString(formData, "appVersion"),
-    appBuild: getString(formData, "appBuild"),
-    appCommit: getString(formData, "appCommit"),
-    bundleIdentifier: getString(formData, "bundleIdentifier"),
-    osVersion: getString(formData, "osVersion"),
-    locale: getString(formData, "locale"),
-    hardwareModel: getString(formData, "hardwareModel"),
-    chip: getString(formData, "chip"),
-    memoryGB: getString(formData, "memoryGB"),
-    architecture: getString(formData, "architecture"),
-    displayInfo: getString(formData, "displayInfo"),
-  });
+      const { error } = await resend.emails.send({
+        from: `Manaflow <${feedbackConfig.fromEmail}>`,
+        to: [feedbackRecipient],
+        replyTo: email,
+        subject,
+        text: buildTextBody({
+          email,
+          message,
+          buildType,
+          appVersion,
+          appBuild,
+          appCommit,
+          bundleIdentifier,
+          osVersion,
+          locale,
+          hardwareModel,
+          chip,
+          memoryGB,
+          architecture,
+          displayInfo,
+          attachments,
+        }),
+        html: buildHtmlBody({
+          email,
+          message,
+          buildType,
+          appVersion,
+          appBuild,
+          appCommit,
+          bundleIdentifier,
+          osVersion,
+          locale,
+          hardwareModel,
+          chip,
+          memoryGB,
+          architecture,
+          displayInfo,
+          attachments,
+        }),
+        attachments: attachments.map((attachment) => ({
+          content: attachment.content,
+          contentType: attachment.contentType,
+          filename: attachment.filename,
+        })),
+      });
 
-  if (!parsed.success) {
-    return jsonError("Invalid feedback payload", 400);
-  }
+      if (error) {
+        recordSpanError(span, error);
+        console.error("feedback.route.resend_failed", error);
+        return jsonError("Failed to send feedback", 502);
+      }
 
-  const attachmentsResult = await prepareAttachments(
-    formData.getAll("attachments"),
-  );
-  if ("errorResponse" in attachmentsResult) {
-    return attachmentsResult.errorResponse;
-  }
-
-  const {
-    appBuild, appCommit, appVersion, architecture, bundleIdentifier, chip,
-    displayInfo, email, hardwareModel, locale, memoryGB, message, osVersion,
-  } = parsed.data;
-  const subject = buildSubject(email, message, appVersion);
-  const attachments = attachmentsResult.attachments;
-  const resend = new Resend(feedbackConfig.resendApiKey);
-
-  const { error } = await resend.emails.send({
-    from: `Manaflow <${feedbackConfig.fromEmail}>`,
-    to: [feedbackRecipient],
-    replyTo: email,
-    subject,
-    text: buildTextBody({
-      email,
-      message,
-      appVersion,
-      appBuild,
-      appCommit,
-      bundleIdentifier,
-      osVersion,
-      locale,
-      hardwareModel,
-      chip,
-      memoryGB,
-      architecture,
-      displayInfo,
-      attachments,
-    }),
-    html: buildHtmlBody({
-      email,
-      message,
-      appVersion,
-      appBuild,
-      appCommit,
-      bundleIdentifier,
-      osVersion,
-      locale,
-      hardwareModel,
-      chip,
-      memoryGB,
-      architecture,
-      displayInfo,
-      attachments,
-    }),
-    attachments: attachments.map((attachment) => ({
-      content: attachment.content,
-      contentType: attachment.contentType,
-      filename: attachment.filename,
-    })),
-  });
-
-  if (error) {
-    console.error("feedback.route.resend_failed", error);
-    return jsonError("Failed to send feedback", 502);
-  }
-
-  return NextResponse.json(
-    { ok: true },
-    {
-      headers: {
-        "Cache-Control": "no-store",
-      },
+      return NextResponse.json(
+        { ok: true },
+        {
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
     },
   );
 }
@@ -194,7 +220,7 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function prepareAttachments(values: FormDataEntryValue[]) {
+async function prepareAttachments(values: FormDataEntryValue[]): Promise<PrepareAttachmentsResult> {
   const files = values.filter(
     (value): value is File => value instanceof File && value.name.length > 0,
   );
@@ -239,7 +265,12 @@ async function prepareAttachments(values: FormDataEntryValue[]) {
   return { attachments };
 }
 
-function buildSubject(email: string, message: string, appVersion: string) {
+function buildSubject(
+  email: string,
+  message: string,
+  appVersion: string,
+  buildType: string,
+) {
   const firstNonEmptyLine =
     message
       .split(/\r?\n/)
@@ -249,14 +280,21 @@ function buildSubject(email: string, message: string, appVersion: string) {
     firstNonEmptyLine.length > 72
       ? `${firstNonEmptyLine.slice(0, 69)}...`
       : firstNonEmptyLine;
-  const versionSuffix = appVersion ? ` (v${appVersion})` : "";
+  // Stamp the build channel and version into the subject so every report is
+  // self-identifying at a glance, e.g. "[beta v0.64.13]".
+  const stampParts = [
+    buildType ? buildType.toLowerCase() : "",
+    appVersion ? `v${appVersion}` : "",
+  ].filter(Boolean);
+  const stamp = stampParts.length > 0 ? ` [${stampParts.join(" ")}]` : "";
 
-  return `cmux feedback from ${email}${versionSuffix}: ${summary}`;
+  return `cmux feedback from ${email}${stamp}: ${summary}`;
 }
 
 function buildTextBody(input: {
   email: string;
   message: string;
+  buildType: string;
   appVersion: string;
   appBuild: string;
   appCommit: string;
@@ -283,6 +321,7 @@ function buildTextBody(input: {
 
   return [
     `From: ${input.email}`,
+    `Build type: ${input.buildType || "unknown"}`,
     `App version: ${input.appVersion || "unknown"}`,
     `App build: ${input.appBuild || "unknown"}`,
     `App commit: ${input.appCommit || "unknown"}`,
@@ -304,6 +343,7 @@ function buildTextBody(input: {
 function buildHtmlBody(input: {
   email: string;
   message: string;
+  buildType: string;
   appVersion: string;
   appBuild: string;
   appCommit: string;
@@ -333,6 +373,7 @@ function buildHtmlBody(input: {
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;line-height:1.5">
       <h1 style="font-size:18px;margin:0 0 16px">cmux feedback</h1>
       <p><strong>From:</strong> ${escapeHtml(input.email)}</p>
+      <p><strong>Build type:</strong> ${escapeHtml(input.buildType || "unknown")}</p>
       <p><strong>App version:</strong> ${escapeHtml(input.appVersion || "unknown")}</p>
       <p><strong>App build:</strong> ${escapeHtml(input.appBuild || "unknown")}</p>
       <p><strong>App commit:</strong> ${escapeHtml(input.appCommit || "unknown")}</p>
