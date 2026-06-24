@@ -1590,13 +1590,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope) else { break }
-            let refreshedMac = await refreshedMacForReconnect(mac, scope: scope)
+            let reconnectMac = reachableRoute(mac) == nil
+                ? await refreshedMacForReconnect(mac, scope: scope)
+                : mac
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope),
-                  let (host, port) = reachableRoute(refreshedMac) else { continue }
+                  let (host, port) = reachableRoute(reconnectMac) else { continue }
             await connectStoredMacHost(
-                name: refreshedMac.displayName ?? host, host: host, port: port,
-                pairedMacDeviceID: refreshedMac.macDeviceID)
+                name: reconnectMac.displayName ?? host, host: host, port: port,
+                pairedMacDeviceID: reconnectMac.macDeviceID)
             if connectionState == .connected { break }
         }
         restoringDeadline.cancel()
