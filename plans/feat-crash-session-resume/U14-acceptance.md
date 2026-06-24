@@ -92,8 +92,11 @@ own; the live loop is where they get fixed and verified:
      parsed from the binding) so `bindingFacts` does not pass a command string
      where an id is expected. `coordinator.bindingFacts` currently maps
      `resumeSessionToken → sessionId`; the override must correct this.
-   - **Transcript-existence helpers are `private` in `RestorableAgentSession`**
-     (`claudeTranscriptExists`, `ClaudeTranscriptLookupCache`). Expose a small
-     internal entry point (or reuse `encodeClaudeProjectDir`, which is internal)
-     to answer "transcript at this cwd's project dir?" vs "in any project?"
-     rather than replicating the config-root logic.
+   - **Consume #6741's shared verified-cwd type, do NOT hand-roll the FS check.**
+     After #6741 lands, compute `transcriptExistsAtWindowCwd` /
+     `transcriptExistsElsewhere` via `ClaudeResumeWorkingDirectory.verifiedWorkingDirectory(...)`
+     + `ClaudeProjectDirEncoding` in `CMUXAgentLaunch` (it matches a candidate cwd
+     to the transcript's project-dir encoding — exactly the gate's
+     transcript-at-cwd question). This replaces the earlier idea of exposing the
+     `private` `claudeTranscriptExists` / `ClaudeTranscriptLookupCache` in
+     `RestorableAgentSession`. See PIVOT-complement-6741-6631.md.
