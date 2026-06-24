@@ -1590,13 +1590,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         for mac in candidates {
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope) else { break }
-            let reconnectMac = Self.shouldRefreshReconnectRoutesBeforeDial(
+            let needsForegroundRefresh = Self.shouldRefreshReconnectRoutesBeforeDial(
                 local: mac.routes,
                 supportedKinds: supportedKinds,
                 preferNonLoopback: Self.prefersNonLoopbackRoutes
             )
-                ? await refreshedMacForReconnect(mac, scope: scope)
-                : mac
+            let reconnectMac: MobilePairedMac
+            if needsForegroundRefresh {
+                reconnectMac = await refreshedMacForReconnect(mac, scope: scope)
+            } else {
+                reconnectMac = mac
+                Task { [weak self] in _ = await self?.refreshedMacForReconnect(mac, scope: scope) }
+            }
             guard generation == storedMacReconnectGeneration,
                   await isScopeCurrent(scope),
                   let (host, port) = reachableRoute(reconnectMac) else { continue }
