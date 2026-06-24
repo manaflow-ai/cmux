@@ -541,6 +541,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Durable outbox for phone→Mac dismissals.
     let pendingDismissQueue: PendingNotificationDismissQueue
     private let pairingHintDefaults: UserDefaults
+    private static let multiMacAggregationDefaultsKey = "multiMacAggregation"
+
     private let multiMacAggregationDefaults: UserDefaults
     let clientID: String
     /// Delivers the email path of Send Feedback (`/api/feedback`). `nil` when the
@@ -3343,23 +3345,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         secondaryMacSubscriptions.removeAll()
     }
 
-    /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
-    /// then UserDefaults, then DEBUG on / Release off — so the aggregation (still
-    /// being hardened) ships dark in Release and the single-Mac list is the exact
-    /// prior behavior unless explicitly turned on.
-    private var multiMacAggregationEnabled: Bool {
-        if let raw = ProcessInfo.processInfo.environment["CMUX_MULTI_MAC_AGGREGATION"]?
+    /// Resolve whether the multi-Mac aggregated workspace list is enabled.
+    ///
+    /// The product default is on: every paired Mac should contribute workspaces
+    /// simultaneously. The env/defaults overrides remain as an emergency opt-out.
+    static func resolveMultiMacAggregationEnabled(
+        environment: [String: String],
+        defaults: UserDefaults
+    ) -> Bool {
+        if let raw = environment["CMUX_MULTI_MAC_AGGREGATION"]?
             .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty {
             return ["1", "true", "yes", "on"].contains(raw.lowercased())
         }
-        if multiMacAggregationDefaults.object(forKey: "multiMacAggregation") != nil {
-            return multiMacAggregationDefaults.bool(forKey: "multiMacAggregation")
+        if defaults.object(forKey: Self.multiMacAggregationDefaultsKey) != nil {
+            return defaults.bool(forKey: Self.multiMacAggregationDefaultsKey)
         }
-        #if DEBUG
         return true
-        #else
-        return false
-        #endif
+    }
+
+    /// Whether the multi-Mac aggregated workspace list is enabled. Env override,
+    /// then UserDefaults, then product default on.
+    private var multiMacAggregationEnabled: Bool {
+        Self.resolveMultiMacAggregationEnabled(
+            environment: ProcessInfo.processInfo.environment,
+            defaults: multiMacAggregationDefaults
+        )
     }
 
     /// Sentinel key for the foreground Mac when its attach ticket carries no
