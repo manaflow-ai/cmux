@@ -1,10 +1,12 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileIrohTransport
 import CmuxSettings
 import CryptoKit
 import Foundation
 @preconcurrency import Network
 import OSLog
+import Security
 import StackAuth
 import os
 
@@ -375,6 +377,19 @@ final class MobileHostService {
     private var listenerGeneration = UUID()
     private var listenerUsesEphemeralFallback = false
     private var listenerPort: Int?
+    /// The iroh accept lane (plans/feat-ios-iroh/DESIGN.md PR 4), bound only when
+    /// `isIrohHostEnabled` is on. `irohRoute` is the dial-by-EndpointId route the
+    /// listener publishes, merged into the host's route set by `resolvedRoutes`.
+    private var irohListener: CmxIrohByteListener?
+    private var irohAcceptTask: Task<Void, Never>?
+    private var irohRoute: CmxAttachRoute?
+    /// The transport mode the running lanes were bound for. Lets
+    /// ``syncToSettings()`` detect a mode switch (which needs a full restart to
+    /// swap lanes) vs an in-mode tweak. `nil` while stopped.
+    private var appliedTransportMode: MobileTransportMode?
+    /// The custom relay URL the iroh lane was bound with (ownRelay only), so a
+    /// relay-URL change is detected as needing a restart. `nil` while stopped.
+    private var appliedIrohRelayURL: String?
     /// The preferred port the active start-sequence targeted (regardless of an
     /// ephemeral fallback). Used to decide whether a settings change needs a
     /// restart. `nil` while stopped.
@@ -461,13 +476,23 @@ final class MobileHostService {
         MobileHostEventSubscriptionTracker.hasSubscribers(topic: topic)
     }
 
-    /// User-default key for the opt-in Mac-side iOS pairing listener.
-    nonisolated static let listeningEnabledDefaultsKey = SettingCatalog().mobile.iOSPairingHost.userDefaultsKey
+    /// User-default key for the chosen mobile transport mode.
+    nonisolated static let transportModeDefaultsKey = SettingCatalog().mobile.iOSTransportMode.userDefaultsKey
 
-    /// Whether the mobile pairing host should bind a network listener at all.
-    ///
-    /// Defaults off in every build so macOS does not ask for Local Network
-    /// permission until the user enables iOS pairing in Settings.
+    /// The Mac's current mobile transport mode. The user picks this during
+    /// pairing/onboarding; it decides which single lane the host binds and
+    /// publishes (strict single choice, never a mix).
+    nonisolated static func currentTransportMode(defaults: UserDefaults = .standard) -> MobileTransportMode {
+        let key = SettingCatalog().mobile.iOSTransportMode
+        if let raw = defaults.string(forKey: key.userDefaultsKey),
+           let mode = MobileTransportMode(rawValue: raw) {
+            return mode
+        }
+        return key.defaultValue
+    }
+
+    /// Whether the TCP/Tailscale pairing listener should bind. True only in
+    /// `.tailscale` mode; the iroh modes use ``isIrohHostEnabled`` instead.
     nonisolated static var isListeningEnabled: Bool {
         isListeningEnabled(defaults: .standard)
     }
@@ -485,10 +510,24 @@ final class MobileHostService {
     #endif
 
     nonisolated static func isListeningEnabled(defaults: UserDefaults) -> Bool {
-        if let override = defaults.object(forKey: listeningEnabledDefaultsKey) as? Bool {
-            return override
-        }
-        return SettingCatalog().mobile.iOSPairingHost.defaultValue
+        currentTransportMode(defaults: defaults) == .tailscale
+    }
+
+    /// Persists the default transport mode if none is set yet, so the host binds
+    /// a lane. The pairing window calls this when it opens; the in-window
+    /// transport picker overwrites it with the user's explicit choice.
+    nonisolated static func seedDefaultTransportModeIfUnset(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: transportModeDefaultsKey) == nil else { return }
+        defaults.set(
+            SettingCatalog().mobile.iOSTransportMode.defaultValue.rawValue,
+            forKey: transportModeDefaultsKey
+        )
+    }
+
+    /// Persists the user's transport-mode choice (from the pairing window or
+    /// Settings). The UserDefaults observer reconciles the running lanes.
+    nonisolated static func setTransportMode(_ mode: MobileTransportMode, defaults: UserDefaults = .standard) {
+        defaults.set(mode.rawValue, forKey: transportModeDefaultsKey)
     }
 
     /// User-default key for the preferred iOS pairing listener port.
@@ -713,33 +752,43 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
         startNetworkPathMonitorIfNeeded()
         drainReadinessWaiters()
     }
 
     func start() {
-        guard Self.isListeningEnabled else {
-            #if DEBUG
-            if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
-                publishRoutesWithoutListenerForXCTest()
-                return
-            }
-            #endif
-            mobileHostLog.info("mobile host listener disabled; not binding")
+        #if DEBUG
+        if Self.canPublishRoutesWithoutListenerForXCTest(defaults: .standard) {
+            publishRoutesWithoutListenerForXCTest()
             return
         }
-        guard listener == nil else {
+        #endif
+
+        let mode = Self.currentTransportMode(defaults: .standard)
+        appliedTransportMode = mode
+        appliedIrohRelayURL = Self.irohRelayURL(defaults: .standard)
+
+        // iroh lane (cmuxRelay / ownRelay) binds independently of the TCP lane;
+        // a strict single choice means only one of these runs at a time.
+        if mode.usesIroh {
+            startIrohListener()
             return
         }
 
+        // TCP/Tailscale lane.
+        guard listener == nil else {
+            return
+        }
         startListener(usePreferredPort: true)
     }
 
     #if DEBUG
     nonisolated private static func canPublishRoutesWithoutListenerForXCTest(defaults: UserDefaults) -> Bool {
         guard isRunningUnderXCTest else { return false }
-        return defaults.object(forKey: listeningEnabledDefaultsKey) == nil
+        // No explicit mode set: keep tests hermetic (publish routes without
+        // binding either lane). A test that sets a mode exercises the real lane.
+        return defaults.object(forKey: transportModeDefaultsKey) == nil
     }
 
     private func publishRoutesWithoutListenerForXCTest() {
@@ -750,7 +799,7 @@ final class MobileHostService {
         listenerPort = port
         appliedPreferredPort = port
         lastErrorDescription = nil
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
         mobileHostLog.info("mobile host listener disabled; publishing XCTest routes without binding")
     }
     #endif
@@ -811,6 +860,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        stopIrohListener()
         stopNetworkPathMonitor()
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
@@ -820,6 +870,8 @@ final class MobileHostService {
         listener = nil
         listenerPort = nil
         appliedPreferredPort = nil
+        appliedTransportMode = nil
+        appliedIrohRelayURL = nil
         for connection in activeConnections.values {
             Task { await connection.close(reason: "service stopped") }
         }
@@ -835,8 +887,7 @@ final class MobileHostService {
     }
 
     func statusSnapshot() -> MobileHostServiceStatus {
-        let routes = listenerPort.map { routeResolver.routes(port: $0).routes } ?? []
-        return makeStatus(routes: routes)
+        return makeStatus(routes: activeLaneRoutes())
     }
 
     /// Emits the current ``MobileHostServiceStatus`` immediately, then a fresh
@@ -889,21 +940,40 @@ final class MobileHostService {
     /// never hangs on a listener that never settles.
     func ensureListeningAndReady() async -> MobileHostServiceStatus {
         start()
+        // An iroh mode binds no TCP listener; readiness means the iroh route has
+        // been published (adoptIrohRoute drains the same waiters). The bind +
+        // relay handshake is async, so wait for it rather than the TCP listener.
+        if Self.currentTransportMode().usesIroh {
+            // Route already up, or the lane was skipped/failed so there is no
+            // listener to wait on (ownRelay without a URL, or a bind failure that
+            // cleared irohListener): return now instead of stalling to the
+            // timeout. Otherwise wait for adoptIrohRoute to drain the waiter.
+            if irohRoute != nil || irohListener == nil {
+                return statusSnapshot()
+            }
+            return await withCheckedContinuation { continuation in
+                readinessWaiters.append(continuation)
+                armReadinessTimeoutIfNeeded()
+            }
+        }
         if listener == nil || listenerPort != nil {
             return statusSnapshot()
         }
         return await withCheckedContinuation { continuation in
             readinessWaiters.append(continuation)
-            if readinessTimeoutTask == nil {
-                // Bounded, cancellable deadline: a local NWListener normally
-                // reaches `.ready` within milliseconds; this only guards a
-                // never-settling listener. Cancelled on the normal drain path.
-                readinessTimeoutTask = Task { @MainActor [weak self] in
-                    try? await ContinuousClock().sleep(for: .seconds(6))
-                    guard let self, !Task.isCancelled else { return }
-                    self.drainReadinessWaiters()
-                }
-            }
+            armReadinessTimeoutIfNeeded()
+        }
+    }
+
+    /// Arms the bounded, cancellable readiness deadline once. A local listener
+    /// (or iroh relay handshake) normally settles within milliseconds; this only
+    /// guards a never-settling bind. Cancelled on the normal drain path.
+    private func armReadinessTimeoutIfNeeded() {
+        guard readinessTimeoutTask == nil else { return }
+        readinessTimeoutTask = Task { @MainActor [weak self] in
+            try? await ContinuousClock().sleep(for: .seconds(6))
+            guard let self, !Task.isCancelled else { return }
+            self.drainReadinessWaiters()
         }
     }
 
@@ -922,14 +992,16 @@ final class MobileHostService {
     }
 
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
-        let isRunning = listener != nil && listenerPort != nil
+        // `isRunning` reflects whichever lane is active (iroh route published, or
+        // the TCP listener bound). The ephemeral-fallback flag is TCP-only.
+        let tcpRunning = listener != nil && listenerPort != nil
         return MobileHostServiceStatus(
-            isRunning: isRunning,
+            isRunning: isActiveLaneRunning,
             port: listenerPort,
             configuredPort: Self.configuredPort(),
             // The actual bind outcome, not a recomputation from current defaults:
             // editing the preferred port before a restart must not flip this.
-            usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
+            usesEphemeralFallback: tcpRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: lastErrorDescription
@@ -946,6 +1018,24 @@ final class MobileHostService {
     /// no caller-supplied store to honor here.
     func syncToSettings() {
         let defaults = UserDefaults.standard
+        let mode = Self.currentTransportMode(defaults: defaults)
+        let relay = Self.irohRelayURL(defaults: defaults)
+
+        // A mode switch (or a relay-URL change in ownRelay) swaps which single
+        // lane the host runs, so tear everything down and rebind from scratch.
+        if mode != appliedTransportMode || (mode == .ownRelay && relay != appliedIrohRelayURL) {
+            restart()
+            return
+        }
+
+        // Same mode. The iroh lane has no live-tunable knob, but recover it if a
+        // bind failure left it down (start() is idempotent when already bound).
+        guard mode == .tailscale else {
+            if mode.usesIroh, irohListener == nil {
+                start()
+            }
+            return
+        }
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via
@@ -954,7 +1044,7 @@ final class MobileHostService {
             ?? appliedPreferredPort
             ?? Self.configuredPort(defaults: defaults)
         switch Self.syncDecision(
-            enabled: Self.isListeningEnabled(defaults: defaults),
+            enabled: true,
             listenerRunning: listener != nil,
             desiredPort: desiredPort,
             appliedPort: appliedPreferredPort
@@ -1007,7 +1097,10 @@ final class MobileHostService {
             let id = UUID()
             let session = MobileHostConnection(
                 id: id,
-                connection: connection,
+                byteConnection: NWMobileHostByteConnection(
+                    connection: connection,
+                    callbackQueue: DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+                ),
                 authorizeRequest: { request in
                     if !Self.requiresAuthorization(method: request.method) {
                         return nil
@@ -1061,12 +1154,10 @@ final class MobileHostService {
         routeID: String? = nil,
         routeKind: String? = nil
     ) async throws -> [String: Any] {
-        let routes: [CmxAttachRoute]
-        if let listenerPort {
-            routes = routeResolver.routes(port: listenerPort).routes
-        } else {
-            routes = []
-        }
+        // The active lane's routes, which in an iroh mode is the published iroh
+        // route (no TCP listenerPort). Without this, cmuxRelay/ownRelay minted an
+        // empty route set and the phone had nothing to dial.
+        let routes = activeLaneRoutes()
         let selectedRoutes = try Self.filteredRoutes(
             routes,
             routeID: routeID,
@@ -1128,16 +1219,41 @@ final class MobileHostService {
         }
 
         let id = UUID()
+        registerConnection(
+            id: id,
+            transport: "tcp",
+            byteConnection: NWMobileHostByteConnection(
+                connection: connection,
+                callbackQueue: DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+            )
+        )
+    }
+
+    /// Builds, registers, and starts a ``MobileHostConnection`` over any byte
+    /// channel. The TCP accept path and the iroh accept loop share this so they
+    /// run the identical authorization, RPC dispatch, and close bookkeeping.
+    /// `transport` ("tcp" / "iroh") is logged so a dogfood can confirm which
+    /// lane a phone actually dialed in on.
+    private func registerConnection(
+        id: UUID,
+        transport: String,
+        byteConnection: any MobileHostByteConnection
+    ) {
+        mobileHostLog.info("mobile host accepted \(transport, privacy: .public) connection")
         let session = MobileHostConnection(
             id: id,
-            connection: connection,
+            byteConnection: byteConnection,
             authorizeRequest: { request in
-                await MobileHostService.shared.authorizationError(for: request)
+                if !Self.requiresAuthorization(method: request.method) {
+                    return nil
+                }
+                return await MobileHostService.shared.authorizationError(for: request)
             },
             onAuthorizedRequest: { request in
-                if let clientID = Self.clientID(from: request.params) {
-                    await MobileHostService.shared.recordClientID(clientID, for: id)
+                guard let clientID = Self.clientID(from: request.params) else {
+                    return
                 }
+                await MobileHostService.shared.recordClientID(clientID, for: id)
             },
             handleRequest: { request in
                 if request.method == "mobile.host.status" {
@@ -1151,11 +1267,215 @@ final class MobileHostService {
                 return result
             },
             onClose: { id in
+                MobileHostConnectionRegistry.shared.remove(id: id)
                 await MobileHostService.shared.removeConnection(id: id)
             }
         )
-        activeConnections[id] = session
+        // Register in the SAME registry as TCP connections so iroh sessions are
+        // counted in status, receive server-pushed event fanout, and are torn
+        // down on stop()/limit exactly like the TCP lane.
+        guard MobileHostConnectionRegistry.shared.insert(
+            session,
+            id: id,
+            limit: Self.maximumActiveConnectionCount
+        ) else {
+            mobileHostLog.error("mobile host rejected \(transport, privacy: .public) connection because active connection limit was reached")
+            byteConnection.close()
+            return
+        }
         Task { await session.start() }
+    }
+
+    // MARK: - iroh accept lane (plans/feat-ios-iroh/DESIGN.md PR 4)
+
+    /// Whether the iroh host accept lane is enabled, i.e. the chosen transport
+    /// mode is an iroh mode (`cmuxRelay` or `ownRelay`). When on, the Mac binds
+    /// an iroh endpoint and advertises a dial-by-EndpointId route.
+    nonisolated static func isIrohHostEnabled(defaults: UserDefaults = .standard) -> Bool {
+        currentTransportMode(defaults: defaults).usesIroh
+    }
+
+    /// The custom relay URL the iroh lane should home on. Non-nil only in
+    /// `.ownRelay` mode with a non-empty configured URL; `.cmuxRelay` returns nil
+    /// so the endpoint uses the default cmux/n0 relay fleet.
+    nonisolated static func irohRelayURL(defaults: UserDefaults = .standard) -> String? {
+        guard currentTransportMode(defaults: defaults) == .ownRelay else { return nil }
+        let url = defaults.string(forKey: SettingCatalog().mobile.iOSIrohRelayURL.userDefaultsKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (url?.isEmpty == false) ? url : nil
+    }
+
+    /// Binds the iroh endpoint and starts accepting, merging its route into the
+    /// published set. Idempotent; a no-op when disabled or already bound.
+    private func startIrohListener() {
+        guard Self.isIrohHostEnabled(), irohListener == nil else { return }
+        // ownRelay requires the user's relay URL. Without a valid one, don't bind
+        // against the default fleet (that would be silent cmuxRelay behavior the
+        // picker doesn't promise): leave the lane down so the pairing window
+        // surfaces "configure your relay URL" instead of a misleading code.
+        let relayURL = Self.irohRelayURL()
+        if Self.currentTransportMode() == .ownRelay, relayURL == nil {
+            mobileHostLog.error("iroh host: ownRelay selected but no valid relay URL configured; not binding")
+            return
+        }
+        // A persisted Keychain key gives the Mac a stable EndpointId across
+        // launches (the per-device identity client pinning relies on).
+        // enableRelay so off-LAN phones can dial; relayURL is set only in
+        // ownRelay mode (nil keeps the default cmux/n0 fleet).
+        let listener = CmxIrohByteListener(
+            secretKey: Self.loadOrCreateIrohSecretKey(),
+            enableRelay: true,
+            relayURL: relayURL
+        )
+        irohListener = listener
+        irohAcceptTask = Task { @MainActor [weak self] in
+            do {
+                try await listener.start()
+            } catch {
+                mobileHostLog.error("iroh host listener failed to bind: \(String(describing: error), privacy: .public)")
+                // Clear the wedged listener so a later start() can retry, and
+                // release any pairing-readiness waiter instead of stalling it for
+                // the full timeout.
+                self?.irohListener = nil
+                self?.drainReadinessWaiters()
+                return
+            }
+            if let json = await listener.routeJSON() {
+                mobileHostLog.info("iroh host listener ready; publishing dial-by-EndpointId route \(json, privacy: .public)")
+                self?.adoptIrohRoute(from: json)
+            } else {
+                mobileHostLog.error("iroh host listener bound but produced no route")
+            }
+            while !Task.isCancelled {
+                do {
+                    let stream = try await listener.accept(timeoutMilliseconds: 0)
+                    self?.acceptIrohStream(stream)
+                } catch {
+                    // The listener was closed (stop) or accept failed terminally.
+                    break
+                }
+            }
+        }
+    }
+
+    /// Decodes the listener's `CmxAttachRoute`-shaped route JSON and republishes
+    /// the status so the iroh route reaches tickets, the registry, and QR.
+    private func adoptIrohRoute(from routeJSON: String) {
+        guard let data = routeJSON.data(using: .utf8),
+              let route = try? JSONDecoder().decode(CmxAttachRoute.self, from: data)
+        else {
+            return
+        }
+        // Prefer iroh over Tailscale on capable phones (lower priority wins).
+        irohRoute = (try? CmxAttachRoute(
+            id: route.id,
+            kind: route.kind,
+            endpoint: route.endpoint,
+            priority: -1
+        )) ?? route
+        // In an iroh mode no TCP listener is bound, so `listenerPort` is nil;
+        // `resolvedRoutes` ignores the port for iroh, so 0 is a safe placeholder.
+        // Publishing here is what makes the iroh route reachable to tickets/QR,
+        // and it releases any pairing-readiness waiter (see ensureListeningAndReady).
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: listenerPort ?? 0))
+        drainReadinessWaiters()
+    }
+
+    private func acceptIrohStream(_ stream: CmxIrohByteStream) {
+        // registerConnection enforces the limit against the registry; this is a
+        // cheap pre-check to avoid building a session we'd only reject.
+        guard MobileHostConnectionRegistry.shared.count < Self.maximumActiveConnectionCount else {
+            mobileHostLog.error("mobile host rejected iroh connection because active connection limit was reached")
+            Task { await stream.close() }
+            return
+        }
+        registerConnection(
+            id: UUID(),
+            transport: "iroh",
+            byteConnection: MobileHostIrohByteConnection(stream: stream)
+        )
+    }
+
+    private func stopIrohListener() {
+        irohAcceptTask?.cancel()
+        irohAcceptTask = nil
+        if let irohListener {
+            Task { await irohListener.close() }
+        }
+        irohListener = nil
+        irohRoute = nil
+    }
+
+    /// The host's published routes for `port`: the TCP/Tailscale/loopback routes
+    /// plus the iroh route when the accept lane is bound (nil otherwise, so this
+    /// is identical to the resolver's routes whenever iroh is off).
+    private func resolvedRoutes(port: Int) -> [CmxAttachRoute] {
+        // Strict single choice: publish only the active mode's lane. An iroh
+        // mode advertises just the dial-by-EndpointId route; tailscale mode just
+        // the TCP/Tailscale (and DEBUG loopback) routes. Never a mix, so a phone
+        // can't silently fall back to a lane the user didn't choose.
+        if Self.currentTransportMode().usesIroh {
+            return irohRoute.map { [$0] } ?? []
+        }
+        return routeResolver.routes(port: port).routes
+    }
+
+    /// The routes the active lane currently publishes — the single source of
+    /// truth for status snapshots and minted tickets. Accounts for iroh modes
+    /// having no TCP `listenerPort` (the iroh branch of `resolvedRoutes` ignores
+    /// the port), so a cmuxRelay/ownRelay Mac can still mint a usable pairing
+    /// code once its iroh route is published.
+    private func activeLaneRoutes() -> [CmxAttachRoute] {
+        if Self.currentTransportMode().usesIroh {
+            return irohRoute != nil ? resolvedRoutes(port: listenerPort ?? 0) : []
+        }
+        return listenerPort.map { resolvedRoutes(port: $0) } ?? []
+    }
+
+    /// Whether the active lane is bound and dialable: the iroh route is
+    /// published (iroh modes), or the TCP listener has a bound port (tailscale).
+    private var isActiveLaneRunning: Bool {
+        if Self.currentTransportMode().usesIroh {
+            return irohRoute != nil
+        }
+        return listener != nil && listenerPort != nil
+    }
+
+    private nonisolated static let irohSecretKeyKeychainService = "dev.cmux.iroh.host-secret-key"
+    private nonisolated static let irohSecretKeyByteCount = 32
+
+    /// The Mac's persisted iroh secret key. Stored in the Keychain as a generic
+    /// password with `AfterFirstUnlockThisDeviceOnly` and no iCloud sync (a synced
+    /// key would let two Macs claim one EndpointId), so the Mac keeps one stable
+    /// EndpointId across launches. Generated once via CryptoKit's Ed25519 (the
+    /// curve iroh uses); a fresh ephemeral key is returned if the Keychain write
+    /// fails so the host still binds.
+    private nonisolated static func loadOrCreateIrohSecretKey() -> [UInt8] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: irohSecretKeyKeychainService,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        if SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+           let data = result as? Data,
+           data.count == irohSecretKeyByteCount {
+            return [UInt8](data)
+        }
+        let key = Data(Curve25519.Signing.PrivateKey().rawRepresentation)
+        var insert: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: irohSecretKeyKeychainService,
+            kSecValueData as String: key,
+        ]
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        _ = SecItemDelete(query as CFDictionary)
+        let status = SecItemAdd(insert as CFDictionary, nil)
+        if status != errSecSuccess {
+            mobileHostLog.error("failed to persist iroh secret key (status \(status, privacy: .public)); using ephemeral")
+        }
+        return [UInt8](key)
     }
 
     /// Whether an incoming connection's remote peer is on the loopback interface.
@@ -1535,7 +1855,7 @@ final class MobileHostService {
                         )
                     }
                 })
-                MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: listenerPort).routes)
+                MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: listenerPort))
             } else {
                 MobileHostPublicStatusCache.update(routes: [])
             }
@@ -1650,7 +1970,7 @@ final class MobileHostService {
                 self?.updatePublicStatusRoutes(port: port, generation: generation, tailscaleHosts: hosts)
             }
         })
-        MobileHostPublicStatusCache.update(routes: routeResolver.routes(port: port).routes)
+        MobileHostPublicStatusCache.update(routes: resolvedRoutes(port: port))
     }
 }
 
@@ -1935,14 +2255,115 @@ private actor MobileHostAccessTokenStore: TokenStoreProtocol {
     }
 }
 
+/// A connection-lifecycle event from a ``MobileHostByteConnection``, the
+/// transport-agnostic subset of `NWConnection.State` the mobile host cares about.
+enum MobileHostByteConnectionEvent: Sendable {
+    case ready
+    case failed(reason: String)
+    case cancelled
+}
+
+/// The server-side byte channel a ``MobileHostConnection`` drives, mirroring the
+/// client's `CmxByteTransport` (plans/feat-ios-iroh/DESIGN.md PR 4). Extracting
+/// this lets the same frame codec, RPC dispatch, timeouts, and subscription
+/// bookkeeping run unchanged over either a Network.framework TCP connection
+/// (today) or an iroh QUIC stream (the iroh accept lane). `receive` is one-shot
+/// to match `NWConnection`: after processing each delivery the consumer calls
+/// ``resumeReceiving()`` for the next chunk.
+protocol MobileHostByteConnection: Sendable {
+    func start(
+        onEvent: @escaping @Sendable (MobileHostByteConnectionEvent) -> Void,
+        onReceive: @escaping @Sendable (Data?, Bool, String?) -> Void
+    )
+    func resumeReceiving()
+    /// Sends a frame, returning nil on success or an error description on failure.
+    func send(_ data: Data) async -> String?
+    func close()
+}
+
+/// The Network.framework adapter: a verbatim wrapper around the calls
+/// `MobileHostConnection` made directly before the seam was extracted, so the
+/// TCP lane's behavior is unchanged.
+final class NWMobileHostByteConnection: MobileHostByteConnection, @unchecked Sendable {
+    private static let receiveMaximumLength = 64 * 1024
+
+    private let connection: NWConnection
+    private let callbackQueue: DispatchQueue
+    private let receiveLock = NSLock()
+    private var onReceive: (@Sendable (Data?, Bool, String?) -> Void)?
+
+    init(connection: NWConnection, callbackQueue: DispatchQueue) {
+        self.connection = connection
+        self.callbackQueue = callbackQueue
+    }
+
+    func start(
+        onEvent: @escaping @Sendable (MobileHostByteConnectionEvent) -> Void,
+        onReceive: @escaping @Sendable (Data?, Bool, String?) -> Void
+    ) {
+        receiveLock.lock()
+        self.onReceive = onReceive
+        receiveLock.unlock()
+        connection.stateUpdateHandler = { state in
+            switch state {
+            case .failed(let error):
+                onEvent(.failed(reason: String(describing: error)))
+            case .cancelled:
+                onEvent(.cancelled)
+            case .ready:
+                onEvent(.ready)
+            case .setup, .waiting, .preparing:
+                break
+            @unknown default:
+                break
+            }
+        }
+        connection.start(queue: callbackQueue)
+        receiveOnce()
+    }
+
+    func resumeReceiving() {
+        receiveOnce()
+    }
+
+    private func receiveOnce() {
+        receiveLock.lock()
+        let deliver = onReceive
+        receiveLock.unlock()
+        connection.receive(
+            minimumIncompleteLength: 1,
+            maximumLength: Self.receiveMaximumLength
+        ) { data, _, isComplete, error in
+            deliver?(data, isComplete, error.map { String(describing: $0) })
+        }
+    }
+
+    func send(_ data: Data) async -> String? {
+        await withCheckedContinuation { continuation in
+            connection.send(
+                content: data,
+                contentContext: .defaultMessage,
+                isComplete: false,
+                completion: .contentProcessed { error in
+                    continuation.resume(returning: error.map { String(describing: $0) })
+                }
+            )
+        }
+    }
+
+    func close() {
+        connection.stateUpdateHandler = nil
+        connection.cancel()
+    }
+}
+
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
     private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
     private let id: UUID
-    private let connection: NWConnection
-    private let callbackQueue: DispatchQueue
+    private let byteConnection: any MobileHostByteConnection
     private let firstFrameTimeoutNanoseconds: UInt64
     private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
@@ -1961,7 +2382,7 @@ actor MobileHostConnection {
 
     init(
         id: UUID,
-        connection: NWConnection,
+        byteConnection: any MobileHostByteConnection,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
         idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
@@ -1970,8 +2391,7 @@ actor MobileHostConnection {
         onClose: @escaping @Sendable (UUID) async -> Void
     ) {
         self.id = id
-        self.connection = connection
-        self.callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
+        self.byteConnection = byteConnection
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
@@ -1981,13 +2401,23 @@ actor MobileHostConnection {
     }
 
     func start() {
-        connection.stateUpdateHandler = { [weak self, id] state in
-            guard let self else { return }
-            Task { await self.handleState(state, connectionID: id) }
-        }
-        connection.start(queue: callbackQueue)
+        byteConnection.start(
+            onEvent: { [weak self, id] event in
+                guard let self else { return }
+                Task { await self.handleEvent(event, connectionID: id) }
+            },
+            onReceive: { [weak self] data, isComplete, errorDescription in
+                guard let self else { return }
+                Task {
+                    await self.handleReceive(
+                        data: data,
+                        isComplete: isComplete,
+                        errorDescription: errorDescription
+                    )
+                }
+            }
+        )
         startFirstFrameTimeout()
-        receiveNext()
     }
 
     func close(reason: String) {
@@ -2013,29 +2443,8 @@ actor MobileHostConnection {
             )
         }
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
-        connection.stateUpdateHandler = nil
-        connection.cancel()
+        byteConnection.close()
         Task { await onClose(id) }
-    }
-
-    private func receiveNext() {
-        guard !isClosed else {
-            return
-        }
-        connection.receive(
-            minimumIncompleteLength: 1,
-            maximumLength: 64 * 1024
-        ) { [weak self] data, _, isComplete, error in
-            guard let self else { return }
-            let errorDescription = error.map { String(describing: $0) }
-            Task {
-                await self.handleReceive(
-                    data: data,
-                    isComplete: isComplete,
-                    errorDescription: errorDescription
-                )
-            }
-        }
     }
 
     private func handleReceive(
@@ -2095,8 +2504,8 @@ actor MobileHostConnection {
 
         if isComplete {
             close(reason: "remote closed")
-        } else {
-            receiveNext()
+        } else if !isClosed {
+            byteConnection.resumeReceiving()
         }
     }
 
@@ -2336,39 +2745,21 @@ actor MobileHostConnection {
             return false
         }
 
-        return await withCheckedContinuation { continuation in
-            connection.send(
-                content: frame,
-                contentContext: .defaultMessage,
-                isComplete: false,
-                completion: .contentProcessed { [weak self] error in
-                    guard let self else {
-                        continuation.resume(returning: false)
-                        return
-                    }
-                    if let error {
-                        Task { await self.close(reason: String(describing: error)) }
-                        continuation.resume(returning: false)
-                    } else {
-                        continuation.resume(returning: true)
-                    }
-                }
-            )
+        if let errorDescription = await byteConnection.send(frame) {
+            close(reason: errorDescription)
+            return false
         }
+        return true
     }
 
-    private func handleState(_ state: NWConnection.State, connectionID: UUID) {
-        switch state {
-        case .failed(let error):
-            close(reason: String(describing: error))
+    private func handleEvent(_ event: MobileHostByteConnectionEvent, connectionID: UUID) {
+        switch event {
+        case .failed(let reason):
+            close(reason: reason)
         case .cancelled:
             close(reason: "cancelled")
         case .ready:
             mobileHostLog.debug("mobile host connection ready \(connectionID.uuidString, privacy: .public)")
-        case .setup, .waiting, .preparing:
-            break
-        @unknown default:
-            break
         }
     }
 }

@@ -137,7 +137,7 @@ struct SettingsRowAnchorResolutionTests {
         "setting:app:desktop-notifications",
         "setting:account:account",
         "setting:mobile:pairDevice",
-        "setting:mobile:iOSPairingHost",
+        "setting:mobile:transportMode",
         "setting:mobile:iOSPairingPort",
         "setting:mobile:iOSPairingDisplayName",
         "setting:betaFeatures:feed",

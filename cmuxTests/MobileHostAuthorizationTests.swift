@@ -804,7 +804,10 @@ struct MobileHostAuthorizationTests {
         )
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            byteConnection: NWMobileHostByteConnection(
+                connection: connection,
+                callbackQueue: DispatchQueue(label: "test.mobile.host-connection")
+            ),
             firstFrameTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
@@ -837,7 +840,10 @@ struct MobileHostAuthorizationTests {
         )
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            byteConnection: NWMobileHostByteConnection(
+                connection: connection,
+                callbackQueue: DispatchQueue(label: "test.mobile.host-connection")
+            ),
             idleTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
@@ -870,7 +876,10 @@ struct MobileHostAuthorizationTests {
         )
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            byteConnection: NWMobileHostByteConnection(
+                connection: connection,
+                callbackQueue: DispatchQueue(label: "test.mobile.host-connection")
+            ),
             idleTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
@@ -921,10 +930,13 @@ struct MobileHostAuthorizationTests {
 
         let session = MobileHostConnection(
             id: UUID(),
-            connection: NWConnection(
-                host: NWEndpoint.Host("127.0.0.1"),
-                port: NWEndpoint.Port(rawValue: 9)!,
-                using: .tcp
+            byteConnection: NWMobileHostByteConnection(
+                connection: NWConnection(
+                    host: NWEndpoint.Host("127.0.0.1"),
+                    port: NWEndpoint.Port(rawValue: 9)!,
+                    using: .tcp
+                ),
+                callbackQueue: DispatchQueue(label: "test.mobile.host-connection")
             ),
             authorizeRequest: { _ in nil },
             onAuthorizedRequest: { _ in },
@@ -978,7 +990,10 @@ struct MobileHostAuthorizationTests {
         defer { socket.close() }
         let session = MobileHostConnection(
             id: connectionID,
-            connection: socket.connection,
+            byteConnection: NWMobileHostByteConnection(
+                connection: socket.connection,
+                callbackQueue: DispatchQueue(label: "test.mobile.host-connection")
+            ),
             idleTimeoutNanoseconds: 1_000_000,
             authorizeRequest: { _ in
                 .failure(MobileHostRPCError(code: "unauthorized", message: "no"))
@@ -1027,7 +1042,10 @@ struct MobileHostAuthorizationTests {
         )
         let session = MobileHostConnection(
             id: connectionID,
-            connection: connection,
+            byteConnection: NWMobileHostByteConnection(
+                connection: connection,
+                callbackQueue: DispatchQueue(label: "test.mobile.host-connection")
+            ),
             authorizeRequest: { request in
                 if request.id as? String == "second" {
                     secondAuthorizeStarted.fulfill()

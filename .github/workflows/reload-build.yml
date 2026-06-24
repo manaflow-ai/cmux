@@ -107,6 +107,27 @@ jobs:
           mkdir -p artifact
           ( cd "$(dirname "$app_path")" && ditto -c -k --sequesterRsrc --keepParent "$(basename "$app_path")" "$GITHUB_WORKSPACE/artifact/app.zip" )
 
+      # iOS links the CmuxIrohFFI xcframework (gitignored, built from the Rust
+      # crate). The macOS path builds it via reload.sh -> ensure-cmux-iroh.sh;
+      # the iOS archive below uses xcodebuild directly, so provision it here or
+      # SwiftPM fails with "local binary target 'CmuxIrohFFIBinary' ... does not
+      # contain a binary artifact". install-rust-ci.sh is idempotent (no-op when
+      # rustup is preinstalled, as on Blacksmith).
+      - name: Provision cmux-iroh FFI (iOS)
+        if: ${{ inputs.platform == 'ios' }}
+        run: |
+          set -euo pipefail
+          # Guarded so this is a no-op for source refs that predate the cmux-iroh
+          # crate (the script is checked out from inputs.ref, not this YAML's ref).
+          if [ -f scripts/ensure-cmux-iroh.sh ]; then
+            export PATH="$HOME/.cargo/bin:$PATH"
+            [ -f scripts/install-rust-ci.sh ] && ./scripts/install-rust-ci.sh
+            export PATH="$HOME/.cargo/bin:$PATH"
+            ./scripts/ensure-cmux-iroh.sh
+          else
+            echo "scripts/ensure-cmux-iroh.sh absent in source ref; skipping iroh FFI provisioning"
+          fi
+
       # --- iOS: build an UNSIGNED debug archive (signed locally by the caller) ---
       - name: Build unsigned iOS archive
         if: ${{ inputs.platform == 'ios' }}
