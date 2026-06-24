@@ -6019,6 +6019,23 @@
         }
       }
     },
+    "mobile.textSheet.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal text took too long to load. Close this sheet and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルのテキストの読み込みに時間がかかりすぎました。このシートを閉じて、もう一度お試しください。"
+          }
+        }
+      }
+    },
     "mobile.textSheet.title": {
       "extractionState": "manual",
       "localizations": {

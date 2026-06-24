@@ -225,6 +225,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// list filters these ids out, and the id is dropped the moment an
     /// authoritative list confirms the workspace is gone or the close fails.
     var optimisticallyClosedWorkspaces: [MobileWorkspacePreview.ID: MobileWorkspacePreview] = [:]
+    var optimisticallyClosedSelectedWorkspaceIDs: Set<MobileWorkspacePreview.ID> = []
 
     /// The group sections the UI renders. A materialized derivation of
     /// ``workspacesByMac`` (currently the foreground Mac's groups). Each group's
@@ -6763,6 +6764,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && !remoteIDs.contains(snapshot.rpcWorkspaceID)
         {
             optimisticallyClosedWorkspaces.removeValue(forKey: id)
+            optimisticallyClosedSelectedWorkspaceIDs.remove(id)
         }
     }
 

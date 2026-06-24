@@ -128,6 +128,11 @@ extension MobileShellComposite {
         optimisticallyClosedWorkspaces[id] = snapshot
         let wasSelected = selectedWorkspaceID == id
         if wasSelected {
+            optimisticallyClosedSelectedWorkspaceIDs.insert(id)
+        } else {
+            optimisticallyClosedSelectedWorkspaceIDs.remove(id)
+        }
+        if wasSelected {
             // Prefer the workspace that slid into the closed row's position, then
             // the previous neighbor, then any remaining workspace.
             let remaining = workspaces.filter { $0.id != id }
@@ -156,9 +161,11 @@ extension MobileShellComposite {
         guard optimisticallyClosedWorkspaces.removeValue(forKey: id) != nil else {
             return
         }
+        let wasSelected = optimisticallyClosedSelectedWorkspaceIDs.remove(id) != nil
         recomputeDerivedWorkspaceState()
-        if selectedWorkspaceID == nil, workspaces.contains(where: { $0.id == id }) {
+        if (wasSelected || selectedWorkspaceID == nil), workspaces.contains(where: { $0.id == id }) {
             selectedWorkspaceID = id
+            syncSelectedTerminalForWorkspace()
         }
     }
 

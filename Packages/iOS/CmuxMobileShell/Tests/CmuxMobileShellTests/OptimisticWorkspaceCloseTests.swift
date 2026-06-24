@@ -60,6 +60,23 @@ import Testing
         #expect(store.optimisticallyClosedWorkspaces.isEmpty)
     }
 
+    /// If the Mac rejects closing the selected workspace, rollback must restore
+    /// selection to that workspace even though optimistic close already selected a
+    /// neighbor.
+    @Test func rollbackRestoresSelectedRejectedClose() {
+        let store = MobileShellComposite.preview()
+        store.selectedWorkspaceID = "workspace-main"
+        store.selectedTerminalID = "terminal-build"
+        store.applyOptimisticWorkspaceClose(id: "workspace-main")
+
+        #expect(store.selectedWorkspaceID == "workspace-docs")
+
+        store.rollbackOptimisticWorkspaceClose(id: "workspace-main")
+
+        #expect(store.selectedWorkspaceID == "workspace-main")
+        #expect(store.selectedTerminalID == "terminal-build")
+    }
+
     /// If the Mac rejects closing the last remaining selected workspace, rollback
     /// must restore selection too so the detail view does not stay blank.
     @Test func rollbackRestoresSelectionWhenLastWorkspaceCloseIsRejected() {
