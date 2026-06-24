@@ -1,12 +1,50 @@
 import CoreGraphics
 
+enum BrowserNavigationToolbarIcon: CaseIterable, Equatable {
+    case back
+    case forward
+    case reload
+    case stop
+
+    var symbolName: String {
+        switch self {
+        case .back: return "chevron.left"
+        case .forward: return "chevron.right"
+        case .reload: return "arrow.clockwise"
+        case .stop: return "xmark"
+        }
+    }
+
+    /// SF Symbol intrinsic sizes at the legacy 12pt medium-weight browser
+    /// navigation size. The toolbar uses the largest measured edge across all
+    /// variants so the reload button does not resize when it flips to stop and
+    /// the back/forward buttons share that same optical box.
+    var measuredReferenceSize: CGSize {
+        switch self {
+        case .back, .forward:
+            CGSize(width: 9, height: 13)
+        case .reload:
+            CGSize(width: 13, height: 15)
+        case .stop:
+            CGSize(width: 13, height: 12)
+        }
+    }
+
+    var measuredReferenceMaxEdge: CGFloat {
+        max(measuredReferenceSize.width, measuredReferenceSize.height)
+    }
+
+    static func reloadOrStop(isLoading: Bool) -> BrowserNavigationToolbarIcon {
+        isLoading ? .stop : .reload
+    }
+}
+
 /// Derives the browser top-chrome sizes (omnibar text, navigation glyphs,
 /// toolbar icon buttons) from the user's tab bar font size so the whole top
 /// chrome — tabs plus the browser toolbar — renders at one consistent scale.
 ///
-/// Every size is a pure multiple of a legacy base constant. At
-/// ``referenceFontSize`` the scale is exactly `1`, so the chrome is
-/// byte-identical to the previously hardcoded layout; larger or smaller tab bar
+/// Every size is a pure multiple of a reference base constant. At
+/// ``referenceFontSize`` the scale is exactly `1`; larger or smaller tab bar
 /// font sizes scale the chrome proportionally. The derived scale is clamped to
 /// ``minimumScale``...``maximumScale`` so a malformed config value can never
 /// blow the toolbar up or collapse it.
@@ -42,8 +80,10 @@ struct BrowserChromeMetrics: Equatable {
     /// Height of the omnibar text field so taller text is not clipped. Base `18`.
     var omnibarFieldHeight: CGFloat { scaled(18) }
 
-    /// Point size for the back/forward/reload navigation glyphs. Base `12`.
-    var navigationIconFontSize: CGFloat { scaled(12) }
+    /// Square raster size for every back/forward/reload/stop navigation glyph.
+    /// Base `15`, the largest measured intrinsic edge among the four symbols at
+    /// the legacy 12pt medium-weight setting.
+    var navigationIconRasterSize: CGFloat { scaled(Self.navigationIconReferenceRasterSize) }
 
     /// Point size for the HTTPS lock badge in the omnibar. Base `10`.
     var secureBadgeFontSize: CGFloat { scaled(10) }
@@ -57,6 +97,16 @@ struct BrowserChromeMetrics: Equatable {
 
     /// Square hit target of the back/forward/reload buttons. Base `26`.
     var buttonHitSize: CGFloat { scaled(26) }
+
+    func navigationIconRasterSize(for _: BrowserNavigationToolbarIcon) -> CGFloat {
+        return navigationIconRasterSize
+    }
+
+    private static var navigationIconReferenceRasterSize: CGFloat {
+        BrowserNavigationToolbarIcon.allCases
+            .map(\.measuredReferenceMaxEdge)
+            .max() ?? 12
+    }
 
     private func scaled(_ base: CGFloat) -> CGFloat { base * scale }
 }

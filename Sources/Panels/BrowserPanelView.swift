@@ -1329,8 +1329,9 @@ struct BrowserPanelView: View {
                 #endif
                 panel.goBack()
             }) {
-                Image(systemName: "chevron.left")
-                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
+                let icon = BrowserNavigationToolbarIcon.back
+                Image(systemName: icon.symbolName)
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconRasterSize(for: icon), weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1345,8 +1346,9 @@ struct BrowserPanelView: View {
                 #endif
                 panel.goForward()
             }) {
-                Image(systemName: "chevron.right")
-                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
+                let icon = BrowserNavigationToolbarIcon.forward
+                Image(systemName: icon.symbolName)
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconRasterSize(for: icon), weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
@@ -1356,8 +1358,9 @@ struct BrowserPanelView: View {
             .safeHelp(String(localized: "browser.goForward", defaultValue: "Go Forward"))
 
             Button(action: handleReloadOrStopButtonAction) {
-                Image(systemName: panel.isLoading ? "xmark" : "arrow.clockwise")
-                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconFontSize, weight: .medium)
+                let icon = BrowserNavigationToolbarIcon.reloadOrStop(isLoading: panel.isLoading)
+                Image(systemName: icon.symbolName)
+                    .cmuxSymbolRasterSize(chromeMetrics.navigationIconRasterSize(for: icon), weight: .medium)
                     .frame(width: addressBarButtonHitSize, height: addressBarButtonHitSize, alignment: .center)
                     .contentShape(Rectangle())
             }
