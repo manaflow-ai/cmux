@@ -62,12 +62,29 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// Parses a `#rrggbb` (or `rrggbb`) hex string into 0-255 RGB components,
     /// or `nil` when the string is not a valid 6-digit hex color.
     public static func rgbComponents(_ value: String?) -> (red: Int, green: Int, blue: Int)? {
+        guard let raw = rawRGBValue(value) else { return nil }
+        return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
+    }
+
+    private static func rawRGBValue(_ value: String?) -> Int? {
         guard var value else { return nil }
         if value.hasPrefix("#") {
             value.removeFirst()
         }
-        guard value.count == 6, let raw = Int(value, radix: 16) else { return nil }
-        return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
+        let bytes = value.utf8
+        guard bytes.count == 6, bytes.allSatisfy(Self.isASCIIHexDigit) else { return nil }
+        return Int(value, radix: 16)
+    }
+
+    private static func normalizedRGBHex(_ value: String?) -> String? {
+        guard let raw = rawRGBValue(value) else { return nil }
+        return String(format: "#%06x", raw)
+    }
+
+    private static func isASCIIHexDigit(_ byte: UInt8) -> Bool {
+        (byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9"))
+            || (byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "f"))
+            || (byte >= UInt8(ascii: "A") && byte <= UInt8(ascii: "F"))
     }
 
     /// The ghostty config directives that express this theme's colors, one per
@@ -77,19 +94,20 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// produces a usable (if incomplete) config rather than corrupt directives.
     public var ghosttyColorDirectives: String {
         var lines: [String] = []
-        if Self.rgbComponents(background) != nil { lines.append("background = \(background)") }
-        if Self.rgbComponents(foreground) != nil { lines.append("foreground = \(foreground)") }
-        if Self.rgbComponents(cursor) != nil { lines.append("cursor-color = \(cursor)") }
-        if let cursorText, Self.rgbComponents(cursorText) != nil {
-            lines.append("cursor-text = \(cursorText)")
+        if let color = Self.normalizedRGBHex(background) { lines.append("background = \(color)") }
+        if let color = Self.normalizedRGBHex(foreground) { lines.append("foreground = \(color)") }
+        if let color = Self.normalizedRGBHex(cursor) { lines.append("cursor-color = \(color)") }
+        if let color = Self.normalizedRGBHex(cursorText) {
+            lines.append("cursor-text = \(color)")
         }
-        if Self.rgbComponents(selectionBackground) != nil {
-            lines.append("selection-background = \(selectionBackground)")
+        if let color = Self.normalizedRGBHex(selectionBackground) {
+            lines.append("selection-background = \(color)")
         }
-        if Self.rgbComponents(selectionForeground) != nil {
-            lines.append("selection-foreground = \(selectionForeground)")
+        if let color = Self.normalizedRGBHex(selectionForeground) {
+            lines.append("selection-foreground = \(color)")
         }
-        for (index, color) in palette.enumerated() where Self.rgbComponents(color) != nil {
+        for (index, color) in palette.enumerated() {
+            guard let color = Self.normalizedRGBHex(color) else { continue }
             lines.append("palette = \(index)=\(color)")
         }
         return lines.joined(separator: "\n")

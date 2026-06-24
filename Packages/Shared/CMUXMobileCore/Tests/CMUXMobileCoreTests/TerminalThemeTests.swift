@@ -71,6 +71,8 @@ import Testing
         #expect(TerminalTheme.rgbComponents("ff8000")! == (255, 128, 0))
         #expect(TerminalTheme.rgbComponents("#fff") == nil)
         #expect(TerminalTheme.rgbComponents("zzzzzz") == nil)
+        #expect(TerminalTheme.rgbComponents("#+fffff") == nil)
+        #expect(TerminalTheme.rgbComponents("-00001") == nil)
         #expect(TerminalTheme.rgbComponents(nil) == nil)
     }
 
@@ -92,5 +94,19 @@ import Testing
         var theme = TerminalTheme.monokai
         theme.cursorText = "#8d8e82"
         #expect(theme.ghosttyColorDirectives.contains("cursor-text = #8d8e82"))
+    }
+
+    @Test func ghosttyDirectivesNormalizeAcceptedHexColors() {
+        var theme = TerminalTheme.monokai
+        theme.background = "ABCDEF"
+        theme.foreground = "#123ABC"
+        theme.palette[1] = "00FFAA"
+        let directives = theme.ghosttyColorDirectives
+
+        #expect(directives.contains("background = #abcdef"))
+        #expect(directives.contains("foreground = #123abc"))
+        #expect(directives.contains("palette = 1=#00ffaa"))
+        #expect(!directives.contains("ABCDEF"))
+        #expect(!directives.contains("00FFAA"))
     }
 }
