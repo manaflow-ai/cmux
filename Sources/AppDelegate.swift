@@ -8783,6 +8783,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard menuBarExtraController == nil else { return }
         removeTransientGlobalSearchMenuBarExtraController()
         menuBarExtraController = makeMenuBarExtraController()
+        SleepyModeController.shared.onStateChange = { [weak self] in
+            self?.menuBarExtraController?.refreshForDebugControls()
+        }
     }
 
     private func makeMenuBarExtraController() -> MenuBarExtraController {
@@ -8806,6 +8809,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             },
             onOpenTaskManager: {
                 TaskManagerWindowController.shared.show()
+            },
+            onToggleSleepyMode: {
+                SleepyModeController.shared.toggle()
             },
             onCheckForUpdates: { [weak self] in
                 self?.checkForUpdates(nil)

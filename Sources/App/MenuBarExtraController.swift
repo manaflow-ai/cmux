@@ -14,6 +14,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let onOpenNotification: (TerminalNotification) -> Void
     private let onJumpToLatestUnread: () -> Void
     private let onOpenTaskManager: () -> Void
+    private let onToggleSleepyMode: () -> Void
     private let onCheckForUpdates: () -> Void
     private let onOpenPreferences: () -> Void
     private let onQuitApp: () -> Void
@@ -26,6 +27,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
     private let globalSearchItem = NSMenuItem(title: String(localized: "statusMenu.searchAllWindows", defaultValue: "Search All Windows..."), action: nil, keyEquivalent: "")
     private let showMainWindowItem = NSMenuItem(title: String(localized: "statusMenu.showCmux", defaultValue: "Show cmux"), action: nil, keyEquivalent: "")
     private let taskManagerItem = NSMenuItem(title: String(localized: "statusMenu.taskManager", defaultValue: "Task Manager..."), action: nil, keyEquivalent: "")
+    private let sleepyModeItem = NSMenuItem(title: String(localized: "statusMenu.sleepyMode", defaultValue: "Sleepy Mode"), action: nil, keyEquivalent: "")
     private let notificationListSeparator = NSMenuItem.separator()
     private let notificationSectionSeparator = NSMenuItem.separator()
     private let showNotificationsItem = NSMenuItem(title: String(localized: "statusMenu.showNotifications", defaultValue: "Show Notifications"), action: nil, keyEquivalent: "")
@@ -45,6 +47,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         onOpenNotification: @escaping (TerminalNotification) -> Void,
         onJumpToLatestUnread: @escaping () -> Void,
         onOpenTaskManager: @escaping () -> Void,
+        onToggleSleepyMode: @escaping () -> Void,
         onCheckForUpdates: @escaping () -> Void,
         onOpenPreferences: @escaping () -> Void,
         onQuitApp: @escaping () -> Void
@@ -56,6 +59,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         self.onOpenNotification = onOpenNotification
         self.onJumpToLatestUnread = onJumpToLatestUnread
         self.onOpenTaskManager = onOpenTaskManager
+        self.onToggleSleepyMode = onToggleSleepyMode
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenPreferences = onOpenPreferences
         self.onQuitApp = onQuitApp
@@ -113,6 +117,11 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         taskManagerItem.target = self
         taskManagerItem.action = #selector(taskManagerAction)
         menu.addItem(taskManagerItem)
+
+        sleepyModeItem.target = self
+        sleepyModeItem.action = #selector(sleepyModeAction)
+        menu.addItem(sleepyModeItem)
+
         menu.addItem(MenuBarProfilingMenuItem.make())
         menu.addItem(notificationListSeparator)
         notificationSectionSeparator.isHidden = true
@@ -186,6 +195,7 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
         stateHintItem.title = snapshot.stateHintTitle
         showMainWindowItem.isHidden = !MenuBarOnlySettings.shouldShowMainWindowMenuItem()
+        sleepyModeItem.state = SleepyModeController.shared.isActive ? .on : .off
 
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .globalSearch), to: globalSearchItem)
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .showNotifications), to: showNotificationsItem)
@@ -277,6 +287,10 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
 
     @objc private func taskManagerAction() {
         onOpenTaskManager()
+    }
+
+    @objc private func sleepyModeAction() {
+        onToggleSleepyMode()
     }
 
     @objc private func markAllReadAction() {

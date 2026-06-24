@@ -1685,6 +1685,9 @@ class TerminalController {
         case "send_workspace":
             return sendInputToWorkspace(args)
 
+        case "sleepy_mode":
+            return sleepyModeCommand(args)
+
         case "simulate_type":
             return simulateType(args)
 
@@ -10048,6 +10051,7 @@ class TerminalController {
           set_shortcut <name> <combo|clear> - Set a keyboard shortcut (test-only)
           simulate_shortcut <combo>       - Simulate a keyDown shortcut (test-only)
           simulate_type <text>            - Insert text into the current first responder (test-only)
+          sleepy_mode [on|off]            - Toggle/force Sleepy Mode screensaver + caffeinate (test-only)
           simulate_file_drop <id|idx> <path[|path...]> - Simulate dropping file path(s) on terminal (test-only)
           seed_drag_pasteboard_fileurl    - Seed NSDrag pasteboard with public.file-url (test-only)
           seed_drag_pasteboard_tabtransfer - Seed NSDrag pasteboard with tab transfer type (test-only)
@@ -11460,6 +11464,27 @@ class TerminalController {
     }
 
 #if DEBUG
+    /// Drives Sleepy Mode from the debug socket so automation can exercise the
+    /// overlay. `on`/`off` force a state; anything else toggles.
+    func sleepyModeCommand(_ args: String) -> String {
+        let mode = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        var isActive = false
+        var holding = false
+        v2MainSync {
+            switch mode {
+            case "on", "activate", "start":
+                SleepyModeController.shared.activate()
+            case "off", "deactivate", "stop":
+                SleepyModeController.shared.deactivate()
+            default:
+                SleepyModeController.shared.toggle()
+            }
+            isActive = SleepyModeController.shared.isActive
+            holding = SleepyModeController.shared.isHoldingPowerAssertions
+        }
+        return "OK \(isActive ? "active" : "inactive") assertions=\(holding)"
+    }
+
     func focusFromNotification(_ args: String) -> String {
         guard let tabManager else { return "ERROR: TabManager not available" }
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines)
