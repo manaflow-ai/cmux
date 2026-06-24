@@ -44,7 +44,7 @@ public struct MobileAnalyticsComposition {
     ///     short-timeout session (see ``analyticsSession()``) so a hung analytics
     ///     request cannot keep the emitter's consumer pinned in `upload` for long;
     ///     pass an explicit session in tests.
-    public init(
+    @MainActor public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
         defaults: UserDefaults = .standard,
@@ -91,7 +91,7 @@ public struct MobileAnalyticsComposition {
 
     /// The static device/app super-properties merged onto every event. Sizes and
     /// enums only — no identifiers beyond the anonymous install id.
-    private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
+    @MainActor private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
         let info = Bundle.main.infoDictionary
         var props: [String: AnalyticsValue] = ["client_id": .string(anonymousID)]
         if let version = info?["CFBundleShortVersionString"] as? String {

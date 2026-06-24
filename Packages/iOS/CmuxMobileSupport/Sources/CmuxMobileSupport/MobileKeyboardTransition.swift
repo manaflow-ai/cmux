@@ -7,7 +7,7 @@ public import UIKit
 /// Use this with `UIResponder.keyboardWillChangeFrameNotification` so layout,
 /// content inset, and content offset updates use the exact duration and curve of
 /// the system keyboard animation.
-public struct MobileKeyboardTransition {
+public struct MobileKeyboardTransition: Sendable {
     /// The keyboard's final screen-space frame from the notification payload.
     public let endFrame: CGRect
 

@@ -9,6 +9,12 @@ final class ChatTranscriptUITableView: UITableView {
         _ oldContentSize: CGSize,
         _ oldViewport: MobileScrollViewportSnapshot?
     ) -> Void)?
+    #if DEBUG
+    var keyboardDebugEventCount = 0
+    var keyboardDebugOverlap: CGFloat = 0
+    var keyboardDebugGuideOverlap: CGFloat = 0
+    var keyboardDebugBottomConstraint: CGFloat = 0
+    #endif
     private var lastBoundsSize: CGSize = .zero
     private var lastContentSize: CGSize = .zero
     private var lastViewport: MobileScrollViewportSnapshot?
@@ -67,7 +73,7 @@ final class ChatTranscriptUITableView: UITableView {
         let visibleBottomY = contentOffset.y + bounds.height - adjustedContentInset.bottom
         let distanceFromBottom = max(0, contentSize.height - visibleBottomY)
         accessibilityValue = String(
-            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f",
+            format: "frameMinY=%.2f;frameMaxY=%.2f;frameHeight=%.2f;boundsHeight=%.2f;offsetY=%.2f;visibleBottomY=%.2f;contentHeight=%.2f;distanceFromBottom=%.2f;keyboardEvents=%d;keyboardOverlap=%.2f;keyboardGuideOverlap=%.2f;keyboardBottomConstraint=%.2f",
             locale: Locale(identifier: "en_US_POSIX"),
             frameInWindow.minY,
             frameInWindow.maxY,
@@ -76,7 +82,11 @@ final class ChatTranscriptUITableView: UITableView {
             contentOffset.y,
             visibleBottomY,
             contentSize.height,
-            distanceFromBottom
+            distanceFromBottom,
+            keyboardDebugEventCount,
+            keyboardDebugOverlap,
+            keyboardDebugGuideOverlap,
+            keyboardDebugBottomConstraint
         )
     }
     #endif
