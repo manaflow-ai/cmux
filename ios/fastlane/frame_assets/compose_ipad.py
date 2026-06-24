@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
-"""Bezel-less landscape iPad framing for App Store screenshots.
+"""Bezel-less landscape iPad framing for App Store screenshots, via ImageMagick.
 
 frameit has no current/landscape iPad frame, so the iPad is composited here: the
 real (latest) iPad screen, rounded corners + soft shadow, on the tranquil
-background with a localized title. No drawn/fake bezel. Output keeps the captured
-landscape pixel size (a valid App Store iPad size). iPhone shots are framed by
-frameit; this only touches iPad captures.
+background with a localized title. No drawn/fake bezel. Uses `magick` (the same
+C library frameit already requires) for speed and zero extra dependencies (no
+Pillow). iPhone shots are framed by frameit; this only touches iPad captures.
 
 Usage: compose_ipad.py <screenshots_dir>
 """
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+MAGICK = shutil.which("magick") or shutil.which("convert")
 FONT_CANDIDATES = [
     "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
@@ -24,10 +27,8 @@ FONT_CANDIDATES = [
 
 
 def font_path():
-    for c in FONT_CANDIDATES:
-        if os.path.exists(c):
-            return c
-    raise SystemExit("no usable title font found")
+    # Prefer the staged title font (next to the screenshots) for parity with frameit.
+    return next((c for c in FONT_CANDIDATES if os.path.exists(c)), None)
 
 
 def load_titles():
@@ -39,80 +40,71 @@ def load_titles():
     return en, loc
 
 
-def wrap(draw, text, font, max_w):
-    if " " not in text:  # CJK
-        lines, cur = [], ""
-        for ch in text:
-            if draw.textlength(cur + ch, font=font) <= max_w:
-                cur += ch
-            else:
-                lines.append(cur); cur = ch
-        if cur:
-            lines.append(cur)
-        return lines
-    lines, cur = [], ""
-    for w in text.split(" "):
-        t = (cur + " " + w).strip()
-        if draw.textlength(t, font=font) <= max_w:
-            cur = t
-        else:
-            lines.append(cur); cur = w
-    if cur:
-        lines.append(cur)
-    return lines
+def identify(path):
+    out = subprocess.check_output([MAGICK, "identify", "-format", "%w %h", path], text=True)
+    w, h = out.split()
+    return int(w), int(h)
 
 
-def compose(raw_path, out_path, bg_img, title, fpath):
-    shot = Image.open(raw_path).convert("RGB")
-    W, H = shot.size
-    canvas = bg_img.resize((W, H)).convert("RGBA")
-    draw = ImageDraw.Draw(canvas)
-
-    title_size = int(H * 0.050)
-    font = ImageFont.truetype(fpath, title_size)
-    lines = wrap(draw, title, font, int(W * 0.9))
-    line_h = int(title_size * 1.2)
-    top = int(H * 0.045)
-    y = top
-    for ln in lines:
-        w = draw.textlength(ln, font=font)
-        draw.text(((W - w) / 2, y), ln, font=font, fill=(255, 255, 255))
-        y += line_h
-
-    title_zone = top + line_h * len(lines) + int(H * 0.03)
-    avail_h = H - title_zone - int(H * 0.05)
-    scale = avail_h / H
-    dw, dh = int(W * scale), int(H * scale)
-    dev = shot.resize((dw, dh))
-    radius = int(dh * 0.045)
-
+def compose(raw_path, out_path, bg_path, title, font, staged_font):
+    W, H = identify(raw_path)
+    title_h = int(H * 0.14)
+    gap = int(H * 0.03)
+    bottom = int(H * 0.05)
+    dh = H - title_h - gap - bottom
+    dw = int(W * dh / H)
     dx = (W - dw) // 2
-    dy = title_zone
+    dy = title_h + gap
+    r = int(dh * 0.045)
+    use_font = staged_font if (staged_font and os.path.exists(staged_font)) else font
 
-    shadow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    pad = int(dw * 0.012)
-    ImageDraw.Draw(shadow).rounded_rectangle(
-        [dx - pad, dy - pad, dx + dw + pad, dy + dh + pad],
-        radius=radius + pad, fill=(0, 0, 0, 120))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(int(dw * 0.02)))
-    canvas = Image.alpha_composite(canvas, shadow)
-
-    mask = Image.new("L", (dw, dh), 0)
-    ImageDraw.Draw(mask).rounded_rectangle([0, 0, dw, dh], radius=radius, fill=255)
-    canvas.paste(dev, (dx, dy), mask)
-    canvas.convert("RGB").save(out_path, quality=92)
+    with tempfile.TemporaryDirectory() as tmp:
+        base = os.path.join(tmp, "base.png")
+        screen = os.path.join(tmp, "screen.png")
+        # Background covered to the exact output size.
+        subprocess.run([MAGICK, bg_path, "-resize", f"{W}x{H}^", "-gravity", "center",
+                        "-extent", f"{W}x{H}", base], check=True)
+        # Screen: resize + rounded-corner alpha.
+        subprocess.run([
+            MAGICK, raw_path, "-resize", f"{dw}x{dh}!",
+            "(", "+clone", "-alpha", "transparent", "-background", "none",
+            "-fill", "white", "-draw", f"roundrectangle 0,0,{dw-1},{dh-1},{r},{r}", ")",
+            "-compose", "DstIn", "-composite", screen,
+        ], check=True)
+        # Composite a soft shadow, then the screen, then the title caption.
+        cmd = [
+            MAGICK, base,
+            "(", screen, "-background", "black", "-shadow", "55x34+0+16", ")",
+            "-gravity", "northwest", "-geometry", f"+{dx-int(dw*0.012)}+{dy-int(dw*0.006)}",
+            "-compose", "over", "-composite",
+            screen, "-gravity", "northwest", "-geometry", f"+{dx}+{dy}", "-composite",
+        ]
+        if title:
+            cmd += [
+                "(", "-background", "none", "-fill", "white",
+                "-font", use_font, "-pointsize", str(int(H * 0.052)),
+                "-size", f"{int(W * 0.9)}x", "-gravity", "center",
+                f"caption:{title}", ")",
+                "-gravity", "north", "-geometry", f"+0+{int(H * 0.045)}",
+                "-compose", "over", "-composite",
+            ]
+        cmd += [out_path]
+        subprocess.run(cmd, check=True)
 
 
 def main():
+    if not MAGICK:
+        raise SystemExit("ImageMagick (magick/convert) not found")
     ss = os.path.abspath(sys.argv[1]) if len(sys.argv) > 1 else os.path.join(HERE, "..", "screenshots")
-    bg = Image.open(os.path.join(HERE, "background.jpg"))
+    bg_path = os.path.join(HERE, "background.jpg")
     en, loc = load_titles()
-    fpath = font_path()
+    font = font_path()
     n = 0
     for locale in sorted(os.listdir(ss)):
         d = os.path.join(ss, locale)
         if not os.path.isdir(d):
             continue
+        staged_font = os.path.join(d, "title_font.ttf")
         titles = loc.get(locale) or loc.get(locale.split("-")[0]) or en
         for f in sorted(os.listdir(d)):
             if not f.endswith(".png") or f.endswith("_framed.png") or "ipad" not in f.lower():
@@ -121,9 +113,10 @@ def main():
             if not m:
                 continue
             title = titles.get(f"{m.group(2)}-{m.group(3)}") or en.get(f"{m.group(2)}-{m.group(3)}") or ""
-            compose(os.path.join(d, f), os.path.join(d, f[:-4] + "_framed.png"), bg, title, fpath)
+            compose(os.path.join(d, f), os.path.join(d, f[:-4] + "_framed.png"),
+                    bg_path, title, font, staged_font)
             n += 1
-    print(f"composed {n} bezel-less iPad screenshots")
+    print(f"composed {n} bezel-less iPad screenshots (ImageMagick)")
 
 
 if __name__ == "__main__":

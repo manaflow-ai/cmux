@@ -145,13 +145,11 @@ jobs:
           if ! command -v fastlane >/dev/null 2>&1; then
             brew install fastlane
           fi
-          # frameit (device frames + background + titles) needs imagemagick.
+          # frameit AND the bezel-less iPad compositor (compose_ipad.py) use
+          # imagemagick. No Pillow / other deps needed.
           if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
             brew install imagemagick
           fi
-          # The bezel-less landscape iPad compositor (compose_ipad.py) needs Pillow.
-          python3 -c "import PIL" 2>/dev/null || python3 -m pip install --quiet --break-system-packages Pillow || python3 -m pip install --quiet --user Pillow
-          python3 -c "import PIL; print('Pillow', PIL.__version__)"
           fastlane --version
 
       - name: Capture screenshots
