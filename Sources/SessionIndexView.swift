@@ -2489,51 +2489,6 @@ private struct RelativeTimestampSchedule: TimelineSchedule {
 
 // MARK: - Drag payload
 
-/// Mirrors `Bonsplit.TabItem`'s Codable shape so we can produce a JSON payload
-/// that bonsplit's external-drop path will decode and accept.
-private struct MirrorTabItem: Codable {
-    let id: UUID
-    let title: String
-    let hasCustomTitle: Bool
-    let icon: String?
-    let iconImageData: Data?
-    let kind: String?
-    let isDirty: Bool
-    let showsNotificationBadge: Bool
-    let isLoading: Bool
-    let isAudioMuted: Bool
-    let isPinned: Bool
-}
-
-/// Mirrors `Bonsplit.TabTransferData` exactly.
-private struct MirrorTabTransferData: Codable {
-    let tab: MirrorTabItem
-    let sourcePaneId: UUID
-    let sourceProcessId: Int32
-}
-
-/// Build the encoded payload bonsplit's external-drop decoder accepts.
-private func sessionTabTransferData(for entry: SessionEntry, dragId: UUID) -> Data? {
-    let mirror = MirrorTabTransferData(
-        tab: MirrorTabItem(
-            id: dragId,
-            title: entry.displayTitle,
-            hasCustomTitle: false,
-            icon: "terminal.fill",
-            iconImageData: nil,
-            kind: "terminal",
-            isDirty: false,
-            showsNotificationBadge: false,
-            isLoading: false,
-            isAudioMuted: false,
-            isPinned: false
-        ),
-        sourcePaneId: UUID(),
-        sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-    )
-    return try? JSONEncoder().encode(mirror)
-}
-
 /// NSItemProvider used by `.onDrag {}`. Registers ONLY
 /// `com.splittabbar.tabtransfer` so the terminal's NSDraggingDestination
 /// (which accepts `.string` / `public.utf8-plain-text`) is not hit-tested
@@ -2555,8 +2510,11 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
     // intentionally: forbidden/reader file; the orchestrator wires the owner.
     let dragId = SessionDragRegistry.shared.register(entry)
     let provider = NSItemProvider()
+    // Resolve the app-localized display title once; the package payload factory
+    // never calls `String(localized:)` so the title must be passed in.
+    let title = entry.displayTitle
 
-    if let data = sessionTabTransferData(for: entry, dragId: dragId) {
+    if let data = MirrorTabTransferData.encoded(title: title, dragId: dragId) {
         provider.registerDataRepresentation(
             forTypeIdentifier: "com.splittabbar.tabtransfer",
             visibility: .ownProcess
@@ -2570,7 +2528,7 @@ private func sessionDragItemProvider(for entry: SessionEntry) -> NSItemProvider 
         pb.setData(data, forType: type)
     }
 
-    provider.suggestedName = entry.displayTitle
+    provider.suggestedName = title
     return provider
 }
 

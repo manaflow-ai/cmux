@@ -472,6 +472,12 @@ class GhosttyApp {
     /// `TerminalSurfaceRuntimeTeardownCoordinator.shared` actor singleton).
     static let terminalSurfaceRuntimeTeardown = TerminalSurfaceRuntimeTeardownCoordinator()
 
+    /// The process-wide draft-attachment durable-copy coordinator (was the
+    /// `TextBoxDraftAttachmentStorage` namespace enum). Constructed once here at
+    /// the composition root and referenced through `GhosttyApp` rather than via a
+    /// `static let shared` on the coordinator type.
+    static let textBoxDraftAttachmentCoordinator = TextBoxDraftAttachmentCoordinator()
+
     /// The process-wide paced native-surface creation queue for session restore.
     @MainActor
     static let terminalSurfaceRestoreSpawnScheduler = TerminalSurfaceRestoreSpawnScheduler()

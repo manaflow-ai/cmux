@@ -4330,7 +4330,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     func v2BrowserEnsureTelemetryHooks(surfaceId _: UUID, browserPanel: BrowserPanel) {
         _ = v2RunJavaScript(
             browserPanel.webView,
-            script: BrowserPanel.telemetryHookBootstrapScriptSource,
+            script: BrowserTelemetryHookBootstrapScript.consoleAndErrorSource,
             timeout: 5.0,
             world: .page
         )
@@ -4339,7 +4339,7 @@ class TerminalController: MobileViewportSurfaceLimiting {
     private func v2BrowserEnsureDialogHooks(browserPanel: BrowserPanel) {
         _ = v2RunJavaScript(
             browserPanel.webView,
-            script: BrowserPanel.dialogTelemetryHookBootstrapScriptSource,
+            script: BrowserTelemetryHookBootstrapScript.dialogSource,
             timeout: 5.0,
             world: .page
         )
