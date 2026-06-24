@@ -8,59 +8,15 @@ func browserShouldPromptForHTTPBasicAuth(
 }
 
 @MainActor final class BrowserHTTPBasicAuthPromptCoordinator {
-    typealias Completion = (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    typealias PromptCancellation = () -> Void
-    typealias PromptCancellationRegistration = (@escaping PromptCancellation) -> Void
-
-    private final class Request {
-        let key: BrowserHTTPBasicAuthProtectionSpaceKey
-        let startPrompt: (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool
-        private var completions: [Completion]
-        private var cancelPrompt: PromptCancellation?
-
-        init(
-            key: BrowserHTTPBasicAuthProtectionSpaceKey,
-            startPrompt: @escaping (@escaping Completion, @escaping PromptCancellationRegistration) -> Bool,
-            completion: @escaping Completion
-        ) {
-            self.key = key
-            self.startPrompt = startPrompt
-            self.completions = [completion]
-        }
-
-        var completionCount: Int {
-            completions.count
-        }
-
-        func appendCompletion(_ completion: @escaping Completion) {
-            completions.append(completion)
-        }
-
-        func setCancelPrompt(_ cancelPrompt: @escaping PromptCancellation) {
-            self.cancelPrompt = cancelPrompt
-        }
-
-        func cancelPromptIfNeeded() {
-            let cancelPrompt = cancelPrompt
-            self.cancelPrompt = nil
-            cancelPrompt?()
-        }
-
-        func complete(
-            disposition: URLSession.AuthChallengeDisposition,
-            credential: URLCredential?
-        ) {
-            let callbacks = completions
-            completions.removeAll()
-            callbacks.forEach { $0(disposition, credential) }
-        }
-    }
+    typealias Completion = BrowserHTTPBasicAuthPromptRequest.Completion
+    typealias PromptCancellation = BrowserHTTPBasicAuthPromptRequest.PromptCancellation
+    typealias PromptCancellationRegistration = BrowserHTTPBasicAuthPromptRequest.PromptCancellationRegistration
 
     private static let maxQueuedProtectionSpaces = 4
     private static let maxCompletionsPerProtectionSpace = 8
 
-    private var activeRequest: Request?
-    private var queuedRequests: [Request] = []
+    private var activeRequest: BrowserHTTPBasicAuthPromptRequest?
+    private var queuedRequests: [BrowserHTTPBasicAuthPromptRequest] = []
     private var isCancelling = false
 
     @discardableResult
@@ -89,7 +45,7 @@ func browserShouldPromptForHTTPBasicAuth(
             return true
         }
 
-        let request = Request(
+        let request = BrowserHTTPBasicAuthPromptRequest(
             key: key,
             startPrompt: startPrompt,
             completion: completionHandler
@@ -120,7 +76,7 @@ func browserShouldPromptForHTTPBasicAuth(
         }
     }
 
-    private func append(_ completion: @escaping Completion, to request: Request) {
+    private func append(_ completion: @escaping Completion, to request: BrowserHTTPBasicAuthPromptRequest) {
         guard request.completionCount < Self.maxCompletionsPerProtectionSpace else {
             completion(.cancelAuthenticationChallenge, nil)
             return
@@ -128,7 +84,7 @@ func browserShouldPromptForHTTPBasicAuth(
         request.appendCompletion(completion)
     }
 
-    private func start(_ request: Request) {
+    private func start(_ request: BrowserHTTPBasicAuthPromptRequest) {
         guard !isCancelling else {
             request.complete(disposition: .cancelAuthenticationChallenge, credential: nil)
             return
