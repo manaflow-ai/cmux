@@ -12,7 +12,8 @@
     "toggleTheme": "ប្ដូរស្បែក",
     "backToBlog": "ត្រឡប់ទៅប្លក់",
     "readTheDocs": "អានឯកសារ",
-    "viewChangelog": "មើលកំណត់ត្រាផ្លាស់ប្ដូរ"
+    "viewChangelog": "មើលកំណត់ត្រាផ្លាស់ប្ដូរ",
+    "otherPlatforms": "វេទិកាផ្សេងទៀត"
   },
   "nav": {
     "docs": "ឯកសារ",
@@ -1868,5 +1869,32 @@
       "faqQ4": "តើ cmux ឥតគិតថ្លៃសម្រាប់ប្រើជាមួយ Cursor CLI ឬ?",
       "faqA4": "ឥតគិតថ្លៃ។ cmux ឥតគិតថ្លៃ និងជាប្រភពកូដបើកចំហសម្រាប់ macOS។"
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "ចូលរួមបញ្ជីរង់ចាំ {platform}",
+    "titleAny": "ចូលរួមបញ្ជីរង់ចាំ",
+    "description": "ការគាំទ្រ {platform} កំពុងមកដល់។ ទុកអ៊ីមែលរបស់អ្នក នោះយើងនឹងជូនដំណឹងពេលវារួចរាល់។",
+    "descriptionAny": "បច្ចុប្បន្ន cmux ផ្តោតលើ macOS ជាមុនសិន។ ទុកអ៊ីមែលរបស់អ្នក នោះយើងនឹងជូនដំណឹងពេលកំណែ Linux, Windows ឬ Android រួចរាល់។",
+    "calloutText": "ឆាប់ៗនេះនៅលើ Linux, Windows និង Android។",
+    "platformsLabel": "វេទិកាណាខ្លះ?",
+    "selectPlatform": "សូមជ្រើសវេទិកាយ៉ាងហោចណាស់មួយ។",
+    "emailLabel": "អ៊ីមែល",
+    "emailPlaceholder": "you@example.com",
+    "join": "ចូលរួមបញ្ជី",
+    "joining": "កំពុងចូលរួម…",
+    "cancel": "បោះបង់",
+    "invalidEmail": "សូមបញ្ចូលអាសយដ្ឋានអ៊ីមែលត្រឹមត្រូវ។",
+    "sendError": "មិនអាចផ្ញើបានទេ។ សូមព្យាយាមម្ដងទៀត។",
+    "successTitle": "អ្នកនៅក្នុងបញ្ជីហើយ",
+    "successBody": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេលកំណែ {platform} រួចរាល់។",
+    "successBodyAny": "យើងនឹងផ្ញើអ៊ីមែលទៅអ្នក ពេល cmux រួចរាល់សម្រាប់វេទិការបស់អ្នក។",
+    "done": "រួចរាល់"
   }
 }

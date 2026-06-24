@@ -12,7 +12,8 @@
     "toggleTheme": "Changer de thème",
     "backToBlog": "Retour au blog",
     "readTheDocs": "Lire la documentation",
-    "viewChangelog": "Voir le changelog"
+    "viewChangelog": "Voir le changelog",
+    "otherPlatforms": "Autres plateformes"
   },
   "nav": {
     "docs": "Docs",
@@ -1868,5 +1869,32 @@
       "faqQ4": "cmux est-il gratuit à utiliser avec Cursor CLI ?",
       "faqA4": "Oui. cmux est gratuit et open source pour macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Rejoindre la liste d'attente {platform}",
+    "titleAny": "Rejoindre la liste d'attente",
+    "description": "La prise en charge de {platform} arrive. Laissez votre e-mail et nous vous préviendrons dès que c'est prêt.",
+    "descriptionAny": "cmux est d'abord disponible sur macOS. Laissez votre e-mail et nous vous préviendrons dès que Linux, Windows ou Android sera prêt.",
+    "calloutText": "Bientôt sur Linux, Windows et Android.",
+    "platformsLabel": "Quelles plateformes ?",
+    "selectPlatform": "Choisissez au moins une plateforme.",
+    "emailLabel": "E-mail",
+    "emailPlaceholder": "you@example.com",
+    "join": "Rejoindre la liste",
+    "joining": "Inscription…",
+    "cancel": "Annuler",
+    "invalidEmail": "Saisissez une adresse e-mail valide.",
+    "sendError": "Échec de l'envoi. Veuillez réessayer.",
+    "successTitle": "Vous êtes sur la liste",
+    "successBody": "Nous vous enverrons un e-mail dès que la version {platform} sera prête.",
+    "successBodyAny": "Nous vous enverrons un e-mail dès que cmux sera prêt pour votre plateforme.",
+    "done": "Terminé"
   }
 }

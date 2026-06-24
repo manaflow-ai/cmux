@@ -12,7 +12,8 @@
     "toggleTheme": "Temayı değiştir",
     "backToBlog": "Bloga dön",
     "readTheDocs": "Belgeleri Oku",
-    "viewChangelog": "Değişiklik Günlüğünü Görüntüle"
+    "viewChangelog": "Değişiklik Günlüğünü Görüntüle",
+    "otherPlatforms": "Diğer platformlar"
   },
   "nav": {
     "docs": "Belgeler",
@@ -1868,5 +1869,32 @@
       "faqQ4": "cmux'u Cursor CLI ile kullanmak ücretsiz mi?",
       "faqA4": "Evet. cmux, macOS için ücretsiz ve açık kaynaktır."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "{platform} bekleme listesine katıl",
+    "titleAny": "Bekleme listesine katıl",
+    "description": "{platform} desteği yolda. E-postanı bırak, hazır olduğunda sana haber verelim.",
+    "descriptionAny": "cmux şimdilik önce macOS için. E-postanı bırak; Linux, Windows veya Android hazır olduğunda sana haber verelim.",
+    "calloutText": "Yakında Linux, Windows ve Android'de.",
+    "platformsLabel": "Hangi platformlar?",
+    "selectPlatform": "En az bir platform seç.",
+    "emailLabel": "E-posta",
+    "emailPlaceholder": "you@example.com",
+    "join": "Listeye katıl",
+    "joining": "Katılıyor…",
+    "cancel": "İptal",
+    "invalidEmail": "Geçerli bir e-posta adresi gir.",
+    "sendError": "Gönderilemedi. Lütfen tekrar dene.",
+    "successTitle": "Listedesin",
+    "successBody": "{platform} sürümü hazır olduğunda sana e-posta göndereceğiz.",
+    "successBodyAny": "cmux senin platformun için hazır olduğunda sana e-posta göndereceğiz.",
+    "done": "Tamam"
   }
 }

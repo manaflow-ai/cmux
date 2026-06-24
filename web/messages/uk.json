@@ -12,7 +12,8 @@
     "toggleTheme": "Перемкнути тему",
     "backToBlog": "Назад до блогу",
     "readTheDocs": "Читати документацію",
-    "viewChangelog": "Переглянути журнал змін"
+    "viewChangelog": "Переглянути журнал змін",
+    "otherPlatforms": "Інші платформи"
   },
   "nav": {
     "docs": "Документація",
@@ -1951,5 +1952,32 @@
       "faqQ4": "Чи cmux безкоштовний у використанні з Cursor CLI?",
       "faqA4": "Так. cmux безкоштовний і з відкритим кодом для macOS."
     }
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Приєднатися до списку очікування {platform}",
+    "titleAny": "Приєднатися до списку очікування",
+    "description": "Підтримка {platform} вже на підході. Залиште email, і ми повідомимо, щойно все буде готово.",
+    "descriptionAny": "Зараз cmux передусім для macOS. Залиште email, і ми повідомимо, щойно з’явиться версія для Linux, Windows чи Android.",
+    "calloutText": "Незабаром на Linux, Windows та Android.",
+    "platformsLabel": "Які платформи?",
+    "selectPlatform": "Виберіть принаймні одну платформу.",
+    "emailLabel": "Електронна пошта",
+    "emailPlaceholder": "you@example.com",
+    "join": "До списку очікування",
+    "joining": "Додаємо…",
+    "cancel": "Скасувати",
+    "invalidEmail": "Введіть дійсну електронну адресу.",
+    "sendError": "Не вдалося надіслати. Спробуйте ще раз.",
+    "successTitle": "Ви у списку",
+    "successBody": "Ми напишемо вам, коли версія для {platform} буде готова.",
+    "successBodyAny": "Ми напишемо вам, коли cmux буде готовий для вашої платформи.",
+    "done": "Готово"
   }
 }
