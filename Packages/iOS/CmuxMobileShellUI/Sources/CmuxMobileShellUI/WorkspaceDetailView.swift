@@ -335,7 +335,7 @@ struct WorkspaceDetailView: View {
                     store.consumeTerminalAutoFocusSuppression(for: terminalID)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(TerminalPalette.background)
+                .background(terminalPalette.background)
                 // The surface positions its grid + docked toolbar from
                 // `keyboardHeight` directly, so opt out of SwiftUI keyboard
                 // avoidance; otherwise the view ALSO shrinks for the keyboard
@@ -350,11 +350,11 @@ struct WorkspaceDetailView: View {
                 // floats over it.
                 .padding(.top, terminalTopPadding)
             } else {
-                TerminalPalette.background
+                terminalPalette.background
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             #else
-            TerminalPalette.background
+            terminalPalette.background
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             #endif
         }
@@ -416,11 +416,11 @@ struct WorkspaceDetailView: View {
             // Fill the whole window, including under the translucent nav bar, so
             // the glass tints the terminal's own dark color rather than the page
             // background.
-            TerminalPalette.background
+            terminalPalette.background
                 .ignoresSafeArea(.container, edges: [.horizontal, .top, .bottom])
         }
         #else
-        .background(TerminalPalette.background)
+        .background(terminalPalette.background)
         #endif
         .navigationTitle(workspace.name)
         .mobileTerminalNavigationChrome()
@@ -477,7 +477,7 @@ struct WorkspaceDetailView: View {
             .font(.headline)
             .lineLimit(1)
             .truncationMode(.tail)
-            .foregroundStyle(TerminalPalette.foreground)
+            .foregroundStyle(terminalPalette.foreground)
             // Centered principal item: cap it to the clear center gap so a long
             // name truncates instead of underlapping the bar buttons, but reserve
             // only the actual side clusters (not a flat 300pt) so the middle grows
@@ -495,7 +495,7 @@ struct WorkspaceDetailView: View {
             Label(L10n.string("mobile.workspace.new", defaultValue: "New Workspace"), systemImage: "plus.square.on.square")
                 .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalPalette.foreground)
         .disabled(!canCreateWorkspace)
         .accessibilityIdentifier("MobileTerminalNewWorkspaceButton")
     }
@@ -520,7 +520,7 @@ struct WorkspaceDetailView: View {
             )
             .labelStyle(.iconOnly)
         }
-        .foregroundStyle(TerminalPalette.foreground)
+        .foregroundStyle(terminalPalette.foreground)
         .accessibilityIdentifier("MobileTerminalDropdown")
         .accessibilityValue(host)
     }

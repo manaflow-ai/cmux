@@ -9,15 +9,18 @@ import SwiftUI
 /// live terminal under any theme instead of flashing a hardcoded color. They
 /// fall back to Monokai when no theme has been supplied.
 @MainActor
-enum TerminalPalette {
-    /// Terminal background, from the active theme.
-    static var background: Color { color(GhosttyRuntime.currentTheme.background) }
-    /// Terminal foreground, from the active theme.
-    static var foreground: Color { color(GhosttyRuntime.currentTheme.foreground) }
-    /// Dimmed terminal foreground, from the active theme.
-    static var dimForeground: Color { foreground.opacity(0.78) }
+let terminalPalette = TerminalPalette()
 
-    private static func color(_ hex: String) -> Color {
+@MainActor
+struct TerminalPalette {
+    /// Terminal background, from the active theme.
+    var background: Color { color(GhosttyRuntime.currentTheme.background) }
+    /// Terminal foreground, from the active theme.
+    var foreground: Color { color(GhosttyRuntime.currentTheme.foreground) }
+    /// Dimmed terminal foreground, from the active theme.
+    var dimForeground: Color { foreground.opacity(0.78) }
+
+    private func color(_ hex: String) -> Color {
         guard let rgb = TerminalTheme.rgbComponents(hex) else { return .black }
         return Color(
             red: Double(rgb.red) / 255.0,

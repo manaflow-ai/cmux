@@ -16,7 +16,7 @@ struct TerminalLayoutPreviewView: View {
         TerminalLayoutPreviewSurface()
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .background {
-                TerminalPalette.background
+                terminalPalette.background
                     .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
             }
             .ignoresSafeArea(.container, edges: .bottom)

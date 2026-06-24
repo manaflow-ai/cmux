@@ -32,6 +32,11 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// The number of palette entries a valid theme must carry.
     public static let paletteCount = 16
 
+    /// Creates a terminal theme from base colors and a 16-entry ANSI palette.
+    ///
+    /// Color values may include a leading `#`, but validation and Ghostty config
+    /// emission require exactly six ASCII hex digits after that optional prefix.
+    /// Use ``validatedOrDefault()`` before rendering untrusted wire values.
     public init(
         background: String,
         foreground: String,
@@ -62,29 +67,8 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// Parses a `#rrggbb` (or `rrggbb`) hex string into 0-255 RGB components,
     /// or `nil` when the string is not a valid 6-digit hex color.
     public static func rgbComponents(_ value: String?) -> (red: Int, green: Int, blue: Int)? {
-        guard let raw = rawRGBValue(value) else { return nil }
+        guard let raw = TerminalThemeHexParser().rawRGBValue(value) else { return nil }
         return ((raw >> 16) & 0xFF, (raw >> 8) & 0xFF, raw & 0xFF)
-    }
-
-    private static func rawRGBValue(_ value: String?) -> Int? {
-        guard var value else { return nil }
-        if value.hasPrefix("#") {
-            value.removeFirst()
-        }
-        let bytes = value.utf8
-        guard bytes.count == 6, bytes.allSatisfy(Self.isASCIIHexDigit) else { return nil }
-        return Int(value, radix: 16)
-    }
-
-    private static func normalizedRGBHex(_ value: String?) -> String? {
-        guard let raw = rawRGBValue(value) else { return nil }
-        return String(format: "#%06x", raw)
-    }
-
-    private static func isASCIIHexDigit(_ byte: UInt8) -> Bool {
-        (byte >= UInt8(ascii: "0") && byte <= UInt8(ascii: "9"))
-            || (byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "f"))
-            || (byte >= UInt8(ascii: "A") && byte <= UInt8(ascii: "F"))
     }
 
     /// The ghostty config directives that express this theme's colors, one per
@@ -93,21 +77,22 @@ public struct TerminalTheme: Codable, Equatable, Sendable {
     /// Only colors that parse are emitted, so a partially-invalid theme still
     /// produces a usable (if incomplete) config rather than corrupt directives.
     public var ghosttyColorDirectives: String {
+        let parser = TerminalThemeHexParser()
         var lines: [String] = []
-        if let color = Self.normalizedRGBHex(background) { lines.append("background = \(color)") }
-        if let color = Self.normalizedRGBHex(foreground) { lines.append("foreground = \(color)") }
-        if let color = Self.normalizedRGBHex(cursor) { lines.append("cursor-color = \(color)") }
-        if let color = Self.normalizedRGBHex(cursorText) {
+        if let color = parser.normalizedRGBHex(background) { lines.append("background = \(color)") }
+        if let color = parser.normalizedRGBHex(foreground) { lines.append("foreground = \(color)") }
+        if let color = parser.normalizedRGBHex(cursor) { lines.append("cursor-color = \(color)") }
+        if let color = parser.normalizedRGBHex(cursorText) {
             lines.append("cursor-text = \(color)")
         }
-        if let color = Self.normalizedRGBHex(selectionBackground) {
+        if let color = parser.normalizedRGBHex(selectionBackground) {
             lines.append("selection-background = \(color)")
         }
-        if let color = Self.normalizedRGBHex(selectionForeground) {
+        if let color = parser.normalizedRGBHex(selectionForeground) {
             lines.append("selection-foreground = \(color)")
         }
         for (index, color) in palette.enumerated() {
-            guard let color = Self.normalizedRGBHex(color) else { continue }
+            guard let color = parser.normalizedRGBHex(color) else { continue }
             lines.append("palette = \(index)=\(color)")
         }
         return lines.joined(separator: "\n")

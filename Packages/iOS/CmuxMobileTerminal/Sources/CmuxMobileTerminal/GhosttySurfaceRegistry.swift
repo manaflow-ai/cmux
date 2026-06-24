@@ -58,7 +58,9 @@ extension GhosttySurfaceView {
     /// Unlike that synchronous DEV path there is no bounded semaphore wait here:
     /// this method performs the registry pick and `outputQueue.async` enqueue
     /// synchronously, then returns a task the sheet can await while showing its
-    /// loading state.
+    /// loading state. The caller-facing wait is bounded in
+    /// `TerminalTextSheetView.awaitCapture`, which cancels this task and shows a
+    /// retryable error if the queue read does not return before the sheet deadline.
     ///
     /// The enqueue happens while still on the main actor at tap time, so the read
     /// is FIFO-ordered before any later-enqueued `disposeSurface` free of the same
@@ -100,8 +102,9 @@ extension GhosttySurfaceView {
         let orderedViews = registeredSurfaceViews
             .sorted { $0.key < $1.key }
             .compactMap(\.value.value)
+        let selection = CopyableTerminalTextSelection()
         let candidates = orderedViews.map { view in
-            CopyableTerminalTextSelection.Candidate(
+            CopyableTerminalTextCandidate(
                 hostSurfaceID: view.hostSurfaceID,
                 hasSurface: view.surface != nil,
                 hasWindow: view.window != nil,
@@ -109,7 +112,7 @@ extension GhosttySurfaceView {
                 alpha: Double(view.alpha)
             )
         }
-        let chosen = CopyableTerminalTextSelection.chosenIndex(from: candidates, for: surfaceID)
+        let chosen = selection.chosenIndex(from: candidates, for: surfaceID)
             .map { orderedViews[$0] }
 
         #if DEBUG
@@ -123,7 +126,7 @@ extension GhosttySurfaceView {
 
         guard let surface = chosen?.surface else { return Task { nil } }
         let handle = CopyableTextSurfaceHandle(surface: surface)
-        let stream = AsyncStream<String?> { continuation in
+        let deadlineBoundedStream = AsyncStream<String?> { continuation in
             outputQueue.async {
                 // SCREEN = scrollback + all written rows. `surfaceText` returns a
                 // non-nil empty string for a zero-byte range, so a plain `??`
@@ -132,7 +135,7 @@ extension GhosttySurfaceView {
                 // VIEWPORT before the sheet gives up.
                 let screen = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_SCREEN)
                 let viewport = surfaceText(handle.surface, pointTag: GHOSTTY_POINT_VIEWPORT)
-                let text = CopyableTerminalTextSelection.resolvedText(screen: screen, viewport: viewport)
+                let text = selection.resolvedText(screen: screen, viewport: viewport)
                 #if DEBUG
                 func describe(_ value: String?) -> String {
                     guard let value else { return "nil" }
@@ -147,7 +150,7 @@ extension GhosttySurfaceView {
             }
         }
         return Task {
-            for await text in stream {
+            for await text in deadlineBoundedStream {
                 return text
             }
             return nil

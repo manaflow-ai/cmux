@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure selection + fallback logic for the iOS "View as Text" capture, split
+/// Selection + fallback logic for the iOS "View as Text" capture, split
 /// out of `GhosttySurfaceRegistry` so the two decisions that actually decide
 /// whether the sheet shows text or its empty state are host-testable without
 /// libghostty, UIKit, or a live surface.
@@ -17,32 +17,9 @@ import Foundation
 /// 2. `surfaceText` returns a non-nil empty string when the range has zero bytes,
 ///    so `screen ?? viewport` never fell back when SCREEN read empty-but-ok. The
 ///    `resolvedText` decision below treats nil OR empty SCREEN as "try VIEWPORT".
-public enum CopyableTerminalTextSelection {
-    /// Inputs describing a registered surface view for the eligibility decision.
-    /// Mirrors the runtime fields read off `GhosttySurfaceView` (`hostSurfaceID`,
-    /// `surface != nil`, `window != nil`, `isHidden`, `alpha`) as plain values so
-    /// the rule is testable without a UIKit view.
-    public struct Candidate: Equatable, Sendable {
-        public let hostSurfaceID: String?
-        public let hasSurface: Bool
-        public let hasWindow: Bool
-        public let isHidden: Bool
-        public let alpha: Double
-
-        public init(
-            hostSurfaceID: String?,
-            hasSurface: Bool,
-            hasWindow: Bool,
-            isHidden: Bool,
-            alpha: Double
-        ) {
-            self.hostSurfaceID = hostSurfaceID
-            self.hasSurface = hasSurface
-            self.hasWindow = hasWindow
-            self.isHidden = isHidden
-            self.alpha = alpha
-        }
-    }
+public struct CopyableTerminalTextSelection: Sendable {
+    /// Creates a selection helper.
+    public init() {}
 
     /// Whether `candidate` is the live, on-screen surface for `surfaceID` and so
     /// may back the "View as Text" capture.
@@ -52,7 +29,7 @@ public enum CopyableTerminalTextSelection {
     /// the capture; `hasSurface` keeps a dismantling view (registry-resident with
     /// a non-nil pointer until its queued dispose runs) from contributing stale
     /// text; the window/hidden/alpha gates keep an off-screen surface out.
-    public static func isEligible(_ candidate: Candidate, for surfaceID: String) -> Bool {
+    public func isEligible(_ candidate: CopyableTerminalTextCandidate, for surfaceID: String) -> Bool {
         candidate.hostSurfaceID == surfaceID
             && candidate.hasSurface
             && candidate.hasWindow
@@ -67,8 +44,8 @@ public enum CopyableTerminalTextSelection {
     ///
     /// - Returns: The index of the chosen candidate in `candidates`, or nil when
     ///   none is eligible.
-    public static func chosenIndex(
-        from candidates: [Candidate],
+    public func chosenIndex(
+        from candidates: [CopyableTerminalTextCandidate],
         for surfaceID: String
     ) -> Int? {
         candidates.firstIndex { isEligible($0, for: surfaceID) }
@@ -86,7 +63,7 @@ public enum CopyableTerminalTextSelection {
     ///   - screen: The SCREEN (scrollback + all rows) read, nil on failure.
     ///   - viewport: The VIEWPORT (visible rows) read, nil on failure.
     /// - Returns: The non-empty text to show, or nil when neither has content.
-    public static func resolvedText(screen: String?, viewport: String?) -> String? {
+    public func resolvedText(screen: String?, viewport: String?) -> String? {
         if let screen, !screen.isEmpty { return screen }
         if let viewport, !viewport.isEmpty { return viewport }
         return nil

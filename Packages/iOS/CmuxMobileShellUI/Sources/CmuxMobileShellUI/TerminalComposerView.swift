@@ -279,7 +279,7 @@ struct TerminalComposerView: View {
                         .frame(width: controlHeight, height: controlHeight)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(TerminalPalette.foreground.opacity(0.7))
+                .foregroundStyle(terminalPalette.foreground.opacity(0.7))
                 .mobileGlassCircle()
                 .accessibilityIdentifier("MobileComposerAttach")
                 .accessibilityLabel(L10n.string("mobile.composer.attach", defaultValue: "Attach Photo"))
@@ -318,7 +318,7 @@ struct TerminalComposerView: View {
                     // transcript; the mic toggle and send stay live (send
                     // hard-cancels dictation -> idle, re-enabling the field).
                     .disabled(dictation.locksComposerField)
-                    .foregroundStyle(TerminalPalette.foreground)
+                    .foregroundStyle(terminalPalette.foreground)
                     // 6pt container padding + 3pt here keeps the text's 9pt inset
                     // from the round-7 layout, and bottom-aligns the single-line text
                     // with the inline button's circle.
@@ -330,13 +330,13 @@ struct TerminalComposerView: View {
                     } label: {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(canSend ? .white : TerminalPalette.foreground.opacity(0.35))
+                            .foregroundStyle(canSend ? .white : terminalPalette.foreground.opacity(0.35))
                             .frame(width: inlineSendDiameter, height: inlineSendDiameter)
                             .background(
                                 Circle().fill(
                                     canSend
                                         ? AnyShapeStyle(Color.accentColor)
-                                        : AnyShapeStyle(TerminalPalette.foreground.opacity(0.12))
+                                        : AnyShapeStyle(terminalPalette.foreground.opacity(0.12))
                                 )
                             )
                     }
@@ -385,7 +385,7 @@ struct TerminalComposerView: View {
                 .symbolEffect(.pulse, isActive: listening)
         }
         .buttonStyle(.plain)
-        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(TerminalPalette.foreground.opacity(0.7)))
+        .foregroundStyle(listening ? AnyShapeStyle(Color.red) : AnyShapeStyle(terminalPalette.foreground.opacity(0.7)))
         .mobileGlassCircle()
         .disabled(!dictation.isAvailable)
         .accessibilityIdentifier("MobileComposerMic")
@@ -790,7 +790,7 @@ private struct AttachmentChip: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(TerminalPalette.foreground.opacity(0.15), lineWidth: 1)
+                        .strokeBorder(terminalPalette.foreground.opacity(0.15), lineWidth: 1)
                 )
 
             Button(action: onRemove) {
@@ -814,10 +814,10 @@ private struct AttachmentChip: View {
                 .scaledToFill()
         } else {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(TerminalPalette.foreground.opacity(0.12))
+                .fill(terminalPalette.foreground.opacity(0.12))
                 .overlay(
                     Image(systemName: "photo")
-                        .foregroundStyle(TerminalPalette.foreground.opacity(0.5))
+                        .foregroundStyle(terminalPalette.foreground.opacity(0.5))
                 )
         }
     }

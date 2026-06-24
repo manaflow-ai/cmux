@@ -2,7 +2,6 @@
 import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileTerminal
-import Foundation
 import SwiftUI
 import UIKit
 
@@ -17,113 +16,6 @@ import UIKit
 /// capped to `TerminalTextSnapshot.defaultLineBudget` lines, with a banner
 /// when older lines were dropped.
 struct TerminalTextSheetView: View {
-    private enum CaptureOutcome {
-        case loaded(String?)
-        case timedOut
-    }
-
-    private final class CaptureRaceState: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<CaptureOutcome, Never>?
-        private var waiter: Task<Void, Never>?
-        private var timer: Task<Void, Never>?
-        private var finished = false
-        private var completedOutcome: CaptureOutcome?
-
-        func setContinuation(_ continuation: CheckedContinuation<CaptureOutcome, Never>) {
-            let completedOutcome: CaptureOutcome?
-            lock.lock()
-            if finished {
-                completedOutcome = self.completedOutcome ?? .timedOut
-            } else {
-                self.continuation = continuation
-                completedOutcome = nil
-            }
-            lock.unlock()
-            if let completedOutcome {
-                continuation.resume(returning: completedOutcome)
-            }
-        }
-
-        func start(capture: Task<String?, Never>, timeout: Duration) {
-            let waiter = Task.detached(priority: .userInitiated) { [weak self] in
-                let text = await capture.value
-                self?.finish(.loaded(text))
-            }
-            setWaiter(waiter)
-
-            let timer = Task.detached(priority: .userInitiated) { [weak self] in
-                do {
-                    try await ContinuousClock().sleep(for: timeout)
-                } catch {
-                    return
-                }
-                capture.cancel()
-                self?.finish(.timedOut)
-            }
-            setTimer(timer)
-        }
-
-        func cancel(capture: Task<String?, Never>) {
-            capture.cancel()
-            finish(.timedOut)
-        }
-
-        private func finish(_ outcome: CaptureOutcome) {
-            let continuation: CheckedContinuation<CaptureOutcome, Never>?
-            let waiter: Task<Void, Never>?
-            let timer: Task<Void, Never>?
-            lock.lock()
-            guard !finished else {
-                lock.unlock()
-                return
-            }
-            finished = true
-            completedOutcome = outcome
-            continuation = self.continuation
-            self.continuation = nil
-            waiter = self.waiter
-            self.waiter = nil
-            timer = self.timer
-            self.timer = nil
-            lock.unlock()
-
-            waiter?.cancel()
-            timer?.cancel()
-            continuation?.resume(returning: outcome)
-        }
-
-        private func setWaiter(_ waiter: Task<Void, Never>) {
-            let shouldCancel: Bool
-            lock.lock()
-            if finished {
-                shouldCancel = true
-            } else {
-                self.waiter = waiter
-                shouldCancel = false
-            }
-            lock.unlock()
-            if shouldCancel {
-                waiter.cancel()
-            }
-        }
-
-        private func setTimer(_ timer: Task<Void, Never>) {
-            let shouldCancel: Bool
-            lock.lock()
-            if finished {
-                shouldCancel = true
-            } else {
-                self.timer = timer
-                shouldCancel = false
-            }
-            lock.unlock()
-            if shouldCancel {
-                timer.cancel()
-            }
-        }
-    }
-
     private static let captureTimeout: Duration = .seconds(3)
 
     /// The shell-level surface/terminal id whose text the sheet shows — the
@@ -254,10 +146,7 @@ struct TerminalTextSheetView: View {
         let outcome = await awaitCapture(captureTask)
         guard !Task.isCancelled else { return }
         let fullText: String?
-        switch outcome {
-        case .loaded(let text):
-            fullText = text
-        case .timedOut:
+        if outcome.timedOut {
             errorMessage = L10n.string(
                 "mobile.textSheet.timeout",
                 defaultValue: "Terminal text took too long to load. Close this sheet and try again."
@@ -265,6 +154,7 @@ struct TerminalTextSheetView: View {
             isLoading = false
             return
         }
+        fullText = outcome.text
         // Cap off the main actor: the capture is bounded by the iOS surface's
         // scrollback-limit (~2MB, see applyiOSDefaults), but splitting and
         // rejoining even that much text is O(content) string work that would
@@ -276,15 +166,34 @@ struct TerminalTextSheetView: View {
         isLoading = false
     }
 
-    private func awaitCapture(_ capture: Task<String?, Never>) async -> CaptureOutcome {
-        let state = CaptureRaceState()
+    private func awaitCapture(_ capture: Task<String?, Never>) async -> (timedOut: Bool, text: String?) {
+        let state = TerminalTextCaptureRaceState()
         await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
-                state.setContinuation(continuation)
-                state.start(capture: capture, timeout: Self.captureTimeout)
+                let waiter = Task.detached(priority: .userInitiated) {
+                    let text = await capture.value
+                    await state.finish(timedOut: false, text: text)
+                }
+                let timer = Task.detached(priority: .userInitiated) {
+                    do {
+                        try await ContinuousClock().sleep(for: Self.captureTimeout)
+                    } catch {
+                        return
+                    }
+                    capture.cancel()
+                    await state.finish(timedOut: true, text: nil)
+                }
+                Task {
+                    await state.install(continuation: continuation)
+                    await state.setWaiter(waiter)
+                    await state.setTimer(timer)
+                }
             }
         }, onCancel: {
-            state.cancel(capture: capture)
+            capture.cancel()
+            Task {
+                await state.cancel()
+            }
         })
     }
 
