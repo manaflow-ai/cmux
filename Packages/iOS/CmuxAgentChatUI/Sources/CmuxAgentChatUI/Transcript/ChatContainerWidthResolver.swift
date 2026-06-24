@@ -23,6 +23,8 @@ enum ChatContainerWidthResolver {
         screenWidth: CGFloat?
     ) -> CGFloat {
         if boundsWidth > 0 { return boundsWidth }
+        if let windowWidth, windowWidth > 0 { return windowWidth }
+        if let screenWidth, screenWidth > 0 { return screenWidth }
         return 0
     }
 }
