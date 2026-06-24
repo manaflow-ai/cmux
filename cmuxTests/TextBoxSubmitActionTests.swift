@@ -118,7 +118,10 @@ struct TextBoxSubmitActionTests {
             }
         )
 
-        XCTAssertEqual(launchCommandsByID["claude"], "claude --dangerously-skip-permissions")
+        XCTAssertEqual(
+            launchCommandsByID["claude"],
+            "env CLAUDE_CODE_SANDBOXED=1 claude --dangerously-skip-permissions --permission-mode bypassPermissions"
+        )
         XCTAssertEqual(launchCommandsByID["codex"], "codex --dangerously-bypass-approvals-and-sandbox")
         XCTAssertEqual(launchCommandsByID["opencode"], "opencode")
         XCTAssertEqual(launchCommandsByID["pi"], "pi")

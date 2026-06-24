@@ -46,7 +46,7 @@ struct TextBoxSubmitAction: Codable, Equatable, Identifiable, Sendable {
             id: "claude",
             title: "Claude Dangerous",
             kind: .commandTemplate,
-            commandTemplate: "claude --dangerously-skip-permissions",
+            commandTemplate: "env CLAUDE_CODE_SANDBOXED=1 claude --dangerously-skip-permissions --permission-mode bypassPermissions",
             preservePromptAfterLaunch: true,
             systemImage: "sparkle",
             assetName: "AgentIcons/Claude",
