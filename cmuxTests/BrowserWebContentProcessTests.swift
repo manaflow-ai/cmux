@@ -69,6 +69,41 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func browserPanelInstallsWebAuthnBridgeAndNativeHandler() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+        defer { panel.close() }
+        let webView = panel.webView
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>passkey native handler probe</body></html>
+            """,
+            in: webView,
+            baseURL: URL(string: "https://example.com/")!
+        )
+
+        let result = try await webView.evaluateJavaScript(
+            """
+            ({
+              bridge: window.__cmuxWebAuthnBridgeInstalled === true,
+              handler: !!(
+                window.webkit &&
+                window.webkit.messageHandlers &&
+                window.webkit.messageHandlers.cmuxWebAuthn &&
+                typeof window.webkit.messageHandlers.cmuxWebAuthn.postMessage === "function"
+              )
+            })
+            """
+        ) as? [String: Bool]
+        #expect(result?["bridge"] == true)
+        #expect(result?["handler"] == true)
+    }
+
+    @Test
     func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
         let panel = BrowserPanel(
             workspaceId: UUID(),

@@ -3033,9 +3033,9 @@ final class BrowserPanel: Panel, ObservableObject {
     private var navigationDelegate: BrowserNavigationDelegate?
     private var uiDelegate: BrowserUIDelegate?
     private var downloadDelegate: BrowserDownloadDelegate?
+    private let webAuthnCoordinator = BrowserWebAuthnCoordinator()
     private var webViewObservers: [NSKeyValueObservation] = []
     private var activeDownloadCount: Int = 0
-
     // Avoid flickering the loading indicator for very fast navigations.
     private let minLoadingIndicatorDuration: TimeInterval = 0.35
     private var loadingStartedAt: Date?
@@ -3686,7 +3686,6 @@ final class BrowserPanel: Panel, ObservableObject {
                 forMainFrameOnly: false
             )
         )
-        // WebAuthn can originate from same-origin child frames.
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserWebAuthnBridgeContract.scriptSource,
@@ -3756,6 +3755,7 @@ final class BrowserPanel: Panel, ObservableObject {
         setupObservers(for: webView)
         setupReactGrabMessageHandler(for: webView)
         setupMediaPlaybackMessageHandler(for: webView)
+        webAuthnCoordinator.install(on: webView)
         applyMuteState(to: webView, reason: "bindWebView")
     }
 
