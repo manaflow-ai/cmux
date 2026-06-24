@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import UniformTypeIdentifiers
+import WebKit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -36,6 +37,18 @@ import UniformTypeIdentifiers
             mimeType: "application/pdf",
             contentDisposition: "ATTACHMENT; filename=report.pdf"
         ))
+    }
+
+    @MainActor
+    @Test func scriptedDownloadInterceptionRunsInSubframes() throws {
+        let webView = CmuxWebView(frame: .zero, configuration: WKWebViewConfiguration())
+
+        let script = try #require(
+            webView.configuration.userContentController.userScripts.first {
+                $0.source.contains("cmuxScriptedDownload")
+            }
+        )
+        #expect(script.isForMainFrameOnly == false)
     }
 
     @Test func rejectsNonSuccessHTTPStatusBeforeSavePanelNaming() throws {
