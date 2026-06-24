@@ -1,11 +1,13 @@
 import CmuxSessionIndex
-import SwiftUI
+import Foundation
 
 // The transcript data value types (`SessionTranscriptRole`, `SessionTranscriptTurn`,
-// `SessionTranscriptDisplayRow`) now live in CmuxSessionIndex/Transcript. The
-// SwiftUI/localization accessors stay app-side: `String(localized:)` must resolve
-// against the app bundle (the package bundle lacks the keys), and Color/Font are
-// SwiftUI presentation, not data.
+// `SessionTranscriptDisplayRow`) live in CmuxSessionIndex/Transcript, and the role's
+// SwiftUI Color/Font presentation now lives in CmuxSessionIndexUI/Transcript
+// (`SessionTranscriptRole+Presentation`). Only the localized `label` stays app-side:
+// `String(localized:)` must resolve against the app bundle (the package bundle lacks
+// the keys). The transcript preview view resolves it via
+// `SessionTranscriptPreviewStrings.roleLabel`.
 extension SessionTranscriptRole {
     var label: String {
         switch self {
@@ -19,35 +21,6 @@ extension SessionTranscriptRole {
             return String(localized: "sessionIndex.preview.role.tool", defaultValue: "Tool")
         case .event:
             return String(localized: "sessionIndex.preview.role.event", defaultValue: "Event")
-        }
-    }
-
-    var foregroundColor: Color {
-        switch self {
-        case .user: return .accentColor
-        case .assistant: return .green
-        case .system: return .secondary
-        case .tool: return .orange
-        case .event: return .secondary
-        }
-    }
-
-    var backgroundColor: Color {
-        switch self {
-        case .user: return Color.accentColor.opacity(0.035)
-        case .assistant: return Color.green.opacity(0.035)
-        case .system: return Color.primary.opacity(0.025)
-        case .tool: return Color.orange.opacity(0.035)
-        case .event: return Color.primary.opacity(0.02)
-        }
-    }
-
-    var bodyFont: Font {
-        switch self {
-        case .tool, .system:
-            return .system(size: 11, design: .monospaced)
-        case .user, .assistant, .event:
-            return .system(size: 12)
         }
     }
 }
