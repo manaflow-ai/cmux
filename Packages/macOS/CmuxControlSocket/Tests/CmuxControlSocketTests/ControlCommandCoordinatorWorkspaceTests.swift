@@ -93,6 +93,31 @@ struct ControlCommandCoordinatorWorkspaceTests {
         #expect(payload["window_id"] == .string(windowID.uuidString))
     }
 
+    @Test func workspaceCloseLastWorkspaceReportsGenericBlockedReason() throws {
+        let (coordinator, context) = coordinator()
+        let workspaceID = UUID()
+        let windowID = UUID()
+        context.closeResolution = .blocked(
+            windowID: windowID,
+            pinned: false,
+            reason: "last_workspace"
+        )
+
+        guard case .err(let code, let message, .object(let payload)) = coordinator.handle(request("workspace.close", [
+            "workspace_id": .string(workspaceID.uuidString),
+        ])) else {
+            Issue.record("unexpected workspace.close result")
+            return
+        }
+
+        #expect(code == "protected")
+        #expect(message == "close blocked")
+        #expect(payload["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(payload["window_id"] == .string(windowID.uuidString))
+        #expect(payload["pinned"] == .bool(false))
+        #expect(payload["reason"] == .string("last_workspace"))
+    }
+
     @Test func workspaceGroupAddForwardsPlacementAndReference() throws {
         let (coordinator, context) = coordinator()
         let groupID = UUID()

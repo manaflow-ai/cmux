@@ -214,6 +214,16 @@ extension ControlCommandCoordinator {
                 "workspace_ref": ref(.workspace, workspaceID),
                 "pinned": .bool(true),
             ]))
+        case .blocked(let windowID, let pinned, let reason):
+            let message = context?.controlWorkspaceStrings().closeBlocked ?? ""
+            return .err(code: "protected", message: message, data: .object([
+                "window_id": orNull(windowID?.uuidString),
+                "window_ref": ref(.window, windowID),
+                "workspace_id": .string(workspaceID.uuidString),
+                "workspace_ref": ref(.workspace, workspaceID),
+                "pinned": .bool(pinned),
+                "reason": .string(reason),
+            ]))
         case .notFound:
             return .err(code: "not_found", message: "Workspace not found", data: .object([
                 "workspace_id": .string(workspaceID.uuidString),

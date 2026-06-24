@@ -11,6 +11,9 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     /// `workspace.closeProtected.message` — the `workspace.close` protected-pin
     /// error.
     public let closeProtected: String
+    /// `workspace.closeBlocked.message` — the generic `workspace.close` blocked
+    /// error.
+    public let closeBlocked: String
     /// `socket.workspace.reorderMany.missingOrder`.
     public let reorderManyMissingOrder: String
     /// `socket.workspace.reorderMany.duplicateWorkspace`.
@@ -26,6 +29,7 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - closeProtected: The `workspace.close` protected-pin message.
+    ///   - closeBlocked: The generic close-blocked message.
     ///   - reorderManyMissingOrder: The missing-order message.
     ///   - reorderManyDuplicateWorkspace: The duplicate-workspace message.
     ///   - reorderManyWorkspaceNotFound: The workspace-not-found message.
@@ -33,6 +37,7 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
     ///   - reorderManyTabManagerUnavailable: The TabManager-unavailable message.
     public init(
         closeProtected: String,
+        closeBlocked: String,
         reorderManyMissingOrder: String,
         reorderManyDuplicateWorkspace: String,
         reorderManyWorkspaceNotFound: String,
@@ -40,6 +45,7 @@ public struct ControlWorkspaceStrings: Sendable, Equatable {
         reorderManyTabManagerUnavailable: String
     ) {
         self.closeProtected = closeProtected
+        self.closeBlocked = closeBlocked
         self.reorderManyMissingOrder = reorderManyMissingOrder
         self.reorderManyDuplicateWorkspace = reorderManyDuplicateWorkspace
         self.reorderManyWorkspaceNotFound = reorderManyWorkspaceNotFound

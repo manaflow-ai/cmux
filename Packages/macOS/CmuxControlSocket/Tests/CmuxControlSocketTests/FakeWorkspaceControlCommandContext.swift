@@ -30,6 +30,7 @@ final class FakeWorkspaceControlCommandContext: ControlCommandContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
             closeProtected: "close protected",
+            closeBlocked: "close blocked",
             reorderManyMissingOrder: "missing order",
             reorderManyDuplicateWorkspace: "duplicate workspace",
             reorderManyWorkspaceNotFound: "workspace not found",

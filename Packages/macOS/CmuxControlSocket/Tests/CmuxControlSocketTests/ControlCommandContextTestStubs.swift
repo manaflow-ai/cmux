@@ -217,6 +217,7 @@ extension ControlWorkspaceContext {
     func controlWorkspaceStrings() -> ControlWorkspaceStrings {
         ControlWorkspaceStrings(
             closeProtected: "",
+            closeBlocked: "",
             reorderManyMissingOrder: "",
             reorderManyDuplicateWorkspace: "",
             reorderManyWorkspaceNotFound: "",
