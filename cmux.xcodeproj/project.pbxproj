@@ -367,6 +367,8 @@
 		C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */; };
 		D10000000000000000B00000 /* ControlSocketReadinessUITestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */; };
 		C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */; };
+		54D4198D349A949AF50E793B /* CrashRecoveryLaunchState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96A948C14DA51FAAF0E6596A /* CrashRecoveryLaunchState.swift */; };
+		DDF34D69196B3BC3753035E6 /* CrashRecoveryLaunchStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */; };
 		401CA4D5371A9ACA3079CDBE /* CrashRecoverySettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1872ACD1B808CE02613B82 /* CrashRecoverySettings.swift */; };
 		8AEF933F4B391A4A21B130F6 /* CrashRecoverySettingsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */; };
 		C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */; };
@@ -663,6 +665,8 @@
 		A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */; };
 		A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		BD6B25D696FCD07FC1534819 /* RelaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4E7D89337AE3739F8CC529C /* RelaunchIntent.swift */; };
+		2A50C77F8AE56D51BBF15489 /* RelaunchIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
 		A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */; };
 		EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */; };
@@ -1458,6 +1462,8 @@
 		C0DE32470000000000000002 /* ContentViewIdentifierCopyCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewIdentifierCopyCommands.swift; sourceTree = "<group>"; };
 		D10000000000000000B00001 /* ControlSocketReadinessUITestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlSocketReadinessUITestSupport.swift; sourceTree = "<group>"; };
 		C65930010000000000000001 /* CrashDiagnosticSessionPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CrashDiagnosticSessionPolicyTests.swift; sourceTree = "<group>"; };
+		96A948C14DA51FAAF0E6596A /* CrashRecoveryLaunchState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryLaunchState.swift; path = "Sources/CrashRecovery/CrashRecoveryLaunchState.swift"; sourceTree = SOURCE_ROOT; };
+		C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoveryLaunchStateTests.swift; path = "cmuxTests/CrashRecoveryLaunchStateTests.swift"; sourceTree = SOURCE_ROOT; };
 		5D1872ACD1B808CE02613B82 /* CrashRecoverySettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoverySettings.swift; path = "Sources/CrashRecovery/CrashRecoverySettings.swift"; sourceTree = SOURCE_ROOT; };
 		2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CrashRecoverySettingsTests.swift; path = "cmuxTests/CrashRecoverySettingsTests.swift"; sourceTree = SOURCE_ROOT; };
 		C57B00080000000000000002 /* CustomSidebarPaneDataContextCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CustomSidebarPaneDataContextCache.swift; sourceTree = "<group>"; };
@@ -1751,6 +1757,8 @@
 		A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenter.swift; sourceTree = "<group>"; };
 		A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenterTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		E4E7D89337AE3739F8CC529C /* RelaunchIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RelaunchIntent.swift; path = "Sources/CrashRecovery/RelaunchIntent.swift"; sourceTree = SOURCE_ROOT; };
+		02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RelaunchIntentTests.swift; path = "cmuxTests/RelaunchIntentTests.swift"; sourceTree = SOURCE_ROOT; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
 		A6D1F0400000000000000001 /* ReleasingWindowControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleasingWindowControllerTests.swift; sourceTree = "<group>"; };
 		EE30D5000000000000000001 /* RemoteDaemonStrings+App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RemoteDaemonStrings+App.swift"; sourceTree = "<group>"; };
@@ -2417,6 +2425,8 @@
 		A5001041 /* Sources */ = {
 			isa = PBXGroup;
 			children = (
+				96A948C14DA51FAAF0E6596A /* CrashRecoveryLaunchState.swift */,
+				E4E7D89337AE3739F8CC529C /* RelaunchIntent.swift */,
 				29FD9235BEB64D42F501EBF4 /* WorkspaceResumePlanner.swift */,
 				5D1872ACD1B808CE02613B82 /* CrashRecoverySettings.swift */,
 				5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */,
@@ -3063,6 +3073,8 @@
 		F1000003A1B2C3D4E5F60718 /* cmuxTests */ = {
 			isa = PBXGroup;
 			children = (
+				C75CA53DAFF1FEF4E27AB889 /* CrashRecoveryLaunchStateTests.swift */,
+				02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */,
 				F7E2BA4F69E754EDCCF3D69F /* WorkspaceResumePlannerTests.swift */,
 				2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */,
 				21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */,
@@ -3940,6 +3952,7 @@
 				C3408A000000000000000005 /* ContentView+ViewCommandPalette.swift in Sources */,
 				A5001002 /* ContentView.swift in Sources */,
 				C0DE32470000000000000001 /* ContentViewIdentifierCopyCommands.swift in Sources */,
+				54D4198D349A949AF50E793B /* CrashRecoveryLaunchState.swift in Sources */,
 				401CA4D5371A9ACA3079CDBE /* CrashRecoverySettings.swift in Sources */,
 				C57B00080000000000000001 /* CustomSidebarPaneDataContextCache.swift in Sources */,
 				C57B00010000000000000001 /* CustomSidebarPanel.swift in Sources */,
@@ -4134,6 +4147,7 @@
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 					A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
+				BD6B25D696FCD07FC1534819 /* RelaunchIntent.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
 				E30780000000000000000016 /* RemoteDropUploadError+LocalizedError.swift in Sources */,
@@ -4599,6 +4613,7 @@
 				C0DEF4120000000000000001 /* CommandPaletteSettingsToggleTests.swift in Sources */,
 				C1713006C1713006C1713006 /* CommandPaletteShortcutCustomizationTests.swift in Sources */,
 				C65930010000000000000002 /* CrashDiagnosticSessionPolicyTests.swift in Sources */,
+				DDF34D69196B3BC3753035E6 /* CrashRecoveryLaunchStateTests.swift in Sources */,
 				8AEF933F4B391A4A21B130F6 /* CrashRecoverySettingsTests.swift in Sources */,
 				DEBDADADADADADADAD000003 /* DebugDogfoodCredentialResolverTests.swift in Sources */,
 				B0555303B0555303B0555303 /* DetachedFolderPathLookupCacheTests.swift in Sources */,
@@ -4681,6 +4696,7 @@
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
+				2A50C77F8AE56D51BBF15489 /* RelaunchIntentTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,
 				0A17C0DE0A17C0DE0A17C004 /* RemoteTmuxAuthTests.swift in Sources */,

@@ -1283,6 +1283,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
+        // Crash recovery: classify how the prior run ended (crash vs. clean vs.
+        // intentional update relaunch) BEFORE arming this run's sentinel. Skipped
+        // under XCTest so the test host never touches the real lifecycle markers.
+        if !isRunningUnderXCTest {
+            CrashRecoveryLaunchState.shared.captureAtLaunch()
+        }
+
         // Prewarm the shared restorable-agent index off the main thread so the first
         // tab/workspace/window close after launch reads a warm cache instead of paying a
         // synchronous RestorableAgentSessionIndex.load() on the main thread. See
@@ -1984,6 +1991,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        // Clean shutdown: clear the unclean-shutdown sentinel so the next launch
+        // does not show the crash-recovery offer. (Intentional update relaunches
+        // mark this earlier via updaterWillRelaunchApplication.)
+        CrashRecoveryLaunchState.markCleanExit()
         sentryStopMemoryContextRefresh()
         isTerminatingApp = true
         // Plain quit detaches local ssh clients; explicit close already killed marked sessions.
@@ -17718,6 +17729,10 @@ extension AppDelegate: UpdateActionDelegate, UpdateActionsHost {
     }
 
     func updaterWillRelaunchApplication() {
+        // Intentional relaunch: mark clean exit + restore-intent so the next launch
+        // restores all windows (the "Update & reload all windows" guarantee) and
+        // never misreads the update as a crash.
+        CrashRecoveryLaunchState.markIntentionalRelaunch(reason: "sparkle-update")
         persistSessionForUpdateRelaunch()
         TerminalController.shared.stop()
         NSApp.invalidateRestorableState()
