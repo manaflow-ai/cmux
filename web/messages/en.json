@@ -40,7 +40,8 @@
     "toggleTheme": "Toggle theme",
     "backToBlog": "Back to blog",
     "readTheDocs": "Read the Docs",
-    "viewChangelog": "View Changelog"
+    "viewChangelog": "View Changelog",
+    "otherPlatforms": "Other platforms"
   },
   "nav": {
     "docs": "Docs",
@@ -134,7 +135,7 @@
     "faqFeatureQ": "I have a feature request or found a bug",
     "faqFeatureA": "We want to hear it. Open an <issuesLink>issue</issuesLink> or <prLink>pull request</prLink> on GitHub, or <mailLink>email us</mailLink>.",
     "faqIosQ": "Is there an iOS app?",
-    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA.",
+    "faqIosA": "Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqSupportQ": "How can I support cmux?",
     "faqSupportA": "cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out <foundersLink>cmux Founders Edition</foundersLink>.",
     "faqBrowserQ": "What can the built-in browser do?",
@@ -1039,7 +1040,7 @@
           "defaultLayout": "Default layout for newly opened diff viewers. The toolbar layout toggle persists the user's last choice; an explicit `cmux diff --layout` option overrides both."
         },
         "shortcuts": {
-          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "when": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "showModifierHoldHints": "Show shortcut-hint chips while holding Cmd or Control."
         }
       },
@@ -1889,6 +1890,33 @@
     "metaDescription": "Your cmux download is starting. Explore the docs, join the Discord, and follow cmux on X.",
     "heading": "Thanks for downloading cmux!",
     "subtext": "Click <link>here</link> if your download hasn't started."
+  },
+  "platforms": {
+    "macos": "macOS",
+    "ios": "iOS",
+    "linux": "Linux",
+    "android": "Android",
+    "windows": "Windows"
+  },
+  "waitlist": {
+    "title": "Join the {platform} waitlist",
+    "titleAny": "Join the waitlist",
+    "description": "{platform} support is on the way. Leave your email and we'll let you know the moment it's ready.",
+    "descriptionAny": "cmux is macOS-first today. Leave your email and we'll tell you the moment Linux, Windows, or Android is ready.",
+    "calloutText": "Coming to Linux, Windows, and Android.",
+    "platformsLabel": "Which platforms?",
+    "selectPlatform": "Pick at least one platform.",
+    "emailLabel": "Email",
+    "emailPlaceholder": "you@example.com",
+    "join": "Join waitlist",
+    "joining": "Joining…",
+    "cancel": "Cancel",
+    "invalidEmail": "Enter a valid email address.",
+    "sendError": "Couldn't send. Please try again.",
+    "successTitle": "You're on the list",
+    "successBody": "We'll email you when the {platform} build is ready.",
+    "successBodyAny": "We'll email you when cmux is ready on your platform.",
+    "done": "Done"
   },
   "legal": {
     "privacyPolicy": "Privacy Policy",
