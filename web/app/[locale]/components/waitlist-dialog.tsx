@@ -72,6 +72,28 @@ async function recordWaitlistSignup(
   }
 }
 
+/**
+ * Pings our Slack channel about a signup via the `/api/waitlist` route.
+ * Best-effort: the durable record is the PostHog capture above, so a failed
+ * notification never blocks or fails the signup.
+ */
+async function notifyWaitlistSlack(
+  email: string,
+  platforms: WaitlistPlatform[],
+  location: string,
+): Promise<void> {
+  try {
+    await fetch("/api/waitlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ email, platforms, location }),
+    });
+  } catch {
+    // Notification only; ignore failures.
+  }
+}
+
 export function WaitlistDialog({
   target,
   open,
@@ -172,6 +194,11 @@ function WaitlistBody({
         timerRef.current = setTimeout(resolve, SUBMIT_DELAY_MS);
       }),
     ]);
+    // Ping Slack only after the signup was durably recorded, so the channel
+    // never reports a signup that actually failed. Best-effort, not awaited.
+    if (ok) {
+      void notifyWaitlistSlack(trimmed, platforms, location);
+    }
     setStatus(ok ? "done" : "sendError");
   };
 

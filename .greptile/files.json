@@ -173,6 +173,14 @@
       ]
     },
     {
+      "path": ".github/review-bot-rules/react-base-ui-accessibility.md",
+      "description": "Source-of-truth cmux review rule requiring relevant Base UI or local React primitives for custom interactive UI accessibility and keyboard behavior.",
+      "scope": [
+        "web/**/*.tsx",
+        "web/**/*.jsx"
+      ]
+    },
+    {
       "path": ".github/review-bot-rules/source-control-artifacts.md",
       "description": "Source-of-truth cmux review rule for local/generated artifacts that should not enter source control.",
       "scope": [
