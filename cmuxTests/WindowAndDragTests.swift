@@ -33,6 +33,7 @@ import struct CmuxPanes.FileExternalOpenStrings
 import enum CmuxPanes.FilePreviewPDFChromeStyleVariant
 import class CmuxPanes.FilePreviewPDFChromeHostView
 import class CmuxPanes.FilePreviewPDFChromeHostingView
+import class CmuxPanes.FilePreviewPDFContainerView
 import class CmuxPanes.FilePreviewPDFThumbnailSidebarView
 import struct CmuxPanes.FilePreviewPDFSizing
 
@@ -2664,7 +2665,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginUsesVisibleClipWidth() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = CGPoint.filePreviewClampedClipOrigin(
             documentPoint: CGPoint(x: 500, y: 700),
             anchorOffsetInClip: CGPoint(x: 200, y: 300),
             documentBounds: CGRect(x: 0, y: 0, width: 1_000, height: 1_400),
@@ -2676,7 +2677,7 @@ final class FilePreviewPDFChromeTests: XCTestCase {
     }
 
     func testPDFViewportOriginCentersSmallerDocuments() {
-        let origin = FilePreviewViewport.clampedClipOrigin(
+        let origin = CGPoint.filePreviewClampedClipOrigin(
             documentPoint: CGPoint(x: 54, y: 224.5),
             anchorOffsetInClip: CGPoint(x: 300, y: 400),
             documentBounds: CGRect(x: 0, y: 0, width: 108, height: 449),

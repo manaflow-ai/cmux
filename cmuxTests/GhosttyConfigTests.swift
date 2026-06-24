@@ -2125,8 +2125,8 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
         request.setValue("keep-me", forHTTPHeaderField: "X-Cmux-Test")
 
         let seed = try XCTUnwrap(
-            browserNewTabNavigationSeed(
-                from: request,
+            BrowserNewTabNavigationSeed(
+                request: request,
                 bypassInsecureHTTPHostOnce: "www.linkedin.com"
             )
         )

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 
 @MainActor
 final class FilePreviewPDFSession {
@@ -59,7 +60,8 @@ final class FilePreviewPDFSession {
     ) {
         view.isHidden = !isVisibleInUI
         view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
-        view.setPanel(panel)
+        view.setExternalOpenStrings(.live)
+        view.setFocusSeam(panel)
         view.setURL(panel.fileURL)
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import Foundation
 import Quartz
 
@@ -111,8 +112,7 @@ final class FilePreviewQuickLookSession {
             panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
             previewView.previewItem = previewItem(for: panel.fileURL, title: panel.displayTitle)
         }
-        FilePreviewNativeBackground.applyRootLayer(
-            to: view,
+        view.applyFilePreviewRootLayerBackground(
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
         )

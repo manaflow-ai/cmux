@@ -71,13 +71,13 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
 
         let scrollView = try XCTUnwrap(findScrollView(in: pdfView))
         let resolvedPage = try XCTUnwrap(
-            FilePreviewPDFVisiblePageResolver.topVisiblePage(in: pdfView, scrollView: scrollView)
+            pdfView.filePreviewTopVisiblePage(scrollView: scrollView)
         )
         XCTAssertEqual(document.index(for: resolvedPage), targetPageIndex)
     }
 
     func testVisiblePageResolverSelectsLastPageAtDocumentBottom() {
-        let pageIndex = FilePreviewPDFVisiblePageResolver.verticalDocumentEdgePageIndex(
+        let pageIndex = PDFView.filePreviewVerticalDocumentEdgePageIndex(
             pageCount: 8,
             clipBounds: CGRect(x: 0, y: 1500, width: 500, height: 500),
             documentBounds: CGRect(x: 0, y: 0, width: 500, height: 2000),
@@ -88,7 +88,7 @@ final class FilePreviewPDFThumbnailSidebarTests: XCTestCase {
     }
 
     func testVisiblePageResolverSelectsLastPageAtNonFlippedDocumentBottom() {
-        let pageIndex = FilePreviewPDFVisiblePageResolver.verticalDocumentEdgePageIndex(
+        let pageIndex = PDFView.filePreviewVerticalDocumentEdgePageIndex(
             pageCount: 8,
             clipBounds: CGRect(x: 0, y: 0, width: 500, height: 500),
             documentBounds: CGRect(x: 0, y: 0, width: 500, height: 2000),

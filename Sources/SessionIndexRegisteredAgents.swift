@@ -30,14 +30,6 @@ extension SessionIndexStore {
         let fileURL: URL
     }
 
-    private struct GrokSessionMetadata {
-        var title: String = ""
-        var model: String?
-        var permissionMode: String?
-        var sandboxMode: String?
-        var branch: String?
-    }
-
     nonisolated static func loadGrokEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,
@@ -66,6 +58,7 @@ extension SessionIndexStore {
         )
         guard !roots.isEmpty else { return [] }
         let fm = fileManager
+        let historyParser = AgentHistoryRecordParser()
 
         var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool, root: GrokSessionRoot)] = []
         if !needle.isEmpty {
@@ -112,7 +105,7 @@ extension SessionIndexStore {
             scanned += 1
 
             if !needle.isEmpty && !candidate.prefilteredByRipgrep {
-                guard fileContains(candidate.url, needle: needle) else { continue }
+                guard historyParser.fileContains(candidate.url, needle: needle) else { continue }
             }
 
             let sessionDirectory = candidate.url.deletingLastPathComponent()
@@ -124,7 +117,7 @@ extension SessionIndexStore {
                 continue
             }
 
-            let metadata = extractGrokSessionMetadata(url: candidate.url)
+            let metadata = grokResolver.extractGrokSessionMetadata(url: candidate.url)
             let sessionId = sessionDirectory.lastPathComponent
             guard seenSessionIds.insert(sessionId).inserted else { continue }
             let specifics: AgentSpecifics
@@ -190,6 +183,7 @@ extension SessionIndexStore {
         let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
+        let historyParser = AgentHistoryRecordParser()
 
         var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool)] = []
         if !needle.isEmpty {
@@ -231,7 +225,7 @@ extension SessionIndexStore {
             scanned += 1
 
             if !needle.isEmpty && !candidate.prefilteredByRipgrep {
-                guard fileContains(candidate.url, needle: needle) else { continue }
+                guard historyParser.fileContains(candidate.url, needle: needle) else { continue }
             }
 
             let metadata = extractRegisteredJSONLMetadata(
@@ -269,6 +263,7 @@ extension SessionIndexStore {
 
         let fm = FileManager.default
         let fieldParser = AgentSessionFieldParser()
+        let historyParser = AgentHistoryRecordParser(fieldParser: fieldParser)
         var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
 
         for root in roots {
@@ -285,14 +280,14 @@ extension SessionIndexStore {
 
             ripgrepScanner.forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
                 if Task.isCancelled { return true }
-                guard let sessionId = fieldParser.firstString(in: object, keys: antigravitySessionIDKeys()) else {
+                guard let sessionId = fieldParser.firstString(in: object, keys: historyParser.antigravitySessionIDKeys()) else {
                     return false
                 }
-                let cwd = fieldParser.firstString(in: object, keys: registeredJSONLCWDKeys())
+                let cwd = fieldParser.firstString(in: object, keys: historyParser.registeredJSONLCWDKeys())
                 if let cwdFilter, cwd != cwdFilter { return false }
 
-                let title = antigravityHistoryTitle(in: object, fieldParser: fieldParser) ?? ""
-                guard antigravityHistoryMatchesNeedle(
+                let title = historyParser.antigravityHistoryTitle(in: object) ?? ""
+                guard historyParser.antigravityHistoryMatchesNeedle(
                     needle: needle,
                     sessionId: sessionId,
                     title: title,
@@ -301,7 +296,7 @@ extension SessionIndexStore {
                     return false
                 }
 
-                let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
+                let modified = historyParser.antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
                 let metadata = AntigravityHistoryMetadata(
                     sessionId: sessionId,
                     title: title,
@@ -423,51 +418,6 @@ extension SessionIndexStore {
         return candidates
     }
 
-    nonisolated private static func extractGrokSessionMetadata(url: URL) -> GrokSessionMetadata {
-        var metadata = GrokSessionMetadata()
-        let fieldParser = AgentSessionFieldParser()
-        var remainingBranchProbeLines: Int?
-        ripgrepScanner.forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
-            if metadata.title.isEmpty {
-                metadata.title = fieldParser.grokTitle(in: object) ?? ""
-            }
-            if metadata.model == nil {
-                metadata.model = fieldParser.firstString(in: object, keys: ["model", "modelId", "modelID", "model_id"])
-                    ?? fieldParser.firstString(
-                        in: object["message"] as? [String: Any] ?? [:],
-                        keys: ["model", "modelId", "modelID", "model_id"]
-                    )
-            }
-            if metadata.permissionMode == nil {
-                metadata.permissionMode = fieldParser.firstString(
-                    in: object,
-                    keys: ["permissionMode", "permission_mode", "approvalPolicy", "approval_policy"]
-                )
-            }
-            if metadata.sandboxMode == nil {
-                metadata.sandboxMode = fieldParser.firstString(
-                    in: object,
-                    keys: ["sandboxMode", "sandbox_mode", "sandbox"]
-                )
-            }
-            if metadata.branch == nil, let git = object["git"] as? [String: Any] {
-                metadata.branch = fieldParser.firstString(in: git, keys: ["branch", "gitBranch"])
-            }
-            if metadata.branch == nil {
-                metadata.branch = fieldParser.firstString(in: object, keys: ["gitBranch", "branch"])
-            }
-            let hasStableMetadata = !metadata.title.isEmpty
-                && metadata.model != nil
-                && metadata.permissionMode != nil
-                && metadata.sandboxMode != nil
-            guard hasStableMetadata else { return false }
-            guard metadata.branch == nil else { return true }
-            remainingBranchProbeLines = (remainingBranchProbeLines ?? 32) - 1
-            return (remainingBranchProbeLines ?? 0) <= 0
-        }
-        return metadata
-    }
-
     nonisolated private static func extractRegisteredJSONLMetadata(
         url: URL,
         registration: CmuxVaultAgentRegistration,
@@ -482,12 +432,13 @@ extension SessionIndexStore {
             needsNativeSessionID = false
         }
         let fieldParser = AgentSessionFieldParser()
+        let historyParser = AgentHistoryRecordParser(fieldParser: fieldParser)
         ripgrepScanner.forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
-                metadata.sessionId = fieldParser.firstString(in: object, keys: registeredJSONLSessionIDKeys())
+                metadata.sessionId = fieldParser.firstString(in: object, keys: historyParser.registeredJSONLSessionIDKeys())
             }
             if metadata.cwd == nil {
-                metadata.cwd = fieldParser.firstString(in: object, keys: registeredJSONLCWDKeys())
+                metadata.cwd = fieldParser.firstString(in: object, keys: historyParser.registeredJSONLCWDKeys())
             }
             if metadata.branch == nil, let git = object["git"] as? [String: Any] {
                 metadata.branch = fieldParser.firstString(in: git, keys: ["branch", "gitBranch"])
@@ -516,103 +467,8 @@ extension SessionIndexStore {
                 && (!needsNativeSessionID || metadata.sessionId != nil)
         }
         if case .piSessionFile = registration.sessionIdSource, metadata.cwd == nil {
-            metadata.cwd = fallbackCWD ?? piCWDInferred(from: url)
+            metadata.cwd = fallbackCWD ?? historyParser.piCWDInferred(from: url)
         }
         return metadata
-    }
-
-    nonisolated private static func registeredJSONLCWDKeys() -> [String] {
-        ["cwd", "workingDirectory", "workspacePath", "workspace", "projectPath", "directory"]
-    }
-
-    nonisolated private static func registeredJSONLSessionIDKeys() -> [String] {
-        ["sessionId", "session_id", "id"]
-    }
-
-    nonisolated private static func antigravitySessionIDKeys() -> [String] {
-        ["conversationId", "conversation_id", "sessionId", "session_id", "id"]
-    }
-
-    nonisolated private static func antigravityHistoryTitle(
-        in object: [String: Any],
-        fieldParser: AgentSessionFieldParser
-    ) -> String? {
-        fieldParser.firstText(in: object, keys: ["title", "prompt", "display"])
-            ?? fieldParser.firstTopLevelTitle(in: object)
-    }
-
-    nonisolated private static func antigravityHistoryMatchesNeedle(
-        needle: String,
-        sessionId: String,
-        title: String,
-        cwd: String?
-    ) -> Bool {
-        guard !needle.isEmpty else { return true }
-        return [sessionId, title, cwd ?? ""].contains { value in
-            value.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-        }
-    }
-
-    nonisolated private static func antigravityHistoryModifiedDate(
-        in object: [String: Any],
-        fallback: Date
-    ) -> Date {
-        guard let timestamp = antigravityNumericTimestamp(object["timestamp"]) else {
-            return fallback
-        }
-        let seconds = timestamp > 10_000_000_000 ? timestamp / 1_000 : timestamp
-        guard seconds.isFinite, seconds > 0 else { return fallback }
-        return Date(timeIntervalSince1970: seconds)
-    }
-
-    nonisolated private static func antigravityNumericTimestamp(_ value: Any?) -> Double? {
-        if let number = value as? NSNumber {
-            return number.doubleValue
-        }
-        if let string = value as? String {
-            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-        return nil
-    }
-
-    nonisolated private static func fileContains(_ url: URL, needle: String) -> Bool {
-        guard !needle.isEmpty,
-              let handle = try? FileHandle(forReadingFrom: url) else {
-            return false
-        }
-        defer { try? handle.close() }
-
-        let chunkSize = 64 * 1024
-        let overlapLimit = max(needle.utf8.count * 4, 4 * 1024)
-        var carry = Data()
-        while !Task.isCancelled {
-            let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
-            if chunk.isEmpty { break }
-
-            var buffer = carry
-            buffer.append(chunk)
-            let text = String(decoding: buffer, as: UTF8.self)
-            if text.range(of: needle, options: [.caseInsensitive, .literal]) != nil {
-                return true
-            }
-            carry = buffer.count > overlapLimit ? Data(buffer.suffix(overlapLimit)) : buffer
-        }
-        return false
-    }
-
-    nonisolated private static func piCWDInferred(from url: URL) -> String? {
-        let directoryName = url.deletingLastPathComponent().lastPathComponent
-        guard directoryName.hasPrefix("--"), directoryName.hasSuffix("--"), directoryName.count > 4 else {
-            return nil
-        }
-        let body = String(directoryName.dropFirst(2).dropLast(2))
-        guard !body.isEmpty else { return nil }
-        let candidate = "/" + body.replacingOccurrences(of: "-", with: "/")
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: candidate, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
-            return nil
-        }
-        return candidate
     }
 }

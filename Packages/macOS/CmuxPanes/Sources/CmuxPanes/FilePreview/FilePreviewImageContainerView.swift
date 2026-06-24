@@ -186,12 +186,11 @@ public final class FilePreviewImageContainerView: NSView {
     }
 
     private func applyBackgroundAppearance() {
-        let resolvedBackgroundColor = FilePreviewNativeBackground.resolvedColor(
+        let resolvedBackgroundColor = NSColor.filePreviewResolvedBackground(
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
         )
-        FilePreviewNativeBackground.applyRootLayer(
-            to: self,
+        applyFilePreviewRootLayerBackground(
             backgroundColor: previewBackgroundColor,
             drawsBackground: drawsPreviewBackground
         )
@@ -284,11 +283,11 @@ public final class FilePreviewImageContainerView: NSView {
         let oldImageFrame = documentView.imageView.frame
         let anchorInDocument = documentView.convert(anchorInClip, from: scrollView.contentView)
         let anchorRatio = CGPoint(
-            x: FilePreviewViewport.normalizedAnchorRatio(
+            x: CGFloat.filePreviewNormalizedAnchorRatio(
                 anchorInDocument.x - oldImageFrame.minX,
                 length: oldImageFrame.width
             ),
-            y: FilePreviewViewport.normalizedAnchorRatio(
+            y: CGFloat.filePreviewNormalizedAnchorRatio(
                 anchorInDocument.y - oldImageFrame.minY,
                 length: oldImageFrame.height
             )

@@ -2419,6 +2419,17 @@ private struct QuestionActionArea: View {
     @State private var customAnswerFocusKey: String?
     @State private var customAnswerFocusRequest = 0
 
+    /// Pure projections over the prompt set (answer composition,
+    /// long-form layout, plan detection). The view owns the live
+    /// `selections`/`freeTexts` state and passes them in per call.
+    private var interview: WorkstreamQuestionInterview {
+        WorkstreamQuestionInterview(
+            questions: questions,
+            source: source,
+            context: context
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if shouldRenderLongForm, let q = questions.first {
@@ -2445,12 +2456,7 @@ private struct QuestionActionArea: View {
     }
 
     private var shouldRenderLongForm: Bool {
-        // Long-form: single question whose options carry descriptions
-        // (e.g. Claude's AskUserQuestion with `header` + per-option
-        // detail). Multi-option list with a bigger rich-text card per
-        // option, click-to-select.
-        guard questions.count == 1, let q = questions.first else { return false }
-        return q.options.contains { $0.description?.isEmpty == false }
+        interview.shouldRenderLongForm
     }
 
     private var agentLabel: String {
@@ -2797,65 +2803,20 @@ private struct QuestionActionArea: View {
         }
     }
 
-    /// One answer string per question: the user's free-form text if
-    /// they typed any, otherwise the labels of the selected options
-    /// joined by ", ". Questions with no answer are omitted entirely
-    /// so the agent doesn't see "question 2: <empty>".
     private var composedAnswers: [String] {
-        var out: [String] = []
-        for q in questions {
-            let freeText = (freeTexts[q.id] ?? "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            let ids = selections[q.id] ?? []
-            if !freeText.isEmpty, ids.contains(Self.customAnswerSelectionId) {
-                out.append(freeText)
-                continue
-            }
-            guard !ids.isEmpty else { continue }
-            let labels = q.options
-                .filter { ids.contains($0.id) }
-                .map(\.label)
-            if !labels.isEmpty {
-                out.append(labels.joined(separator: ", "))
-            }
-        }
-        return out
+        interview.composedAnswers(selections: selections, freeTexts: freeTexts)
     }
 
-    private var hasAnyAnswer: Bool { !composedAnswers.isEmpty }
+    private var hasAnyAnswer: Bool {
+        interview.hasAnyAnswer(selections: selections, freeTexts: freeTexts)
+    }
 
     private var canSubmitEmptyAnswer: Bool {
-        !questions.isEmpty && questions.allSatisfy { $0.options.isEmpty }
+        interview.canSubmitEmptyAnswer
     }
 
     private var shouldShowSkipInterviewCTA: Bool {
-        status.isPending && isPlanAskUserQuestion
-    }
-
-    private var isPlanAskUserQuestion: Bool {
-        guard source == .claude else { return false }
-        if let mode = context?.permissionMode {
-            return mode.caseInsensitiveCompare("plan") == .orderedSame
-        }
-        return questionTextLooksLikePlanInterview
-    }
-
-    private var questionTextLooksLikePlanInterview: Bool {
-        let fragments: [String?] = questions.flatMap { q in
-            let questionFragments: [String?] = [q.header, q.prompt]
-            let optionFragments: [String?] = q.options.flatMap { option in
-                [option.label, option.description]
-            }
-            return questionFragments + optionFragments
-        }
-        let text = ([context?.lastUserMessage, context?.assistantPreamble] + fragments)
-            .compactMap { $0 }
-            .joined(separator: " ")
-            .lowercased()
-        return text.contains("plan mode")
-            || text.contains("make a plan")
-            || text.contains("plan-only")
-            || text.contains("plan immediately")
+        status.isPending && interview.isPlanAskUserQuestion
     }
 
     private var submitCTA: some View {

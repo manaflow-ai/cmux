@@ -262,31 +262,6 @@ final class BrowserProfileStore: ObservableObject {
 // seam to `RealizedBrowserImportExecutionPlan.realized(from:profileResolver:)`.
 extension BrowserProfileStore: BrowserImportProfileResolving {}
 
-/// Carries the request and one-shot HTTP bypass needed to seed a retargeted tab.
-struct BrowserNewTabNavigationSeed {
-    let url: URL
-    let initialRequest: URLRequest
-    let bypassInsecureHTTPHostOnce: String?
-}
-
-/// Preserves the original request metadata for a retargeted new-tab navigation.
-func browserNewTabNavigationSeed(
-    from request: URLRequest,
-    bypassInsecureHTTPHostOnce: String? = nil
-) -> BrowserNewTabNavigationSeed? {
-    guard let url = request.url else { return nil }
-    return BrowserNewTabNavigationSeed(
-        url: url,
-        initialRequest: request,
-        bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
-    )
-}
-
-/// Mirrors the opener's WebKit browsing context for popup windows.
-struct BrowserPopupBrowserContext {
-    let websiteDataStore: WKWebsiteDataStore
-}
-
 func normalizedBrowserHistoryNamespace(bundleIdentifier: String) -> String {
     BrowserHistoryLocation.normalizedNamespace(bundleIdentifier: bundleIdentifier)
 }
@@ -738,20 +713,6 @@ final class BrowserHistoryStore: ObservableObject {
 
 /// BrowserPanel provides a WKWebView-based browser panel.
 /// Each browser panel can recover from WebContent crashes by replacing its web view.
-private enum BrowserInsecureHTTPNavigationIntent {
-    case currentTab
-    case newTab
-}
-
-nonisolated enum BrowserWebViewLifecycleState: String {
-    case newTab = "new_tab"
-    case deferredURL = "deferred_url"
-    case liveVisible = "live_visible"
-    case liveHidden = "live_hidden"
-    case discarded
-    case closing
-}
-
 final class BrowserPortalAnchorView: NSView {
     override var acceptsFirstResponder: Bool { false }
     override var isOpaque: Bool { false }
@@ -4148,8 +4109,8 @@ extension BrowserPanel {
 
     /// Opens a request in a sibling browser tab without dropping request metadata.
     func openLinkInNewTab(request: URLRequest, bypassInsecureHTTPHostOnce: String? = nil) {
-        guard let seed = browserNewTabNavigationSeed(
-            from: request,
+        guard let seed = BrowserNewTabNavigationSeed(
+            request: request,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce
         ) else {
             return
@@ -4269,7 +4230,7 @@ extension BrowserPanel {
     }
 
     private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
-        if cmuxIsWebInspectorObject(root) {
+        if root.cmuxIsWebInspectorObject {
             return true
         }
         for subview in root.subviews where windowContainsInspectorViews(subview) {
@@ -4664,7 +4625,7 @@ extension BrowserPanel {
         forceDeveloperToolsRefreshOnNextAttach = false
         cancelDeveloperToolsRestoreRetry()
 
-        let closed = WebViewInspectorTeardown.closeInspector(for: webView)
+        let closed = WebInspectorTeardownService().closeInspector(for: webView)
         setPreferredDeveloperToolsVisible(false)
         return closed
     }
@@ -5879,7 +5840,7 @@ extension BrowserPanel {
         var count = 0
         while let current = stack.popLast() {
             for subview in current.subviews {
-                if cmuxIsWebInspectorObject(subview) {
+                if subview.cmuxIsWebInspectorObject {
                     count += 1
                 }
                 stack.append(subview)
@@ -5981,7 +5942,7 @@ private extension BrowserPanel {
     }
 
     static func isInspectorView(_ view: NSView) -> Bool {
-        cmuxIsWebInspectorObject(view)
+        view.cmuxIsWebInspectorObject
     }
 
     static func isVisibleSideDockInspectorCandidate(_ view: NSView) -> Bool {
@@ -6014,123 +5975,6 @@ extension BrowserPanel {
             webView: webView,
             source: source
         )
-    }
-}
-
-extension WKWebView {
-    func cmuxInspectorObject() -> NSObject? {
-        let selector = NSSelectorFromString("_inspector")
-        guard responds(to: selector),
-              let inspector = perform(selector)?.takeUnretainedValue() as? NSObject else {
-            return nil
-        }
-        return inspector
-    }
-
-    func cmuxInspectorFrontendWebView() -> WKWebView? {
-        guard let inspector = cmuxInspectorObject() else { return nil }
-        let selector = NSSelectorFromString("inspectorWebView")
-        guard inspector.responds(to: selector),
-              let inspectorWebView = inspector.perform(selector)?.takeUnretainedValue() as? WKWebView else {
-            return nil
-        }
-        return inspectorWebView
-    }
-}
-
-@MainActor
-enum WebViewInspectorTeardown {
-    @discardableResult
-    static func closeAllInspectors(in window: NSWindow) -> Int {
-        assert(Thread.isMainThread)
-
-        return webViews(in: window).reduce(0) { count, webView in
-            closeInspector(for: webView) ? count + 1 : count
-        }
-    }
-
-    @discardableResult
-    static func closeAllInspectors(in windows: [NSWindow]) -> Int {
-        windows.reduce(0) { count, window in
-            count + closeAllInspectors(in: window)
-        }
-    }
-
-    @discardableResult
-    static func closeInspector(for webView: WKWebView) -> Bool {
-        assert(Thread.isMainThread)
-
-        guard !isInspectorFrontendWebView(webView),
-              let inspector = webView.cmuxInspectorObject() else {
-            return false
-        }
-
-        let isVisibleSelector = NSSelectorFromString("isVisible")
-        let isAttachedSelector = NSSelectorFromString("isAttached")
-        let isVisible = inspector.cmuxCallBool(selector: isVisibleSelector)
-        let isAttached = inspector.cmuxCallBool(selector: isAttachedSelector)
-        let shouldClose = (isVisible == true)
-            || (isAttached == true)
-            || (isVisible == nil && isAttached == nil)
-        guard shouldClose else { return false }
-
-        // cmux already opens Web Inspector through WebKit's `_inspector` object
-        // because the deployable SDK surface does not expose a stable close API.
-        // Keep teardown on the same auditable SPI path so WebKit unregisters the
-        // inspector window observers before the parent AppKit close cascade runs.
-        let closeSelector = NSSelectorFromString("close")
-        guard inspector.responds(to: closeSelector) else { return false }
-        inspector.cmuxCallVoid(selector: closeSelector)
-        return true
-    }
-
-    private static func webViews(in window: NSWindow) -> [WKWebView] {
-        var seen = Set<ObjectIdentifier>()
-        var result: [WKWebView] = []
-        let roots = [window.contentView, window.contentView?.superview].compactMap { $0 }
-        for root in roots {
-            collectWebViews(in: root, seen: &seen, result: &result)
-        }
-        return result
-    }
-
-    private static func collectWebViews(
-        in view: NSView,
-        seen: inout Set<ObjectIdentifier>,
-        result: inout [WKWebView]
-    ) {
-        if let webView = view as? WKWebView,
-           !isInspectorFrontendWebView(webView) {
-            let id = ObjectIdentifier(webView)
-            if !seen.contains(id) {
-                seen.insert(id)
-                result.append(webView)
-            }
-        }
-
-        for subview in view.subviews {
-            collectWebViews(in: subview, seen: &seen, result: &result)
-        }
-    }
-
-    private static func isInspectorFrontendWebView(_ webView: WKWebView) -> Bool {
-        cmuxIsWebInspectorObject(webView)
-    }
-}
-
-private extension NSObject {
-    func cmuxCallBool(selector: Selector) -> Bool? {
-        guard responds(to: selector) else { return nil }
-        typealias Fn = @convention(c) (AnyObject, Selector) -> Bool
-        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
-        return fn(self, selector)
-    }
-
-    func cmuxCallVoid(selector: Selector) {
-        guard responds(to: selector) else { return }
-        typealias Fn = @convention(c) (AnyObject, Selector) -> Void
-        let fn = unsafeBitCast(method(for: selector), to: Fn.self)
-        fn(self, selector)
     }
 }
 
