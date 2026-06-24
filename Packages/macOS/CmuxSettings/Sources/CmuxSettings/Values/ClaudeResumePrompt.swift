@@ -1,17 +1,5 @@
 import Foundation
 
-/// A single key cmux synthesizes into a Claude agent pane to drive its
-/// compacted-session resume menu. Maps to cmux's named-key sender so libghostty
-/// encodes the correct escape sequence for the pane's cursor mode.
-public enum ClaudeResumeKey: String, Sendable {
-    case up
-    case down
-    case enter
-
-    /// Name understood by `TerminalSurface.sendNamedKey` / `TerminalPanel.sendNamedKeyResult`.
-    public var namedKey: String { rawValue }
-}
-
 /// Pure, UI-free detection and keystroke planning for Claude Code's
 /// compacted-session resume menu. Kept free of AppKit/ghostty so it is fully
 /// unit-testable; the app-side controller supplies the rendered screen text and
@@ -28,6 +16,7 @@ public struct ClaudeResumePrompt: Sendable {
     /// Selection-pointer glyphs Ink-style menus render next to the active row.
     private static let pointerGlyphs: Set<Character> = ["❯", "›", "▶", "▸", "➤"]
 
+    /// Creates a parser for Claude Code's resume prompt.
     public init() {}
 
     /// True when the resume menu is currently on screen. Requires all three
@@ -90,32 +79,5 @@ public struct ClaudeResumePrompt: Sendable {
         }
         keys.append(.enter)
         return keys
-    }
-}
-
-/// One-shot responder armed for a single resumed Claude pane. The controller
-/// feeds it the pane's rendered screen on each poll; it returns the keys to send
-/// when the menu appears, then the controller confirms delivery so a failed
-/// synthetic-key send can be retried on the next screen sample.
-public final class ClaudeResumeAutoResponder {
-    public let mode: ClaudeResumeMode
-    public private(set) var hasResponded = false
-    private let prompt: ClaudeResumePrompt
-
-    public init(mode: ClaudeResumeMode, prompt: ClaudeResumePrompt = ClaudeResumePrompt()) {
-        self.mode = mode
-        self.prompt = prompt
-    }
-
-    /// Returns the keys to send if the menu is now visible and we haven't already
-    /// responded; nil otherwise. The controller calls ``confirmDelivered()`` only
-    /// after every planned key reaches, or is queued for, the terminal surface.
-    public func evaluate(screen: String) -> [ClaudeResumeKey]? {
-        guard !hasResponded, mode != .ask else { return nil }
-        return prompt.keystrokes(for: mode, in: screen)
-    }
-
-    public func confirmDelivered() {
-        hasResponded = true
     }
 }

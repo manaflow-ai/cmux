@@ -1448,10 +1448,7 @@ extension Workspace {
                 && RestorableAgentKind(rawValue: resumeBinding?.kind ?? "") == .claude
             let armsClaudeResume = restorableClaudeResume || bindingClaudeResume
             if armsClaudeResume {
-                ClaudeResumeAutoResponderController.shared.arm(
-                    panel: terminalPanel,
-                    mode: ClaudeResumeModeSettings.mode()
-                )
+                ClaudeResumeAutoResponderController.shared.arm(panel: terminalPanel)
             }
             terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)

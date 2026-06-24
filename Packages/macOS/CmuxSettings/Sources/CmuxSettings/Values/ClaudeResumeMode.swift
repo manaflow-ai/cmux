@@ -8,10 +8,14 @@ import Foundation
 ///   - ``full`` — auto-select "Resume full session as-is".
 ///   - ``summary`` — auto-select "Resume from summary".
 public enum ClaudeResumeMode: String, CaseIterable, Sendable, Identifiable, SettingCodable {
+    /// Leave Claude Code's resume prompt for the user to answer.
     case ask
+    /// Select "Resume full session as-is" automatically.
     case full
+    /// Select "Resume from summary" automatically.
     case summary
 
+    /// Stable picker identity.
     public var id: String { rawValue }
 
     /// Parse shared by every configuration surface (`cmux.json`, `settings.json`,
@@ -36,18 +40,4 @@ public enum ClaudeResumeMode: String, CaseIterable, Sendable, Identifiable, Sett
             return nil
         }
     }
-
-    public static func decodeFromUserDefaults(_ raw: Any?) -> ClaudeResumeMode? {
-        guard let string = raw as? String else { return nil }
-        return ClaudeResumeMode(rawString: string)
-    }
-
-    public func encodeForUserDefaults() -> Any { rawValue }
-
-    public static func decodeFromJSON(_ raw: Any?) -> ClaudeResumeMode? {
-        guard let string = raw as? String else { return nil }
-        return ClaudeResumeMode(rawString: string)
-    }
-
-    public func encodeForJSON() -> Any { rawValue }
 }
