@@ -6282,17 +6282,16 @@ final class Workspace: Identifiable, ObservableObject {
 
     @MainActor
     func rememberPendingRemoteSurfacePWD(_ path: String, requestedSurfaceId: UUID?) {
-        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedPath.isEmpty else { return }
-        pendingRemoteSurfacePWD = trimmedPath
+        guard path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else { return }
+        pendingRemoteSurfacePWD = path
         pendingRemoteSurfacePWDSurfaceId = requestedSurfaceId
     }
 
     @MainActor
     @discardableResult
     private func applyPendingRemoteSurfacePWDIfNeeded(to panelId: UUID) -> Bool {
-        guard let path = pendingRemoteSurfacePWD?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
+        guard let path = pendingRemoteSurfacePWD,
+              path.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil else {
             return false
         }
         if let requestedSurfaceId = pendingRemoteSurfacePWDSurfaceId,

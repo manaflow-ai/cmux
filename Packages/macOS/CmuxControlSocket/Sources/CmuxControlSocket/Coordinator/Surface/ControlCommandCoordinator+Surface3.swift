@@ -220,11 +220,15 @@ extension ControlCommandCoordinator {
         if hasNonNull(params, "surface_id"), requestedSurfaceID == nil {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
-        let rawPath = rawString(params, "path")
-            ?? rawString(params, "directory")
-            ?? rawString(params, "cwd")
-        guard let path = rawPath?.trimmingCharacters(in: .whitespacesAndNewlines), !path.isEmpty else {
+        // Accept compatibility aliases, but require one exact cwd value.
+        let candidatePaths = ["path", "directory", "cwd"]
+            .compactMap { rawString(params, $0) }
+            .filter { $0.rangeOfCharacter(from: .whitespacesAndNewlines.inverted) != nil }
+        guard let path = candidatePaths.first else {
             return .err(code: "invalid_params", message: "Missing path", data: nil)
+        }
+        guard candidatePaths.allSatisfy({ $0 == path }) else {
+            return .err(code: "invalid_params", message: "Conflicting path parameters", data: nil)
         }
 
         let resolution = context?.controlSurfaceReportPWD(

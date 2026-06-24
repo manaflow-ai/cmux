@@ -297,14 +297,15 @@ if test "$_cmux_integration_enabled" != 0
         _cmux_report_shell_activity_state prompt
         set -l pwd "$PWD"
         if test "$pwd" != "$_CMUX_PWD_LAST_PWD"
-            set -g _CMUX_PWD_LAST_PWD "$pwd"
             if _cmux_socket_is_unix
                 if test -n "$CMUX_TAB_ID"; and test -n "$CMUX_PANEL_ID"
                     set -l qpwd (_cmux_json_escape "$pwd")
-                    _cmux_send_bg "report_pwd \"$qpwd\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                    if _cmux_send_bg "report_pwd \"$qpwd\" --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+                        set -g _CMUX_PWD_LAST_PWD "$pwd"
+                    end
                 end
-            else
-                _cmux_report_pwd_via_relay "$pwd"
+            else if _cmux_report_pwd_via_relay "$pwd"
+                set -g _CMUX_PWD_LAST_PWD "$pwd"
             end
         end
         set -l now (_cmux_now)

@@ -1714,8 +1714,7 @@ _cmux_precmd() {
 
     if (( ! cmux_has_unix_socket )); then
         if [[ "$pwd" != "$_CMUX_PWD_LAST_PWD" ]]; then
-            _CMUX_PWD_LAST_PWD="$pwd"
-            _cmux_report_pwd_via_relay "$pwd"
+            _cmux_report_pwd_via_relay "$pwd" && _CMUX_PWD_LAST_PWD="$pwd"
         fi
         if (( cmd_dur >= 2 || now - _CMUX_PORTS_LAST_RUN >= 10 )); then
             _cmux_ports_kick refresh
