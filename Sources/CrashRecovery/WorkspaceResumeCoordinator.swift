@@ -24,12 +24,65 @@ protocol ResumableWorkspaceSurface: AnyObject {
     /// Deliver the breadcrumb to the agent — immediately if live, else when the
     /// surface becomes ready.
     func deliverResumeBreadcrumb(_ text: String)
+
+    // MARK: Verification facts (U10/U11) — additive over the v1 surface.
+    //
+    // These let the coordinator's verification-gated `recover(_:)` path build the
+    // `ResumeBindingFacts` the gate needs. They carry protocol-extension defaults
+    // so existing conformers (and the v1 fakes) keep compiling; the real
+    // `Workspace` overrides them with the on-disk adapter (transcript existence at
+    // this window's cwd vs. elsewhere). The defaults are deliberately
+    // conservative — a conformer that has not wired the adapter reports "no
+    // transcript verified", so `recover(_:)` routes to honest recovery rather
+    // than ever auto-resuming an unverified binding.
+
+    /// The working directory this surface is restoring into (honest-prompt scope).
+    var resumeCwd: String? { get }
+    /// The verified transcript path, when the binding carried one.
+    var resumeTranscriptPath: String? { get }
+    /// Whether a native resume command can be constructed for this binding.
+    var resumeCommandConstructable: Bool { get }
+    /// Whether the session's transcript exists on disk at *this window's* cwd.
+    var transcriptExistsAtWindowCwd: Bool { get }
+    /// Whether the session's transcript exists under some *other* cwd.
+    var transcriptExistsElsewhere: Bool { get }
+
+    /// Deliver the honest, cwd-scoped recovery prompt to the (fresh) agent —
+    /// immediately if live, else when the surface becomes ready. Used only on the
+    /// unverified branch; never paired with a native resume.
+    func deliverHonestRecoveryPrompt(_ text: String)
+}
+
+extension ResumableWorkspaceSurface {
+    var resumeCwd: String? { nil }
+    var resumeTranscriptPath: String? { nil }
+    /// A resume command is constructable when a non-empty resume token exists.
+    var resumeCommandConstructable: Bool {
+        (resumeSessionToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+    }
+    var transcriptExistsAtWindowCwd: Bool { false }
+    var transcriptExistsElsewhere: Bool { false }
+    /// Default: route the honest prompt through the same deliver-when-ready path
+    /// as the breadcrumb. Conformers that distinguish the two can override.
+    func deliverHonestRecoveryPrompt(_ text: String) { deliverResumeBreadcrumb(text) }
 }
 
 /// The outcome of attempting to resume a single workspace.
 enum ResumeOutcome: Equatable, Sendable {
     case resumed(deliveredBreadcrumb: Bool)
     case skipped(ResumeBreadcrumbBuilder.SkipReason)
+}
+
+/// The outcome of the verification-gated recovery path (U11). Unlike
+/// `ResumeOutcome` there is no "skip": an unverified binding is not silently
+/// abandoned, it is routed to honest agent-first recovery.
+enum RecoveryPerformed: Equatable, Sendable {
+    /// The binding verified: native resume ran (if needed) and the breadcrumb
+    /// was delivered (when injection is on).
+    case resumed(deliveredBreadcrumb: Bool)
+    /// The binding could not be verified: the honest cwd-scoped prompt was
+    /// delivered and nothing was auto-resumed. `reason` is carried for logging.
+    case honestRecovery(reason: UnverifiedReason)
 }
 
 /// Shared orchestration for "pick up where we left off", used by both the
@@ -40,9 +93,12 @@ enum ResumeOutcome: Equatable, Sendable {
 @MainActor
 struct WorkspaceResumeCoordinator {
     let planner: WorkspaceResumePlanner
+    /// Verification-gated router for the default silent restore path (U11).
+    let router: RecoveryRouter
 
     init(injectBreadcrumb: Bool) {
         self.planner = WorkspaceResumePlanner(injectBreadcrumb: injectBreadcrumb)
+        self.router = RecoveryRouter(injectBreadcrumb: injectBreadcrumb)
     }
 
     /// Build the planner context from a live surface.
@@ -77,6 +133,55 @@ struct WorkspaceResumeCoordinator {
                 surface.deliverResumeBreadcrumb(breadcrumb)
             }
             return .resumed(deliveredBreadcrumb: breadcrumb != nil)
+        }
+    }
+
+    // MARK: - Verification-gated recovery (U11/R14)
+
+    /// Build the verifiable binding facts from a live surface.
+    func bindingFacts(for surface: ResumableWorkspaceSurface) -> ResumeBindingFacts {
+        let hasToken = surface.resumeSessionToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        return ResumeBindingFacts(
+            hasBinding: surface.resumeAgentKind != nil || hasToken,
+            agentKind: surface.resumeAgentKind,
+            sessionId: surface.resumeSessionToken,
+            resumeCommandConstructable: surface.resumeCommandConstructable,
+            transcriptExistsAtWindowCwd: surface.transcriptExistsAtWindowCwd,
+            transcriptExistsElsewhere: surface.transcriptExistsElsewhere
+        )
+    }
+
+    /// Build the window-scoped recovery context from a live surface.
+    func recoveryContext(for surface: ResumableWorkspaceSurface) -> RecoveryContext {
+        RecoveryContext(
+            workspaceName: surface.resumeWorkspaceName,
+            cwd: surface.resumeCwd,
+            transcriptPath: surface.resumeTranscriptPath
+        )
+    }
+
+    /// The default *silent* restore path (R14/R17): verify the binding, then
+    /// either resume the exact session + deliver the transcript-anchored
+    /// breadcrumb, or deliver the honest cwd-scoped recovery prompt and resume
+    /// nothing. Never auto-resumes an unverified binding; never enumerates
+    /// sessions. Distinct from `resume(_:)`, which backs the opt-in offer (U5) and
+    /// manual action (U6) under the v1 proven-binding rule.
+    @discardableResult
+    func recover(_ surface: ResumableWorkspaceSurface) -> RecoveryPerformed {
+        let facts = bindingFacts(for: surface)
+        switch router.route(facts, context: recoveryContext(for: surface)) {
+        case .resumeVerified(let breadcrumb):
+            if !surface.isAgentLive {
+                surface.runNativeResume()
+            }
+            if let breadcrumb {
+                surface.deliverResumeBreadcrumb(breadcrumb)
+            }
+            return .resumed(deliveredBreadcrumb: breadcrumb != nil)
+        case .honestRecovery(let prompt, let reason):
+            surface.deliverHonestRecoveryPrompt(prompt)
+            return .honestRecovery(reason: reason)
         }
     }
 }

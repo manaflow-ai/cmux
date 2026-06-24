@@ -669,6 +669,8 @@
 		A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */; };
 		A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */; };
 		A500RG01 /* ReactGrab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A500RG00 /* ReactGrab.swift */; };
+		A100000000000000000F1DD0 /* RecoveryRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1DD1 /* RecoveryRouter.swift */; };
+		A100000000000000000F1DE0 /* RecoveryRouterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A100000000000000000F1DE1 /* RecoveryRouterTests.swift */; };
 		BD6B25D696FCD07FC1534819 /* RelaunchIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4E7D89337AE3739F8CC529C /* RelaunchIntent.swift */; };
 		2A50C77F8AE56D51BBF15489 /* RelaunchIntentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */; };
 		A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D1F0000000000000000001 /* ReleasingWindowController.swift */; };
@@ -1770,6 +1772,8 @@
 		A64610010000000000000002 /* QuitConfirmationAlertPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenter.swift; sourceTree = "<group>"; };
 		A64610020000000000000002 /* QuitConfirmationAlertPresenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuitConfirmationAlertPresenterTests.swift; sourceTree = "<group>"; };
 		A500RG00 /* ReactGrab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/ReactGrab.swift; sourceTree = "<group>"; };
+		A100000000000000000F1DD1 /* RecoveryRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RecoveryRouter.swift; path = "Sources/CrashRecovery/RecoveryRouter.swift"; sourceTree = SOURCE_ROOT; };
+		A100000000000000000F1DE1 /* RecoveryRouterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RecoveryRouterTests.swift; path = "cmuxTests/RecoveryRouterTests.swift"; sourceTree = SOURCE_ROOT; };
 		E4E7D89337AE3739F8CC529C /* RelaunchIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RelaunchIntent.swift; path = "Sources/CrashRecovery/RelaunchIntent.swift"; sourceTree = SOURCE_ROOT; };
 		02DE40FC3A5908D0F4D4B4BD /* RelaunchIntentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = RelaunchIntentTests.swift; path = "cmuxTests/RelaunchIntentTests.swift"; sourceTree = SOURCE_ROOT; };
 		A6D1F0000000000000000001 /* ReleasingWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/ReleasingWindowController.swift; sourceTree = "<group>"; };
@@ -2451,6 +2455,7 @@
 				5D1872ACD1B808CE02613B82 /* CrashRecoverySettings.swift */,
 				5D62498EBC9EA7D281E451EC /* ResumeBreadcrumbBuilder.swift */,
 				A100000000000000000F1DA1 /* ResumeFidelityGate.swift */,
+				A100000000000000000F1DD1 /* RecoveryRouter.swift */,
 				27C38528E01954A4CDF2DC04 /* UncleanShutdownSentinel.swift */,
 				3023B1003023B1003023B100 /* ConfigSource.swift */,
 				3023B1013023B1013023B101 /* ConfigSettingsView.swift */,
@@ -3103,6 +3108,7 @@
 				F7E2BA4F69E754EDCCF3D69F /* WorkspaceResumePlannerTests.swift */,
 				A100000000000000000F1DB1 /* ResumeFidelityGateTests.swift */,
 				A100000000000000000F1DC1 /* ResumeBreadcrumbAnchorTests.swift */,
+				A100000000000000000F1DE1 /* RecoveryRouterTests.swift */,
 				2D89B9D6FEA8C5BC2412D85B /* CrashRecoverySettingsTests.swift */,
 				21A52BBCE192F354DF00C857 /* ResumeBreadcrumbBuilderTests.swift */,
 				8BD298CD20B84B435B23F97F /* UncleanShutdownSentinelTests.swift */,
@@ -4175,6 +4181,7 @@
 					A5C0DE0000000000000000B8 /* ProjectTargetsTabView.swift in Sources */,
 					A64610010000000000000001 /* QuitConfirmationAlertPresenter.swift in Sources */,
 				A500RG01 /* ReactGrab.swift in Sources */,
+				A100000000000000000F1DD0 /* RecoveryRouter.swift in Sources */,
 				BD6B25D696FCD07FC1534819 /* RelaunchIntent.swift in Sources */,
 				A6D1F0000000000000000002 /* ReleasingWindowController.swift in Sources */,
 				EE30D5000000000000000002 /* RemoteDaemonStrings+App.swift in Sources */,
@@ -4729,6 +4736,7 @@
 				DE71CE00000000000000000A /* PresenceHeartbeatClientTests.swift in Sources */,
 				C47110010000000000000001 /* ProcessPipeReadCrashRegressionTests.swift in Sources */,
 				A64610020000000000000001 /* QuitConfirmationAlertPresenterTests.swift in Sources */,
+				A100000000000000000F1DE0 /* RecoveryRouterTests.swift in Sources */,
 				2A50C77F8AE56D51BBF15489 /* RelaunchIntentTests.swift in Sources */,
 				A6D1F0400000000000000002 /* ReleasingWindowControllerTests.swift in Sources */,
 				REE0CA0000000000000000B2 /* RemotesClientTests.swift in Sources */,

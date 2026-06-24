@@ -123,6 +123,37 @@ enum ResumeBreadcrumbBuilder {
         return breadcrumb(forVerified: anchor)
     }
 
+    /// Builds the **honest, cwd-scoped** recovery prompt for an *unverified*
+    /// restored window (U11/R14/KTD11) — the differentiated agent-first surface.
+    ///
+    /// When cmux cannot prove which session a restored window was running, it
+    /// must not guess (Example 3's confident-wrong is the failure this kills) and
+    /// must not surface a cross-session picker (a non-goal). Instead it tells the
+    /// agent the truth: the prior session is unconfirmed, here is this window's
+    /// folder, reconstruct *only if confident* from what's visibly here, else ask
+    /// — and never adopt another window's session. This leans on the proven agent
+    /// strength (bounded forensic recovery, Example 1) while refusing the
+    /// open-ended grep-every-transcript behavior.
+    ///
+    /// Single sanitized line, safe to deliver as terminal startup input.
+    static func honestRecoveryPrompt(workspaceName: String, cwd: String?) -> String {
+        let name = sanitizedName(workspaceName)
+        let folder = sanitizedPath(cwd)
+
+        var sentence = "cmux restarted this window but could not verify which agent session it was running before"
+        if let name {
+            sentence += " (its last label was \"\(name)\")"
+        }
+        sentence += "."
+
+        if let folder {
+            sentence += " This window's working directory is \(folder)."
+        }
+
+        sentence += " If you can tell with confidence from the files here what was in progress, summarize it and continue; otherwise ask what I'd like to work on. Do not adopt or guess another window's session."
+        return sentence
+    }
+
     /// Collapses a raw transcript path into a safe single-line fragment for
     /// injection as terminal startup input. Paths may legitimately contain
     /// spaces, so internal whitespace is preserved (unlike `sanitizedName`); only
