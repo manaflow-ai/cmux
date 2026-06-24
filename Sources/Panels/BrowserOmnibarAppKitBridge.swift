@@ -94,6 +94,69 @@ final class BrowserOmnibarNativeFieldRegistry {
             fields[panelId] = entries
         }
     }
+
+    // MARK: - Responder-chain omnibar lookup
+    //
+    // These resolve the live omnibar field for a panel or responder, using the
+    // registry cache first and falling back to a responder/view-tree walk for the
+    // SwiftUI/AppKit reconnect windows where registration has not yet observed a
+    // freshly attached native field.
+
+    func panelId(for responder: NSResponder?) -> UUID? {
+        field(forResponder: responder)?.panelId
+    }
+
+    func field(forPanelId panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
+        if let registeredField = field(for: panelId, in: window) {
+            return registeredField
+        }
+        guard let panelId, let root = window?.contentView?.superview ?? window?.contentView else {
+            return nil
+        }
+
+        // Fallback for SwiftUI/AppKit reconnect windows where the live native field
+        // has been attached but registration has not yet observed it.
+        var stack: [NSView] = [root]
+        while let view = stack.popLast() {
+            if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
+                return field
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    @discardableResult
+    func prepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
+        guard let field = field(forResponder: responder),
+              field.panelId == panelId else {
+            return false
+        }
+        field.suppressNextFocusReacquireOnEndEditing = true
+        return true
+    }
+
+    private func field(forResponder responder: NSResponder?) -> OmnibarNativeTextField? {
+        guard let responder else { return nil }
+
+        if let field = responder as? OmnibarNativeTextField {
+            return field
+        }
+
+        if let editor = responder as? NSTextView, editor.isFieldEditor {
+            if let field = fieldOwningEditor(editor, in: editor.window) {
+                return field
+            }
+
+            if let field = cmuxFieldEditorOwnerView(editor) as? OmnibarNativeTextField,
+               field.currentEditor() === editor {
+                return field
+            }
+
+        }
+
+        return nil
+    }
 }
 
 @MainActor

@@ -2,8 +2,8 @@ import AppKit
 import AVKit
 import CmuxPanes
 import Bonsplit
-import Combine
 import Foundation
+import Observation
 import PDFKit
 import Quartz
 import SwiftUI
@@ -176,20 +176,29 @@ final class FilePreviewDragPasteboardWriter: NSObject, NSPasteboardWriting {
     }
 }
 
+// NOTE(refactor): `Panel` (in CmuxPanes) still refines `ObservableObject`; its
+// own TODO says that refinement is removed only once every conformer
+// (Terminal/Browser/Markdown/FilePreview/AgentSession) is migrated to
+// `@Observable`. This is the FilePreview half of that migration. Until the
+// other conformers migrate and `Panel` drops the `ObservableObject` refinement,
+// `FilePreviewPanel: Panel` will not satisfy the protocol's `ObservableObject`
+// requirement. That is the expected cross-slice dangle the final reconcile
+// closes; do not re-add `ObservableObject`/`@Published` here to paper over it.
 @MainActor
-final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPanel {
+@Observable
+final class FilePreviewPanel: Panel, FilePreviewTextEditingPanel {
     let id: UUID
     let panelType: PanelType = .filePreview
     let filePath: String
     private(set) var workspaceId: UUID
-    @Published private(set) var displayTitle: String
-    @Published private(set) var displayIcon: String?
-    @Published private(set) var isFileUnavailable = false
-    @Published private(set) var textContent = ""
-    @Published private(set) var isDirty = false
-    @Published private(set) var isSaving = false
-    @Published private(set) var focusFlashToken = 0
-    @Published private(set) var previewMode: FilePreviewMode
+    private(set) var displayTitle: String
+    private(set) var displayIcon: String?
+    private(set) var isFileUnavailable = false
+    private(set) var textContent = ""
+    private(set) var isDirty = false
+    private(set) var isSaving = false
+    private(set) var focusFlashToken = 0
+    private(set) var previewMode: FilePreviewMode
 
     let nativeViewSessions = FilePreviewNativeViewSessions()
 
@@ -483,7 +492,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 }
 
 struct FilePreviewPanelView: View {
-    @ObservedObject var panel: FilePreviewPanel
+    // `@Observable` model: plain `let`. The view only reads `panel.*` and calls
+    // its methods (no `$panel` two-way bindings), so observation tracking via
+    // property reads in `body` is sufficient; `@Bindable` is not needed.
+    let panel: FilePreviewPanel
     let isFocused: Bool
     let isVisibleInUI: Bool
     let portalPriority: Int

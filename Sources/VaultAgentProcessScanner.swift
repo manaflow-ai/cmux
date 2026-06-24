@@ -864,116 +864,11 @@ extension SurfaceResumeBindingIndex {
     }
 }
 
-private struct VaultObservedAgentProcess: Sendable {
-    let processName: String
-    let processPath: String?
-    let arguments: [String]
-    let environment: [String: String]
-
-    var executableBasenames: [String] {
-        var names: [String] = []
-        if !processName.isEmpty { names.append(processName) }
-        if let processPath, !processPath.isEmpty { names.append((processPath as NSString).lastPathComponent) }
-        if let first = arguments.first, !first.isEmpty { names.append((first as NSString).lastPathComponent) }
-        var seen = Set<String>()
-        return names.filter { seen.insert($0).inserted }
-    }
-
-    var isOpenCodeProcess: Bool {
-        processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
-    }
-
-    /// True for a real `claude` process: the binary basename is `claude`
-    /// (`~/.local/bin/claude` symlink), or a node/bun runtime running claude
-    /// (`node …/.claude/cli.js`, `…/claude/versions/…`). Mirrors the live-PID
-    /// matcher `liveProcessExecutableMatchesRecordedAgent`. A `sr claude` / shell
-    /// wrapper has argv[0] basename `sr`/`sh` and is excluded.
-    var isClaudeProcess: Bool {
-        if executableBasenames.contains(where: { $0.lowercased() == "claude" }) {
-            return true
-        }
-        guard executableBasenames.contains(where: Self.wrapperLooksLikeNodeRuntime) else {
-            return false
-        }
-        return arguments.dropFirst().contains { argument in
-            let lowered = argument.lowercased()
-            return (argument as NSString).lastPathComponent.lowercased() == "claude"
-                || lowered.contains("/.claude/")
-                || lowered.contains("/claude/versions/")
-        }
-    }
-
-    /// True for a real `codex` process: the binary basename is `codex` (the
-    /// vendored `…/@openai/codex-darwin-arm64/…/bin/codex`), or a runtime arg
-    /// references the codex npm package. A `sr codex` wrapper has argv[0]
-    /// basename `sr` and is excluded.
-    var isCodexProcess: Bool {
-        if executableBasenames.contains(where: { $0.lowercased() == "codex" }) {
-            return true
-        }
-        return arguments.contains { argument in
-            let lowered = argument.lowercased()
-            return lowered.contains("@openai/codex") || lowered.contains("codex-darwin-arm64")
-        }
-    }
-
-    var openCodeExecutableArgument: String? {
-        guard let index = openCodeExecutableArgumentIndex,
-              arguments.indices.contains(index) else {
-            return nil
-        }
-        return arguments[index]
-    }
-
-    var piCompatibleSessionID: String? {
-        arguments.piCompatibleSessionID(startingAt: piCompatibleSessionArgumentStartIndex)
-    }
-
-    var openCodeExecutableArgumentIndex: Int? {
-        if let first = arguments.first,
-           Self.argumentLooksLikeOpenCode(first) {
-            return 0
-        }
-        guard executableBasenames.contains(where: Self.wrapperLooksLikeNodeRuntime) else {
-            return nil
-        }
-        guard let scriptIndex = Self.nodeScriptArgumentIndex(arguments) else {
-            return nil
-        }
-        return Self.argumentLooksLikeOpenCode(arguments[scriptIndex]) ? scriptIndex : nil
-    }
-
-    private var piCompatibleSessionArgumentStartIndex: Int {
-        guard !arguments.isEmpty else { return 0 }
-        if let scriptIndex = Self.javaScriptRuntimeScriptArgumentIndex(arguments) {
-            return min(scriptIndex + 1, arguments.endIndex)
-        }
-        if arguments[arguments.startIndex].hasPrefix("-") {
-            return arguments.startIndex
-        }
-        return min(arguments.startIndex + 1, arguments.endIndex)
-    }
-
-    private var processIdentityLooksLikeOpenCode: Bool {
-        executableBasenames.contains { basename in
-            let normalized = basename.lowercased()
-            return normalized == "opencode" ||
-                normalized == ".opencode" ||
-                normalized == "opencode-ai" ||
-                normalized == "open-code"
-        }
-    }
-
-    static func argumentLooksLikeOpenCode(_ argument: String) -> Bool {
-        let normalized = argument.lowercased()
-        let pathComponents = (normalized as NSString).pathComponents
-        let basename = pathComponents.last ?? normalized
-        return basename == "opencode" ||
-            basename == ".opencode" ||
-            basename == "opencode-ai" ||
-            basename == "open-code"
-    }
-
+// `VaultObservedAgentProcess` (the claude/codex/opencode/node-runtime identity +
+// argv-index detection value type) and its `argumentsContainAll` helper now live in
+// `CMUXAgentLaunch`. Only the tmux forwarders, which bridge to the app-side
+// `TmuxResumeParser`, remain here as an extension on the now-public type.
+private extension VaultObservedAgentProcess {
     static func argumentLooksLikeTmux(_ argument: String) -> Bool {
         TmuxResumeParser.argumentLooksLikeTmux(argument)
     }
@@ -984,96 +879,6 @@ private struct VaultObservedAgentProcess: Sendable {
 
     static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
         TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
-    }
-
-    private static func wrapperLooksLikeJavaScriptRuntime(_ basename: String) -> Bool {
-        switch basename.lowercased() {
-        case "node", "bun", "deno", "tsx", "ts-node":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
-        switch basename.lowercased() {
-        case "node":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func javaScriptRuntimeScriptArgumentIndex(_ arguments: [String]) -> Int? {
-        guard let first = arguments.first else { return nil }
-        guard wrapperLooksLikeJavaScriptRuntime((first as NSString).lastPathComponent) else {
-            return nil
-        }
-        var index = 1
-        while index < arguments.count {
-            let argument = arguments[index]
-            if argument == "--" {
-                let nextIndex = index + 1
-                return nextIndex < arguments.count ? nextIndex : nil
-            }
-            if argument.hasPrefix("-") {
-                if nodeOptionConsumesScript(argument) {
-                    return nil
-                }
-                index += 1 + nodeOptionValueCount(argument)
-                continue
-            }
-            return index
-        }
-        return nil
-    }
-
-    private static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
-        guard !arguments.isEmpty else { return nil }
-        var index = 0
-        if wrapperLooksLikeNodeRuntime((arguments[0] as NSString).lastPathComponent) {
-            index = 1
-        }
-        while index < arguments.count {
-            let argument = arguments[index]
-            if argument == "--" {
-                let nextIndex = index + 1
-                return nextIndex < arguments.count ? nextIndex : nil
-            }
-            if argument.hasPrefix("-") {
-                if nodeOptionConsumesScript(argument) {
-                    return nil
-                }
-                index += 1 + nodeOptionValueCount(argument)
-                continue
-            }
-            return index
-        }
-        return nil
-    }
-
-    private static func nodeOptionConsumesScript(_ argument: String) -> Bool {
-        let option = argument.split(separator: "=", maxSplits: 1).first.map(String.init) ?? argument
-        switch option {
-        case "-e", "--eval", "-p", "--print", "-c", "--check":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func nodeOptionValueCount(_ argument: String) -> Int {
-        if argument.contains("=") {
-            return 0
-        }
-        switch argument {
-        case "-r", "--require", "--import", "--loader", "--experimental-loader",
-             "--conditions", "-C", "--title", "--test-name-pattern",
-             "--test-reporter", "--test-reporter-destination":
-            return 1
-        default:
-            return 0
-        }
     }
 }
 
@@ -1095,28 +900,6 @@ private extension CmuxVaultAgentDetectRule {
         let alternateArgvContainsMatch = !alternateArgvContains.isEmpty
             && process.argumentsContainAll(alternateArgvContains)
         return (processNameMatch && argvContainsMatch) || alternateArgvContainsMatch
-    }
-}
-
-private extension VaultObservedAgentProcess {
-    func argumentsContainAll(_ needles: [String]) -> Bool {
-        needles.allSatisfy { needle in
-            if needle.contains(" ") {
-                let joinedArguments = arguments.joined(separator: " ")
-                return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-            }
-            if needle.contains("/") {
-                let joinedArguments = arguments.joined(separator: "\u{0}")
-                return joinedArguments.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-            }
-            return arguments.contains { argument in
-                argument.range(of: needle, options: [.caseInsensitive, .literal]) != nil
-                    || (argument as NSString).lastPathComponent.range(
-                        of: needle,
-                        options: [.caseInsensitive, .literal]
-                    ) != nil
-            }
-        }
     }
 }
 
@@ -1176,104 +959,9 @@ private extension CmuxTopProcessSnapshot {
     }
 }
 
-private extension Array where Element == String {
-    var hasOpenCodeForkFlag: Bool {
-        contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
-    }
-
-    var openCodeForkParentSessionId: String? {
-        for argument in self {
-            let prefix = "--fork="
-            guard argument.hasPrefix(prefix) else { continue }
-            let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            return value.isEmpty ? nil : value
-        }
-        return nil
-    }
-
-    func value(afterOption option: String) -> String? {
-        for index in indices {
-            let argument = self[index]
-            if argument == option {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { return nil }
-                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
-            }
-            let prefix = option + "="
-            if argument.hasPrefix(prefix) {
-                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                return value.isEmpty ? nil : value
-            }
-        }
-        return nil
-    }
-
-    func nonOptionValue(afterOption option: String) -> String? {
-        guard let value = value(afterOption: option), !value.hasPrefix("-") else {
-            return nil
-        }
-        return value
-    }
-
-    func piCompatibleSessionID(startingAt startIndex: Int) -> String? {
-        guard startIndex < endIndex else { return nil }
-        for index in indices where index >= startIndex {
-            let argument = self[index]
-            if argument == "--session" || argument == "--resume" || argument == "-r" {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { continue }
-                if let value = normalizedNonOptionValue(self[nextIndex]) {
-                    return value
-                }
-                continue
-            }
-            if argument.hasPrefix("--session="),
-               let value = normalizedNonOptionValue(String(argument.dropFirst("--session=".count))) {
-                return value
-            }
-            if argument.hasPrefix("--resume="),
-               let value = normalizedNonOptionValue(String(argument.dropFirst("--resume=".count))) {
-                return value
-            }
-            if argument.hasPrefix("-r="),
-               let value = normalizedNonOptionValue(String(argument.dropFirst("-r=".count))) {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private func normalizedNonOptionValue(_ rawValue: String) -> String? {
-        let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !value.isEmpty && !value.hasPrefix("-") ? value : nil
-    }
-
-    var grokResumeSessionID: String? {
-        let options = ["-r", "--resume"]
-        for index in indices {
-            let argument = self[index]
-            if options.contains(argument) {
-                let nextIndex = self.index(after: index)
-                guard nextIndex < endIndex else { continue }
-                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-                continue
-            }
-            for option in options {
-                let prefix = option + "="
-                guard argument.hasPrefix(prefix) else { continue }
-                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !value.isEmpty, !value.hasPrefix("-") {
-                    return value
-                }
-            }
-        }
-        return nil
-    }
-}
+// The `[String]` argv helpers (hasOpenCodeForkFlag / openCodeForkParentSessionId /
+// value(afterOption:) / nonOptionValue(afterOption:) / piCompatibleSessionID(startingAt:) /
+// grokResumeSessionID) now live in `CMUXAgentLaunch` (AgentArgumentVectorValues.swift).
 
 /// App-side resolver for the process- and registration-coupled pieces of a
 /// `pi`-compatible agent's session layout. Selects the candidate session

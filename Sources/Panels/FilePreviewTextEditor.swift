@@ -13,8 +13,15 @@ protocol FilePreviewTextEditingPanel: AnyObject {
     func saveTextContent() -> Task<Void, Never>?
 }
 
-struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: ObservableObject & FilePreviewTextEditingPanel {
-    @ObservedObject var panel: PanelModel
+// NOTE(refactor): the generic constraint no longer requires `ObservableObject`.
+// `FilePreviewPanel` is now `@Observable`, so it observes via property reads
+// (`panel.textContent`) in `updateNSView`, not via `@ObservedObject`. The
+// remaining conformer `MarkdownPanel` is still `ObservableObject` and is a
+// separate concurrent migration; once it becomes `@Observable` its observation
+// works the same way. This is the expected cross-slice dangle the final
+// reconcile closes.
+struct FilePreviewTextEditor<PanelModel>: NSViewRepresentable where PanelModel: FilePreviewTextEditingPanel {
+    let panel: PanelModel
     let isVisibleInUI: Bool
     let themeBackgroundColor: NSColor
     let themeForegroundColor: NSColor

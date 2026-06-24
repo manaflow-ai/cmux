@@ -33,10 +33,6 @@ import CmuxSidebar
 import CmuxTestSupport
 #endif
 
-private enum CmuxThemeNotifications {
-    static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
-}
-
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuItemValidation, NSMenuDelegate, CmuxConfigStoreReloadEnvironment {
     nonisolated(unsafe) static var shared: AppDelegate?
@@ -553,8 +549,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
-    private var cmuxThemePreviewReloadGeneration = 0
-    private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
+    /// Coalesces theme-driven Ghostty configuration reloads (was the inline
+    /// `cmuxThemePreviewReloadGeneration` + `cmuxThemePreviewReloadWorkItem`
+    /// `DispatchWorkItem` debounce). Constructed here at the composition root with
+    /// the app-side debounce policy and reload sink injected; the `@objc`
+    /// `handleThemesReloadNotification` handler forwards into it.
+    private lazy var cmuxThemeReloadDebouncer = CmuxThemeReloadDebouncer(
+        shouldDebounce: { source in
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source)
+        },
+        reload: { [weak self] source in
+            self?.reloadConfiguration(source: source)
+        }
+    )
 
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
@@ -1796,7 +1803,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DistributedNotificationCenter.default().addObserver(
             self,
             selector: #selector(handleThemesReloadNotification(_:)),
-            name: CmuxThemeNotifications.reloadConfig,
+            name: .cmuxThemeReloadConfig,
             object: nil,
             suspensionBehavior: .deliverImmediately
         )
@@ -12061,37 +12068,15 @@ private extension AppDelegate {
         let source = GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(
             phase: notification.userInfo?["phase"] as? String
         )
-        DispatchQueue.main.async {
-            self.reloadGhosttyConfigurationForCmuxThemeSource(source)
+        // Match the HEAD baseline: defer the whole reload policy (both the
+        // debounce arming and the immediate non-debounced reload) to the next
+        // main-runloop turn so it never runs reentrantly inside the
+        // DistributedNotificationCenter delivery callback. This hop is a
+        // reentrancy deferral, not the banned debounce primitive (the debounce
+        // itself lives in CmuxThemeReloadDebouncer on an injected Clock).
+        DispatchQueue.main.async { [weak self] in
+            self?.cmuxThemeReloadDebouncer.request(source: source)
         }
-    }
-
-    func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
-        if GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source) {
-            cmuxThemePreviewReloadGeneration += 1
-            let generation = cmuxThemePreviewReloadGeneration
-            cmuxThemePreviewReloadWorkItem?.cancel()
-
-            let workItem = DispatchWorkItem { [weak self] in
-                guard let self,
-                      self.cmuxThemePreviewReloadGeneration == generation else { return }
-                self.cmuxThemePreviewReloadWorkItem = nil
-                self.reloadConfiguration(source: source)
-            }
-            cmuxThemePreviewReloadWorkItem = workItem
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + .milliseconds(
-                    GhosttySurfaceConfigurationRefresh.cmuxThemePreviewReloadDebounceMilliseconds
-                ),
-                execute: workItem
-            )
-            return
-        }
-
-        cmuxThemePreviewReloadGeneration += 1
-        cmuxThemePreviewReloadWorkItem?.cancel()
-        cmuxThemePreviewReloadWorkItem = nil
-        reloadConfiguration(source: source)
     }
 }
 
