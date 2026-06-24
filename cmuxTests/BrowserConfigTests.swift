@@ -2536,6 +2536,55 @@ final class BrowserHTTPBasicAuthPromptTests: XCTestCase {
         XCTAssertNil(thirdDisposition)
     }
 
+    func testBasicAuthPromptCoordinatorHandlesReentrantSameSpaceRetry() {
+        let coordinator = BrowserHTTPBasicAuthPromptCoordinator()
+        let challenge = makeAuthChallenge(method: NSURLAuthenticationMethodHTTPBasic)
+        var promptCompletions: [BrowserHTTPBasicAuthPromptCoordinator.Completion] = []
+        var firstDisposition: URLSession.AuthChallengeDisposition?
+        var retryDisposition: URLSession.AuthChallengeDisposition?
+
+        func startPrompt(_ finishPrompt: @escaping BrowserHTTPBasicAuthPromptCoordinator.Completion) -> Bool {
+            promptCompletions.append(finishPrompt)
+            return true
+        }
+
+        XCTAssertTrue(coordinator.handle(
+            challenge: challenge,
+            startPrompt: startPrompt
+        ) { disposition, _ in
+            firstDisposition = disposition
+            XCTAssertTrue(coordinator.handle(
+                challenge: challenge,
+                startPrompt: startPrompt
+            ) { retryReturnedDisposition, _ in
+                retryDisposition = retryReturnedDisposition
+            })
+        })
+
+        XCTAssertEqual(promptCompletions.count, 1)
+        guard promptCompletions.count == 1 else {
+            XCTFail("expected initial Basic Auth prompt, got \(promptCompletions.count)")
+            return
+        }
+
+        promptCompletions[0](
+            .useCredential,
+            URLCredential(user: "alice", password: "bad", persistence: .forSession)
+        )
+
+        XCTAssertEqual(firstDisposition, .useCredential)
+        XCTAssertNil(retryDisposition)
+        XCTAssertEqual(promptCompletions.count, 2)
+        guard promptCompletions.count == 2 else {
+            XCTFail("expected reentrant retry Basic Auth prompt to start")
+            return
+        }
+
+        promptCompletions[1](.cancelAuthenticationChallenge, nil)
+
+        XCTAssertEqual(retryDisposition, .cancelAuthenticationChallenge)
+    }
+
     func testBasicAuthPromptShowsPreviousFailureMessage() {
         let challenge = makeAuthChallenge(
             method: NSURLAuthenticationMethodHTTPBasic,

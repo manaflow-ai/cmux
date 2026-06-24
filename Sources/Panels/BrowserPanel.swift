@@ -8806,19 +8806,22 @@ final class BrowserHTTPBasicAuthPromptCoordinator {
         activeRequest = request
         let started = request.startPrompt { [weak self, weak request] disposition, credential in
             guard let request else { return }
-            request.complete(disposition: disposition, credential: credential)
-            guard let self else { return }
+            guard let self else {
+                request.complete(disposition: disposition, credential: credential)
+                return
+            }
             if self.activeRequest === request {
                 self.activeRequest = nil
             }
+            request.complete(disposition: disposition, credential: credential)
             self.startNext()
         }
 
         if !started {
-            request.complete(disposition: .performDefaultHandling, credential: nil)
             if activeRequest === request {
                 activeRequest = nil
             }
+            request.complete(disposition: .performDefaultHandling, credential: nil)
             startNext()
         }
     }
