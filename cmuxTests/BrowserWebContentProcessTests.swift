@@ -39,6 +39,36 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func configuredBrowserPageInstallsWebAuthnBridge() async throws {
+        let configuration = WKWebViewConfiguration()
+        BrowserPanel.configureWebViewConfiguration(
+            configuration,
+            websiteDataStore: .nonPersistent()
+        )
+        let webView = WKWebView(
+            frame: NSRect(x: 0, y: 0, width: 320, height: 240),
+            configuration: configuration
+        )
+        let loadDelegate = BrowserWebContentProcessLoadDelegate()
+        webView.navigationDelegate = loadDelegate
+        defer { webView.navigationDelegate = nil }
+
+        try await loadDelegate.load(
+            """
+            <!doctype html>
+            <html><body>passkey bridge probe</body></html>
+            """,
+            in: webView,
+            baseURL: URL(string: "https://example.com/")!
+        )
+
+        let installed = try await webView.evaluateJavaScript(
+            "window.__cmuxWebAuthnBridgeInstalled === true"
+        ) as? Bool
+        #expect(installed == true)
+    }
+
+    @Test
     func webViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
@@ -197,5 +227,39 @@ struct BrowserWebContentProcessTests {
         #expect(popupWebView.uiDelegate == nil)
         #expect(popupWebView.window == nil)
         #expect(!popupWindow.isVisible)
+    }
+}
+
+private final class BrowserWebContentProcessLoadDelegate: NSObject, WKNavigationDelegate {
+    private var continuation: CheckedContinuation<Void, Error>?
+
+    func load(_ html: String, in webView: WKWebView, baseURL: URL) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            webView.loadHTMLString(html, baseURL: baseURL)
+        }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        finish(.success(()))
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
+        finish(.failure(error))
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        finish(.failure(error))
+    }
+
+    private func finish(_ result: Result<Void, Error>) {
+        let continuation = continuation
+        self.continuation = nil
+        switch result {
+        case .success:
+            continuation?.resume()
+        case .failure(let error):
+            continuation?.resume(throwing: error)
+        }
     }
 }
