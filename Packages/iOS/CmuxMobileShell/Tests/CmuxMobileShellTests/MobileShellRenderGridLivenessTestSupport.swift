@@ -62,10 +62,14 @@ actor LivenessHostRouter {
     private var heldHostStatusRequestNumbers: Set<Int> = []
     private var subscribeRequestCount = 0
     private var heldSubscribeRequestNumbers: Set<Int> = []
+    private var replayRequestCount = 0
+    private var heldReplayRequestNumbers: Set<Int> = []
+    private var heldReplayContinuationsByRequestNumber: [Int: [CheckedContinuation<Void, Never>]] = [:]
     private var holdSubscribe = false
     private var hasActiveSubscription = false
     private var heldContinuations: [CheckedContinuation<Void, Never>] = []
     private var capabilities = ["events.v1", "terminal.render_grid.v1", "terminal.replay.v1"]
+    private var replayFramesBySurfaceID: [String: MobileTerminalRenderGridFrame] = [:]
 
     func record(method: String?, topics: [String]?) {
         recorded.append(RecordedRequest(method: method, topics: topics))
@@ -77,6 +81,16 @@ actor LivenessHostRouter {
 
     func setCapabilities(_ capabilities: [String]) {
         self.capabilities = capabilities
+    }
+
+    func setReplayFrame(surfaceID: String, seq: UInt64, text: String) throws {
+        replayFramesBySurfaceID[surfaceID] = try MobileTerminalRenderGridFrame.fromPlainRows(
+            surfaceID: surfaceID,
+            stateSeq: seq,
+            columns: 16,
+            rows: 4,
+            text: text
+        )
     }
 
     /// Hold every `mobile.events.subscribe` response until released.
@@ -96,6 +110,18 @@ actor LivenessHostRouter {
         heldSubscribeRequestNumbers.insert(number)
     }
 
+    func holdReplayRequest(number: Int) {
+        heldReplayRequestNumbers.insert(number)
+    }
+
+    func releaseHeldReplayRequest(number: Int) {
+        heldReplayRequestNumbers.remove(number)
+        let continuations = heldReplayContinuationsByRequestNumber.removeValue(forKey: number) ?? []
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+
     /// Forget the host-side registration, modeling a lost subscription behind
     /// a live RPC channel: the next subscribe reports
     /// `already_subscribed: false`.
@@ -109,14 +135,17 @@ actor LivenessHostRouter {
         holdSubscribe = false
         heldHostStatusRequestNumbers = []
         heldSubscribeRequestNumbers = []
+        heldReplayRequestNumbers = []
+        let replayContinuations = heldReplayContinuationsByRequestNumber.values.flatMap { $0 }
+        heldReplayContinuationsByRequestNumber = [:]
         let continuations = heldContinuations
         heldContinuations = []
-        for continuation in continuations {
+        for continuation in continuations + replayContinuations {
             continuation.resume()
         }
     }
 
-    func response(method: String?, id: String?) async -> Data? {
+    func response(method: String?, id: String?, surfaceID: String?) async -> Data? {
         switch method {
         case "workspace.list", "mobile.workspace.list":
             return try? Self.resultFrame(id: id, result: [
@@ -161,7 +190,21 @@ actor LivenessHostRouter {
                 "topics": ["workspace.updated", "terminal.render_grid"],
                 "already_subscribed": alreadySubscribed,
             ])
-        case "mobile.events.unsubscribe", "mobile.terminal.replay", "mobile.terminal.viewport":
+        case "mobile.terminal.replay":
+            replayRequestCount += 1
+            if heldReplayRequestNumbers.contains(replayRequestCount) {
+                await parkReplay(number: replayRequestCount)
+            }
+            if let surfaceID, let frame = replayFramesBySurfaceID[surfaceID] {
+                return try? Self.resultFrame(id: id, result: [
+                    "render_grid": try frame.jsonObject(),
+                    "seq": frame.stateSeq,
+                    "columns": frame.columns,
+                    "rows": frame.rows,
+                ])
+            }
+            return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.events.unsubscribe", "mobile.terminal.viewport":
             return try? Self.resultFrame(id: id, result: [:])
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
@@ -171,6 +214,12 @@ actor LivenessHostRouter {
     private func park() async {
         await withCheckedContinuation { continuation in
             heldContinuations.append(continuation)
+        }
+    }
+
+    private func parkReplay(number: Int) async {
+        await withCheckedContinuation { continuation in
+            heldReplayContinuationsByRequestNumber[number, default: []].append(continuation)
         }
     }
 
@@ -250,13 +299,15 @@ actor LivenessTransport: CmxByteTransport {
             let parsed = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any]
             let method = parsed?["method"] as? String
             let id = parsed?["id"] as? String
-            let topics = (parsed?["params"] as? [String: Any])?["topics"] as? [String]
+            let params = parsed?["params"] as? [String: Any]
+            let topics = params?["topics"] as? [String]
+            let surfaceID = params?["surface_id"] as? String
             await router.record(method: method, topics: topics)
             // Answer each request concurrently so one held response cannot
             // head-of-line block later RPCs, matching the Mac host's
             // per-frame response tasks.
-            Task { [router, weak self] in
-                guard let response = await router.response(method: method, id: id) else {
+            Task { [router, weak self, surfaceID] in
+                guard let response = await router.response(method: method, id: id, surfaceID: surfaceID) else {
                     return
                 }
                 await self?.deliver(response)

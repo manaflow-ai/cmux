@@ -23,6 +23,21 @@ import Testing
         #endif
     }
 
+    @Test func launchArgumentEnableTurnsOnMockData() {
+        let arguments = ["app", "-CMUX_UITEST_MOCK_DATA", "1"]
+        #if DEBUG
+        #expect(UITestConfig.mockDataEnabled(from: [:], arguments: arguments) == true)
+        #else
+        #expect(UITestConfig.mockDataEnabled(from: [:], arguments: arguments) == false)
+        #endif
+    }
+
+    @Test func environmentDisableWinsOverLaunchArgumentEnable() {
+        let env = ["CMUX_UITEST_MOCK_DATA": "0"]
+        let arguments = ["app", "-CMUX_UITEST_MOCK_DATA", "1"]
+        #expect(UITestConfig.mockDataEnabled(from: env, arguments: arguments) == false)
+    }
+
     @Test func testHostPresenceEnablesMockDataInDebug() {
         let env = ["XCTestConfigurationFilePath": "/tmp/x.xctestconfiguration"]
         #if DEBUG

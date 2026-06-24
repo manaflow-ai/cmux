@@ -11,7 +11,10 @@ public struct UITestConfig {
 
     /// Whether mock data is enabled for the current process.
     public static var mockDataEnabled: Bool {
-        mockDataEnabled(from: ProcessInfo.processInfo.environment)
+        mockDataEnabled(
+            from: ProcessInfo.processInfo.environment,
+            arguments: ProcessInfo.processInfo.arguments
+        )
     }
 
     /// The device name to prefill on the Add Device form, if injected.
@@ -74,6 +77,8 @@ public struct UITestConfig {
     public static var terminalLayoutPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_PREVIEW"] == "1"
+            || UITestLaunchArguments(arguments: ProcessInfo.processInfo.arguments)
+                .value(for: "CMUX_UITEST_TERMINAL_PREVIEW") == "1"
         #else
         return false
         #endif
@@ -88,6 +93,23 @@ public struct UITestConfig {
     public static var workspaceListLayoutPreviewEnabled: Bool {
         #if DEBUG
         return ProcessInfo.processInfo.environment["CMUX_UITEST_WORKSPACE_LIST_PREVIEW"] == "1"
+            || UITestLaunchArguments(arguments: ProcessInfo.processInfo.arguments)
+                .value(for: "CMUX_UITEST_WORKSPACE_LIST_PREVIEW") == "1"
+        #else
+        return false
+        #endif
+    }
+
+    /// Whether UI tests should bypass the persisted paired-Mac SQLite store.
+    ///
+    /// Connected UI tests inject their own mock attach URL and must not inherit a
+    /// dogfood user's saved Mac from the simulator, or launch can park on the
+    /// reconnect/restoring row before the mock attach path gets a clean chance.
+    public static var disablePairedMacStore: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["CMUX_UITEST_DISABLE_PAIRED_MAC_STORE"] == "1"
+            || UITestLaunchArguments(arguments: ProcessInfo.processInfo.arguments)
+                .value(for: "CMUX_UITEST_DISABLE_PAIRED_MAC_STORE") == "1"
         #else
         return false
         #endif
@@ -102,11 +124,27 @@ public struct UITestConfig {
     /// - Parameter env: The environment dictionary to evaluate.
     /// - Returns: `true` when mock data should be served.
     public static func mockDataEnabled(from env: [String: String]) -> Bool {
+        mockDataEnabled(from: env, arguments: [])
+    }
+
+    /// Whether mock data is enabled for an explicit environment/argument set.
+    ///
+    /// `XCUIApplication.launchEnvironment` is not reliable across every local
+    /// simulator runner path, so UI tests also pass `-CMUX_UITEST_MOCK_DATA 1`.
+    /// Keep the environment-first rule, then fall back to launch arguments.
+    public static func mockDataEnabled(from env: [String: String], arguments: [String]) -> Bool {
         #if DEBUG
         if env["CMUX_UITEST_MOCK_DATA"] == "0" {
             return false
         }
         if env["CMUX_UITEST_MOCK_DATA"] == "1" {
+            return true
+        }
+        let launchArguments = UITestLaunchArguments(arguments: arguments)
+        if launchArguments.value(for: "CMUX_UITEST_MOCK_DATA") == "0" {
+            return false
+        }
+        if launchArguments.value(for: "CMUX_UITEST_MOCK_DATA") == "1" {
             return true
         }
         if env["XCTestConfigurationFilePath"] != nil {
@@ -137,6 +175,11 @@ public struct UITestConfig {
     }
 
     private static func value(for key: String) -> String? {
-        value(for: key, env: ProcessInfo.processInfo.environment)
+        let environment = ProcessInfo.processInfo.environment
+        if let value = value(for: key, env: environment) {
+            return value
+        }
+        guard mockDataEnabled else { return nil }
+        return UITestLaunchArguments(arguments: ProcessInfo.processInfo.arguments).value(for: key)
     }
 }

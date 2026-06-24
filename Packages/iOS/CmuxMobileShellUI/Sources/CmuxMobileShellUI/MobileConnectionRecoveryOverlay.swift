@@ -11,6 +11,7 @@ private struct MobileConnectionRecoveryOverlay: ViewModifier {
                 connectionRequiresReauth: store.connectionRequiresReauth,
                 connectionRecoveryFailed: store.connectionRecoveryFailed,
                 isRecoveringConnection: store.isRecoveringConnection,
+                preservesWorkspaceShellDuringReconnect: store.shouldPreserveWorkspaceShellDuringReconnect,
                 connectionError: store.connectionError,
                 retry: { store.retryMobileConnection() },
                 signOut: signOut

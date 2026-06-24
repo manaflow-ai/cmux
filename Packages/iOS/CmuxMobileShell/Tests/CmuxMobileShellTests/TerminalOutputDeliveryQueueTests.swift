@@ -41,6 +41,92 @@ import Testing
     #expect(String(decoding: secondChunk.data, as: UTF8.self) == "new-second")
 }
 
+@MainActor
+@Test func droppedOutputClearsStaleBackpressureWithoutYieldingQueuedChunks() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("abandoned".utf8), surfaceID: surfaceID)
+    let abandoned = try #require(await iterator.next())
+    store.deliverTerminalBytes(Data("queued-live-delta".utf8), surfaceID: surfaceID)
+
+    store.terminalOutputDidDropForRetry(surfaceID: surfaceID, streamToken: abandoned.streamToken)
+    #expect(store.terminalOutputQueuesBySurfaceID[surfaceID]?.isIdle == true)
+
+    store.deliverTerminalBytes(Data("authoritative-replay".utf8), surfaceID: surfaceID)
+    let replay = try #require(await iterator.next())
+    #expect(String(decoding: replay.data, as: UTF8.self) == "authoritative-replay")
+}
+
+@MainActor
+@Test func replayRecoveryFailureSurfacesRetryStateUntilOutputApplies() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let otherSurfaceID = "other-terminal"
+
+    store.terminalReplayRecoveryDidFail(surfaceID: surfaceID)
+    #expect(store.connectionRecoveryFailed)
+
+    var otherIterator = store.terminalOutputStream(surfaceID: otherSurfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("unrelated".utf8), surfaceID: otherSurfaceID)
+    let otherChunk = try #require(await otherIterator.next())
+    store.terminalOutputDidProcess(surfaceID: otherSurfaceID, streamToken: otherChunk.streamToken)
+    #expect(store.connectionRecoveryFailed)
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalBytes(Data("recovered".utf8), surfaceID: surfaceID)
+    let chunk = try #require(await iterator.next())
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+
+    #expect(!store.connectionRecoveryFailed)
+}
+
+@MainActor
+@Test func queuedRenderGridSequenceIsDeliveredOnlyAfterSurfaceAck() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 42,
+        columns: 12,
+        rows: 2,
+        text: "authoritative"
+    )
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalRenderGrid(frame, surfaceID: surfaceID)
+    let chunk = try #require(await iterator.next())
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalOutputAcceptedEndSeq(surfaceID: surfaceID) == 42)
+
+    store.terminalOutputDidProcess(surfaceID: surfaceID, streamToken: chunk.streamToken)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == 42)
+    #expect(store.terminalOutputAcceptedEndSeq(surfaceID: surfaceID) == 42)
+}
+
+@MainActor
+@Test func droppedRenderGridSequenceDoesNotRemainAccepted() async throws {
+    let store = MobileShellComposite.preview()
+    let surfaceID = "terminal"
+    let frame = try MobileTerminalRenderGridFrame.fromPlainRows(
+        surfaceID: surfaceID,
+        stateSeq: 42,
+        columns: 12,
+        rows: 2,
+        text: "abandoned"
+    )
+
+    var iterator = store.terminalOutputStream(surfaceID: surfaceID).makeAsyncIterator()
+    store.deliverTerminalRenderGrid(frame, surfaceID: surfaceID)
+    let chunk = try #require(await iterator.next())
+    #expect(store.terminalOutputAcceptedEndSeq(surfaceID: surfaceID) == 42)
+
+    store.terminalOutputDidDropForRetry(surfaceID: surfaceID, streamToken: chunk.streamToken)
+    #expect(store.deliveredTerminalByteEndSeqBySurfaceID[surfaceID] == nil)
+    #expect(store.terminalOutputAcceptedEndSeq(surfaceID: surfaceID) == 0)
+}
+
 @Test func terminalOutputQueueCoalescesReplaceableViewportFramesBehindBackpressure() {
     var queue = TerminalOutputDeliveryQueue()
     let inFlight = TerminalOutputDelivery(bytes: Data("in-flight".utf8), replaceable: false)

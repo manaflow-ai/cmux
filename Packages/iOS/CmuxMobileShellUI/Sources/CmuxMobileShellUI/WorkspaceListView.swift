@@ -161,6 +161,7 @@ struct WorkspaceListView: View {
                         connectionRequiresReauth: store.connectionRequiresReauth,
                         connectionRecoveryFailed: store.connectionRecoveryFailed,
                         isRecoveringConnection: store.isRecoveringConnection,
+                        preservesWorkspaceShellDuringReconnect: store.shouldPreserveWorkspaceShellDuringReconnect,
                         connectionError: store.connectionError,
                         retry: { store.retryMobileConnection() },
                         signOut: signOut,
@@ -276,6 +277,7 @@ struct WorkspaceListView: View {
         return store.connectionRequiresReauth
             || store.connectionRecoveryFailed
             || store.isRecoveringConnection
+            || store.shouldPreserveWorkspaceShellDuringReconnect
     }
 
     private var canCreateWorkspace: Bool {

@@ -9,6 +9,7 @@ struct MobileConnectionRecoveryBanner: View {
     var connectionRequiresReauth: Bool
     var connectionRecoveryFailed: Bool
     var isRecoveringConnection: Bool
+    var preservesWorkspaceShellDuringReconnect = false
     var connectionError: String?
     var retry: (() -> Void)?
     /// Sign the user out so they can re-authenticate into the account that owns
@@ -19,14 +20,20 @@ struct MobileConnectionRecoveryBanner: View {
 
     var body: some View {
         Group {
-            if connectionRequiresReauth {
+            switch Self.presentation(
+                requiresReauth: connectionRequiresReauth,
+                connectionError: connectionError,
+                recoveryFailed: connectionRecoveryFailed,
+                isRecoveringConnection: isRecoveringConnection,
+                preservesWorkspaceShellDuringReconnect: preservesWorkspaceShellDuringReconnect
+            ) {
+            case .hidden:
+                EmptyView()
+            case .reauth(let text):
                 authBanner(
-                    text: connectionError ?? L10n.string(
-                        "mobile.recovery.accountMismatch",
-                        defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with that account."
-                    )
+                    text: text
                 )
-            } else if connectionRecoveryFailed {
+            case .lost:
                 banner(
                     title: L10n.string(
                         "mobile.recovery.lost",
@@ -39,7 +46,7 @@ struct MobileConnectionRecoveryBanner: View {
                     showsRetry: true,
                     showsSpinner: false
                 )
-            } else if isRecoveringConnection {
+            case .reconnecting:
                 banner(
                     title: L10n.string(
                         "mobile.recovery.reconnecting",
@@ -54,6 +61,29 @@ struct MobileConnectionRecoveryBanner: View {
         .animation(.default, value: isRecoveringConnection)
         .animation(.default, value: connectionRecoveryFailed)
         .animation(.default, value: connectionRequiresReauth)
+        .animation(.default, value: preservesWorkspaceShellDuringReconnect)
+    }
+
+    static func presentation(
+        requiresReauth: Bool,
+        connectionError: String?,
+        recoveryFailed: Bool,
+        isRecoveringConnection: Bool,
+        preservesWorkspaceShellDuringReconnect: Bool
+    ) -> MobileConnectionRecoveryBannerPresentation {
+        if requiresReauth {
+            return .reauth(connectionError ?? L10n.string(
+                "mobile.recovery.accountMismatch",
+                defaultValue: "This Mac is signed in to a different cmux account. Sign out and sign back in with that account."
+            ))
+        }
+        if recoveryFailed {
+            return .lost
+        }
+        if isRecoveringConnection || preservesWorkspaceShellDuringReconnect {
+            return .reconnecting
+        }
+        return .hidden
     }
 
     /// An authorization failure (wrong account / unverifiable token). Retrying

@@ -133,16 +133,25 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
             // Drive every output chunk into the libghostty surface. Ending this
             // task terminates the stream, which unregisters the surface and
             // clears its viewport pin on the Mac (see `terminalOutputStream`).
+            // A dropped chunk is not acknowledged: it resets sequencing and
+            // triggers bounded replay so reconnect never spins on stale output.
             outputTask = Task { @MainActor [weak surfaceView, weak store] in
                 guard let store else { return }
                 for await chunk in store.terminalOutputStream(surfaceID: surfaceID) {
                     guard !Task.isCancelled else { return }
                     guard let surfaceView else { return }
-                    await surfaceView.processOutputAndWait(chunk.data)
-                    store.terminalOutputDidProcess(
-                        surfaceID: surfaceID,
-                        streamToken: chunk.streamToken
-                    )
+                    let applied = await surfaceView.processOutputAndWait(chunk.data)
+                    if applied {
+                        store.terminalOutputDidProcess(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                    } else {
+                        store.terminalOutputDidDropForRetry(
+                            surfaceID: surfaceID,
+                            streamToken: chunk.streamToken
+                        )
+                    }
                 }
             }
             // Drive Mac-pushed live font-size changes (`terminal.set_font`) into
@@ -304,6 +313,18 @@ struct GhosttySurfaceRepresentable: UIViewRepresentable {
                     return
                 }
                 surfaceView?.applyViewSize(cols: effective.columns, rows: effective.rows)
+            }
+        }
+
+        func ghosttySurfaceViewNeedsReplay(_ surfaceView: GhosttySurfaceView) async -> Bool {
+            guard let store else { return false }
+            return await store.performTerminalReplay(surfaceID: surfaceID)
+        }
+
+        func ghosttySurfaceViewReplayRecoveryFailed(_ surfaceView: GhosttySurfaceView) {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.store?.terminalReplayRecoveryDidFail(surfaceID: self.surfaceID)
             }
         }
 

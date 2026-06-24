@@ -192,6 +192,8 @@ struct CMUXMobileRootView: View {
             workspaceListLayoutPreview
         } else if !isAuthenticated {
             SignInView()
+        } else if store.shouldPreserveWorkspaceShellDuringReconnect {
+            WorkspaceShellView(store: store, signOut: signOut, showAddDevice: showAddDevice)
         } else if store.connectionState != .connected && shouldShowRestoringStoredMac {
             RestoringStoredMacWorkspaceShell(
                 store: store,

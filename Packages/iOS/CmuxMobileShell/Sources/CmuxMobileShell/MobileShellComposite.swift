@@ -231,6 +231,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         workspaceAggregation.machineColorIndex(statesByMac: workspacesByMac)
     }
 
+    /// Whether a prior remote workspace snapshot can be reused during reconnect presentation.
+    public private(set) var hasCachedRemoteWorkspaceSnapshot: Bool
+
     /// The PHONE'S OWN live connection status to each Mac (foreground or live
     /// secondary subscription), keyed by `macDeviceID`. This is the source of
     /// truth for "is the phone talking to this Mac right now" — distinct from
@@ -520,6 +523,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// keyboard, while push-notification navigation (``selectTerminal(_:)``) is
     /// intentionally left out of the set and allowed to autofocus.
     private var terminalAutoFocusSuppressedSurfaceIDs: Set<String> = []
+    /// Mounted terminal surfaces whose local Ghostty replay exhausted recovery.
+    /// The visible recovery banner is global, but clearing is surface-scoped so
+    /// output from one healthy terminal cannot hide a stale/frozen sibling.
+    private var terminalReplayRecoveryFailedSurfaceIDs: Set<String> = []
 
     let runtime: (any MobileSyncRuntime)?
     private let pairedMacStore: (any MobilePairedMacStoring)?
@@ -678,9 +685,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``secondaryAggregationTask``, can reject old-team results after awaits.
     private var secondaryAggregationScopeGeneration = 0
     private var reportedViewportSizesByTerminalKey: [MobileTerminalViewportKey: MobileTerminalViewportSize]
-    private var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    var deliveredTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var pendingTerminalByteEndSeqBySurfaceID: [String: UInt64]
+    var queuedTerminalByteEndSeqBySurfaceID: [String: UInt64]
     private var terminalReplaySurfaceIDsInFlight: Set<String>
+    /// In-flight replay RPCs owned by the surface-driven reconnect path.
+    var terminalReplayRetryTasksBySurfaceID: [String: Task<Bool, Never>]
+    var terminalReplayRetryTaskIDsBySurfaceID: [String: UUID]
     private var terminalOutputTransport: TerminalOutputTransport
     var terminalByteContinuationsBySurfaceID: [String: AsyncStream<MobileTerminalOutputChunk>.Continuation]
     var terminalOutputStreamTokensBySurfaceID: [String: UUID]
@@ -816,10 +827,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.feedbackStampProvider = feedbackStampProvider
         // Distinguish "key absent" (an install that predates the hint and may
         // already have a paired Mac in SQLite) from "key present and false" (we
-        // determined there is no paired Mac). didSet is not called for these
+        // determined there is no paired Mac). If there is no paired-Mac store at
+        // all, the source is known-empty and must not keep the restoring gate in
+        // the migration-only undetermined state. didSet is not called for these
         // initial assignments, so the undetermined flag is not clobbered here.
-        self.pairedMacHintUndetermined = pairingHintDefaults.object(forKey: Self.hasKnownPairedMacDefaultsKey) == nil
-        self.hasKnownPairedMac = pairingHintDefaults.bool(forKey: Self.hasKnownPairedMacDefaultsKey)
+        let savedMacHintIsAbsent = pairingHintDefaults.object(forKey: Self.hasKnownPairedMacDefaultsKey) == nil
+        self.pairedMacHintUndetermined = pairedMacStore != nil && savedMacHintIsAbsent
+        self.hasKnownPairedMac = pairedMacStore != nil && pairingHintDefaults.bool(forKey: Self.hasKnownPairedMacDefaultsKey)
         // The id is resolved (and minted on first install) by
         // `MobileAnalyticsComposition`, which is constructed before this shell and
         // owns the `ios_app_first_launch` emit. The shell only needs the stable id
@@ -839,6 +853,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             : [Self.foregroundAnonymousKey: MacWorkspaceState(
                 macDeviceID: Self.foregroundAnonymousKey, workspaces: workspaces)]
         self.workspaces = workspaces
+        self.hasCachedRemoteWorkspaceSnapshot = connectionState == .connected
+            && workspaces.contains { !$0.terminals.isEmpty }
         self.terminalInputText = ""
         self.connectionError = nil
         self.connectionErrorGuidance = nil
@@ -862,7 +878,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         self.reportedViewportSizesByTerminalKey = [:]
         self.deliveredTerminalByteEndSeqBySurfaceID = [:]
         self.pendingTerminalByteEndSeqBySurfaceID = [:]
+        self.queuedTerminalByteEndSeqBySurfaceID = [:]
         self.terminalReplaySurfaceIDsInFlight = []
+        self.terminalReplayRetryTasksBySurfaceID = [:]
+        self.terminalReplayRetryTaskIDsBySurfaceID = [:]
         self.terminalOutputTransport = .rawBytes
         self.terminalByteContinuationsBySurfaceID = [:]
         self.terminalOutputStreamTokensBySurfaceID = [:]
@@ -986,6 +1005,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // the forget path. On a real account switch the next reconnect's no-mac
         // branch clears the hint. Bump the reconnect generation so any in-flight
         // reconnect is superseded and can't re-set these flags after sign-out.
+        hasCachedRemoteWorkspaceSnapshot = false
         storedMacReconnectGeneration &+= 1
         isReconnectingStoredMac = false
         didFinishStoredMacReconnectAttempt = false
@@ -1311,9 +1331,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
     /// User-initiated reconnect from the Retry control.
     public func retryMobileConnection() {
+        terminalReplayRecoveryFailedSurfaceIDs.removeAll()
         connectionRecoveryFailed = false
         recoverMobileConnection(trigger: .manual)
     }
+
+    /// Surface replay exhausted its bounded retries while preserving stale content.
+    /// Surface this through the existing connection-recovery banner so the user has
+    /// a visible Retry action that drives a resync/replay.
+    public func terminalReplayRecoveryDidFail(surfaceID: String) {
+        terminalReplayRecoveryFailedSurfaceIDs.insert(surfaceID)
+        isRecoveringConnection = false
+        connectionRecoveryFailed = true
+    }
+
+    func clearTerminalReplayRecoveryFailure(surfaceID: String) {
+        guard terminalReplayRecoveryFailedSurfaceIDs.remove(surfaceID) != nil else {
+            return
+        }
+        if terminalReplayRecoveryFailedSurfaceIDs.isEmpty {
+            connectionRecoveryFailed = false
+        }
+    }
+
+    #if DEBUG
+    func debugRecoverMobileConnectionForTesting() {
+        recoverMobileConnection(trigger: .networkChange)
+    }
+    #endif
 
     /// Single guarded recovery entry for every trigger (network change, manual
     /// Retry). When still connected, a network move usually only broke the event
@@ -1331,6 +1376,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard !recoveryInFlight else { return }
         recoveryInFlight = true
         isRecoveringConnection = true
+        terminalReplayRecoveryFailedSurfaceIDs.removeAll()
         connectionRecoveryFailed = false
         let stackUserID = lastReconnectStackUserID
         recoveryTask?.cancel()
@@ -2289,6 +2335,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // from clobbering the new listener/watchdog.
         stopTerminalRefreshPolling()
         startTerminalRefreshPolling()
+        replayMountedTerminalSinks(reason: "promoteSecondary")
         syncSelectedTerminalForWorkspace()
         if let pairedMacStore {
             let scope = await currentScopeSnapshot()
@@ -3418,6 +3465,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
         workspaces = derived
+        if derived.contains(where: { !$0.terminals.isEmpty }) {
+            hasCachedRemoteWorkspaceSnapshot = true
+        }
         if let selectedWorkspaceID,
            !derived.contains(where: { $0.id == selectedWorkspaceID }) {
             let remapped = previousSelection.flatMap { previous in
@@ -4558,6 +4608,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     syncSelectedTerminalForWorkspace()
                     connectionState = .connected
                     markMacConnectionHealthy()
+                    replayMountedTerminalSinks(reason: "connect")
                     // Record this as the foreground entry in the per-Mac
                     // connection pool (P2). Anonymous (empty-id) tickets are not
                     // pooled, since a per-Mac key is required to aggregate. Keyed by
@@ -4797,7 +4848,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func resetTerminalOutputTracking() {
         deliveredTerminalByteEndSeqBySurfaceID = [:]
         pendingTerminalByteEndSeqBySurfaceID = [:]
+        queuedTerminalByteEndSeqBySurfaceID = [:]
         terminalReplaySurfaceIDsInFlight = []
+        terminalReplayRetryTasksBySurfaceID = [:]
+        terminalReplayRetryTaskIDsBySurfaceID = [:]
         terminalOutputQueuesBySurfaceID = [:]
         terminalOutputStreamTokensBySurfaceID = terminalOutputStreamTokensBySurfaceID.mapValues { _ in UUID() }
         terminalScrollQueueTokensBySurfaceID = [:]
@@ -5076,6 +5130,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         macConnectionStatus = .connected
         isRecoveringConnection = false
+        terminalReplayRecoveryFailedSurfaceIDs.removeAll()
         connectionRecoveryFailed = false
         connectionRequiresReauth = false
     }
@@ -5087,6 +5142,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
         macConnectionStatus = .reconnecting
         isRecoveringConnection = true
+        terminalReplayRecoveryFailedSurfaceIDs.removeAll()
         connectionRecoveryFailed = false
     }
 
@@ -6089,13 +6145,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    private func replayMountedTerminalSinks(reason: String) {
+        let surfaceIDs = Array(terminalByteContinuationsBySurfaceID.keys)
+        guard !surfaceIDs.isEmpty else { return }
+        MobileDebugLog.anchormux(
+            "sync.replay_mounted reason=\(reason) surfaces=\(surfaceIDs.count)"
+        )
+        for surfaceID in surfaceIDs {
+            requestTerminalReplay(surfaceID: surfaceID)
+        }
+    }
+
     private func handleTerminalInputResponse(_ data: Data, surfaceID: String) {
         guard hasTerminalOutputSink(surfaceID: surfaceID),
               let payload = try? MobileTerminalInputResponse.decode(data),
               let remoteSeq = payload.terminalSeq else {
             return
         }
-        let localSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
+        let localSeq = terminalOutputAcceptedEndSeq(surfaceID: surfaceID)
         guard remoteSeq > localSeq else { return }
         if terminalOutputTransport == .renderGrid,
            terminalEventListenerTask != nil {
@@ -6137,14 +6204,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
-    private func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
+    func markTerminalBytesQueued(surfaceID: String, endSeq: UInt64?) {
+        guard let endSeq else { return }
+        let current = queuedTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
+        queuedTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
+    }
+
+    func markTerminalBytesDelivered(surfaceID: String, endSeq: UInt64) {
         let current = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
         deliveredTerminalByteEndSeqBySurfaceID[surfaceID] = max(current, endSeq)
+        if let queuedSeq = queuedTerminalByteEndSeqBySurfaceID[surfaceID],
+           endSeq >= queuedSeq {
+            queuedTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        }
         if let pendingSeq = pendingTerminalByteEndSeqBySurfaceID[surfaceID],
            endSeq >= pendingSeq {
             pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
             MobileDebugLog.anchormux("sync.input_seq_caught_up surface=\(surfaceID) seq=\(endSeq)")
         }
+    }
+
+    func terminalOutputAcceptedEndSeq(surfaceID: String) -> UInt64 {
+        max(
+            deliveredTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0,
+            queuedTerminalByteEndSeqBySurfaceID[surfaceID] ?? 0
+        )
     }
 
     func deliverAuthoritativeTerminalRenderGrid(
@@ -6156,25 +6240,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
               hasTerminalOutputSink(surfaceID: renderGrid.surfaceID) else {
             return
         }
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[renderGrid.surfaceID],
-           deliveredSeq > renderGrid.stateSeq {
+        let acceptedSeq = terminalOutputAcceptedEndSeq(surfaceID: renderGrid.surfaceID)
+        if acceptedSeq > renderGrid.stateSeq {
             MobileDebugLog.anchormux(
-                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) delivered=\(deliveredSeq) frame=\(renderGrid.stateSeq)"
+                "sync.render_grid_stale source=\(source) surface=\(renderGrid.surfaceID) accepted=\(acceptedSeq) frame=\(renderGrid.stateSeq)"
             )
             return
         }
-        markTerminalBytesDelivered(surfaceID: renderGrid.surfaceID, endSeq: renderGrid.stateSeq)
         deliverTerminalRenderGrid(renderGrid, surfaceID: renderGrid.surfaceID)
     }
 
-    private static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
+    static func terminalSnapshotReplacementBytes(_ snapshotBytes: Data) -> Data {
         var bytes = Data("\u{1B}c\u{1B}[H\u{1B}[2J\u{1B}[3J".utf8)
         bytes.append(snapshotBytes)
         return bytes
     }
 
     /// Whether a surface currently has an attached output stream consumer.
-    private func hasTerminalOutputSink(surfaceID: String) -> Bool {
+    func hasTerminalOutputSink(surfaceID: String) -> Bool {
         terminalByteContinuationsBySurfaceID[surfaceID] != nil
     }
 
@@ -6187,6 +6270,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalOutputQueuesBySurfaceID[surfaceID] = TerminalOutputDeliveryQueue()
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        queuedTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         #if DEBUG
         mobileShellLog.info("CMUX_REPLAY register sink surface=\(surfaceID, privacy: .public) connected=\(self.connectionState == .connected, privacy: .public) hasClient=\(self.remoteClient != nil, privacy: .public) workspaceCount=\(self.workspaces.count, privacy: .public)")
         #endif
@@ -6202,6 +6286,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         terminalScrollbackPrefetchStatesBySurfaceID.removeValue(forKey: surfaceID)
         deliveredTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         pendingTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
+        queuedTerminalByteEndSeqBySurfaceID.removeValue(forKey: surfaceID)
         // Tell the Mac this device is no longer viewing the surface so it stops
         // pinning the shared grid to our viewport and clears the macOS border.
         clearTerminalViewport(surfaceID: surfaceID)
@@ -6321,89 +6406,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// resume. The VT snapshot and raw byte ring remain fallbacks, but neither
     /// is the target architecture: a byte tail is not a complete screen state
     /// for TUIs, and a VT export is still a replay stream rather than state.
-    private func requestTerminalReplay(surfaceID: String) {
-        guard let client = remoteClient else {
-            #if DEBUG
-            mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=no_remote_client")
-            #endif
-            return
-        }
-        guard let workspaceID = workspaceID(forTerminalID: surfaceID) else {
-            #if DEBUG
-            mobileShellLog.error("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=workspace_not_found")
-            #endif
-            return
-        }
-        let remoteWorkspaceID = remoteWorkspaceID(for: workspaceID)
-        guard !terminalReplaySurfaceIDsInFlight.contains(surfaceID) else {
-            #if DEBUG
-            mobileShellLog.info("CMUX_REPLAY skip surface=\(surfaceID, privacy: .public) reason=in_flight")
-            #endif
-            return
-        }
-        terminalReplaySurfaceIDsInFlight.insert(surfaceID)
+    public func requestTerminalReplay(surfaceID: String) {
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.terminalReplaySurfaceIDsInFlight.remove(surfaceID) }
-            do {
-                let request = try MobileCoreRPCClient.requestData(
-                    method: "mobile.terminal.replay",
-                    params: [
-                        "workspace_id": remoteWorkspaceID.rawValue,
-                        "surface_id": surfaceID,
-                    ]
-                )
-                let data = try await client.sendRequest(request)
-                guard self.remoteClient === client else { return }
-                let payload = try? MobileTerminalReplayResponse.decode(data)
-                let bytes = payload?.dataBase64.flatMap { Data(base64Encoded: $0) }
-                let snapshotBytes = payload?.snapshotBase64.flatMap { Data(base64Encoded: $0) }
-                let decodedRenderGrid = payload?.renderGrid
-                let renderGrid = decodedRenderGrid?.surfaceID == surfaceID ? decodedRenderGrid : nil
-                let replaySeq = renderGrid?.stateSeq ?? payload?.sequence
-                #if DEBUG
-                let seq = replaySeq ?? 0
-                let cols = payload?.columns ?? -1
-                let rows = payload?.rows ?? -1
-                mobileShellLog.info("CMUX_REPLAY response surface=\(surfaceID, privacy: .public) byteCount=\(bytes?.count ?? -1, privacy: .public) snapshotBytes=\(snapshotBytes?.count ?? -1, privacy: .public) renderGrid=\(renderGrid != nil, privacy: .public) seq=\(seq, privacy: .public) macGrid=\(cols, privacy: .public)x\(rows, privacy: .public) hasSink=\(self.hasTerminalOutputSink(surfaceID: surfaceID), privacy: .public)")
-                #endif
-                if let replaySeq,
-                   let deliveredSeq = self.deliveredTerminalByteEndSeqBySurfaceID[surfaceID],
-                   deliveredSeq > replaySeq {
-                    MobileDebugLog.anchormux("CMUX_REPLAY stale surface=\(surfaceID) delivered=\(deliveredSeq) replay=\(replaySeq)")
-                    return
-                }
-                let deliverBytes: Data?
-                if let renderGrid {
-                    deliverBytes = nil
-                    MobileDebugLog.anchormux("CMUX_REPLAY render_grid surface=\(surfaceID) spans=\(renderGrid.rowSpans.count) seq=\(renderGrid.stateSeq)")
-                } else if let snapshotBytes, !snapshotBytes.isEmpty {
-                    deliverBytes = Self.terminalSnapshotReplacementBytes(snapshotBytes)
-                    MobileDebugLog.anchormux("CMUX_REPLAY snapshot surface=\(surfaceID) bytes=\(snapshotBytes.count) seq=\(replaySeq ?? 0)")
-                } else {
-                    deliverBytes = bytes
-                    MobileDebugLog.anchormux("CMUX_REPLAY raw_tail surface=\(surfaceID) bytes=\(bytes?.count ?? -1) seq=\(replaySeq ?? 0)")
-                }
-                if let replaySeq {
-                    self.markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: replaySeq)
-                }
-                if let renderGrid {
-                    self.deliverTerminalRenderGrid(renderGrid, surfaceID: surfaceID)
-                    return
-                }
-                guard let deliverBytes, !deliverBytes.isEmpty else {
-                    return
-                }
-                self.deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
-            } catch {
-                mobileShellLog.error("CMUX_REPLAY failed surface=\(surfaceID, privacy: .public) error=\(String(describing: error), privacy: .public)")
-                // The replay request is the view-only/foreground-resume path. A
-                // definitive auth failure here (after the RPC layer's
-                // force-refresh-and-retry already gave up) must drive the re-auth
-                // prompt instead of silently leaving a stale frame.
-                guard self.remoteClient === client else { return }
-                _ = self.disconnectForAuthorizationFailureIfNeeded(error)
-            }
+            await self?.performTerminalReplay(surfaceID: surfaceID)
         }
     }
 
@@ -6494,16 +6499,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             return
         }
         let endSeq = seq &+ UInt64(bytes.count)
-        if let deliveredSeq = deliveredTerminalByteEndSeqBySurfaceID[surfaceID] {
-            if seq > deliveredSeq {
-                MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) delivered=\(deliveredSeq) next=\(seq)")
+        let acceptedSeq = terminalOutputAcceptedEndSeq(surfaceID: surfaceID)
+        if acceptedSeq > 0 {
+            if seq > acceptedSeq {
+                MobileDebugLog.anchormux("sync.byte_gap surface=\(surfaceID) accepted=\(acceptedSeq) next=\(seq)")
                 diagnosticLog?.record(DiagnosticEvent(
                     .byteGap,
                     surface: Self.diagnosticSurfaceHandle(surfaceID),
-                    a: Int(clamping: deliveredSeq),
+                    a: Int(clamping: acceptedSeq),
                     b: Int(clamping: seq)
                 ))
-                mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) deliveredSeq=\(deliveredSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
+                mobileShellLog.info("terminal byte gap surface=\(surfaceID, privacy: .public) acceptedSeq=\(acceptedSeq, privacy: .public) nextSeq=\(seq, privacy: .public)")
                 resyncTerminalOutput(
                     reason: "seq_gap",
                     restartEventStream: false,
@@ -6511,17 +6517,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 )
                 return
             }
-            if endSeq <= deliveredSeq {
+            if endSeq <= acceptedSeq {
                 return
             }
-            let overlap = deliveredSeq - seq
+            let overlap = acceptedSeq - seq
             let deliverBytes = Data(bytes.dropFirst(Int(overlap)))
-            deliverTerminalBytes(deliverBytes, surfaceID: surfaceID)
-            markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
+            deliverTerminalBytes(deliverBytes, surfaceID: surfaceID, endSeq: endSeq)
             return
         }
-        deliverTerminalBytes(bytes, surfaceID: surfaceID)
-        markTerminalBytesDelivered(surfaceID: surfaceID, endSeq: endSeq)
+        deliverTerminalBytes(bytes, surfaceID: surfaceID, endSeq: endSeq)
     }
 
     private func scheduleWorkspaceListRefreshFromEvent() {
@@ -6891,26 +6895,5 @@ private extension MobileWorkspacePreview {
 
     var hasReadyTerminal: Bool {
         terminals.contains(where: \.isReady)
-    }
-}
-private extension MobileShellComposite {
-    /// The name shown for the Mac until `mobile.host.status` reports the real
-    /// one: the ticket's display name, then its device id, then the dialed
-    /// route's host (a minimal v2 pairing code carries neither name nor id,
-    /// so the Tailscale hostname is the best available placeholder).
-    func placeholderHostName(
-        for ticket: CmxAttachTicket,
-        firstRoute: CmxAttachRoute
-    ) -> String {
-        if let name = ticket.macDisplayName, !name.isEmpty {
-            return name
-        }
-        if !ticket.macDeviceID.isEmpty {
-            return ticket.macDeviceID
-        }
-        if case let .hostPort(host, _) = firstRoute.endpoint {
-            return host
-        }
-        return ""
     }
 }

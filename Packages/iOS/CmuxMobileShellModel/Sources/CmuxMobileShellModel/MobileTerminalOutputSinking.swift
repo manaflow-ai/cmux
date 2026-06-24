@@ -13,6 +13,9 @@ public import Foundation
 /// This replaces the previous `(Data) -> Void` sink registry so output
 /// propagation is a structured, cancellable `AsyncSequence` instead of a stored
 /// callback.
+///
+/// Reconnect replay is bounded by the terminal surface retry/deadline policy:
+/// dropped chunks request replay instead of acknowledging stale output.
 public struct MobileTerminalOutputChunk: Sendable {
     public let data: Data
     public let streamToken: UUID
@@ -36,4 +39,15 @@ public protocol MobileTerminalOutputSinking: Sendable {
     /// - Parameter surfaceID: The terminal surface identifier.
     /// - Parameter streamToken: The token carried by the yielded chunk.
     @MainActor func terminalOutputDidProcess(surfaceID: String, streamToken: UUID)
+
+    /// Request an authoritative replay for a mounted surface after local
+    /// presentation recovery recreated the phone-side Ghostty surface.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    @MainActor func requestTerminalReplay(surfaceID: String)
+
+    /// Mark the current yielded chunk as dropped before application so the
+    /// shell can reset sequencing and force replay rather than ack stale bytes.
+    /// - Parameter surfaceID: The terminal surface identifier.
+    /// - Parameter streamToken: The token carried by the yielded chunk.
+    @MainActor func terminalOutputDidDropForRetry(surfaceID: String, streamToken: UUID)
 }

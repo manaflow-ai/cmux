@@ -4,6 +4,7 @@ import CmuxMobileAnalytics
 import CmuxMobilePairedMac
 import CmuxMobileShell
 import CmuxMobileShellModel
+import CmuxMobileSupport
 @_exported import CmuxMobileShellUI
 import CmuxMobileTransport
 import Foundation
@@ -124,6 +125,11 @@ public struct CMUXMobileRootScene: View {
     #endif
 
     private static func openPairedMacStore() -> (any MobilePairedMacStoring)? {
+        #if DEBUG
+        if UITestConfig.disablePairedMacStore {
+            return nil
+        }
+        #endif
         do {
             return try MobilePairedMacStore()
         } catch {

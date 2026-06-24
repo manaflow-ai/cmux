@@ -5,11 +5,11 @@ import Testing
 
 @Suite struct MobileRootAuthGateTests {
     @Test func allowsAttachTicketAuthenticationWithoutStackAuth() throws {
-        #expect(MobileRootAuthGate.isAuthenticated(
+        #expect(MobileRootAuthGate().isAuthenticated(
             stackAuthenticated: false,
             attachTicketAuthenticated: true
         ))
-        #expect(!MobileRootAuthGate.isAuthenticated(
+        #expect(!MobileRootAuthGate().isAuthenticated(
             stackAuthenticated: false,
             attachTicketAuthenticated: false
         ))
@@ -21,29 +21,29 @@ import Testing
         let authURL = try #require(URL(string: "stack-auth-mobile-oauth-url://callback?code=test"))
         let otherURL = try #require(URL(string: "cmux-ios://oauth?v=1"))
 
-        #expect(MobileRootAuthGate.isAttachURL(attachURL))
-        #expect(MobileRootAuthGate.isAttachURL(devAttachURL))
-        #expect(!MobileRootAuthGate.isAttachURL(authURL))
-        #expect(!MobileRootAuthGate.isAttachURL(otherURL))
+        #expect(MobileRootAuthGate().isAttachURL(attachURL))
+        #expect(MobileRootAuthGate().isAttachURL(devAttachURL))
+        #expect(!MobileRootAuthGate().isAttachURL(authURL))
+        #expect(!MobileRootAuthGate().isAttachURL(otherURL))
     }
 
     @Test func showsRestoringSessionOnlyBeforeAuthentication() {
-        #expect(MobileRootAuthGate.shouldShowRestoringSession(
+        #expect(MobileRootAuthGate().shouldShowRestoringSession(
             stackAuthenticated: false,
             attachTicketAuthenticated: false,
             isRestoringSession: true
         ))
-        #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        #expect(!MobileRootAuthGate().shouldShowRestoringSession(
             stackAuthenticated: true,
             attachTicketAuthenticated: false,
             isRestoringSession: true
         ))
-        #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        #expect(!MobileRootAuthGate().shouldShowRestoringSession(
             stackAuthenticated: false,
             attachTicketAuthenticated: true,
             isRestoringSession: true
         ))
-        #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        #expect(!MobileRootAuthGate().shouldShowRestoringSession(
             stackAuthenticated: false,
             attachTicketAuthenticated: false,
             isRestoringSession: false
@@ -51,47 +51,47 @@ import Testing
     }
 
     @Test func clearsOnlyStaleTemporaryAttachAuthentication() {
-        #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        #expect(MobileRootAuthGate().shouldClearAttachTicketAuthentication(
             pairingResult: .failed,
             connectionState: .disconnected,
             hasActiveUnexpiredTicket: false
         ))
-        #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        #expect(MobileRootAuthGate().shouldClearAttachTicketAuthentication(
             pairingResult: .superseded,
             connectionState: .disconnected,
             hasActiveUnexpiredTicket: false
         ))
-        #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        #expect(!MobileRootAuthGate().shouldClearAttachTicketAuthentication(
             pairingResult: .needsUserApproval,
             connectionState: .disconnected,
             hasActiveUnexpiredTicket: false
         ))
-        #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        #expect(!MobileRootAuthGate().shouldClearAttachTicketAuthentication(
             pairingResult: .superseded,
             connectionState: .connected,
             hasActiveUnexpiredTicket: true
         ))
-        #expect(!MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        #expect(!MobileRootAuthGate().shouldClearAttachTicketAuthentication(
             pairingResult: .connected,
             connectionState: .connected,
             hasActiveUnexpiredTicket: true
         ))
-        #expect(MobileRootAuthGate.shouldClearAttachTicketAuthentication(
+        #expect(MobileRootAuthGate().shouldClearAttachTicketAuthentication(
             pairingResult: .connected,
             connectionState: .connected,
             hasActiveUnexpiredTicket: false
         ))
-        #expect(MobileRootAuthGate.shouldReconnectStoredMac(
+        #expect(MobileRootAuthGate().shouldReconnectStoredMac(
             stackAuthenticated: true,
             attachTicketAuthenticated: false,
             connectionState: .disconnected
         ))
-        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+        #expect(!MobileRootAuthGate().shouldReconnectStoredMac(
             stackAuthenticated: true,
             attachTicketAuthenticated: true,
             connectionState: .disconnected
         ))
-        #expect(!MobileRootAuthGate.shouldReconnectStoredMac(
+        #expect(!MobileRootAuthGate().shouldReconnectStoredMac(
             stackAuthenticated: false,
             attachTicketAuthenticated: true,
             connectionState: .disconnected
@@ -100,7 +100,7 @@ import Testing
 
     @Test func showsRestoringStoredMacWhileReconnectingAKnownPairedMac() {
         // Actively reconnecting a found stored Mac.
-        #expect(MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: true,
@@ -109,7 +109,7 @@ import Testing
             didFinishStoredMacReconnectAttempt: false
         ))
         // First frame for a returning user: persisted hint, attempt not yet resolved.
-        #expect(MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: false,
@@ -119,7 +119,7 @@ import Testing
         ))
         // Existing install that predates the hint (key absent): treat undetermined
         // as "may have a paired Mac" so it does not flash add-device on first launch.
-        #expect(MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: false,
@@ -128,7 +128,7 @@ import Testing
             didFinishStoredMacReconnectAttempt: false
         ))
         // Undetermined, but the first attempt resolved with no Mac: fall through.
-        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(!MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: false,
@@ -137,7 +137,7 @@ import Testing
             didFinishStoredMacReconnectAttempt: true
         ))
         // Failed/offline attempt resolved: fall through to the add-device view.
-        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(!MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: false,
@@ -146,7 +146,7 @@ import Testing
             didFinishStoredMacReconnectAttempt: true
         ))
         // Never paired (hint determined-false): add-device immediately, no flash.
-        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(!MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: true,
             connectionState: .disconnected,
             isReconnectingStoredMac: false,
@@ -155,7 +155,7 @@ import Testing
             didFinishStoredMacReconnectAttempt: false
         ))
         // Already connected: never show the restoring UI, regardless of flags.
-        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(!MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: true,
             connectionState: .connected,
             isReconnectingStoredMac: true,
@@ -164,7 +164,7 @@ import Testing
             didFinishStoredMacReconnectAttempt: false
         ))
         // Not authenticated: the sign-in/restoring-session gates run instead.
-        #expect(!MobileRootAuthGate.shouldShowRestoringStoredMac(
+        #expect(!MobileRootAuthGate().shouldShowRestoringStoredMac(
             authenticated: false,
             connectionState: .disconnected,
             isReconnectingStoredMac: true,
@@ -172,5 +172,106 @@ import Testing
             pairedMacHintUndetermined: true,
             didFinishStoredMacReconnectAttempt: false
         ))
+    }
+
+    @Test func cachedWorkspaceShellWinsOverRestoringAndDisconnectedReconnectScreens() {
+        let destination = MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: true,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: true,
+            hasKnownPairedMac: true,
+            isReconnectingStoredMac: true,
+            showsOnboarding: true
+        )
+
+        #expect(destination == .workspaceShell)
+    }
+
+    @Test func reconnectWithoutCachedWorkspaceUsesExistingRestoringFallbacks() {
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: true,
+            hasKnownPairedMac: true,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .restoringStoredMac)
+
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: true,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .pairedMacDetermining)
+    }
+
+    @Test func connectedAndCachedReconnectBothResolveToWorkspaceShell() {
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .connected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .workspaceShell)
+
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: true,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: true,
+            showsOnboarding: false
+        ) == .workspaceShell)
+    }
+
+    @Test func savedMacDisconnectedFallbackKeepsWorkspaceShell() {
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: true,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .workspaceShell)
+
+        #expect(MobileRootAuthGate().rootContentDestination(
+            showsTerminalLayoutPreview: false,
+            showsWorkspaceListLayoutPreview: false,
+            showsRestoringSession: false,
+            authenticated: true,
+            preservesWorkspaceShellDuringReconnect: false,
+            connectionState: .disconnected,
+            showsRestoringStoredMac: false,
+            hasKnownPairedMac: false,
+            isReconnectingStoredMac: false,
+            showsOnboarding: false
+        ) == .disconnectedWorkspaceShell)
     }
 }
