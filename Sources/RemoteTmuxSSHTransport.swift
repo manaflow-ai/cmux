@@ -60,6 +60,22 @@ actor RemoteTmuxSSHTransport {
         return RemoteTmuxSessionListParser.parse(result.stdout)
     }
 
+    /// Probes the remote tmux version via `tmux -V`.
+    ///
+    /// - Returns: the parsed version, or `nil` when `tmux -V` succeeds but its
+    ///   output has no `<major>.<minor>` (a dev/distro build like `tmux master`),
+    ///   which callers treat as "unknown, allow".
+    /// - Throws: ``RemoteTmuxError/commandFailed`` when the command itself fails
+    ///   (e.g. auth required, or `tmux` not installed) so the caller's existing
+    ///   auth/no-server classification still applies.
+    func tmuxVersion() async throws -> RemoteTmuxVersion? {
+        let result = try await run(["tmux", "-V"])
+        guard result.succeeded else {
+            throw RemoteTmuxError.commandFailed(exitCode: result.exitCode, stderr: result.stderr)
+        }
+        return RemoteTmuxVersion.parse(result.stdout)
+    }
+
     /// Runs a `tmux <args…>` command on the remote host and returns its result.
     @discardableResult
     func runTmux(_ args: [String]) async throws -> RemoteTmuxCommandResult {

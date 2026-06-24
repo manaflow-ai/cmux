@@ -11,6 +11,12 @@ enum RemoteTmuxError: Error, Sendable, Equatable {
 
     /// The remote host is not reachable / the SSH master could not be opened.
     case unreachable(String)
+
+    /// The remote tmux is older than ``RemoteTmuxVersion/minimumSupported``, so the
+    /// control-mode mirror would attach into a broken/degraded state (no live pane
+    /// subscriptions, or no `%begin`/`%end` framing). Carries the detected version
+    /// string for the message.
+    case unsupportedTmux(detected: String)
 }
 
 extension RemoteTmuxError {
@@ -34,6 +40,9 @@ extension RemoteTmuxError {
             return "failed to launch ssh: \(Self.sanitizedDetail(detail))"
         case let .unreachable(detail):
             return "host unreachable: \(Self.sanitizedDetail(detail))"
+        case let .unsupportedTmux(detected):
+            return "remote tmux is too old (found \(Self.sanitizedDetail(detected)); "
+                + "cmux ssh-tmux needs tmux \(RemoteTmuxVersion.minimumSupported.displayString) or newer)"
         }
     }
 

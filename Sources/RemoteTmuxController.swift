@@ -314,6 +314,18 @@ final class RemoteTmuxController {
         // inside the catch so an auth failure on either is classified uniformly.
         let sessions: [RemoteTmuxSession]
         do {
+            // Assert the remote tmux is new enough BEFORE mirroring: the live
+            // mirror relies on `refresh-client -B` subscriptions (tmux >= 3.2) for
+            // pane cwd / foreground / agent / git state, and tmux 1.x control mode
+            // lacks the `%begin`/`%end` framing the command FIFO needs. Below the
+            // minimum we'd attach into a silently-broken state, so fail with a
+            // clear error instead. A version we can't parse (dev/distro build) is
+            // allowed through. The probe shares this `do` so an auth failure on it
+            // is classified as `.authRequired` like the discovery calls.
+            if let version = try await transport(for: host).tmuxVersion(),
+               !version.meetsMinimum {
+                throw RemoteTmuxError.unsupportedTmux(detected: version.displayString)
+            }
             var discovered = try await listSessions(host: host)
             if discovered.isEmpty {
                 // A reachable server with zero sessions: create one so the window
